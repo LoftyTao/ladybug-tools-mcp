@@ -1,0 +1,75 @@
+"""Edit 2D Legend Parameter MCP tool."""
+
+from __future__ import annotations
+from typing import Annotated, Any
+from fastmcp import FastMCP
+from pydantic import Field
+from garden.visualize.legend import edit_2d_legend_parameter as service
+
+
+def register(mcp: FastMCP) -> None:
+    """Register the edit_2d_legend_parameter tool."""
+
+    @mcp.tool(
+        name="edit_2d_legend_parameter",
+        description="Edit a reusable Ladybug LegendParameters dict for 2D SVG legends, attribute-colored VisualizationSets, and analysis result displays.",
+        tags={"visualize", "legend", "payload-mode", "read", "safe"},
+        annotations={"readOnlyHint": True},
+        timeout=30,
+    )
+    def edit_2d_legend_parameter(
+        legend_parameter: Annotated[
+            dict[str, Any],
+            Field(
+                description="LegendParameters dictionary returned by create_2d_legend_parameter."
+            ),
+        ],
+        title: Annotated[
+            str | None, Field(description="Optional updated legend title.")
+        ] = None,
+        segment_count: Annotated[
+            int | None, Field(description="Optional updated legend segment count.")
+        ] = None,
+        decimal_count: Annotated[
+            int | None, Field(description="Optional updated decimal count.")
+        ] = None,
+        minimum: Annotated[
+            float | None, Field(description="Optional updated legend minimum value.")
+        ] = None,
+        maximum: Annotated[
+            float | None, Field(description="Optional updated legend maximum value.")
+        ] = None,
+        position_2d: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="Optional updated 2D position dict with originx and originy."
+            ),
+        ] = None,
+        dimensions_2d: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional updated 2D dimensions dict."),
+        ] = None,
+        orientation: Annotated[
+            str | None,
+            Field(description="Optional updated orientation: vertical or horizontal."),
+        ] = None,
+        color_set: Annotated[
+            str | dict[str, Any] | None,
+            Field(
+                description="Optional updated Ladybug colorset name or dict with name/colors."
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Edit a 2D legend parameter dict."""
+        return service(
+            legend_parameter=legend_parameter,
+            title=title,
+            segment_count=segment_count,
+            decimal_count=decimal_count,
+            minimum=minimum,
+            maximum=maximum,
+            position_2d=position_2d,
+            dimensions_2d=dimensions_2d,
+            orientation=orientation,
+            color_set=color_set,
+        )

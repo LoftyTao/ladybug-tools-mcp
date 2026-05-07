@@ -1,0 +1,23 @@
+# Project dependencies for the Ladybug Tools MCP.
+# Keep this file as the dependency source of truth.
+
+fastmcp>=3.1.0
+pydantic-monty
+pytest>=8.0.0
+
+# Agent-level MCP integration harness
+openai-agents
+
+# Ladybug Tools SDK packages
+ladybug-core
+ladybug-geometry
+ladybug-display
+ladybug-vtk
+honeybee-core
+honeybee-energy
+honeybee-radiance
+honeybee-display
+dragonfly-core
+dragonfly-energy
+dragonfly-radiance
+lbt-recipes

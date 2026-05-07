@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ladybug-tools-mcp"
+version = "0.1.0"
+description = "A FastMCP server for Ladybug Tools workflows."
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+classifiers = [
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+cache_dir = "tests/.artifacts/pytest_cache"
+pythonpath = ["src"]
+addopts = "-ra"
+markers = [
+  "agent_integration: agent-driven MCP integration tests that require model credentials",
+  "agent_radiance_cross: slow natural-language Agent Radiance cross workflows with real Radiance runs",
+  "slow: tests that are intentionally long-running and excluded from fast local checks",
+  "radiance_binary: tests that require local Radiance runtime commands",
+]

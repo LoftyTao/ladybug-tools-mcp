@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+ENV/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Test and type-check caches
+tests/.artifacts/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Project-local generated Gardens
+gardens/
+
+# Local configuration
+.env
+.env.*
+.env.agent-tests
+
+# Local editor/workspace state
+.obsidian/
+.worktrees/
+.superpowers/
+remotion/public/ladybug-tools-artwork/
+remotion/public/source-icons/
+remotion/public/grasshopper-native-icons/
+remotion/public/storyboard-artifacts/
+
+# Local Remotion reference caches and generated visual snapshots.
+resources/remotion/references/
+resources/remotion/snapshots/stills/**/*.png
+resources/remotion/snapshots/videos/**/*.gif
+resources/remotion/snapshots/videos/**/*.mp4
+!resources/remotion/snapshots/videos/opencode-honeybee-modeling-vtkjs-flow-en/opencode-honeybee-modeling-vtkjs-flow-en-latest.gif
+!resources/remotion/snapshots/videos/opencode-honeybee-modeling-vtkjs-flow/opencode-honeybee-modeling-vtkjs-flow-latest.gif
+!resources/remotion/snapshots/videos/opencode-onboarding-flows/welcome-fixed-3-options-en-latest.gif
+!resources/remotion/snapshots/videos/opencode-onboarding-flows/welcome-fixed-3-options-latest.gif
+
+# Local SDK reference material for agents; not project source.
+.agents/ladybug-tools-sdk-skills/
+.agents/skills/ladybug-tools-sdk-skills/

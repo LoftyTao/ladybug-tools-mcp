@@ -1,0 +1,73 @@
+"""Honeybee Room To Visualization Set MCP tool."""
+
+from __future__ import annotations
+from typing import Annotated, Any
+from fastmcp import FastMCP
+from pydantic import Field
+from garden.visualize.honeybee import (
+    honeybee_room_to_visualization_set as service,
+)
+
+
+def register(mcp: FastMCP) -> None:
+    """Register the honeybee_room_to_visualization_set tool."""
+
+    @mcp.tool(
+        name="honeybee_room_to_visualization_set",
+        description="Visualize one Honeybee Room typed target as a Ladybug Display VisualizationSet. Use this read-only preview after object search finds the room target.",
+        tags={"visualize", "honeybee-core", "garden-mode", "room", "read", "safe"},
+        annotations={"readOnlyHint": True},
+        timeout=30,
+    )
+    def honeybee_room_to_visualization_set(
+        garden_root: Annotated[str, Field(description="Garden root directory.")],
+        target: Annotated[
+            dict[str, Any], Field(description="Honeybee room typed target.")
+        ],
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="Optional Honeybee model target. Defaults to target model or Garden base model."
+            ),
+        ] = None,
+        color_by: Annotated[
+            str,
+            Field(
+                description="Room color strategy: type, boundary_condition, or none."
+            ),
+        ] = "type",
+        include_wireframe: Annotated[
+            bool, Field(description="Whether to include a room wireframe layer.")
+        ] = True,
+        wireframe_only: Annotated[
+            bool,
+            Field(
+                description="Whether to return only room wireframe visualization geometry."
+            ),
+        ] = False,
+        include_sub_faces: Annotated[
+            bool,
+            Field(
+                description="Whether room wireframe should include apertures and doors."
+            ),
+        ] = True,
+        include_shades: Annotated[
+            bool, Field(description="Whether room wireframe should include shades.")
+        ] = True,
+        name: Annotated[
+            str | None,
+            Field(description="Optional VisualizationSet identifier and display name."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Build a VisualizationSet from a Garden Honeybee Room typed target."""
+        return service(
+            garden_root=garden_root,
+            target=target,
+            model_target=model_target,
+            color_by=color_by,
+            include_wireframe=include_wireframe,
+            wireframe_only=wireframe_only,
+            include_sub_faces=include_sub_faces,
+            include_shades=include_shades,
+            name=name,
+        )
