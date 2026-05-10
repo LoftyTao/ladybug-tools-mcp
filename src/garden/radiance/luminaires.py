@@ -13,7 +13,17 @@ from honeybee_radiance.luminaire import (
 )
 from ladybug_geometry.geometry3d.pointvector import Point3D
 
-from garden.libraries.properties import save_garden_properties_library_object
+from garden.honeybee_core.model_io import (
+    load_honeybee_model,
+    resolve_model_target,
+    save_honeybee_model,
+    with_honeybee_model_write_lock,
+)
+from garden.libraries.properties import (
+    get_garden_properties_library_object,
+    save_garden_properties_library_object,
+)
+from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
 from ladybug_tools_mcp.contracts.report import make_report
 
 
@@ -212,3 +222,132 @@ def create_radiance_luminaire(
     if not return_object_dict:
         result.pop("object_dict", None)
     return result
+
+
+def _unwrap_luminaire_input(data: Any) -> Any:
+    if isinstance(data, dict) and isinstance(data.get("object_dict"), dict):
+        return data["object_dict"]
+    if (
+        isinstance(data, dict)
+        and isinstance(data.get("target"), dict)
+        and data["target"].get("target_type") == "garden_properties_library_object"
+    ):
+        return data["target"]
+    if (
+        isinstance(data, dict)
+        and isinstance(data.get("luminaire_target"), dict)
+        and data["luminaire_target"].get("target_type") == "garden_properties_library_object"
+    ):
+        return data["luminaire_target"]
+    return data
+
+
+def _luminaire_from_input(data: Any, *, garden_root: str) -> Luminaire:
+    data = _unwrap_luminaire_input(data)
+    if isinstance(data, dict) and data.get("target_type") == "garden_properties_library_object":
+        if data.get("domain") != "honeybee_radiance" or data.get("object_family") != "luminaire":
+            raise ValueError("Luminaire targets must reference honeybee_radiance:luminaire.")
+        data = get_garden_properties_library_object(
+            garden_root=garden_root,
+            target=data,
+        )["object_dict"]
+    if not isinstance(data, dict):
+        raise ValueError("Each luminaire must be a Luminaire object_dict or Garden luminaire target.")
+    try:
+        return Luminaire.from_dict(data)
+    except Exception as exc:  # pragma: no cover - SDK-raised diagnostics vary by input
+        raise ValueError(f"Invalid Honeybee Radiance Luminaire input. {exc}") from exc
+
+
+def _model_luminaire_identifiers(model: Any) -> list[str]:
+    return [luminaire.identifier for luminaire in model.properties.radiance.luminaires]
+
+
+@with_honeybee_model_write_lock
+def add_radiance_luminaire_to_model(
+    *,
+    garden_root: str,
+    luminaires: list[Any],
+    model_target: dict[str, Any] | None = None,
+    replace_existing: bool = False,
+) -> dict[str, Any]:
+    """Attach Honeybee Radiance Luminaires to a Garden Honeybee model."""
+    if not isinstance(luminaires, list) or not luminaires:
+        raise ValueError("add_radiance_luminaire_to_model requires at least one luminaire.")
+
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest, resolved_target = resolve_model_target(garden_root_path, model_target)
+    model = load_honeybee_model(garden_root_path, resolved_target)
+    luminaire_objects = [
+        _luminaire_from_input(item, garden_root=str(garden_root_path))
+        for item in luminaires
+    ]
+    requested_identifiers = [luminaire.identifier for luminaire in luminaire_objects]
+    duplicate_inputs = sorted(
+        identifier
+        for identifier in set(requested_identifiers)
+        if requested_identifiers.count(identifier) > 1
+    )
+    if duplicate_inputs:
+        raise ValueError(
+            "Duplicate luminaire identifiers in input: " + ", ".join(duplicate_inputs)
+        )
+
+    existing = _model_luminaire_identifiers(model)
+    conflicts = sorted(set(existing) & set(requested_identifiers))
+    replaced: list[str] = []
+    if conflicts and not replace_existing:
+        raise ValueError(
+            "Model already has luminaire identifiers: "
+            + ", ".join(conflicts)
+            + ". Use replace_existing=true to replace them."
+        )
+    if conflicts:
+        model.properties.radiance._luminaires = [
+            luminaire
+            for luminaire in model.properties.radiance.luminaires
+            if luminaire.identifier not in conflicts
+        ]
+        replaced = conflicts
+
+    for luminaire in luminaire_objects:
+        model.properties.radiance.add_luminaire(luminaire)
+
+    updated_model_target, persisted_path = save_honeybee_model(
+        garden_root_path,
+        manifest,
+        model,
+        name=str(resolved_target["model_identifier"]),
+    )
+    final_identifiers = _model_luminaire_identifiers(model)
+    summary = {
+        "garden_target": manifest.target(),
+        "model_target": updated_model_target,
+        "added_identifiers": requested_identifiers,
+        "replaced_identifiers": replaced,
+        "luminaire_count": len(final_identifiers),
+        "luminaire_identifiers": final_identifiers,
+    }
+    return {
+        "target": updated_model_target,
+        "model_target": updated_model_target,
+        "updated_model_target": updated_model_target,
+        "summary_view": summary,
+        "persistence_receipt": make_persistence_receipt(
+            status="persisted",
+            garden_id=manifest.garden_id,
+            base_model_changed=True,
+            model_target=updated_model_target,
+            persisted_path=persisted_path,
+            change_summary={
+                "operation": "add_radiance_luminaire_to_model",
+                "added_identifiers": requested_identifiers,
+                "replaced_identifiers": replaced,
+                "luminaire_count": len(final_identifiers),
+            },
+        ),
+        "report": make_report(
+            status="ok",
+            message="Radiance luminaires attached to Honeybee model.",
+        ),
+    }

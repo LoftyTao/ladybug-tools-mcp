@@ -2,6 +2,9 @@
 
 from fastmcp import FastMCP
 
+from ladybug_tools_mcp.tools.radiance.add_radiance_luminaire_to_model import (
+    register as register_add_radiance_luminaire_to_model,
+)
 from ladybug_tools_mcp.tools.radiance.create_ashrae_clear_sky_wea import (
     register as register_create_ashrae_clear_sky_wea,
 )
@@ -199,6 +202,7 @@ def register(mcp: FastMCP) -> None:
     register_create_radiance_trans_modifier(mcp)
     register_create_radiance_glass_modifier(mcp)
     register_create_radiance_luminaire(mcp)
+    register_add_radiance_luminaire_to_model(mcp)
     register_create_radiance_state_geometry(mcp)
     register_create_radiance_shade_state(mcp)
     register_create_radiance_subface_state(mcp)
