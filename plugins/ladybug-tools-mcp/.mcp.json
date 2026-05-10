@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "ladybug-tools-mcp-plugin": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with-requirements",
+        "requirements.txt",
+        "python",
+        "-m",
+        "ladybug_tools_mcp.server"
+      ],
+      "cwd": "../.."
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "ladybug-tools-mcp",
+  "version": "0.1.0",
+  "description": "Run Ladybug Tools MCP in Codex with bundled onboarding and workflow skills.",
+  "author": {
+    "name": "LoftyTao",
+    "email": "loftytao@foxmail.com",
+    "url": "https://github.com/LoftyTao"
+  },
+  "homepage": "https://github.com/LoftyTao/ladybug-tools-mcp",
+  "repository": "https://github.com/LoftyTao/ladybug-tools-mcp",
+  "license": "GPL-3.0-only",
+  "keywords": [
+    "ladybug-tools",
+    "mcp",
+    "codex",
+    "honeybee",
+    "radiance",
+    "energy-simulation"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Ladybug Tools MCP",
+    "shortDescription": "Local Ladybug Tools modeling and simulation for Codex",
+    "longDescription": "Start the Ladybug Tools FastMCP server inside Codex and use the bundled skill for Garden setup, Honeybee modeling, Energy workflows, Radiance workflows, Flowerpot collaboration, and visualization.",
+    "developerName": "LoftyTao",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/LoftyTao/ladybug-tools-mcp",
+    "defaultPrompt": [
+      "创建一个新的 Garden，并建一个带窗和遮阳的小房间模型。",
+      "Search EPW for Shanghai, download it, and run an energy simulation.",
+      "Continue modeling from my Grasshopper Flowerpot context."
+    ],
+    "brandColor": "#2E7D5A",
+    "composerIcon": "./assets/Garden-transparent.png",
+    "logo": "./assets/Garden-transparent.png",
+    "screenshots": [
+      "./assets/header.png"
+    ]
+  }
+}
