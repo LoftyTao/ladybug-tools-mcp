@@ -12,7 +12,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="start_energy_run",
-        description="Start an annual energy simulation / Honeybee Energy annual-energy-use recipe for a Garden Honeybee model and return immediately with target, energy_run_target, run_target, and summary_view.poll_next.arguments. Use this Agent path for energy use intensity, EUI, annual loads, and EnergyPlus/OpenStudio simulation runs. Agent weather data is Garden-managed: pass weather_target from download_epw/search_weather_files, then poll get_energy_run with garden_root and run_target instead of holding a blocking run_energy call open.",
+        description="Start an annual energy simulation / Honeybee Energy annual-energy-use recipe for a Garden Honeybee model and return immediately with target, energy_run_target, run_target, and summary_view.poll_next.arguments. Use this Agent path for energy use intensity, EUI, annual loads, and EnergyPlus/OpenStudio simulation runs. Agent weather data is Garden-managed: pass weather_target from download_epw/search_weather_files, then poll get_energy_run with garden_root and run_target instead of holding a blocking run_energy call open. Advanced users can pass Garden-local additional_idf_path, inline additional_idf_text, or measures_path for recipe additional-idf / OpenStudio measures.",
         tags={
             "run-energy",
             "energy",
@@ -71,6 +71,24 @@ def register(mcp: FastMCP) -> None:
                 description="Optional parameter named exactly output_request_target. Pass the energy_output_request target returned by create_energy_output_request. It is merged into the SimulationParameter output section and recorded in the run ledger."
             ),
         ] = None,
+        additional_idf_path: Annotated[
+            str | None,
+            Field(
+                description="Optional Garden-relative path to an additional EnergyPlus .idf file. Advanced users can use this to append supported EnergyPlus objects before simulation; the file must stay inside the Garden."
+            ),
+        ] = None,
+        additional_idf_text: Annotated[
+            str | None,
+            Field(
+                description="Optional inline additional EnergyPlus IDF text. Advanced users can pass small complete EnergyPlus objects such as EMS snippets; the service saves the text into the run inputs folder and passes it as recipe additional-idf. Do not pass this together with additional_idf_path."
+            ),
+        ] = None,
+        measures_path: Annotated[
+            str | None,
+            Field(
+                description="Optional Garden-relative path to an OpenStudio measures folder for the annual-energy-use recipe. The folder must stay inside the Garden and contain the OSW JSON plus referenced measures."
+            ),
+        ] = None,
         run_id: Annotated[
             str | None,
             Field(description="Optional stable run identifier. Omit to generate one."),
@@ -106,6 +124,9 @@ def register(mcp: FastMCP) -> None:
             model_target=model_target,
             sim_par=sim_par,
             output_request_target=output_request_target,
+            additional_idf_path=additional_idf_path,
+            additional_idf_text=additional_idf_text,
+            measures_path=measures_path,
             run_id=run_id,
             units=units,
             workers=workers,

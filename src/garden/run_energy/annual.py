@@ -185,6 +185,37 @@ def _validate_weather_path(value: str, *, field_name: str, suffix: str) -> str:
     return str(path)
 
 
+def _resolve_garden_path(
+    garden_root: Path,
+    value: str | None,
+    *,
+    field_name: str,
+    kind: str,
+    suffix: str | None = None,
+) -> Path | None:
+    if value is None:
+        return None
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = garden_root / path
+    path = path.resolve()
+    try:
+        path.relative_to(garden_root)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be inside the Garden root.") from exc
+    if kind == "file":
+        if not path.is_file():
+            raise ValueError(f"{field_name} must reference an existing file.")
+        if suffix is not None and path.suffix.lower() != suffix:
+            raise ValueError(f"{field_name} must reference a {suffix} file.")
+    elif kind == "directory":
+        if not path.is_dir():
+            raise ValueError(f"{field_name} must reference an existing directory.")
+    else:  # pragma: no cover - internal guard
+        raise ValueError(f"Unsupported path kind: {kind}")
+    return path
+
+
 def _weather_paths_from_inputs(
     *,
     garden_root: Path,
@@ -265,6 +296,41 @@ def _write_json_input(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     return str(path)
+
+
+def _write_text_input(run_dir: Path, name: str, text: str) -> Path:
+    input_dir = run_dir / "inputs"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    path = input_dir / name
+    path.write_text(text.rstrip() + "\n", encoding="utf-8")
+    return path
+
+
+def _resolve_additional_idf_input(
+    *,
+    garden_root: Path,
+    run_dir: Path,
+    additional_idf_path: str | None,
+    additional_idf_text: str | None,
+) -> tuple[Path | None, str | None]:
+    if additional_idf_path is not None and additional_idf_text is not None:
+        raise ValueError(
+            "Provide either additional_idf_path or additional_idf_text, not both."
+        )
+    if additional_idf_text is not None:
+        if not additional_idf_text.strip():
+            raise ValueError("additional_idf_text must not be empty.")
+        return _write_text_input(
+            run_dir, "additional_idf.idf", additional_idf_text
+        ), "text"
+    path = _resolve_garden_path(
+        garden_root,
+        additional_idf_path,
+        field_name="additional_idf_path",
+        kind="file",
+        suffix=".idf",
+    )
+    return path, "path" if path is not None else None
 
 
 @contextmanager
@@ -476,6 +542,9 @@ def _public_run(record: dict[str, Any]) -> dict[str, Any]:
         "preflight",
         "output_request_target",
         "sim_par_path",
+        "additional_idf_path",
+        "additional_idf_source",
+        "measures_path",
     )
     return {key: record.get(key) for key in keys if key in record}
 
@@ -548,6 +617,9 @@ def run_energy(
     model_target: dict[str, Any] | None = None,
     sim_par: dict[str, Any] | None = None,
     output_request_target: dict[str, Any] | None = None,
+    additional_idf_path: str | None = None,
+    additional_idf_text: str | None = None,
+    measures_path: str | None = None,
     run_id: str | None = None,
     units: str = "si",
     workers: int | None = None,
@@ -575,6 +647,12 @@ def run_energy(
     )
     epw_path = _validate_weather_path(epw_path, field_name="epw_path", suffix=".epw")
     ddy_path = _validate_weather_path(ddy_path, field_name="ddy_path", suffix=".ddy")
+    measures_folder = _resolve_garden_path(
+        garden_root_path,
+        measures_path,
+        field_name="measures_path",
+        kind="directory",
+    )
     units = units.lower().strip()
     if units not in {"si", "ip"}:
         raise ValueError("units must be either 'si' or 'ip'.")
@@ -584,6 +662,12 @@ def run_energy(
     run_dir.relative_to(garden_root_path)
     run_dir.mkdir(parents=True, exist_ok=True)
     sim_par_path = _write_json_input(run_dir, "simulation_parameter.json", sim_par)
+    additional_idf_file, additional_idf_source = _resolve_additional_idf_input(
+        garden_root=garden_root_path,
+        run_dir=run_dir,
+        additional_idf_path=additional_idf_path,
+        additional_idf_text=additional_idf_text,
+    )
     run_folder = to_posix_relative(run_dir, garden_root_path)
 
     started_at = utc_now_iso()
@@ -622,6 +706,15 @@ def run_energy(
             "warnings": warnings,
             "preflight": preflight,
         }
+        if additional_idf_file is not None:
+            record["additional_idf_path"] = to_posix_relative(
+                additional_idf_file, garden_root_path
+            )
+            record["additional_idf_source"] = additional_idf_source
+        if measures_folder is not None:
+            record["measures_path"] = to_posix_relative(
+                measures_folder, garden_root_path
+            )
         if sim_par_path is not None:
             record["sim_par_path"] = to_posix_relative(
                 Path(sim_par_path), garden_root_path
@@ -655,6 +748,10 @@ def run_energy(
     recipe.input_value_by_name("units", units)
     if sim_par_path is not None:
         recipe.input_value_by_name("sim-par", sim_par_path)
+    if additional_idf_file is not None:
+        recipe.input_value_by_name("additional-idf", str(additional_idf_file))
+    if measures_folder is not None:
+        recipe.input_value_by_name("measures", str(measures_folder))
 
     settings = RecipeSettings(
         folder=str(run_dir),
@@ -706,6 +803,13 @@ def run_energy(
         "warnings": warnings,
         "preflight": preflight,
     }
+    if additional_idf_file is not None:
+        record["additional_idf_path"] = to_posix_relative(
+            additional_idf_file, garden_root_path
+        )
+        record["additional_idf_source"] = additional_idf_source
+    if measures_folder is not None:
+        record["measures_path"] = to_posix_relative(measures_folder, garden_root_path)
     if sim_par_path is not None:
         record["sim_par_path"] = to_posix_relative(Path(sim_par_path), garden_root_path)
     if resolved_output_request_target is not None:
@@ -747,6 +851,9 @@ def start_energy_run(
     model_target: dict[str, Any] | None = None,
     sim_par: dict[str, Any] | None = None,
     output_request_target: dict[str, Any] | None = None,
+    additional_idf_path: str | None = None,
+    additional_idf_text: str | None = None,
+    measures_path: str | None = None,
     run_id: str | None = None,
     units: str = "si",
     workers: int | None = None,
@@ -788,6 +895,12 @@ def start_energy_run(
     )
     epw_path = _validate_weather_path(epw_path, field_name="epw_path", suffix=".epw")
     ddy_path = _validate_weather_path(ddy_path, field_name="ddy_path", suffix=".ddy")
+    measures_folder = _resolve_garden_path(
+        garden_root_path,
+        measures_path,
+        field_name="measures_path",
+        kind="directory",
+    )
     units = units.lower().strip()
     if units not in {"si", "ip"}:
         raise ValueError("units must be either 'si' or 'ip'.")
@@ -802,6 +915,12 @@ def start_energy_run(
     run_dir.relative_to(garden_root_path)
     run_dir.mkdir(parents=True, exist_ok=True)
     sim_par_path = _write_json_input(run_dir, "simulation_parameter.json", sim_par)
+    additional_idf_file, additional_idf_source = _resolve_additional_idf_input(
+        garden_root=garden_root_path,
+        run_dir=run_dir,
+        additional_idf_path=additional_idf_path,
+        additional_idf_text=additional_idf_text,
+    )
     run_folder = to_posix_relative(run_dir, garden_root_path)
     target = _run_target(manifest.garden_id, run_id)
     started_at = utc_now_iso()
@@ -841,6 +960,13 @@ def start_energy_run(
         "warnings": warnings,
         "preflight": preflight,
     }
+    if additional_idf_file is not None:
+        record["additional_idf_path"] = to_posix_relative(
+            additional_idf_file, garden_root_path
+        )
+        record["additional_idf_source"] = additional_idf_source
+    if measures_folder is not None:
+        record["measures_path"] = to_posix_relative(measures_folder, garden_root_path)
     if completed_at is not None:
         record["completed_at"] = completed_at
     if sim_par_path is not None:
@@ -859,6 +985,11 @@ def start_energy_run(
             model_target=resolved_model_target,
             sim_par=sim_par,
             output_request_target=resolved_output_request_target,
+            additional_idf_path=(
+                str(additional_idf_file) if additional_idf_file is not None else None
+            ),
+            additional_idf_text=None,
+            measures_path=str(measures_folder) if measures_folder is not None else None,
             run_id=run_id,
             units=units,
             workers=workers,

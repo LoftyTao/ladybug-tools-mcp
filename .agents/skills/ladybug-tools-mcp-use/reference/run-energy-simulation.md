@@ -17,6 +17,7 @@ Deterministic MCP tests cover:
 - `run_energy` remains available for deterministic direct-MCP verification and blocking clients. It writes `runs/energy/index.json`, captures recipe stdout/stderr into `recipe_stdio.log`, returns an `energy_run` target, and does not return large output payloads.
 - `create_energy_output_request` creates compact `energy_output_request` targets for requested EnergyPlus outputs, custom output variables, SQL output, summary reports, and later `DataCollection` reads.
 - `start_energy_run` and `run_energy` accept `output_request_target`; prefer this over having an Agent copy or invent a large `SimulationParameter` dictionary.
+- Deterministic-pass: `start_energy_run` and `run_energy` accept advanced `additional_idf_path`, `additional_idf_text`, and Garden-local `measures_path` arguments, mapping to the `annual-energy-use` recipe inputs `additional-idf` and `measures`. Use these only when the user explicitly provides or asks to use additional EnergyPlus IDF objects, EMS snippets, or OpenStudio measures; this is not a default Agent path.
 - `read_energy_result_data` reads completed SQL outputs as compact Ladybug `DataCollection` summaries. It can list available SQL outputs when output selection and filters are omitted, filter outputs with `output_query`, `unit`, `data_type`, or `object_type`, and persist returned collections as `ladybug_data_collection` targets for the generic visualize tools when `save_data_collections=true`.
 - `read_energy_result_data.summary_view.result_context` links returned DataCollections back to the run ledger, SQL artifact, selected output metadata, filter inputs, and the `energy_output_request` / custom outputs when available. Use this context to explain where a result came from instead of guessing from the output name alone.
 - `data_collection_hourly_plot_to_visualization_set` and `data_collection_monthly_chart_to_visualization_set` consume saved Energy result `ladybug_data_collection` targets and return compact `visualization_set_target` outputs for HTML/SVG export.
@@ -56,6 +57,10 @@ OpenAI Agents smoke passed on 2026-04-27 in `tests/agent_integration/test_agent_
   - `start_energy_run -> get_energy_run` completed a fresh OpenStudio/EnergyPlus background run in task 18, producing SQL and EUI outputs.
   - `list_energy_run_outputs -> read_energy_eui` read the completed run in task 19.
   - `read_energy_result_data(save_data_collections=true, include_values=false)` persisted SQL heating/cooling result DataCollections in task 20. The Agent still repeated result reads before closure, so this is verified for function and still active for cost optimization.
+- MiniMax-M2.7 Agent smoke passed on 2026-05-10:
+  - `execute(start_energy_run(additional_idf_text=EMS...) -> run_energy(measures_path=OpenStudio Results folder) -> list_energy_runs)` with intentionally invalid weather preflight.
+  - Recorded metrics: 1 outer `execute`, 3 inner MCP calls, `5,908` total tokens, no repeated MCP tools.
+  - This verifies Agent-side argument discovery and ledger recording for advanced inputs; it does not verify successful OpenStudio/EnergyPlus execution with a real measure because weather preflight was intentionally invalid.
 
 Manual OpenAI Agents Code Mode smoke passed on 2026-04-26:
 
@@ -109,9 +114,12 @@ Use Code Mode for Agent workflows. Keep all intermediate targets inside the `exe
    - Preferred:
      - `weather_target`
    - Optional:
-     - `model_target`; omit it to use the Garden base model.
-     - `run_id`; provide a stable value when later reads need predictable addressing.
-     - `units`: use `si` or `ip`; do not pass energy units such as `kWh`.
+      - `model_target`; omit it to use the Garden base model.
+      - `run_id`; provide a stable value when later reads need predictable addressing.
+      - `units`: use `si` or `ip`; do not pass energy units such as `kWh`.
+      - `additional_idf_path`: Garden-relative path to an existing `.idf` file for advanced EnergyPlus objects.
+      - `additional_idf_text`: small inline EnergyPlus IDF text, such as complete EMS objects. Do not pass it together with `additional_idf_path`.
+      - `measures_path`: Garden-relative path to an existing OpenStudio measures folder.
 4. Poll with `get_energy_run` using `start_energy_run.target` or `run_id`.
 5. When status is `completed`, call `list_energy_run_outputs`, then `read_energy_eui` if the EUI output exists.
 6. When status is `failed`, call `list_energy_run_outputs` and `read_energy_errors` for bounded diagnostics.
