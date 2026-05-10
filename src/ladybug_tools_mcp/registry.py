@@ -11,6 +11,7 @@ from ladybug_tools_mcp.tools.libraries import register as register_library_tools
 from ladybug_tools_mcp.tools.radiance import register as register_radiance_tools
 from ladybug_tools_mcp.tools.run_energy import register as register_run_energy_tools
 from ladybug_tools_mcp.tools.visualize import register as register_visualize_tools
+from ladybug_tools_mcp.tools.web_view import register as register_web_view_tools
 
 
 def register_tools(mcp: FastMCP) -> FastMCP:
@@ -24,4 +25,5 @@ def register_tools(mcp: FastMCP) -> FastMCP:
     register_run_energy_tools(mcp)
     register_library_tools(mcp)
     register_visualize_tools(mcp)
+    register_web_view_tools(mcp)
     return mcp

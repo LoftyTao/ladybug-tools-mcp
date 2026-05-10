@@ -35,6 +35,82 @@ const setCamera = ({ renderer, renderWindow, center, radius }, mode) => {
   renderWindow.render();
 };
 
+const captureCameraState = (context) => {
+  const camera = context?.renderer?.getActiveCamera?.();
+  if (!camera) {
+    return null;
+  }
+
+  return {
+    position: [...camera.getPosition()],
+    focalPoint: [...camera.getFocalPoint()],
+    viewUp: [...camera.getViewUp()],
+    clippingRange: [...camera.getClippingRange()],
+    parallelProjection: camera.getParallelProjection?.() ?? false,
+    parallelScale: camera.getParallelScale?.() ?? null,
+  };
+};
+
+const restoreCameraState = ({ renderer, renderWindow }, cameraState) => {
+  if (!cameraState) {
+    return false;
+  }
+
+  const camera = renderer.getActiveCamera();
+  camera.setFocalPoint(...cameraState.focalPoint);
+  camera.setPosition(...cameraState.position);
+  camera.setViewUp(...cameraState.viewUp);
+  camera.setClippingRange(...cameraState.clippingRange);
+  if (typeof camera.setParallelProjection === "function") {
+    camera.setParallelProjection(cameraState.parallelProjection);
+  }
+  if (
+    typeof camera.setParallelScale === "function" &&
+    Number.isFinite(cameraState.parallelScale)
+  ) {
+    camera.setParallelScale(cameraState.parallelScale);
+  }
+  renderer.resetCameraClippingRange();
+  renderWindow.render();
+  return true;
+};
+
+const ensureRenderContext = (container, existingContext) => {
+  if (existingContext?.genericRenderWindow) {
+    existingContext.genericRenderWindow.resize();
+    return existingContext;
+  }
+
+  const genericRenderWindow = vtkGenericRenderWindow.newInstance({
+    background: [0.96, 0.95, 0.91],
+    listenWindowResize: true,
+  });
+  genericRenderWindow.setContainer(container);
+  genericRenderWindow.resize();
+
+  return {
+    genericRenderWindow,
+    renderer: genericRenderWindow.getRenderer(),
+    renderWindow: genericRenderWindow.getRenderWindow(),
+    center: null,
+    radius: null,
+    sceneImporter: null,
+  };
+};
+
+const clearRendererScene = (context) => {
+  context.sceneImporter?.delete?.();
+  context.sceneImporter = null;
+
+  if (typeof context.renderer.removeAllViewProps === "function") {
+    context.renderer.removeAllViewProps();
+  } else {
+    context.renderer.removeAllActors?.();
+    context.renderer.removeAllVolumes?.();
+  }
+  context.renderWindow.render();
+};
+
 const withRevision = (path, revision) => {
   if (!revision) {
     return path;
@@ -56,10 +132,29 @@ const loadConfig = () => loadJson(`./config.json?t=${Date.now()}`);
 const VtkjsViewer = () => {
   const containerRef = useRef(null);
   const contextRef = useRef(null);
+  const cameraStateRef = useRef(null);
   const [config, setConfig] = useState(null);
   const [hbModel, setHbModel] = useState(null);
   const [status, setStatus] = useState("Loading config");
   const [error, setError] = useState(null);
+  const artifactReloadKey = [
+    config?.garden?.garden_root,
+    config?.active_step?.id,
+    config?.artifact?.name,
+    config?.artifact?.path,
+    config?.revision,
+  ]
+    .filter(Boolean)
+    .join("|");
+
+  useEffect(
+    () => () => {
+      contextRef.current?.sceneImporter?.delete?.();
+      contextRef.current?.genericRenderWindow.delete();
+      contextRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -130,8 +225,8 @@ const VtkjsViewer = () => {
 
     let disposed = false;
     const loadScene = async () => {
-      contextRef.current?.genericRenderWindow.delete();
-      contextRef.current = null;
+      cameraStateRef.current =
+        captureCameraState(contextRef.current) ?? cameraStateRef.current;
       setStatus(`Loading ${activeArtifact.name}`);
       setError(null);
 
@@ -143,15 +238,10 @@ const VtkjsViewer = () => {
       }
 
       const zipContent = await artifactResponse.arrayBuffer();
-      const genericRenderWindow = vtkGenericRenderWindow.newInstance({
-        background: [0.96, 0.95, 0.91],
-        listenWindowResize: true,
-      });
-      genericRenderWindow.setContainer(containerRef.current);
-      genericRenderWindow.resize();
-
-      const renderer = genericRenderWindow.getRenderer();
-      const renderWindow = genericRenderWindow.getRenderWindow();
+      contextRef.current = ensureRenderContext(containerRef.current, contextRef.current);
+      clearRendererScene(contextRef.current);
+      const activeContext = contextRef.current;
+      const { renderer, renderWindow } = activeContext;
       const dataAccessHelper = DataAccessHelper.get("zip", {
         zipContent,
         callback: () => {
@@ -159,10 +249,10 @@ const VtkjsViewer = () => {
             renderer,
             dataAccessHelper,
           });
+          activeContext.sceneImporter = sceneImporter;
 
           sceneImporter.onReady(() => {
             if (disposed) {
-              genericRenderWindow.delete();
               return;
             }
 
@@ -170,14 +260,15 @@ const VtkjsViewer = () => {
             const center = boundsCenter(bounds);
             const radius = boundsRadius(bounds) * 2.7;
 
-            contextRef.current = {
-              genericRenderWindow,
-              renderer,
-              renderWindow,
-              center,
-              radius,
-            };
-            setCamera(contextRef.current, "axon");
+            activeContext.center = center;
+            activeContext.radius = radius;
+            contextRef.current = activeContext;
+            if (cameraStateRef.current) {
+              restoreCameraState(contextRef.current, cameraStateRef.current);
+            } else {
+              setCamera(contextRef.current, "axon");
+              cameraStateRef.current = captureCameraState(contextRef.current);
+            }
             setStatus(`Loaded ${activeArtifact.name}`);
           });
 
@@ -193,14 +284,15 @@ const VtkjsViewer = () => {
 
     return () => {
       disposed = true;
-      contextRef.current?.genericRenderWindow.delete();
-      contextRef.current = null;
+      cameraStateRef.current =
+        captureCameraState(contextRef.current) ?? cameraStateRef.current;
     };
-  }, [config?.artifact?.path, config?.revision]);
+  }, [artifactReloadKey]);
 
   const view = (cameraMode) => {
     if (contextRef.current) {
       setCamera(contextRef.current, cameraMode);
+      cameraStateRef.current = captureCameraState(contextRef.current);
     }
   };
 

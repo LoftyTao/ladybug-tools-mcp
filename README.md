@@ -24,6 +24,7 @@ This project has been built entirely by Codex, including the source code and all
 - [User Groups](#user-groups)
 - [Core Concepts](#core-concepts)
 - [Quick Start](#quick-start)
+- [Web View Mode Beta](#web-view-mode-beta)
 - [First Use](#first-use)
 - [Workflow Examples](#workflow-examples)
 - [Main Tools](#main-tools)
@@ -83,6 +84,7 @@ Before using Ladybug Tools MCP, some system prerequisites usually need to be con
 - Ladybug Tools 1.10*
 - Git
 - uv
+- Node.js 20+ if you want to try the experimental Web View Mode beta
 - Any agent application, such as [Codex](https://chatgpt.com/codex), [Claude Code](https://code.claude.com/docs/en/desktop-quickstart), [Open Code](https://opencode.ai/), or [OpenClaw](https://openclaw.ai/)
 
 If you are not familiar with agent applications, I am very happy to recommend [Codex](https://chatgpt.com/codex).
@@ -173,6 +175,14 @@ uv venv --python 3.12 .venv
 uv pip install -r requirements.txt
 uv pip install -e .
 uv run python -c "import ladybug_tools_mcp; print(ladybug_tools_mcp.__version__)"
+```
+
+For the experimental Web View Mode beta, also install its frontend dependencies:
+
+```bash
+cd src/web_view
+npm install
+cd ../..
 ```
 
 #### MCP Configuration Examples
@@ -289,6 +299,56 @@ On macOS / Linux it should point to:
 ```
 
 These components add that path into `sys.path` at startup so they can load `flowerpot.runtime` and the Grasshopper collaboration code inside the project.
+
+## Web View Mode Beta
+
+Web View Mode is an experimental local preview mode for live modeling sessions. It lets an already-open browser follow the Garden while an agent creates or edits Honeybee objects.
+
+### Enable
+
+Ask the agent to enable Web View Mode before modeling or editing:
+
+```text
+Enable Web View Mode for this Garden, then create or edit the Honeybee model.
+```
+
+In MCP terms, the agent calls:
+
+```text
+start_web_view_mode(garden_root, name="...")
+```
+
+Starting the mode creates a Garden-local Web View session, starts the local React + vtk.js server, starts a Garden watcher, and returns a local `viewer.url`, usually:
+
+```text
+http://127.0.0.1:3127
+```
+
+The MCP service does not force-open a system browser. Host applications such as Codex should open the returned URL in their side-panel browser when that capability is available.
+
+### Close
+
+Ask the agent to stop Web View Mode, or call:
+
+```text
+stop_web_view_mode(garden_root)
+```
+
+This disables future automatic previews and stops the matching local viewer server/watcher. Preview history under `tmp/web_view/` is preserved.
+
+### Difference From Ordinary Mode
+
+In ordinary mode, modeling tools write Garden files and return compact targets, summaries, and receipts. No viewer server is started, and no automatic preview file is exported after every edit.
+
+In Web View Mode, significant Honeybee writes automatically export session-managed `.vtkjs` previews under:
+
+```text
+<garden>/tmp/web_view/previews/
+```
+
+The viewer polls `config.json` and reloads the latest `.vtkjs` package without a manual browser refresh. These automatic previews are local session state, not formal user-requested Garden artifacts. If you need a durable reusable artifact, still ask the agent to export a VisualizationSet with `visualization_set_to_vtkjs`.
+
+The beta intentionally uses an explicit local port. If the requested port is already occupied, startup fails clearly instead of silently choosing another port or leaving the browser pointed at an older Garden.
 
 ## First Use
 

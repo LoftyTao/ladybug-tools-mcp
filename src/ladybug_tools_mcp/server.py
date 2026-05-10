@@ -19,6 +19,7 @@ from fastmcp.server.transforms.visibility import Visibility
 
 from ladybug_tools_mcp import __version__
 from ladybug_tools_mcp.registry import register_tools
+from web_view.auto_preview import maybe_record_code_mode_preview
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SKILL_PATH = PROJECT_ROOT / ".agents" / "skills" / "ladybug-tools-mcp-use"
@@ -272,6 +273,11 @@ class QuietMontySandboxProvider:
                     arguments["garden_root"] = self._last_garden_root
 
             result = await call_tool(tool_name, arguments)
+            maybe_record_code_mode_preview(
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result,
+            )
             self._execute_last_tool_result = result
             garden_root = _find_garden_root(result)
             if garden_root:

@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from garden.manifest import GardenManifest, utc_now_iso
+from garden.paths import to_posix_relative
 
 
 SESSION_RELATIVE_PATH = "tmp/web_view/session.json"
@@ -54,6 +55,12 @@ def _read_session(garden_root: Path) -> dict[str, Any] | None:
         return None
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def read_web_view_session(*, garden_root: str) -> dict[str, Any] | None:
+    """Return the stored Web View session without creating one."""
+    root = _resolve_garden_root(garden_root)
+    return _read_session(root)
 
 
 def _default_data_sources() -> dict[str, str]:
@@ -210,6 +217,28 @@ def _viewer_source(artifact: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _session_file_viewer_source(
+    *,
+    garden_root: Path,
+    vtkjs_file_path: str,
+) -> dict[str, Any]:
+    path = Path(vtkjs_file_path).expanduser().resolve()
+    path.relative_to(garden_root)
+    if path.suffix.lower() != ".vtkjs":
+        raise ValueError(f"Web View preview file must be a .vtkjs file; got {path}")
+    if not path.is_file():
+        raise ValueError(f"Web View preview file was not found: {path}")
+    relative_path = to_posix_relative(path, garden_root)
+    return {
+        "kind": "session_vtkjs_file",
+        "artifact_type": VTKJS_ARTIFACT_TYPE,
+        "artifact_name": path.stem,
+        "artifact_path": relative_path,
+        "absolute_path": str(path),
+        "source": {"storage": "web_view_session"},
+    }
+
+
 def record_preview_step(
     *,
     garden_root: str,
@@ -258,6 +287,98 @@ def record_preview_step(
             "active_step_id": step["id"],
             "preview_kind": preview_kind,
             "artifact_path": artifact["path"],
+        },
+    }
+
+
+def record_preview_file_step(
+    *,
+    garden_root: str,
+    preview_kind: str,
+    label: str,
+    vtkjs_file_path: str,
+    source_tool: str | None = None,
+    summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Append a local preview step backed by a session-managed `.vtkjs` file."""
+    if preview_kind not in SUPPORTED_PREVIEW_KINDS:
+        allowed = ", ".join(SUPPORTED_PREVIEW_KINDS)
+        raise ValueError(
+            f"Unsupported preview_kind: {preview_kind!r}. Allowed values: {allowed}."
+        )
+
+    root = _resolve_garden_root(garden_root)
+    session = _read_session(root)
+    if session is None or not session.get("active", False):
+        session = start_web_view_session(garden_root=str(root))["session"]
+    if preview_kind not in session.get("preview_kinds", []):
+        raise ValueError(
+            f"Preview kind {preview_kind!r} is not enabled for this Web View session."
+        )
+
+    viewer_source = _session_file_viewer_source(
+        garden_root=root,
+        vtkjs_file_path=vtkjs_file_path,
+    )
+    step = {
+        "id": f"step_{len(session.get('steps', [])) + 1:04d}",
+        "preview_kind": preview_kind,
+        "label": label,
+        "created_at": utc_now_iso(),
+        "source_tool": source_tool,
+        "summary": summary or {},
+        "viewer_source": viewer_source,
+    }
+    session.setdefault("steps", []).append(step)
+    session["active_step_id"] = step["id"]
+    _write_session(root, session)
+    return {
+        "step": step,
+        "session": session,
+        "summary_view": {
+            "active_step_id": step["id"],
+            "preview_kind": preview_kind,
+            "artifact_path": viewer_source["artifact_path"],
+        },
+    }
+
+
+def record_preview_failure(
+    *,
+    garden_root: str,
+    preview_kind: str,
+    label: str,
+    source_tool: str,
+    error_message: str,
+    summary: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Append a failed preview event without changing the active viewer source."""
+    if preview_kind not in SUPPORTED_PREVIEW_KINDS:
+        preview_kind = "object_edit"
+    root = _resolve_garden_root(garden_root)
+    session = _read_session(root)
+    if session is None or not session.get("active", False):
+        return None
+
+    step = {
+        "id": f"step_{len(session.get('steps', [])) + 1:04d}",
+        "preview_kind": preview_kind,
+        "label": label,
+        "created_at": utc_now_iso(),
+        "source_tool": source_tool,
+        "summary": summary or {},
+        "status": "failed",
+        "error": error_message,
+    }
+    session.setdefault("steps", []).append(step)
+    _write_session(root, session)
+    return {
+        "step": step,
+        "session": session,
+        "summary_view": {
+            "preview_kind": preview_kind,
+            "source_tool": source_tool,
+            "status": "failed",
         },
     }
 

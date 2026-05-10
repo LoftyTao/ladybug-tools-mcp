@@ -159,6 +159,8 @@ Read only the most relevant reference file(s) for the current task.
   - `reference/garden-version-management.md`
 - Continue modeling from a Grasshopper Flowerpot:
   - `reference/flowerpot-grasshopper-modeling.md`
+- Enable Web View demo mode for Agent-side live previews:
+  - `reference/web-view-mode.md`
 - Read-only query:
   - `reference/read-only-base-model-query.md`
 - Validate Honeybee model:

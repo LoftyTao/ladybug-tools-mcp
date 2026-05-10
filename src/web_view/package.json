@@ -1,0 +1,16 @@
+{
+  "name": "ladybug-tools-mcp-web-view",
+  "version": "0.1.0-beta",
+  "private": true,
+  "description": "Local React and vtk.js viewer dependencies for Ladybug Tools MCP Web View Mode.",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "install:deps": "npm install"
+  },
+  "dependencies": {
+    "@kitware/vtk.js": "^35.14.1",
+    "esbuild": "^0.27.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  }
+}
