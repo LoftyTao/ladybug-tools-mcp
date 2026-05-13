@@ -12,8 +12,18 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="visualization_set_to_html",
-        description="Export a Ladybug Display VisualizationSet to an interactive HTML artifact inside a Garden and record it in garden.json artifacts. Preferred Agent path is visualization_set_target from an upstream visualize tool; direct visualization_set dict input remains available for payload/debug workflows.",
-        tags={"visualize", "garden-mode", "artifact", "export", "write", "safe"},
+        description="Export a Ladybug Display VisualizationSet to a standalone interactive HTML page artifact inside a Garden and record it in garden.json artifacts. Use this when the user asks for an HTML page, report page, or browser-openable preview file. Preferred Agent path is visualization_set_target from an upstream visualize tool; direct visualization_set dict input remains available for payload/debug workflows. For Web 3D geometry packages, vtk.js assets, React viewer assets, Remotion assets, or reusable geometry assets, use visualization_set_to_vtkjs instead, not this HTML exporter.",
+        tags={
+            "visualize",
+            "garden-mode",
+            "artifact",
+            "export",
+            "html-page",
+            "browser-preview",
+            "not-vtkjs",
+            "write",
+            "safe",
+        },
         timeout=60,
     )
     def visualization_set_to_html(

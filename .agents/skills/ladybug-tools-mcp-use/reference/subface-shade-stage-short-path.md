@@ -19,13 +19,13 @@ Keep the whole dependent chain in one Code Mode `execute` block whenever possibl
 5. Use the returned aperture `target` or `targets[0]` directly for shade creation.
 6. Create shades, overhangs, or louvers with `create_honeybee_shades_by_parameters`. Do not use low-level `create_honeybee_shade` unless the user provides explicit Face3D shade geometry.
 7. Verify once at the end with room `child_counts` or narrow `children_scope`, not a full model relist after every write.
-8. Stop after successful write results. MCP write tools persist the Garden; do not search for `save_garden` or `save_base_model` unless the user explicitly asks for a separate save operation.
+8. Stop after successful write results. MCP write tools persist the Garden; do not search for `save_garden` or `save_base_honeybee_model` unless the user explicitly asks for a separate save operation.
 
 ## Stage Completion Response
 
 After B-stage write calls succeed and one narrow verification confirms the requested apertures/shades exist, return a compact stage summary and stop. The summary should include the `garden_root`, created or reused aperture targets, created or reused shade targets, and a small count summary such as `{"rooms_checked": 2, "apertures": 2, "shades": 3}`.
 
-Do not continue probing for unrelated model details. Do not search for save_garden or `save_base_model`, `search_garden_assets`, or generic asset tools. Successful create/edit tools already persist the Garden, and repeated post-write searches were the failure mode in the latest MiniMax short-path runs.
+Do not continue probing for unrelated model details. Do not search for save_garden or `save_base_honeybee_model`, `search_garden_assets`, or generic asset tools. Successful create/edit tools already persist the Garden, and repeated post-write searches were the failure mode in the latest MiniMax short-path runs.
 
 ## Compact Code Mode Shape
 
@@ -116,7 +116,7 @@ If the previous block may already have created windows or shades:
 - `supervised_cross_task_09_honeybee_edit_subfaces_shades`: external supervised MiniMax functionally edited an aperture and a related shade, but repeated search triggered supervisor intervention. The run also confirmed the usefulness of the `room_target` search alias as a recovery compatibility input; canonical guidance remains `children_scope` / `host_target`.
 - `manual_staged_metrics_b_subfaces_shades_short_path_v1`: failed at `122,278` tokens, max input-window ratio `0.068477`, with 11 object searches. Exposed point drift: `children_scope` as bare string and shade hints `offset_from_host` / `louver_orientation`.
 - `manual_staged_metrics_b_subfaces_shades_short_path_after_fix_v1`: failed at `143,272` tokens, max input-window ratio `0.094229`, but deterministic inspection showed the Garden had the requested state: 2 apertures and 3 open_office shades. The Agent then searched for save tools and exceeded turns.
-- `manual_staged_metrics_b_subfaces_shades_short_path_after_fix_v2`: failed at `109,839` tokens, max input-window ratio `0.074902`, and again left the Garden with 2 apertures and 3 open_office shades. Remaining failure is Agent behavior: repeated `get_base_model` / object search, result indexing mistakes, and no final answer.
+- `manual_staged_metrics_b_subfaces_shades_short_path_after_fix_v2`: failed at `109,839` tokens, max input-window ratio `0.074902`, and again left the Garden with 2 apertures and 3 open_office shades. Remaining failure is Agent behavior: repeated `get_base_honeybee_model` / object search, result indexing mistakes, and no final answer.
 - `manual_staged_metrics_b_subfaces_shades_short_path_staged_scaffold_v1`: failed at `146,354` tokens, max input-window ratio `0.085229`. The fresh staged-scaffold run wrote 2 apertures but 0 shades because the Agent selected low-level `create_honeybee_shade` and attempted explicit louver geometry instead of using `create_honeybee_shades_by_parameters`.
 - `manual_staged_metrics_b_subfaces_shades_tool_disclosure_v2`: succeeded at `90,730` tokens, max input-window ratio `0.073066`, and left the Garden with 2 apertures plus 3 open_office louvers. The Agent still attempted low-level `create_honeybee_shade` 3 times before recovering to `create_honeybee_shades_by_parameters`.
 

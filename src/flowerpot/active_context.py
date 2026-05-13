@@ -138,10 +138,11 @@ def _registry_fallback_context(
         "flowerpot": flowerpot,
         "flowerpot_id": flowerpot_id,
         "flowerpot_kind": flowerpot.get("kind") or entry.get("kind"),
-        "base_model_target": manifest.base_model,
+        "base_honeybee_model_target": manifest.base_honeybee_model,
+        "base_dragonfly_model_target": manifest.base_dragonfly_model,
         "model_identifier": (
-            manifest.base_model.get("model_identifier")
-            if isinstance(manifest.base_model, dict)
+            manifest.base_honeybee_model.get("model_identifier")
+            if isinstance(manifest.base_honeybee_model, dict)
             else None
         ),
         "model_display_name": None,
@@ -155,7 +156,7 @@ def _registry_fallback_context(
         "active_context": context,
         "garden_root": str(garden_root),
         "flowerpot": flowerpot,
-        "model_target": manifest.base_model,
+        "model_target": manifest.base_honeybee_model,
         "summary_view": {
             "found": True,
             "source": "registry_fallback",
@@ -212,7 +213,7 @@ def write_active_context(
         "flowerpot": safe_flowerpot,
         "flowerpot_id": payload_context.get("flowerpot_id"),
         "flowerpot_kind": safe_flowerpot.get("kind"),
-        "base_model_target": _sanitize_value(model_target),
+        "base_honeybee_model_target": _sanitize_value(model_target),
         "model_identifier": model_identifier,
         "model_display_name": model_display_name,
         "mode": mode,
@@ -281,7 +282,7 @@ def read_active_context(
         context["flowerpot"] = _sanitize_flowerpot(context["flowerpot"])
 
     flowerpot = context.get("flowerpot") or {}
-    model_target = context.get("base_model_target")
+    model_target = context.get("base_honeybee_model_target")
     return {
         "active_context": context,
         "garden_root": str(garden_root_path),

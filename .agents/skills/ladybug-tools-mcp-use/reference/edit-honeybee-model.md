@@ -11,7 +11,7 @@
 ### Edit Model Metadata + Add Object
 
 1. `search_tools("edit honeybee model add object and update metadata in garden")`
-2. `call_tool(get_base_model)`，传入 `garden_root`
+2. `call_tool(get_base_honeybee_model)`，传入 `garden_root`
 3. 读取返回的 `object_dict` 作为 `target`
 4. `call_tool(edit_honeybee_model)`，传入 `_target + display_name_ + user_data_ + _units_ + _tolerance_ + _angle_tolerance_ + add_objects_`
 5. `call_tool(validate_honeybee_model)`
@@ -20,7 +20,7 @@
 
 1. `call_tool(search_honeybee_model_objects)`，传入 `object_type`
 2. 读取要移除对象的 `target`
-3. `call_tool(get_base_model)`，传入 `garden_root`
+3. `call_tool(get_base_honeybee_model)`，传入 `garden_root`
 4. `call_tool(edit_honeybee_model)`，传入 `_target + remove_targets_`
 5. `call_tool(validate_honeybee_model)`
 

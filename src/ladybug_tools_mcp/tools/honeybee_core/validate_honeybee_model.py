@@ -14,7 +14,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="validate_honeybee_model",
-        description="Validate an existing Honeybee model already stored in a Garden base model or explicit model target. Use this tool, not get_base_model, when a user asks to validate, check model validity, return a validation flag, or inspect validation issues. Returns top-level is_valid/valid helpers, report, summary_view.is_valid, and structured validation issues. Requires garden_root; this is read-only and does not repair, relate, or save the model.",
+        description="Validate an existing Honeybee model already stored in a Garden base Honeybee model or explicit model target. Use this tool, not get_base_honeybee_model, when a user asks to validate, check model validity, return a validation flag, or inspect validation issues. Returns top-level is_valid/valid helpers, report, summary_view.is_valid, and structured validation issues. Requires garden_root; this is read-only and does not repair, relate, or save the model.",
         tags={
             "honeybee-core",
             "garden-mode",

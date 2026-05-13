@@ -20,7 +20,7 @@
 ## 新增 disclosure 维护
 
 - `SKILL.md` 增加全局规则：禁止 `arguments: null / {} / renamed argument object`，遇到 required-argument validation error 后停止空参重试。
-- `reference/save-base-model-on-empty-garden.md` 记录空 Garden failure 场景中的空参重试。
+- `reference/save-base-honeybee-model-on-empty-garden.md` 记录空 Garden failure 场景中的空参重试。
 - `reference/create-honeybee-shades-by-parameters.md` 记录 shade/operate/relate 组合场景中的 `arguments: null` 重复调用。
 - `reference/operate-honeybee-objects.md` 记录 `move_object` 必填参数丢失模式。
 - `reference/edit-honeybee-subfaces-and-shade.md` 记录大型三对象 edit prompt 的 turn 耗尽风险，建议拆成 focused workflows。

@@ -27,7 +27,9 @@ class GardenManifest:
     schema_version: str = "1"
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
-    base_model: dict[str, Any] | None = None
+    base_honeybee_model: dict[str, Any] | None = None
+    base_dragonfly_model: dict[str, Any] | None = None
+    base_fairyfly_model: dict[str, Any] | None = None
     models: list[dict[str, Any]] = field(default_factory=list)
     weather_files: list[dict[str, Any]] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
@@ -51,7 +53,9 @@ class GardenManifest:
             schema_version=str(data.get("schema_version", "1")),
             created_at=str(data.get("created_at", utc_now_iso())),
             updated_at=str(data.get("updated_at", utc_now_iso())),
-            base_model=data.get("base_model"),
+            base_honeybee_model=data.get("base_honeybee_model"),
+            base_dragonfly_model=data.get("base_dragonfly_model"),
+            base_fairyfly_model=data.get("base_fairyfly_model"),
             models=list(data.get("models", [])),
             weather_files=list(data.get("weather_files", [])),
             artifacts=list(data.get("artifacts", [])),
@@ -72,7 +76,9 @@ class GardenManifest:
             "description": self.description,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-            "base_model": self.base_model,
+            "base_honeybee_model": self.base_honeybee_model,
+            "base_dragonfly_model": self.base_dragonfly_model,
+            "base_fairyfly_model": self.base_fairyfly_model,
             "models": self.models,
             "weather_files": self.weather_files,
             "artifacts": self.artifacts,

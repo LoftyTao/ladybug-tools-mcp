@@ -5,6 +5,7 @@ description: Use when operating Ladybug Tools MCP through FastMCP Code Mode, inc
 
 # Ladybug Tools MCP Use
 
+Use Code Mode for multi-tool workflows.
 Use only Code Mode for Ladybug Tools MCP workflows. The only outer MCP tools are `search`, `get_schema`, and `execute`; call domain tools only inside `execute` via `await call_tool(...)`.
 Do not use legacy `search_tools -> call_tool`, and do not call domain tools as outer MCP tools.
 Use Garden mode and do not request full large payloads by default.
@@ -29,24 +30,32 @@ Use Garden mode and do not request full large payloads by default.
 - For create/edit/simulate workflows, do the dependent chain in one `execute` block whenever possible. Use local variables for tool results and return one compact final dictionary; do not make one `execute` call per MCP tool unless you are debugging a specific failing step.
 - For common Ladybug Tools create/edit/simulate workflows, use `execute` as the first outer tool and call likely domain tools by name inside it. Use `search`/`get_schema` only after a tool name or parameter shape is actually unknown.
 - For large create/edit/simulate requests, split work into the staged energy workflow: Stage A model/rooms, Stage B subfaces/shades, Stage C Energy properties/HVAC, Stage D weather/run, and Stage E outputs. Each stage resumes from Garden state, returns a compact stage summary, and stops after the requested stage is complete.
-- For Stage C or any request that asks to validate a model or return a validation flag, call `validate_honeybee_model`; use `validate_honeybee_model`, not `get_base_model`, because `get_base_model` only confirms the Garden base model target/summary.
+- For Stage C or any request that asks to validate a Honeybee model or return a validation flag, call `validate_honeybee_model`; use `validate_honeybee_model`, not `get_base_honeybee_model`, because `get_base_honeybee_model` only confirms the Garden base Honeybee model target/summary.
 - If a long `execute` block fails after some write calls have already succeeded, do not replay the whole script. Garden writes are persistent; resume with a smaller repair block, search existing targets if needed, and continue from the failed step.
 - Public tool arguments use one canonical lowercase `snake_case` name. Use `garden_root`, `model_target`, `host_target`, `object_type`, and `return_object_dict`; do not use historical names such as `_garden_root`, `garden_root_`, `_target`, or `object_type_`.
 - `create_garden` is the common Garden-root exception: it takes the folder path as `root_dir` and returns the reusable top-level `garden_root` string. Do not call `create_garden` with `garden_root`.
 - For blank-project workflows, the first `execute` block must call `create_garden` before any tool that takes `garden_root`; creating the folder yourself is not enough because Garden tools require `garden.json`.
 - For workflows that start from an existing Garden path, set `garden_root` to that literal path before the first read or write call.
-- Write tools persist Garden changes and return persistence receipts; do not search for `save_garden` or `save_base_model` after successful create/edit calls unless the user explicitly asks for a separate save operation.
+- Write tools persist Garden changes and return persistence receipts; do not search for `save_garden` or `save_base_honeybee_model` after successful create/edit calls unless the user explicitly asks for a separate save operation.
 - Deterministic-pass/candidate: after completing a user-prompt-level workflow that changed Garden authoring truth (`garden.json`, `models/`, or `libraries/`), call `create_garden_version` once with a compact subject and structured summary. Do not call it after every low-level write; save one version for the completed user request.
 - Deterministic-pass/candidate: for undo, go-back, or restore requests, call `list_garden_versions`, choose by subject/summary, then call `restore_garden_version`. Do not request Git diffs or file bodies; inspect the restored model with Search, Validate, or Visualize tools if needed.
 - For reusable Energy/Radiance library objects, prefer direct Garden-saving create tools with `garden_root` and `return_object_dict=false` when available; for schedules that do not need time-series inspection, also set `include_data=false`. Use `save_garden_properties_library_object` only as a fallback for an existing full `object_dict`.
 - `create_honeybee_model` takes `identifier`; do not use `model_name`.
-- `create_honeybee_room` writes the room into the Garden base model and auto-attaches to the selected model. Do not pass `host_target`, and do not pass returned room targets into `edit_honeybee_model.add_objects`; use later edit/search tools directly against the returned target.
+- Honeybee and Dragonfly base model slots are separate. Use `get_base_honeybee_model` for Honeybee and `get_base_dragonfly_model` for Dragonfly; do not search for or call a mixed `get_base_model` tool.
+- Agent-verified: for Dragonfly authoring, call `create_dragonfly_model`, then create Room2D, Story, and Building targets in order, then use `edit_dragonfly_model`, `edit_dragonfly_story`, `edit_dragonfly_building`, `edit_dragonfly_room2d`, `search_dragonfly_model_objects`, `get_dragonfly_model_summary`, `validate_dragonfly_model`, `dragonfly_model_to_visualization_set`, and optionally `dragonfly_model_to_honeybee`. Dragonfly Energy ProgramType/ConstructionSet application is available through `apply_dragonfly_energy_properties` for Room2D, Story, and Building targets. Dragonfly Radiance ModifierSet and grid-parameter application is available through `apply_dragonfly_radiance_properties`; grid parameters support Room2D and Building targets, not Story targets. Keep the chain in one Code Mode `execute` block when possible. The retained OpenAI Agents SDK 40-task cross run passed in one `execute` after tool-surface fixes; do not add legacy base-model aliases or fallback tools to smooth old paths.
+- For Web View demo mode, call `start_web_view_mode` once at the start of the relevant Garden workflow; do not invent `set_dragonfly_web_view_demo_mode`, `open_browser`, `refresh_viewer`, or a Dragonfly-specific preview tool. After Web View Mode is active, significant Dragonfly edits, properties, conversions, and VisualizationSet outputs automatically create local session previews under `tmp/web_view/previews/`; do not call `visualization_set_to_vtkjs` after every edit just to refresh the panel.
+- For Dragonfly property tools, the canonical target field is `host_target`; natural aliases like `target`, `building_target`, `story_target`, and `room2d_target` are accepted only to recover from natural wording. Use exact library identifiers such as `Generic Office Program`, `Default Generic Construction Set`, and `Generic_Interior_Visible_Modifier_Set` when no project-specific library search is needed. If applying a grid parameter, include a modest grid size such as `grid_dimension=0.7`.
+- For Dragonfly Story adjacency, use a Story target with `story_target` or a Story identifier with `story_identifier`; do not pass a Building target as a generic `target`, and do not invent adjacency add tools.
+- Deterministic-pass with scaffolded Agent cross-suite: for Dragonfly UWG Alternative Weather workflows, use `get_dragonfly_uwg_properties_summary`, `apply_dragonfly_uwg_properties`, `create_uwg_simulation_parameter`, `dragonfly_model_to_uwg`, `start_uwg_run`, `get_uwg_run`, `list_uwg_runs`, and `list_uwg_run_outputs`. Prefer `start_uwg_run` plus polling for Agents; use the returned morphed `weather_file` target with existing Energy tools only when the user asks for downstream Energy simulation. Do not call or invent `run_urbanopt`; URBANopt Energy, Electric Grid, and District Thermal remain separate backlog directions. Fully natural UWG discovery still needs a later retained run.
+- Agent-verified with scaffolded Code Mode: Fairyfly authoring and THERM runtime are Windows-only and depend on the `fairyfly` / `fairyfly_therm` packages plus THERM runtime availability. For Fairyfly or two-dimensional heat-transfer authoring, use `create_fairyfly_model`, `create_fairyfly_solid_material`, `add_fairyfly_shape_to_model`, `add_fairyfly_boundary_to_model`, `validate_fairyfly_model`, `fairyfly_model_to_visualization_set`, `visualization_set_to_vtkjs`, and `get_base_fairyfly_model` / `set_base_fairyfly_model`. `create_fairyfly_solid_material` returns an inline `object_dict`, not a Garden target. For THERM execution, use `write_fairyfly_model_to_thmz`, `start_fairyfly_therm_run`, `get_fairyfly_therm_run`, `read_fairyfly_therm_result`, `read_fairyfly_u_factor_result`, and `fairyfly_therm_result_to_visualization_set`; if THERM is unavailable, respect the returned `blocked` status instead of inventing results.
+- `create_honeybee_room` writes the room into the Garden base Honeybee model and auto-attaches to the selected model. Do not pass `host_target`, and do not pass returned room targets into `edit_honeybee_model.add_objects`; use later edit/search tools directly against the returned target.
 - For simple box rooms, `create_honeybee_room` takes `identifier`, `x_dim`, `y_dim`, `height`, and optional `origin`; do not use `room_name`, `width`, `depth`, `origin_x`, `origin_y`, or `origin_z`.
 - For `edit_honeybee_room`, pass `search_honeybee_model_objects` `matches[i].target` or a returned `create_honeybee_room.target` as the value for the parameter named `target`; not `room_target`, not a room identifier, not the full search response, and not `matches[i]` itself.
 - For parameterized windows, prefer `create_honeybee_apertures_by_parameters` with `generation_mode="by_ratio"` and top-level `ratio`, or `generation_mode="by_width_height"` with top-level `aperture_width` and `aperture_height`. Do not hand-write a large `parameters` object unless recovering from a schema mismatch.
 - Parameterized aperture and shade creation returns `targets[]`; the top-level `target` is the first created object for simple follow-up handoff.
 - For construction sets, prefer `create_window_construction` with simple `u_factor / shgc / vt` and `create_construction_set` with Honeybee generic defaults or Garden targets. In an existing Garden, call `create_window_construction` with `garden_root` and `return_object_dict=false` so it returns a reusable Garden target; use that target for `create_construction_set.aperture_set`, not `save_to_library` and not a handwritten `WindowConstruction` dict. For a low-U window override, pass the returned window construction target directly as `create_construction_set.aperture_set`; do not create an intermediate `ApertureConstructionSet` unless you need multiple aperture slots. Do not pass hand-written `thickness / conductivity` material dicts directly to `create_opaque_construction`; use `create_opaque_material` first or a library identifier.
 - For EPW weather, use `search_epw_map` without `garden_root`, then `download_epw` with the same `garden_root` and selected `epw_map_target`; there is no `download_weather_file` tool or separate weather folder path.
+- For EPW weather charts or original EPW vs UWG morphed EPW comparisons, use `read_weather_file_data` to save SDK EPW fields as `ladybug_data_collection` targets, then pass those targets into `data_collection_monthly_chart_to_visualization_set`; do not parse EPW text by hand.
 - For energy simulation in Agent workflows, prefer `start_energy_run` and poll `get_energy_run`; avoid blocking `run_energy` unless the user explicitly asks to wait for local completion.
 - For a known completed energy run, use `start_energy_run` with `run_id` and `reload_old=true` to reload the completed ledger, then call `get_energy_run`, `list_energy_run_outputs`, and `read_energy_eui`; this must not start a new background run.
 - Deterministic-pass/candidate: for Radiance simulation setup, attach SensorGrids or Views to the Honeybee model, create a single-timestep `radiance_sky_file` for point-in-time grid/view runs or a `wea_file` for annual/matrix runs, create parameters with `create_radiance_parameters`, then use the matching `start_radiance_*_run` tool and call `get_radiance_run(wait_seconds=60, poll_interval=2)` when the user asks to wait or poll until completion. Do not use many tight immediate `get_radiance_run` calls.
@@ -62,7 +71,7 @@ Use Garden mode and do not request full large payloads by default.
 - When recovering from a partial write, use `search_honeybee_model_objects.children_scope` with the room/face/aperture/door target to inspect existing child objects before retrying writes such as aperture or shade creation.
 - `search_honeybee_model_objects` matches for rooms, faces, apertures, and doors include compact `child_counts`; use those counts before making separate full-model room/face/aperture/shade inventory searches.
 - For subface/shade stages, search rooms once, search exterior wall faces with `children_scope`, create apertures from returned face targets, then create shades from returned aperture/face targets; do not relist the whole model after each individual write.
-- When confirming only base model presence or retrieving the compact base model target, call `get_base_model`.
+- When confirming only Honeybee base model presence or retrieving the compact Honeybee base model target, call `get_base_honeybee_model`.
 - When confirming an existing Garden manifest, call `get_garden`; do not use filesystem probes or Python imports inside Code Mode.
 - Keep Flowerpot as an opaque dict and do not unpack internal fields manually.
 - When the user is validating failure behavior, do not auto-recover by default.
@@ -85,8 +94,12 @@ Read only the most relevant reference file(s) for the current task.
   - `reference/search-honeybee-model-objects-natural-language.md`
 - Garden creation:
   - `reference/create-garden.md`
-- Create Honeybee model and confirm base model:
+- Create Honeybee model and confirm Honeybee base model:
   - `reference/create-honeybee-model-and-confirm-base-model.md`
+- Create Dragonfly model, Room2D, Story, Building, validate, display, UWG Alternative Weather, and convert:
+  - `reference/dragonfly-authoring.md`
+- Create Fairyfly model, material, shape, boundary, validate, THERM run/results, and VisualizationSet export (Agent-verified with scaffolded Code Mode):
+  - `reference/fairyfly-authoring.md`
 - Create Honeybee room:
   - `reference/create-honeybee-room.md`
 - Create Honeybee apertures/windows by parameters:
@@ -183,8 +196,8 @@ Read only the most relevant reference file(s) for the current task.
   - `reference/visualization-set-to-svg.md`
 - Visualize Ladybug DataCollection targets as monthly/hourly charts:
   - `reference/visualize-data-collection-chart.md`
-- Failure diagnosis for saving base model on an empty Garden:
-  - `reference/save-base-model-on-empty-garden.md`
+- Failure diagnosis for saving base Honeybee model on an empty Garden:
+  - `reference/save-base-honeybee-model-on-empty-garden.md`
 
 ## Scope
 

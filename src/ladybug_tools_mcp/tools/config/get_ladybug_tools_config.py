@@ -17,16 +17,29 @@ def register(mcp: FastMCP) -> None:
         name="get_ladybug_tools_config",
         description=(
             "Return compact Ladybug Tools SDK runtime configuration for Radiance, "
-            "OpenStudio, and EnergyPlus. Use this when a simulation or postprocess "
-            "cannot find local runtime commands, or before long Agent tests. The "
-            "result includes engine paths, executable existence flags, versions, and "
-            "path_updates.prepend values that can be prepended to PATH. This tool is "
-            "read-only and does not create Gardens or run simulations."
+            "OpenStudio, EnergyPlus, URBANopt, and THERM. Use this when a simulation or "
+            "postprocess cannot find local runtime commands, before long Agent "
+            "tests, or when checking whether the URBANopt CLI/Gemfile setup for "
+            "Dragonfly Energy district workflows or the Windows-only THERM runtime "
+            "for Fairyfly workflows is available. The result returns "
+            "radiance, openstudio, energyplus, urbanopt, and therm together under "
+            "summary_view.engines, including engine paths, executable existence "
+            "flags, versions, URBANopt CLI and Gemfile paths, setup-env candidates, "
+            "THERM executable status, and path_updates.prepend values that can be "
+            "prepended to PATH. This "
+            "tool is read-only and does not create Gardens, run setup-env, or run "
+            "simulations."
         ),
         tags={
             "config",
             "runtime",
             "ladybug-tools",
+            "urbanopt",
+            "therm",
+            "fairyfly",
+            "dragonfly-energy",
+            "district",
+            "geojson",
             "radiance",
             "openstudio",
             "energyplus",

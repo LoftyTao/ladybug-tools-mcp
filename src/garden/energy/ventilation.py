@@ -297,7 +297,7 @@ def _save_model_change(
         manifest,
         model,
         name=str(model_target["model_identifier"]),
-        set_base=manifest.base_model == model_target,
+        set_base=manifest.base_honeybee_model == model_target,
     )
     summary_view = {
         "target": updated_model_target,

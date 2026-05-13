@@ -8,14 +8,25 @@ import contextlib
 import io
 import re
 import textwrap
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Callable
+from typing import Annotated, Any, Callable
 
 from fastmcp import FastMCP
-from fastmcp.experimental.transforms.code_mode import CodeMode, MontySandboxProvider
+from fastmcp.experimental.transforms.code_mode import (
+    CodeMode,
+    GetSchemas,
+    GetToolCatalog,
+    MontySandboxProvider,
+    SearchFn,
+    ToolDetailLevel,
+    _render_tools,
+)
+from fastmcp.server.context import Context
 from fastmcp.server.providers.skills import SkillProvider
 from fastmcp.server.transforms.search import BM25SearchTransform
 from fastmcp.server.transforms.visibility import Visibility
+from fastmcp.tools.base import Tool
 
 from ladybug_tools_mcp import __version__
 from ladybug_tools_mcp.registry import register_tools
@@ -42,11 +53,95 @@ _DIRECT_AWAIT_TOOL_CALL_RE = re.compile(
 _GARDEN_CONTEXT_AUTOFILL_EXCLUDED = {
     "compose_visualization_sets",
     "create_2d_legend_parameter",
+    "create_fairyfly_solid_material",
     "create_radiance_parameters",
     "edit_2d_legend_parameter",
     "list_gardens",
     "search_epw_map",
 }
+
+
+def _coerce_optional_positive_int(value: int | str | None, *, field_name: str) -> int | None:
+    if value is None or isinstance(value, int):
+        return value
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        parsed = int(text)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an integer or numeric string.") from exc
+    if parsed < 0:
+        raise ValueError(f"{field_name} must be greater than or equal to 0.")
+    return parsed
+
+
+class LenientCodeModeSearch:
+    """Code Mode search tool that accepts numeric-string limits from Agents."""
+
+    def __init__(
+        self,
+        *,
+        search_fn: SearchFn | None = None,
+        name: str = "search",
+        default_detail: ToolDetailLevel | None = None,
+        default_limit: int | None = None,
+    ) -> None:
+        if search_fn is None:
+            _bm25 = BM25SearchTransform(max_results=default_limit or 50)
+            search_fn = _bm25._search
+        self._search_fn = search_fn
+        self._name = name
+        self._default_detail: ToolDetailLevel = default_detail or "brief"
+        self._default_limit = default_limit
+
+    def __call__(self, get_catalog: GetToolCatalog) -> Tool:
+        search_fn = self._search_fn
+        default_detail = self._default_detail
+        default_limit = self._default_limit
+
+        async def search(
+            query: Annotated[str, "Search query to find available tools"],
+            tags: Annotated[
+                list[str] | None,
+                "Filter to tools with any of these tags before searching",
+            ] = None,
+            detail: Annotated[
+                ToolDetailLevel,
+                "'brief' for names and descriptions, 'detailed' for parameter schemas as markdown, 'full' for complete JSON schemas",
+            ] = default_detail,
+            limit: Annotated[
+                int | str | None,
+                "Maximum number of results to return. Numeric strings are accepted.",
+            ] = default_limit,
+            ctx: Context = None,  # type: ignore[assignment]
+        ) -> str:
+            """Search for available tools by query.
+
+            Returns matching tools ranked by relevance.
+            """
+            limit_value = _coerce_optional_positive_int(limit, field_name="limit")
+            catalog = await get_catalog(ctx)
+            catalog_size = len(catalog)
+            tools: Sequence[Tool] = catalog
+            if tags:
+                tag_set = set(tags)
+                has_untagged = "untagged" in tag_set
+                real_tags = tag_set - {"untagged"}
+                tools = [
+                    tool
+                    for tool in tools
+                    if (tool.tags & real_tags) or (has_untagged and not tool.tags)
+                ]
+            results = await search_fn(tools, query)
+            if limit_value is not None:
+                results = results[:limit_value]
+            rendered = _render_tools(results, detail)
+            if len(results) < catalog_size and detail != "full":
+                rendered = f"{len(results)} of {catalog_size} tools:\n\n{rendered}"
+            return rendered
+
+        return Tool.from_function(fn=search, name=self._name)
 
 
 def _suppress_code_mode_print_calls(code: str) -> str:
@@ -341,6 +436,7 @@ def create_mcp(*, code_mode: bool = False) -> FastMCP:
         transforms.append(
             CodeMode(
                 sandbox_provider=QuietMontySandboxProvider(),
+                discovery_tools=[LenientCodeModeSearch(), GetSchemas()],
                 execute_description=(
                     "The only way to run Ladybug Tools domain tools in Code Mode. "
                     "Call domain tools inside this Python block with "
@@ -363,6 +459,12 @@ def create_mcp(*, code_mode: bool = False) -> FastMCP:
                     "weather files are managed by the Garden, not a separate folder. "
                     "Then call `start_energy_run` and poll `get_energy_run`; avoid blocking "
                     "`run_energy` unless the user explicitly asks to wait. "
+                    "For UWG Alternative Weather workflows, create or select a Dragonfly "
+                    "model, create or select a Garden-managed `weather_file` target or "
+                    "Garden-relative EPW, call `create_uwg_simulation_parameter` when "
+                    "custom UWG settings are needed, then call `start_uwg_run` and poll "
+                    "`get_uwg_run`; use the returned morphed `weather_target` with "
+                    "`start_energy_run` only when downstream Energy simulation is requested. "
                     "For Radiance simulation, first attach SensorGrids or Views to the "
                     "Honeybee model, create a `radiance_sky_file` for point-in-time "
                     "grid/view recipes or a `wea_file` for annual/matrix recipes, create "

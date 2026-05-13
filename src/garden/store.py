@@ -19,10 +19,16 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     save_honeybee_model,
 )
+from garden.dragonfly_core.model_io import (
+    load_dragonfly_model,
+    save_dragonfly_model,
+)
 
 
 FIRST_STAGE_DIRS = [
     "models/honeybee",
+    "models/dragonfly",
+    "models/fairyfly",
     "libraries/honeybee_energy",
     "libraries/honeybee_radiance",
     "imports/weather",
@@ -54,7 +60,7 @@ def _summary_for_manifest(
     garden_root: Path,
     *,
     include_paths: bool = True,
-    include_base_model: bool = True,
+    include_base_models: bool = True,
     include_description: bool = True,
 ) -> dict[str, Any]:
     summary: dict[str, Any] = {
@@ -68,8 +74,10 @@ def _summary_for_manifest(
         summary["description"] = manifest.description
     if include_paths:
         summary["path"] = str(garden_root)
-    if include_base_model:
-        summary["base_model"] = manifest.base_model
+    if include_base_models:
+        summary["base_honeybee_model"] = manifest.base_honeybee_model
+        summary["base_dragonfly_model"] = manifest.base_dragonfly_model
+        summary["base_fairyfly_model"] = manifest.base_fairyfly_model
     return summary
 
 
@@ -191,7 +199,9 @@ def list_garden_models(
         "summary_view": {
             "garden_target": manifest.target(),
             "count": len(matches),
-            "base_model": manifest.base_model,
+            "base_honeybee_model": manifest.base_honeybee_model,
+            "base_dragonfly_model": manifest.base_dragonfly_model,
+            "base_fairyfly_model": manifest.base_fairyfly_model,
         },
         "report": make_report(
             status="ok",
@@ -219,8 +229,12 @@ def get_garden(
             "garden_target": manifest.target(),
             "name": manifest.name,
             "description": manifest.description,
-            "has_base_model": manifest.base_model is not None,
-            "base_model": manifest.base_model,
+            "has_base_honeybee_model": manifest.base_honeybee_model is not None,
+            "has_base_dragonfly_model": manifest.base_dragonfly_model is not None,
+            "has_base_fairyfly_model": manifest.base_fairyfly_model is not None,
+            "base_honeybee_model": manifest.base_honeybee_model,
+            "base_dragonfly_model": manifest.base_dragonfly_model,
+            "base_fairyfly_model": manifest.base_fairyfly_model,
             "model_count": len(manifest.models),
             "artifact_count": len(manifest.artifacts),
         },
@@ -231,38 +245,77 @@ def get_garden(
     }
 
 
-def set_base_model(
+def _base_slot_name(domain: str) -> str:
+    normalized = str(domain or "").strip().lower()
+    if normalized not in {"honeybee", "dragonfly", "fairyfly"}:
+        raise ValueError(
+            "Base model domain must be 'honeybee', 'dragonfly', or 'fairyfly'."
+        )
+    return f"base_{normalized}_model"
+
+
+def _domain_base_model(
+    manifest: GardenManifest,
+    domain: str,
+) -> dict[str, Any] | None:
+    return getattr(manifest, _base_slot_name(domain))
+
+
+def _set_domain_base_model(
+    manifest: GardenManifest,
+    domain: str,
+    model_target: dict[str, Any],
+) -> None:
+    setattr(manifest, _base_slot_name(domain), model_target)
+
+
+def set_domain_base_model(
     *,
     garden_root: str,
     model_target: dict[str, Any],
+    domain: str | None = None,
 ) -> dict[str, Any]:
-    """Set the Garden base model target."""
+    """Set the Garden base model target for one model domain."""
     garden_root = _resolve_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root)
-    manifest.base_model = model_target
+    resolved_domain = str(domain or model_target.get("domain") or "").strip().lower()
+    if model_target.get("domain") != resolved_domain:
+        raise ValueError("model_target domain must match the requested base domain.")
+    _set_domain_base_model(manifest, resolved_domain, model_target)
     if model_target not in manifest.models:
         manifest.models.append(model_target)
     manifest.write(garden_root)
     receipt = make_persistence_receipt(
         status="persisted",
         garden_id=manifest.garden_id,
-        base_model_changed=True,
+        base_honeybee_model_changed=resolved_domain == "honeybee",
+        base_dragonfly_model_changed=resolved_domain == "dragonfly",
+        base_fairyfly_model_changed=resolved_domain == "fairyfly",
         model_target=model_target,
         persisted_path="garden.json",
-        change_summary={"operation": "set_base_model"},
+        change_summary={
+            "operation": f"set_base_{resolved_domain}_model",
+            "domain": resolved_domain,
+        },
     )
     return {
         "object_dict": model_target,
+        "target": model_target,
+        "model_target": model_target,
         "summary_view": {
             "garden_target": manifest.target(),
-            "base_model": model_target,
+            f"base_{resolved_domain}_model": model_target,
+            "domain": resolved_domain,
         },
         "persistence_receipt": receipt,
-        "report": make_report(status="ok", message="Base model set."),
+        "report": make_report(
+            status="ok",
+            message=f"Base {resolved_domain.title()} model set.",
+        ),
     }
 
 
-def save_base_model(
+def save_base_honeybee_model(
     *,
     garden_root: str,
     message: str | None = None,
@@ -275,12 +328,10 @@ def save_base_model(
     """Save the current Honeybee base model back into Garden authoring truth."""
     garden_root = _resolve_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root)
-    if not manifest.base_model:
-        raise ValueError("Garden has no base model to save.")
-    if manifest.base_model.get("domain") != "honeybee":
-        raise ValueError("Only Honeybee base model save is implemented in this batch.")
-    model = load_honeybee_model(garden_root, manifest.base_model)
-    output_name = name or str(manifest.base_model["model_identifier"])
+    if not manifest.base_honeybee_model:
+        raise ValueError("Garden has no base Honeybee model to save.")
+    model = load_honeybee_model(garden_root, manifest.base_honeybee_model)
+    output_name = name or str(manifest.base_honeybee_model["model_identifier"])
     model_target, persisted_path = save_honeybee_model(
         garden_root,
         manifest,
@@ -297,18 +348,68 @@ def save_base_model(
         model_target=model_target,
         persisted_path=persisted_path,
         change_summary={
-            "operation": "save_base_model",
+            "operation": "save_base_honeybee_model",
             "message": message,
         },
     )
     return {
+        "target": model_target,
+        "model_target": model_target,
         "persistence_receipt": receipt,
         "summary_view": {
             "garden_target": manifest.target(),
-            "base_model": model_target,
+            "base_honeybee_model": model_target,
             "message": message,
         },
-        "report": make_report(status="ok", message="Base model saved."),
+        "report": make_report(status="ok", message="Base Honeybee model saved."),
+    }
+
+
+def save_base_dragonfly_model(
+    *,
+    garden_root: str,
+    message: str | None = None,
+    force: bool = False,
+    name: str | None = None,
+    indent: int | None = 2,
+    included_prop: list[str] | None = None,
+) -> dict[str, Any]:
+    """Save the current Dragonfly base model back into Garden authoring truth."""
+    garden_root = _resolve_garden_root(garden_root)
+    manifest = GardenManifest.read(garden_root)
+    if not manifest.base_dragonfly_model:
+        raise ValueError("Garden has no base Dragonfly model to save.")
+    model = load_dragonfly_model(garden_root, manifest.base_dragonfly_model)
+    output_name = name or str(manifest.base_dragonfly_model["model_identifier"])
+    model_target, persisted_path = save_dragonfly_model(
+        garden_root,
+        manifest,
+        model,
+        name=output_name,
+        indent=indent,
+        included_prop=included_prop,
+        set_base=True,
+    )
+    receipt = make_persistence_receipt(
+        status="persisted" if force or model_target else "no_change",
+        garden_id=manifest.garden_id,
+        model_target=model_target,
+        persisted_path=persisted_path,
+        change_summary={
+            "operation": "save_base_dragonfly_model",
+            "message": message,
+        },
+    )
+    return {
+        "target": model_target,
+        "model_target": model_target,
+        "persistence_receipt": receipt,
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "base_dragonfly_model": model_target,
+            "message": message,
+        },
+        "report": make_report(status="ok", message="Base Dragonfly model saved."),
     }
 
 
@@ -328,7 +429,7 @@ def list_gardens(
     *,
     root_dir: str | None = None,
     include_paths: bool = True,
-    include_base_model: bool = True,
+    include_base_models: bool = True,
     include_description: bool = True,
 ) -> dict[str, Any]:
     """List Garden manifests under a root directory."""
@@ -346,7 +447,7 @@ def list_gardens(
                 manifest,
                 garden_root,
                 include_paths=include_paths,
-                include_base_model=include_base_model,
+                include_base_models=include_base_models,
                 include_description=include_description,
             )
         )
@@ -382,25 +483,31 @@ def list_gardens(
     }
 
 
-def get_base_model(
+def _get_domain_base_model(
     *,
     garden_root: str,
+    domain: str,
     include_body: bool = False,
 ) -> dict[str, Any]:
-    """Read a Garden's base model target without returning model body by default."""
+    """Read a Garden's base model target for one domain."""
     garden_root = Path(garden_root).expanduser().resolve()
     manifest = GardenManifest.read(garden_root)
-    base_model = manifest.base_model
+    base_model = _domain_base_model(manifest, domain)
     object_dict = base_model or {}
+    slot_name = _base_slot_name(domain)
     summary_view = {
         "garden_root": str(garden_root),
         "garden_target": manifest.target(),
-        "has_base_model": base_model is not None,
+        f"has_{slot_name}": base_model is not None,
+        slot_name: base_model,
         "include_body": include_body,
+        "domain": domain,
     }
     if include_body:
         summary_view["body_returned"] = False
-        warning = "Base model body loading is not implemented in the first Garden slice."
+        warning = (
+            f"Base {domain.title()} model body loading is not implemented in this tool."
+        )
         warnings = [warning]
     else:
         warnings = []
@@ -419,13 +526,52 @@ def get_base_model(
         "report": make_report(
             status="ok",
             message=(
-                "Base model target returned."
+                f"Base {domain.title()} model target returned."
                 if base_model
-                else "Garden has no base model yet."
+                else f"Garden has no base {domain.title()} model yet."
             ),
             warnings=warnings,
         ),
     }
+
+
+def get_base_honeybee_model(
+    *,
+    garden_root: str,
+    include_body: bool = False,
+) -> dict[str, Any]:
+    """Read a Garden's base Honeybee model target."""
+    return _get_domain_base_model(
+        garden_root=garden_root,
+        domain="honeybee",
+        include_body=include_body,
+    )
+
+
+def get_base_dragonfly_model(
+    *,
+    garden_root: str,
+    include_body: bool = False,
+) -> dict[str, Any]:
+    """Read a Garden's base Dragonfly model target."""
+    return _get_domain_base_model(
+        garden_root=garden_root,
+        domain="dragonfly",
+        include_body=include_body,
+    )
+
+
+def get_base_fairyfly_model(
+    *,
+    garden_root: str,
+    include_body: bool = False,
+) -> dict[str, Any]:
+    """Read a Garden's base Fairyfly model target."""
+    return _get_domain_base_model(
+        garden_root=garden_root,
+        domain="fairyfly",
+        include_body=include_body,
+    )
 
 
 def list_garden_artifacts(

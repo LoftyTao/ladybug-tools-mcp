@@ -45,7 +45,7 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Required Honeybee model target dict from create_honeybee_model, get_base_model, or list_garden_models; not full model body."
+                description="Required Honeybee model target dict from create_honeybee_model, get_base_honeybee_model, or list_garden_models; not full model body."
             ),
         ] = None,
         model_target: Annotated[

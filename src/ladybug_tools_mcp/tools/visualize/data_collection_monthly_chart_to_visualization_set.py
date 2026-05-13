@@ -17,7 +17,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="data_collection_monthly_chart_to_visualization_set",
-        description="Generic visualize path: create a Ladybug Display VisualizationSet from one or more Ladybug DataCollections using Ladybug MonthlyChart. Use this for energy result charts, schedule charts, weather charts, daily lines, monthly average lines, monthly per hour heatmaps/lines, total monthly summaries, and multi-series comparisons. Preferred Agent path is garden_root plus series items with data_collection_target from read_energy_result_data or another upstream tool and return_visualization_set=false, returning a compact visualization_set_target for visualization_set_to_html/svg instead of moving a large VisualizationSet dict. Each series item uses exactly one of data_collection or data_collection_target, not both, and may include label; the label is written into DataCollection header metadata as legend metadata for the chart legend.",
+        description="Generic visualize path: create a Ladybug Display VisualizationSet from one or more Ladybug DataCollections using Ladybug MonthlyChart. Use this for energy result charts, schedule charts, EPW/weather charts, UWG-vs-original weather comparisons, daily lines, monthly average lines, monthly per hour heatmaps/lines, total monthly summaries, and multi-series comparisons. Preferred Agent path is garden_root plus series items with data_collection_target from read_energy_result_data, read_weather_file_data, create_schedule_ruleset, or another upstream tool and return_visualization_set=false, returning a compact visualization_set_target for visualization_set_to_html/svg instead of moving a large VisualizationSet dict. Each series item uses exactly one of data_collection or data_collection_target, not both, and may include label; the label is written into DataCollection header metadata as legend metadata for the chart legend. Use x_dim and y_dim to pass Ladybug SDK MonthlyChart geometry dimensions through; monthly_per_hour defaults to a wider x_dim so filtered one-month/day charts stay readable.",
         tags={
             "visualize",
             "generic-visualize",
@@ -79,8 +79,22 @@ def register(mcp: FastMCP) -> None:
         ] = 34,
         time_marks: Annotated[
             bool,
-            Field(description="Whether month labels are replaced with time-of-day marks."),
+            Field(
+                description="Whether month labels are replaced with time-of-day marks. Automatically enabled for monthly_per_hour and total_monthly_per_hour charts."
+            ),
         ] = False,
+        x_dim: Annotated[
+            float | None,
+            Field(
+                description="Optional Ladybug SDK MonthlyChart X dimension for each month. Defaults to 10, or 50 for monthly_per_hour/total_monthly_per_hour charts."
+            ),
+        ] = None,
+        y_dim: Annotated[
+            float | None,
+            Field(
+                description="Optional Ladybug SDK MonthlyChart Y dimension for the chart height. Defaults to 40."
+            ),
+        ] = None,
         name: Annotated[
             str,
             Field(description="VisualizationSet identifier and display name."),
@@ -102,6 +116,8 @@ def register(mcp: FastMCP) -> None:
             stack=stack,
             percentile=percentile,
             time_marks=time_marks,
+            x_dim=x_dim,
+            y_dim=y_dim,
             name=name,
             return_visualization_set=return_visualization_set,
         )

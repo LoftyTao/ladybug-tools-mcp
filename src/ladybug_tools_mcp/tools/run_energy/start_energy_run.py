@@ -12,7 +12,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="start_energy_run",
-        description="Start an annual energy simulation / Honeybee Energy annual-energy-use recipe for a Garden Honeybee model and return immediately with target, energy_run_target, run_target, and summary_view.poll_next.arguments. Use this Agent path for energy use intensity, EUI, annual loads, and EnergyPlus/OpenStudio simulation runs. Agent weather data is Garden-managed: pass weather_target from download_epw/search_weather_files, then poll get_energy_run with garden_root and run_target instead of holding a blocking run_energy call open. Advanced users can pass Garden-local additional_idf_path, inline additional_idf_text, or measures_path for recipe additional-idf / OpenStudio measures.",
+        description="Start an annual energy simulation / Honeybee Energy annual-energy-use recipe for a Garden Honeybee model and return immediately with target, energy_run_target, run_target, and summary_view.poll_next.arguments. Use this Agent path for energy use intensity, EUI, annual loads, and EnergyPlus/OpenStudio simulation runs. Also use start_energy_run with reload_old=true to reload a completed annual energy simulation run. Agent weather data is Garden-managed: pass weather_target from download_epw/search_weather_files, then poll get_energy_run with garden_root and run_target instead of holding a blocking run_energy call open. Advanced users can pass Garden-local additional_idf_path, inline additional_idf_text, or measures_path for recipe additional-idf / OpenStudio measures.",
         tags={
             "run-energy",
             "energy",

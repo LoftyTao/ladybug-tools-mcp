@@ -169,7 +169,7 @@ def _transform_object(
         manifest,
         model,
         name=str(resolved_model_target["model_identifier"]),
-        set_base=manifest.base_model == resolved_model_target,
+        set_base=manifest.base_honeybee_model == resolved_model_target,
     )
     summary_view = _summary_for_target(
         target=target,

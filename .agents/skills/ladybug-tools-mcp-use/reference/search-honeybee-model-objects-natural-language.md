@@ -92,14 +92,14 @@
 ## 候选/未稳定路径
 
 - `face` 边界条件编辑的自然语言收敛已经有测试覆盖，但结果仍存在不稳定性，不能写成稳定推荐主路径
-- 只通过 `get_base_model` 理解 `room / wall / window` 层级关系，不是这轮自然语言验证的推荐入口
+- 只通过 `get_base_honeybee_model` 理解 `room / wall / window` 层级关系，不是这轮自然语言验证的推荐入口
 - `by_width_height` 参数化开窗已有 deterministic 覆盖，但尚未作为自然语言推荐主路径沉淀
 
 ## 高价值失败模式与避坑说明
 
 - 用户说 `模型` 时，不要机械理解成只能先操作 `Model object`
 - 如果任务目标是删窗、改墙、给墙开窗，优先搜索对象而不是先拉完整模型正文
-- 当前测试里已经明确要求避免把 `list_garden_models`、`get_base_model` 当成对象发现主链
+- 当前测试里已经明确要求避免把 `list_garden_models`、`get_base_honeybee_model` 当成对象发现主链
 - 如果已经定位到 room 和 host wall，应优先检查是否可以调用 `create_honeybee_apertures_by_parameters`；旧的“缺少参数化 aperture create”失败模式只适用于该工具实现前的验证记录
 - 2026-04-24 全量 agent integration 中，`Tiny_House_Office 房间朝前的外墙开几个窗` 曾只搜索到 `room`，随后最终回答停在“接下来要搜索 faces”的计划句，没有继续调用 `search_honeybee_model_objects(_object_type_="face")`。后续 prompt / disclosure 应明确：找到 room 只是中间状态，必须立刻继续搜索 face 或 aperture，不能把计划当成完成。
 

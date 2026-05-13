@@ -94,12 +94,29 @@ Energy SQL result source:
 
 Use the returned `data_collection_targets[0]` in the same Step 5 shape shown above. For multiple Energy result series, pass `output_names` in one `read_energy_result_data` call and place each returned target in its own `series[]` item with an explicit `label`. If the user does not know the exact EnergyPlus output names, pass `output_query` with optional `unit`, `data_type`, or `object_type` filters first, then use `summary_view.result_context.selected_outputs` to confirm which SQL outputs were selected. Natural heating/cooling requests can use `output_query="heating cooling"` or `"heating or cooling"` to match either load family, but exact `output_names` remains cheaper when available.
 
+EPW / UWG weather source:
+
+```json
+{
+  "name": "read_weather_file_data",
+  "arguments": {
+    "garden_root": "<garden root>",
+    "weather_target": "<download_epw.target or get_uwg_run.weather_target>",
+    "data_type": "dry_bulb_temperature",
+    "analysis_period": "7/1 to 7/31 between 0 and 23 @1",
+    "identifier": "boston_july_dry_bulb"
+  }
+}
+```
+
+Use the returned `data_collection_target` in Step 5. For original-EPW vs UWG-morphed-EPW comparisons, call `read_weather_file_data` once per EPW, pass both targets into `series[]`, set explicit labels such as `Original EPW` and `UWG Morphed EPW`, and use `time_interval="monthly_per_hour"` for a monthly average by hour pattern. `read_weather_file_data` uses the Ladybug SDK `EPW` properties directly; do not parse EPW text or handwrite DataCollection JSON. `analysis_period` accepts Ladybug strings such as `7/21 to 7/21 between 0 and 23 @1` for one day or `7/1 to 7/31 between 0 and 23 @1` for July.
+
 For Energy result charts, use `data_collection_hourly_plot_to_visualization_set` for an hourly heatmap-like HourlyPlot. Use `data_collection_monthly_chart_to_visualization_set.time_interval` for line/summary charts:
 
 - `hourly`: keep hourly values in MonthlyChart when the DataCollection is already hourly.
 - `daily`: average to daily values.
 - `monthly`: monthly average line.
-- `monthly_per_hour`: monthly average by hour pattern.
+- `monthly_per_hour`: monthly average by hour pattern. This interval automatically enables `time_marks` and defaults to SDK `MonthlyChart` dimensions `x_dim=50.0`, `y_dim=40.0` so one-month charts do not collapse into a narrow strip. Pass explicit `x_dim` / `y_dim` when the user asks to widen, compress, or stretch the chart geometry.
 - `total_daily`, `total_monthly`, `total_monthly_per_hour`: total variants when the data type supports totals.
 
 Use `series[].label` for the legend name; the tool writes it into DataCollection header metadata for MonthlyChart legend semantics.
@@ -127,8 +144,10 @@ Use `file_format="json"` for SDK-native Ladybug JSON and `file_format="csv"` for
 - Step 4 returns `data_target.target_type = "ladybug_data_collection"`.
 - Step 4 returns `data = null` when `return_data=false`, so the Agent does not carry 8760 values.
 - Energy result reads return `data_collection_targets[].target_type = "ladybug_data_collection"` when `save_data_collections=true`.
+- Weather reads return `data_collection_target.target_type = "ladybug_data_collection"` from `read_weather_file_data`.
 - DataCollection target loading can recover from bounded Agent-observed target shapes when the artifact still resolves inside the Garden: `artifact_name` instead of `path`, no-extension `.json` / `.csv` paths, or legacy `target_type="data_collection"`.
 - Step 5 returns `summary_view.series[].value_count`.
+- Step 5 returns `summary_view.time_marks=true` and `summary_view.chart_dimensions` for `monthly_per_hour` charts. The default is `{"x_dim": 50.0, "y_dim": 40.0}`, and explicit SDK dimension inputs are echoed there.
 - Step 5 returns `visualization_set_target` plus top-level `target` and omits `visualization_set` when `return_visualization_set=false`.
 - Step 6 returns `artifact_receipt.artifact_type = "visualization_html"` and an HTML path under `artifacts/visualization/html/`.
 - Step 6 accepts harmless `visualization_set_identifier` and `visualization_set_display_name` metadata hints if an Agent carries them from the upstream VisualizationSet; use `name` for the intended artifact file name.
@@ -159,3 +178,5 @@ Use `file_format="json"` for SDK-native Ladybug JSON and `file_format="csv"` for
 - 2026-04-30 supervised external Agent task 22 created a monthly chart VisualizationSet and HTML artifact from saved SQL DataCollection targets. After HTML/SVG export accepted metadata hints, the rerun passed with 3 inner MCP calls and no repeated MCP tools.
 - 2026-05-01 Codex main-process follow-up to `ladybug_mcp_tester` Batch C verified a real completed Energy SQL run path: `read_energy_result_data(output_name="Electricity:Facility", save_data_collections=true) -> data_collection_to_file(file_format=json/csv, name=...) -> data_collection_monthly_chart_to_visualization_set(name=..., return_visualization_set=false) -> data_collection_hourly_plot_to_visualization_set(name=..., return_visualization_set=false) -> visualization_set_to_html(name=...) -> visualization_set_to_svg(name=..., view="Top")`. The run used `data_collection_targets[0]`; no full 52,560-value collection was passed through Agent context.
 - 2026-05-01 Codex `ladybug_mcp_tester` natural broad Batch C Task 15 verified the same path from a fresh completed run. The retained artifacts included non-empty JSON, CSV, monthly HTML/SVG, hourly HTML, and VisualizationSet JSON files. Do not treat the recipe-generated `visual-report` output as the chart deliverable unless it is non-empty; create explicit DataCollection/VisualizationSet exports for user-facing charts.
+- 2026-05-13 deterministic MCP verification passed for EPW weather data: `read_weather_file_data(weather_target, analysis_period="7/1 to 7/31 between 0 and 23 @1") -> data_collection_monthly_chart_to_visualization_set(time_interval="monthly_per_hour", return_visualization_set=false) -> visualization_set_to_html`. A retained Boston UWG case also used original EPW plus UWG morphed EPW dry-bulb targets to create July 21 and July monthly-per-hour VisualizationSet HTML/SVG artifacts.
+- 2026-05-13 deterministic MCP verification passed for SDK chart dimensions: `data_collection_hourly_plot_to_visualization_set(x_dim=3, y_dim=5)` and `data_collection_monthly_chart_to_visualization_set(x_dim=20, y_dim=55)` both returned `summary_view.chart_dimensions` and generated matching axis geometry through Ladybug SDK chart objects.

@@ -86,6 +86,6 @@ shade_grid = await call_tool("create_radiance_sensor_grid_from_object", {
 ## Evidence
 
 - Agent integration smoke added 2026-04-29 verifies one Code Mode `execute` can create a Honeybee model, attach one SensorGrid and one View, and persist both Garden artifacts.
-- Supervised external Matrix task 28 on 2026-04-30 verifies a natural MiniMax Agent can attach a compact SensorGrid and View to the current Honeybee model. Pre-fix runs exposed `host_target`, missing identifier, `radiance/sensorgrids`, `center`, `vtc` / `vterrain`, and implicit attach drift; after bounded compatibility, the retained run passed at `31.128s`, with one SensorGrid create and one View create. Residual cost smell: repeated `get_base_model`.
+- Supervised external Matrix task 28 on 2026-04-30 verifies a natural MiniMax Agent can attach a compact SensorGrid and View to the current Honeybee model. Pre-fix runs exposed `host_target`, missing identifier, `radiance/sensorgrids`, `center`, `vtc` / `vterrain`, and implicit attach drift; after bounded compatibility, the retained run passed at `31.128s`, with one SensorGrid create and one View create. Residual cost smell: repeated `get_base_honeybee_model`.
 - 2026-05-01 deterministic regression verifies `create_radiance_sensor_grid_from_object` can create and attach a SensorGrid from a detached Honeybee Shade target.
 - 2026-05-01 deterministic regression verifies the same object-hosted path persists `SensorGrid.mesh` for surface-result VisualizationSet mesh coloring.

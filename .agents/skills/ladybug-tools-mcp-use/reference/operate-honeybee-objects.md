@@ -11,7 +11,7 @@ OpenAI Agents focused smoke 已通过 `create_honeybee_shades_by_parameters -> m
 ## 最短路径
 
 1. `search_tools` 查询 `move honeybee object transform` 或具体操作。
-2. 如还没有目标，先用 `search_honeybee_model_objects` 找 typed target；整体模型可用 `get_base_model`。
+2. 如还没有目标，先用 `search_honeybee_model_objects` 找 typed target；整体模型可用 `get_base_honeybee_model`。
 3. 调用四个工具之一：
    - `move_object`
    - `rotate_object`

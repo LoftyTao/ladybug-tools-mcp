@@ -74,9 +74,11 @@ def resolve_model_target(
 ) -> tuple[GardenManifest, dict[str, Any]]:
     """Resolve an explicit model target or the Garden base model."""
     manifest = GardenManifest.read(garden_root)
-    model_target = model_target or manifest.base_model
+    model_target = model_target or manifest.base_honeybee_model
     if not model_target:
-        raise ValueError("Garden has no base model. Create or set a Honeybee model first.")
+        raise ValueError(
+            "Garden has no base Honeybee model. Create or set a Honeybee model first."
+        )
     model_target = normalize_honeybee_model_target(model_target)
     if model_target.get("domain") != "honeybee":
         raise ValueError("Only Honeybee model targets are supported by this tool.")
@@ -144,9 +146,13 @@ def _write_lock_model_identifier(
         if identifier:
             return identifier
     manifest = GardenManifest.read(garden_root)
-    if not manifest.base_model:
-        return "__no_base_model__"
-    return str(normalize_honeybee_model_target(manifest.base_model)["model_identifier"])
+    if not manifest.base_honeybee_model:
+        return "__no_base_honeybee_model__"
+    return str(
+        normalize_honeybee_model_target(manifest.base_honeybee_model)[
+            "model_identifier"
+        ]
+    )
 
 
 def _model_identifier_from_target_like(value: Any) -> str | None:
@@ -213,8 +219,8 @@ def save_honeybee_model(
         )
     ]
     manifest.models.append(target)
-    if set_base or manifest.base_model is None:
-        manifest.base_model = target
+    if set_base or manifest.base_honeybee_model is None:
+        manifest.base_honeybee_model = target
     manifest.write(garden_root)
     return target, persisted_path
 

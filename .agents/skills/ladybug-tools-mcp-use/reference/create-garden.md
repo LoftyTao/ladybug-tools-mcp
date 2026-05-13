@@ -22,7 +22,7 @@
    调 `create_garden`
 
 如果用户给的是已经存在的 Garden 路径，只是想确认项目状态，优先调用
-`get_garden` 或 `get_base_model`。不要在 Code Mode 里用 Python
+`get_garden` 或 `get_base_honeybee_model`。不要在 Code Mode 里用 Python
 `import os` / `os.path.exists` 做文件探测。
 
 ## deterministic-pass/candidate 默认 root 参数形态

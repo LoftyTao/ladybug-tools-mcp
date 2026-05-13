@@ -18,7 +18,8 @@ from garden.paths import to_posix_relative
 SESSION_RELATIVE_PATH = "tmp/web_view/session.json"
 VTKJS_ARTIFACT_TYPE = "visualization_vtkjs"
 SUPPORTED_PREVIEW_KINDS = (
-    "base_model",
+    "base_honeybee_model",
+    "base_dragonfly_model",
     "object_edit",
     "search_highlight",
     "analysis_overlay",

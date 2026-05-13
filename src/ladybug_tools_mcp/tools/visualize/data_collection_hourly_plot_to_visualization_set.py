@@ -17,7 +17,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="data_collection_hourly_plot_to_visualization_set",
-        description="Generic visualize path: create a Ladybug Display VisualizationSet hourly plot from one hourly Ladybug DataCollection using Ladybug HourlyPlot. Use this for hourly energy result data, schedules, weather, comfort, or other time-series data after an upstream tool returns a ladybug_data_collection target. Preferred Agent path is garden_root plus data_collection_target from read_energy_result_data or another upstream tool and return_visualization_set=false, returning a compact visualization_set_target for visualization_set_to_html/svg instead of moving a large VisualizationSet dict. Direct data_collection dict input remains available for payload/debug workflows.",
+        description="Generic visualize path: create a Ladybug Display VisualizationSet hourly plot from one hourly Ladybug DataCollection using Ladybug HourlyPlot. Use this for hourly energy result data, schedules, weather, comfort, or other time-series data after an upstream tool returns a ladybug_data_collection target. Preferred Agent path is garden_root plus data_collection_target from read_energy_result_data or another upstream tool and return_visualization_set=false, returning a compact visualization_set_target for visualization_set_to_html/svg instead of moving a large VisualizationSet dict. Direct data_collection dict input remains available for payload/debug workflows. Use x_dim and y_dim to pass Ladybug SDK HourlyPlot cell dimensions through without post-scaling exported SVG/HTML.",
         tags={
             "visualize",
             "generic-visualize",
@@ -59,6 +59,18 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(description="VisualizationSet identifier and display name."),
         ] = "data_collection_hourly_plot",
+        x_dim: Annotated[
+            float | None,
+            Field(
+                description="Optional Ladybug SDK HourlyPlot X dimension for each day/cell column. Defaults to 1."
+            ),
+        ] = None,
+        y_dim: Annotated[
+            float | None,
+            Field(
+                description="Optional Ladybug SDK HourlyPlot Y dimension for each hour/cell row. Defaults to 4."
+            ),
+        ] = None,
         return_visualization_set: Annotated[
             bool,
             Field(
@@ -71,6 +83,8 @@ def register(mcp: FastMCP) -> None:
             data_collection=data_collection,
             data_collection_target=data_collection_target,
             garden_root=garden_root,
+            x_dim=x_dim,
+            y_dim=y_dim,
             name=name,
             return_visualization_set=return_visualization_set,
         )

@@ -17,11 +17,11 @@ from ladybug_tools_mcp.tools.garden.get_garden_version_status import (
 from ladybug_tools_mcp.tools.garden.get_garden import (
     register as register_get_garden,
 )
-from ladybug_tools_mcp.tools.garden.get_base_model import (
-    register as register_get_base_model,
+from ladybug_tools_mcp.tools.garden.get_base_dragonfly_model import (
+    register as register_get_base_dragonfly_model,
 )
-from ladybug_tools_mcp.tools.garden.get_honeybee_model import (
-    register as register_get_honeybee_model,
+from ladybug_tools_mcp.tools.garden.get_base_honeybee_model import (
+    register as register_get_base_honeybee_model,
 )
 from ladybug_tools_mcp.tools.garden.list_garden_artifacts import (
     register as register_list_garden_artifacts,
@@ -41,8 +41,11 @@ from ladybug_tools_mcp.tools.garden.list_garden_versions import (
 from ladybug_tools_mcp.tools.garden.restore_garden_version import (
     register as register_restore_garden_version,
 )
-from ladybug_tools_mcp.tools.garden.save_base_model import (
-    register as register_save_base_model,
+from ladybug_tools_mcp.tools.garden.save_base_dragonfly_model import (
+    register as register_save_base_dragonfly_model,
+)
+from ladybug_tools_mcp.tools.garden.save_base_honeybee_model import (
+    register as register_save_base_honeybee_model,
 )
 from ladybug_tools_mcp.tools.garden.search_honeybee_models import (
     register as register_search_honeybee_models,
@@ -53,8 +56,11 @@ from ladybug_tools_mcp.tools.garden.search_garden_artifacts import (
 from ladybug_tools_mcp.tools.garden.search_garden_objects import (
     register as register_search_garden_objects,
 )
-from ladybug_tools_mcp.tools.garden.set_base_model import (
-    register as register_set_base_model,
+from ladybug_tools_mcp.tools.garden.set_base_dragonfly_model import (
+    register as register_set_base_dragonfly_model,
+)
+from ladybug_tools_mcp.tools.garden.set_base_honeybee_model import (
+    register as register_set_base_honeybee_model,
 )
 
 
@@ -70,10 +76,12 @@ def register(mcp: FastMCP) -> None:
     register_list_gardens(mcp)
     register_list_garden_models(mcp)
     register_search_honeybee_models(mcp)
-    register_set_base_model(mcp)
-    register_get_base_model(mcp)
-    register_get_honeybee_model(mcp)
-    register_save_base_model(mcp)
+    register_set_base_honeybee_model(mcp)
+    register_set_base_dragonfly_model(mcp)
+    register_get_base_honeybee_model(mcp)
+    register_get_base_dragonfly_model(mcp)
+    register_save_base_honeybee_model(mcp)
+    register_save_base_dragonfly_model(mcp)
     register_list_garden_artifacts(mcp)
     register_search_garden_artifacts(mcp)
     register_search_garden_objects(mcp)

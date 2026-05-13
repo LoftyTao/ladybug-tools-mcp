@@ -154,7 +154,7 @@ Low-U ConstructionSet handoff example:
   `tests/.artifacts/agent_integration/manual_staged_metrics_c_low_u_window_disclosure_v1`.
   The run closed at `55,937` tokens and deterministic inspection confirmed both
   rooms used `stage_c_envelope_set`. Residual drift: the Agent used
-  `get_base_model` as a validation stand-in, so validation flags still need
+  `get_base_honeybee_model` as a validation stand-in, so validation flags still need
   explicit `validate_honeybee_model` guidance.
 - 2026-04-28 live Garden Round 13 verified the same low-U target handoff on the
   Grasshopper-followed `grasshopper_live_model`: `create_window_construction.target

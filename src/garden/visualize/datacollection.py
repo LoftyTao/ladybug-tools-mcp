@@ -22,6 +22,11 @@ from garden.visualize.artifacts import _register_artifact, _resolve_output_dir
 from garden.visualize.artifacts import save_visualization_set
 
 DATA_COLLECTION_MONTHLY_CHART_HTML_ARTIFACT_TYPE = "data_collection_monthly_chart_html"
+MONTHLY_CHART_DEFAULT_X_DIM = 10.0
+MONTHLY_PER_HOUR_DEFAULT_X_DIM = 50.0
+MONTHLY_CHART_DEFAULT_Y_DIM = 40.0
+HOURLY_PLOT_DEFAULT_X_DIM = 1.0
+HOURLY_PLOT_DEFAULT_Y_DIM = 4.0
 
 _MONTHLY_CHART_TIME_INTERVALS = {
     "as_is",
@@ -163,6 +168,60 @@ def _visualization_set_summary(visualization_set: dict[str, Any]) -> dict[str, A
     }
 
 
+def _is_monthly_per_hour_chart(
+    series_summaries: list[dict[str, Any]],
+    *,
+    requested_time_interval: str,
+) -> bool:
+    interval = requested_time_interval.strip().lower()
+    if interval in {"monthly_per_hour", "total_monthly_per_hour"}:
+        return True
+    return any(
+        summary.get("time_interval") == "monthly_per_hour"
+        for summary in series_summaries
+    )
+
+
+def _positive_dimension(value: float | int | None, default: float, field_name: str) -> float:
+    if value is None:
+        return default
+    try:
+        dimension = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a positive number.") from exc
+    if dimension <= 0:
+        raise ValueError(f"{field_name} must be greater than 0.")
+    return dimension
+
+
+def _monthly_chart_dimensions(
+    *,
+    x_dim: float | int | None,
+    y_dim: float | int | None,
+    is_monthly_per_hour: bool,
+) -> dict[str, float]:
+    default_x_dim = (
+        MONTHLY_PER_HOUR_DEFAULT_X_DIM
+        if is_monthly_per_hour
+        else MONTHLY_CHART_DEFAULT_X_DIM
+    )
+    return {
+        "x_dim": _positive_dimension(x_dim, default_x_dim, "x_dim"),
+        "y_dim": _positive_dimension(y_dim, MONTHLY_CHART_DEFAULT_Y_DIM, "y_dim"),
+    }
+
+
+def _hourly_plot_dimensions(
+    *,
+    x_dim: float | int | None,
+    y_dim: float | int | None,
+) -> dict[str, float]:
+    return {
+        "x_dim": _positive_dimension(x_dim, HOURLY_PLOT_DEFAULT_X_DIM, "x_dim"),
+        "y_dim": _positive_dimension(y_dim, HOURLY_PLOT_DEFAULT_Y_DIM, "y_dim"),
+    }
+
+
 def _set_visualization_set_name(vis_set: Any, name: str | None) -> None:
     if name:
         vis_set.identifier = slugify_name(name)
@@ -267,6 +326,8 @@ def data_collection_hourly_plot_to_visualization_set(
     data_collection: dict[str, Any] | None = None,
     data_collection_target: dict[str, Any] | None = None,
     garden_root: str | None = None,
+    x_dim: float | int | None = None,
+    y_dim: float | int | None = None,
     name: str = "data_collection_hourly_plot",
     return_visualization_set: bool = True,
 ) -> dict[str, Any]:
@@ -279,7 +340,8 @@ def data_collection_hourly_plot_to_visualization_set(
     )
     if _collection_time_interval(collection) != "hourly":
         raise ValueError("HourlyPlot requires an hourly DataCollection.")
-    vis_set = hourly_plot_to_vis_set(HourlyPlot(collection))
+    chart_dimensions = _hourly_plot_dimensions(x_dim=x_dim, y_dim=y_dim)
+    vis_set = hourly_plot_to_vis_set(HourlyPlot(collection, **chart_dimensions))
     _set_visualization_set_name(vis_set, name)
     vis_set_dict = vis_set.to_dict()
     summary = _collection_summary(
@@ -292,6 +354,7 @@ def data_collection_hourly_plot_to_visualization_set(
         "summary_view": {
             "visualization_set": _visualization_set_summary(vis_set_dict),
             "data_collection": summary,
+            "chart_dimensions": chart_dimensions,
         },
         "report": make_report(
             status="ok",
@@ -306,6 +369,7 @@ def data_collection_hourly_plot_to_visualization_set(
             source={
                 "producer": "data_collection_hourly_plot_to_visualization_set",
                 "data_collection": summary,
+                "chart_dimensions": chart_dimensions,
             },
         )
         result["target"] = saved["target"]
@@ -327,6 +391,8 @@ def data_collection_monthly_chart_to_visualization_set(
     stack: bool = False,
     percentile: float = 34,
     time_marks: bool = False,
+    x_dim: float | int | None = None,
+    y_dim: float | int | None = None,
     name: str = "data_collection_monthly_chart",
     return_visualization_set: bool = True,
 ) -> dict[str, Any]:
@@ -336,10 +402,25 @@ def data_collection_monthly_chart_to_visualization_set(
         time_interval=time_interval,
         garden_root=garden_root,
     )
-    chart = MonthlyChart(collections, stack=stack, percentile=percentile)
+    is_monthly_per_hour = _is_monthly_per_hour_chart(
+        series_summaries,
+        requested_time_interval=time_interval,
+    )
+    resolved_time_marks = time_marks or is_monthly_per_hour
+    chart_dimensions = _monthly_chart_dimensions(
+        x_dim=x_dim,
+        y_dim=y_dim,
+        is_monthly_per_hour=is_monthly_per_hour,
+    )
+    chart = MonthlyChart(
+        collections,
+        stack=stack,
+        percentile=percentile,
+        **chart_dimensions,
+    )
     vis_set = monthly_chart_to_vis_set(
         chart,
-        time_marks=time_marks,
+        time_marks=resolved_time_marks,
         global_title=chart_title,
         y_axis_title=y_axis_title,
     )
@@ -350,6 +431,8 @@ def data_collection_monthly_chart_to_visualization_set(
         "summary_view": {
             "visualization_set": _visualization_set_summary(vis_set_dict),
             "time_interval": time_interval,
+            "time_marks": resolved_time_marks,
+            "chart_dimensions": chart_dimensions,
             "chart_title": chart_title,
             "series": series_summaries,
         },
@@ -367,6 +450,8 @@ def data_collection_monthly_chart_to_visualization_set(
                 "producer": "data_collection_monthly_chart_to_visualization_set",
                 "series": series_summaries,
                 "time_interval": time_interval,
+                "time_marks": resolved_time_marks,
+                "chart_dimensions": chart_dimensions,
                 "chart_title": chart_title,
             },
         )
@@ -389,6 +474,8 @@ def data_collection_monthly_chart_to_html(
     stack: bool = False,
     percentile: float = 34,
     time_marks: bool = False,
+    x_dim: float | int | None = None,
+    y_dim: float | int | None = None,
     name: str = "data_collection_monthly_chart",
     output_subdir: str = "artifacts/visualization/datacollections/html",
 ) -> dict[str, Any]:
@@ -400,12 +487,27 @@ def data_collection_monthly_chart_to_html(
         time_interval=time_interval,
         garden_root=str(garden_root_path),
     )
+    is_monthly_per_hour = _is_monthly_per_hour_chart(
+        series_summaries,
+        requested_time_interval=time_interval,
+    )
+    resolved_time_marks = time_marks or is_monthly_per_hour
+    chart_dimensions = _monthly_chart_dimensions(
+        x_dim=x_dim,
+        y_dim=y_dim,
+        is_monthly_per_hour=is_monthly_per_hour,
+    )
     output_dir = _resolve_output_dir(garden_root_path, output_subdir)
     safe_name = slugify_name(name)
-    chart = MonthlyChart(collections, stack=stack, percentile=percentile)
+    chart = MonthlyChart(
+        collections,
+        stack=stack,
+        percentile=percentile,
+        **chart_dimensions,
+    )
     vis_set = monthly_chart_to_vis_set(
         chart,
-        time_marks=time_marks,
+        time_marks=resolved_time_marks,
         global_title=chart_title,
         y_axis_title=y_axis_title,
     )
@@ -428,7 +530,8 @@ def data_collection_monthly_chart_to_html(
         "y_axis_title": y_axis_title,
         "stack": stack,
         "percentile": percentile,
-        "time_marks": time_marks,
+        "time_marks": resolved_time_marks,
+        "chart_dimensions": chart_dimensions,
     }
     artifact = _register_artifact(
         manifest,
@@ -452,6 +555,8 @@ def data_collection_monthly_chart_to_html(
             "artifact": artifact,
             "exists": html_path.is_file(),
             "time_interval": time_interval,
+            "time_marks": resolved_time_marks,
+            "chart_dimensions": chart_dimensions,
             "chart_title": chart_title,
             "series": series_summaries,
         },

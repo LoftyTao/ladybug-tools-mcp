@@ -10,7 +10,7 @@ from garden.honeybee_core.search import (
     search_honeybee_model_objects as service,
 )
 from garden.store import (
-    get_base_model as get_base_model_service,
+    get_base_honeybee_model as get_base_honeybee_model_service,
     list_garden_artifacts,
 )
 
@@ -341,8 +341,11 @@ def register(mcp: FastMCP) -> None:
                 object_type = "face"
             elif object_type == "all":
                 object_type = normalized_matches_type
-        if object_type in {"model", "models", "base_model", "base_models", "honeybee_model", "honeybee_models"}:
-            base = get_base_model_service(garden_root=garden_root, include_body=False)
+        if object_type in {"model", "models", "honeybee_model", "honeybee_models"}:
+            base = get_base_honeybee_model_service(
+                garden_root=garden_root,
+                include_body=False,
+            )
             target = base.get("target")
             matches = []
             if isinstance(target, dict):
@@ -361,7 +364,7 @@ def register(mcp: FastMCP) -> None:
                 "summary_view": {
                     "object_type": "model",
                     "count": len(matches),
-                    "has_base_model": target is not None,
+                    "has_base_honeybee_model": target is not None,
                 },
                 "report": base.get("report"),
             }

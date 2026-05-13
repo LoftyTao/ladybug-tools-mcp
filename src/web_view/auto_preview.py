@@ -7,8 +7,10 @@ from typing import Any
 
 from ladybug_display.visualization import VisualizationSet
 
+from garden.dragonfly_core.display import dragonfly_model_to_visualization_set
 from garden.paths import slugify_name
 from garden.visualize.honeybee import honeybee_model_to_visualization_set
+from garden.visualize.artifacts import load_visualization_set
 from web_view.session import (
     read_web_view_session,
     record_preview_failure,
@@ -42,11 +44,100 @@ SIGNIFICANT_TOOL_NAMES = {
     "scale_object",
     "mirror_object",
     "relate_honeybee_model",
-    "set_base_model",
-    "save_base_model",
+    "set_base_honeybee_model",
+    "save_base_honeybee_model",
+    "create_dragonfly_model",
+    "create_dragonfly_room2d",
+    "create_dragonfly_story",
+    "create_dragonfly_building",
+    "create_dragonfly_context_shade",
+    "edit_dragonfly_model",
+    "edit_dragonfly_room2d",
+    "edit_dragonfly_story",
+    "edit_dragonfly_building",
+    "add_dragonfly_stories_to_building",
+    "remove_dragonfly_stories_from_building",
+    "solve_dragonfly_story_adjacency",
+    "reset_dragonfly_story_adjacency",
+    "clean_dragonfly_room2d_geometry",
+    "apply_dragonfly_window_parameter",
+    "apply_dragonfly_shading_parameter",
+    "apply_dragonfly_energy_properties",
+    "apply_dragonfly_radiance_properties",
+    "apply_dragonfly_uwg_properties",
+    "honeybee_model_to_dragonfly",
+    "set_base_dragonfly_model",
+    "save_base_dragonfly_model",
+    "dragonfly_model_to_honeybee",
+}
+FAIRYFLY_AUTHORING_TOOL_NAMES = {
+    "add_fairyfly_shape_to_model",
+    "add_fairyfly_boundary_to_model",
+    "set_base_fairyfly_model",
+}
+VISUALIZATION_SET_RESULT_TOOL_NAMES = {
+    "dragonfly_model_to_visualization_set",
+    "dragonfly_model_envelope_edges_to_visualization_set",
+    "dragonfly_models_to_comparison_visualization_set",
+    "fairyfly_model_to_visualization_set",
+    "fairyfly_therm_result_to_visualization_set",
 }
 VISUALIZATION_EXPORT_TOOL_NAMES = {
     "visualization_set_to_vtkjs",
+}
+DRAGONFLY_MODEL_PREVIEW_TOOL_NAMES = {
+    "create_dragonfly_model",
+    "create_dragonfly_room2d",
+    "create_dragonfly_story",
+    "create_dragonfly_building",
+    "create_dragonfly_context_shade",
+    "edit_dragonfly_model",
+    "edit_dragonfly_room2d",
+    "edit_dragonfly_story",
+    "edit_dragonfly_building",
+    "add_dragonfly_stories_to_building",
+    "remove_dragonfly_stories_from_building",
+    "solve_dragonfly_story_adjacency",
+    "reset_dragonfly_story_adjacency",
+    "clean_dragonfly_room2d_geometry",
+    "apply_dragonfly_window_parameter",
+    "apply_dragonfly_shading_parameter",
+    "apply_dragonfly_energy_properties",
+    "apply_dragonfly_radiance_properties",
+    "apply_dragonfly_uwg_properties",
+    "honeybee_model_to_dragonfly",
+    "set_base_dragonfly_model",
+    "save_base_dragonfly_model",
+}
+HONEYBEE_MODEL_PREVIEW_TOOL_NAMES = {
+    "create_honeybee_model",
+    "create_honeybee_room",
+    "create_honeybee_face",
+    "create_honeybee_aperture",
+    "create_honeybee_apertures_by_parameters",
+    "create_honeybee_door",
+    "create_honeybee_shade",
+    "create_honeybee_shades_by_parameters",
+    "create_honeybee_shades_by_ratio",
+    "edit_honeybee_model",
+    "edit_honeybee_room",
+    "edit_honeybee_face",
+    "edit_honeybee_aperture",
+    "edit_honeybee_door",
+    "edit_honeybee_shade",
+    "remove_honeybee_room",
+    "remove_honeybee_face",
+    "remove_honeybee_aperture",
+    "remove_honeybee_door",
+    "remove_honeybee_shade",
+    "move_object",
+    "rotate_object",
+    "scale_object",
+    "mirror_object",
+    "relate_honeybee_model",
+    "set_base_honeybee_model",
+    "save_base_honeybee_model",
+    "dragonfly_model_to_honeybee",
 }
 SKIPPED_TOOL_NAMES = {
     "start_web_view_mode",
@@ -73,16 +164,34 @@ def _find_garden_root(value: Any) -> str | None:
 
 
 def _preview_kind(tool_name: str) -> str:
-    if tool_name in {"create_honeybee_model", "set_base_model", "save_base_model"}:
-        return "base_model"
+    if tool_name in {
+        "create_honeybee_model",
+        "set_base_honeybee_model",
+        "save_base_honeybee_model",
+    }:
+        return "base_honeybee_model"
+    if tool_name in {
+        "create_dragonfly_model",
+        "set_base_dragonfly_model",
+        "save_base_dragonfly_model",
+    }:
+        return "base_dragonfly_model"
     if tool_name in VISUALIZATION_EXPORT_TOOL_NAMES:
         return "analysis_overlay"
+    if tool_name in VISUALIZATION_SET_RESULT_TOOL_NAMES:
+        return "analysis_overlay"
+    if tool_name == "dragonfly_model_to_honeybee":
+        return "base_honeybee_model"
+    if tool_name == "honeybee_model_to_dragonfly":
+        return "base_dragonfly_model"
     return "object_edit"
 
 
 def _is_significant_tool(tool_name: str) -> bool:
     return (
         tool_name in SIGNIFICANT_TOOL_NAMES
+        or tool_name in FAIRYFLY_AUTHORING_TOOL_NAMES
+        or tool_name in VISUALIZATION_SET_RESULT_TOOL_NAMES
         or tool_name in VISUALIZATION_EXPORT_TOOL_NAMES
     )
 
@@ -143,6 +252,102 @@ def _record_existing_vtkjs_export(
     )
 
 
+def _visualization_set_from_result(
+    *,
+    garden_root: str,
+    result: Any,
+) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+    visualization_set = result.get("visualization_set")
+    if isinstance(visualization_set, dict):
+        return visualization_set
+    visualization_set_target = result.get("visualization_set_target")
+    if not isinstance(visualization_set_target, dict):
+        return None
+    return load_visualization_set(
+        garden_root=garden_root,
+        visualization_set_target=visualization_set_target,
+    )
+
+
+def _model_target_from_result(*, result: Any, domain: str) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+    plural_key = f"{domain}_model_targets"
+    targets = result.get(plural_key)
+    if isinstance(targets, list) and targets and isinstance(targets[0], dict):
+        return targets[0]
+    singular_key = f"{domain}_model_target"
+    target = result.get(singular_key)
+    if isinstance(target, dict):
+        return target
+    target = result.get("model_target")
+    if isinstance(target, dict) and target.get("domain") == domain:
+        return target
+    return None
+
+
+def _record_visualization_set_result_preview(
+    *,
+    garden_root: str,
+    tool_name: str,
+    result: Any,
+    session: dict[str, Any],
+) -> None:
+    visualization_set = _visualization_set_from_result(
+        garden_root=garden_root,
+        result=result,
+    )
+    if visualization_set is None:
+        return
+    preview_name = _session_preview_name(session=session, tool_name=tool_name)
+    vtkjs_path = _export_session_vtkjs(
+        garden_root=garden_root,
+        visualization_set=visualization_set,
+        name=preview_name,
+    )
+    record_preview_file_step(
+        garden_root=garden_root,
+        preview_kind=_preview_kind(tool_name),
+        label=f"Code Mode preview after {tool_name}",
+        vtkjs_file_path=vtkjs_path,
+        source_tool=tool_name,
+        summary=result.get("summary_view", {}) if isinstance(result, dict) else {},
+    )
+
+
+def _record_fairyfly_authoring_preview(
+    *,
+    garden_root: str,
+    tool_name: str,
+    session: dict[str, Any],
+) -> None:
+    from garden.fairyfly.display import fairyfly_model_to_visualization_set
+
+    preview_name = _session_preview_name(session=session, tool_name=tool_name)
+    visualization = fairyfly_model_to_visualization_set(
+        garden_root=garden_root,
+        color_by="material",
+        include_boundaries=True,
+        name=preview_name,
+        return_visualization_set=True,
+    )
+    vtkjs_path = _export_session_vtkjs(
+        garden_root=garden_root,
+        visualization_set=visualization["visualization_set"],
+        name=preview_name,
+    )
+    record_preview_file_step(
+        garden_root=garden_root,
+        preview_kind=_preview_kind(tool_name),
+        label=f"Code Mode preview after {tool_name}",
+        vtkjs_file_path=vtkjs_path,
+        source_tool=tool_name,
+        summary=visualization.get("summary_view", {}),
+    )
+
+
 def maybe_record_code_mode_preview(
     *,
     tool_name: str,
@@ -168,18 +373,53 @@ def maybe_record_code_mode_preview(
                 result=result,
             )
             return
+        if tool_name in VISUALIZATION_SET_RESULT_TOOL_NAMES:
+            _record_visualization_set_result_preview(
+                garden_root=garden_root,
+                tool_name=tool_name,
+                result=result,
+                session=session,
+            )
+            return
+        if tool_name in FAIRYFLY_AUTHORING_TOOL_NAMES:
+            _record_fairyfly_authoring_preview(
+                garden_root=garden_root,
+                tool_name=tool_name,
+                session=session,
+            )
+            return
 
-        visualization = honeybee_model_to_visualization_set(
-            garden_root=garden_root,
-            color_by="type",
-            include_wireframe=True,
-            name=_session_preview_name(session=session, tool_name=tool_name),
-            return_visualization_set=True,
-        )
+        preview_name = _session_preview_name(session=session, tool_name=tool_name)
+        if tool_name in DRAGONFLY_MODEL_PREVIEW_TOOL_NAMES:
+            visualization = dragonfly_model_to_visualization_set(
+                garden_root=garden_root,
+                model_target=_model_target_from_result(
+                    result=result,
+                    domain="dragonfly",
+                ),
+                color_by="type",
+                include_wireframe=True,
+                name=preview_name,
+                return_visualization_set=True,
+            )
+        elif tool_name in HONEYBEE_MODEL_PREVIEW_TOOL_NAMES:
+            visualization = honeybee_model_to_visualization_set(
+                garden_root=garden_root,
+                model_target=_model_target_from_result(
+                    result=result,
+                    domain="honeybee",
+                ),
+                color_by="type",
+                include_wireframe=True,
+                name=preview_name,
+                return_visualization_set=True,
+            )
+        else:
+            return
         vtkjs_path = _export_session_vtkjs(
             garden_root=garden_root,
             visualization_set=visualization["visualization_set"],
-            name=_session_preview_name(session=session, tool_name=tool_name),
+            name=preview_name,
         )
         record_preview_file_step(
             garden_root=garden_root,

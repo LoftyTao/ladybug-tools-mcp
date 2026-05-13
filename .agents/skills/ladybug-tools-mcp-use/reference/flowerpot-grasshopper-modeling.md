@@ -34,7 +34,7 @@
 ## 已验证最短路径
 
 1. Flowerpot runtime 或 FP 组件创建 Garden Flowerpot
-2. `FP Honeybee Link` / Flowerpot worker 将 Honeybee model 写为 Garden base model，并返回 `kind=base_model` 的 Flowerpot
+2. `FP Honeybee Link` / Flowerpot worker 将 Honeybee model 写为 Garden base model，并返回 `kind=base_honeybee_model` 的 Flowerpot
 3. Agent 在 Code Mode 中调用：
    - Prefer `get_active_flowerpot_context(garden_root=...)` when the Garden root is known and the user says "current Grasshopper model" or "active context".
    - `get_flowerpot(flowerpot=<opaque Flowerpot>)`

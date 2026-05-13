@@ -163,7 +163,7 @@ def _save_model_with_radiance_asset(
         manifest,
         model,
         name=str(model_target["model_identifier"]),
-        set_base=manifest.base_model == model_target,
+        set_base=manifest.base_honeybee_model == model_target,
     )
     receipt = make_persistence_receipt(
         status="persisted",

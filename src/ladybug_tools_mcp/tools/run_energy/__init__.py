@@ -32,6 +32,9 @@ from ladybug_tools_mcp.tools.run_energy.read_energy_eui import (
 from ladybug_tools_mcp.tools.run_energy.read_energy_result_data import (
     register as register_read_energy_result_data,
 )
+from ladybug_tools_mcp.tools.run_energy.read_weather_file_data import (
+    register as register_read_weather_file_data,
+)
 from ladybug_tools_mcp.tools.run_energy.run_energy import (
     register as register_run_energy,
 )
@@ -60,5 +63,6 @@ def register(mcp: FastMCP) -> None:
     register_read_energy_eui(mcp)
     register_read_energy_errors(mcp)
     register_read_energy_result_data(mcp)
+    register_read_weather_file_data(mcp)
     register_energy_result_hourly_plot_to_html(mcp)
     register_energy_result_monthly_chart_to_html(mcp)

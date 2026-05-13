@@ -17,7 +17,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="data_collection_monthly_chart_to_html",
-        description="Create a Garden HTML artifact from one or more Ladybug DataCollections using Ladybug MonthlyChart. Preferred Agent path is series items with data_collection_target from Garden-backed upstream tools; direct data_collection dict input remains available for payload/debug workflows. Use for schedule data, weather data, comfort data, energy result data, daily or monthly aggregation, monthly-per-hour patterns, and multi-series comparisons. Each series item uses data_collection or data_collection_target and optional label; the label is written into DataCollection header metadata for the chart legend.",
+        description="Create a Garden HTML artifact from one or more Ladybug DataCollections using Ladybug MonthlyChart. Preferred Agent path is series items with data_collection_target from Garden-backed upstream tools; direct data_collection dict input remains available for payload/debug workflows. Use for schedule data, weather data, comfort data, energy result data, daily or monthly aggregation, monthly-per-hour patterns, and multi-series comparisons. Each series item uses data_collection or data_collection_target and optional label; the label is written into DataCollection header metadata for the chart legend. Use x_dim and y_dim to pass Ladybug SDK MonthlyChart geometry dimensions through.",
         tags={
             "visualize",
             "data-collection",
@@ -73,8 +73,22 @@ def register(mcp: FastMCP) -> None:
         ] = 34,
         time_marks: Annotated[
             bool,
-            Field(description="Whether month labels are replaced with time-of-day marks."),
+            Field(
+                description="Whether month labels are replaced with time-of-day marks. Automatically enabled for monthly_per_hour and total_monthly_per_hour charts."
+            ),
         ] = False,
+        x_dim: Annotated[
+            float | None,
+            Field(
+                description="Optional Ladybug SDK MonthlyChart X dimension for each month. Defaults to 10, or 50 for monthly_per_hour/total_monthly_per_hour charts."
+            ),
+        ] = None,
+        y_dim: Annotated[
+            float | None,
+            Field(
+                description="Optional Ladybug SDK MonthlyChart Y dimension for the chart height. Defaults to 40."
+            ),
+        ] = None,
         name: Annotated[
             str,
             Field(description="HTML artifact file name without extension."),
@@ -94,6 +108,8 @@ def register(mcp: FastMCP) -> None:
             stack=stack,
             percentile=percentile,
             time_marks=time_marks,
+            x_dim=x_dim,
+            y_dim=y_dim,
             name=name,
             output_subdir=output_subdir,
         )

@@ -37,7 +37,7 @@ def register(mcp: FastMCP) -> None:
         source: Annotated[
             str,
             Field(
-                description="Flowerpot source entity. First batch supports garden, base_model, or target. Use garden for a Garden Flowerpot and base_model for the current Garden base model."
+                description="Flowerpot source entity. Supports garden, base_honeybee_model, base_dragonfly_model, or target."
             ),
         ] = "garden",
         target: Annotated[

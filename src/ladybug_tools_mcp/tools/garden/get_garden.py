@@ -15,7 +15,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="get_garden",
-        description="Read a compact Garden manifest summary from an existing garden_root. Use this to confirm a Garden exists, get its target, base model target, and counts; it does not create or mutate the Garden.",
+        description="Read a compact Garden manifest summary from an existing garden_root. Use this to confirm a Garden exists, get its target, split Honeybee/Dragonfly base model targets, and counts; it does not create or mutate the Garden.",
         tags={"garden", "project", "manifest", "summary", "read", "safe"},
         timeout=20,
     )

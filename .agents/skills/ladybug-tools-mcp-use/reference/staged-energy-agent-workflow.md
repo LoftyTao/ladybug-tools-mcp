@@ -12,7 +12,7 @@ This is an Agent behavior scaffold, not a new MCP tool. It exists because real M
 
 Goal: create or confirm the Garden, base Honeybee model, and room targets.
 
-Main tools: `create_garden`, `create_honeybee_model`, `create_honeybee_room`, `get_base_model`, `search_honeybee_model_objects`.
+Main tools: `create_garden`, `create_honeybee_model`, `create_honeybee_room`, `get_base_honeybee_model`, `search_honeybee_model_objects`.
 
 Stop when the Garden has the expected base model and rooms. Return a compact stage summary with `garden_root`, `model_target`, `room_targets`, and room counts.
 
@@ -30,7 +30,7 @@ Goal: create or attach schedules, program type, construction set, setpoint, and 
 
 Main tools: `search_energy_library_objects`, `create_window_construction`, `create_construction_set`, `create_schedule_ruleset`, `create_setpoint`, `create_program_type`, `search_hvac_templates`, `create_ideal_air_system`, `setup_simple_ventilation_properties`, `setup_airflow_network`, `create_zone_ventilation_fan`, `create_pv_properties`, `create_electric_load_center`, `edit_honeybee_room`, `edit_honeybee_shade`, `edit_honeybee_model`, `validate_honeybee_model`.
 
-Stop when rooms have the requested Energy properties attached and validation/search confirms the intended targets. For the validation flag, call `validate_honeybee_model` with `garden_root`; use `validate_honeybee_model`, not `get_base_model`, because `get_base_model` only confirms model presence/summary. Return a compact stage summary with `construction_set_target`, `program_target`, `setpoint_target`, `hvac_target`, `edited_room_targets`, and `validation_is_valid`.
+Stop when rooms have the requested Energy properties attached and validation/search confirms the intended targets. For the validation flag, call `validate_honeybee_model` with `garden_root`; use `validate_honeybee_model`, not `get_base_honeybee_model`, because `get_base_honeybee_model` only confirms model presence/summary. Return a compact stage summary with `construction_set_target`, `program_target`, `setpoint_target`, `hvac_target`, `edited_room_targets`, and `validation_is_valid`.
 
 When Stage C resumes from an existing Garden with rooms, do not create a new Honeybee model or new rooms. Search current room targets, inspect `matches[i].energy_properties`, and edit only missing or stale Energy properties.
 

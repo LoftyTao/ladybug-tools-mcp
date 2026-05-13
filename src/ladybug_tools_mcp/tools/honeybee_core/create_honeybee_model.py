@@ -12,7 +12,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="create_honeybee_model",
-        description="Create an empty Honeybee model in a Garden and optionally set it as the base model. Returns target and model_target for downstream calls. Ordinary Agent workflows should create the model first, then call create_honeybee_room for rooms; do not use add_objects unless you already have complete Honeybee Room, Face, Aperture, Door, or Shade object dictionaries. Requires garden_root and identifier; do not pass arguments null or {}.",
+        description="Create an empty Honeybee model in a Garden and optionally set it as the base Honeybee model. Returns target and model_target for downstream calls. Ordinary Agent workflows should create the model first, then call create_honeybee_room for rooms; do not use add_objects unless you already have complete Honeybee Room, Face, Aperture, Door, or Shade object dictionaries. Requires garden_root and identifier; do not pass arguments null or {}.",
         tags={
             "honeybee-core",
             "garden-mode",
@@ -46,12 +46,6 @@ def register(mcp: FastMCP) -> None:
                 description="Optional natural unit-system alias such as Metric or Imperial. Metric maps to Meters; Imperial maps to Feet."
             ),
         ] = None,
-        display_name: Annotated[
-            str | None,
-            Field(
-                description="Optional Agent-friendly display-name hint; accepted but not persisted separately from the Honeybee model identifier."
-            ),
-        ] = None,
         tolerance: Annotated[
             float | None, Field(description="Optional model tolerance.")
         ] = None,
@@ -62,29 +56,11 @@ def register(mcp: FastMCP) -> None:
             bool, Field(description="Whether to save the model into Garden.")
         ] = True,
         set_base: Annotated[
-            bool, Field(description="Whether to set as Garden base model.")
+            bool, Field(description="Whether to set as Garden base Honeybee model.")
         ] = True,
-        is_base_model: Annotated[
-            bool | None,
-            Field(
-                description="Optional Agent alias for set_base. Accepted when a model asks to mark this as the base model."
-            ),
-        ] = None,
-        set_as_base: Annotated[
-            bool | None,
-            Field(
-                description="Optional Agent alias for set_base. Accepted for compatibility with natural language workflows."
-            ),
-        ] = None,
         include_body: Annotated[
             bool, Field(description="Whether to return full model body if not saved.")
         ] = False,
-        return_object_dict: Annotated[
-            bool | None,
-            Field(
-                description="Optional Agent compactness hint accepted for compatibility. Ignored because saved model calls already return compact targets."
-            ),
-        ] = None,
         add_objects: Annotated[
             list[dict[str, Any]] | None,
             Field(
@@ -101,10 +77,6 @@ def register(mcp: FastMCP) -> None:
                 units = "Feet"
             else:
                 units = unit_system
-        if is_base_model is not None:
-            set_base = is_base_model
-        if set_as_base is not None:
-            set_base = set_as_base
         return service(
             garden_root=garden_root,
             identifier=identifier,

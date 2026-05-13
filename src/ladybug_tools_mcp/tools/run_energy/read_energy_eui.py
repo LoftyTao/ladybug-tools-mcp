@@ -12,12 +12,17 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="read_energy_eui",
-        description="Read the small EUI / energy use intensity JSON summary for one completed Garden energy_run target.",
+        description=(
+            "Read the completed EUI / energy use intensity output JSON "
+            "summary for one Garden energy_run target. Use after get_energy_run or "
+            "list_energy_run_outputs when the user asks to read completed "
+            "EUI results."
+        ),
         tags={
             "run-energy",
             "energy",
-            "simulation",
             "eui",
+            "output",
             "result",
             "read-only",
             "safe",

@@ -13,6 +13,7 @@ Deterministic MCP tests cover:
 - `download_epw` requires `garden_root`, stores weather under `imports/weather/<identifier>/`, registers the `weather_file` target in `garden.json`, and returns Garden-relative EPW/DDY paths.
 - `search_weather_files` only searches `weather_file` targets already registered in the Garden manifest; it does not search SDK/global folders.
 - `search_weather_files` normalizes identifiers, station text, EPW paths, and alias metadata so city-like queries such as `Shanghai weather` can reuse a registered target when that target carries the city token or alias.
+- `read_weather_file_data` reads a Garden-managed `weather_file` target or Garden-contained EPW path into a saved Ladybug `DataCollection` target using the SDK `EPW` interface. Use it for EPW weather charts and original-EPW vs UWG-morphed-EPW comparisons before passing targets into generic visualize tools.
 - `start_energy_run` consumes a Garden-managed `weather_file` target, writes a `running` record to `runs/energy/index.json`, returns immediately with an `energy_run` target and `poll_next`, and schedules `run_energy` as background work.
 - `run_energy` remains available for deterministic direct-MCP verification and blocking clients. It writes `runs/energy/index.json`, captures recipe stdout/stderr into `recipe_stdio.log`, returns an `energy_run` target, and does not return large output payloads.
 - `create_energy_output_request` creates compact `energy_output_request` targets for requested EnergyPlus outputs, custom output variables, SQL output, summary reports, and later `DataCollection` reads.
@@ -177,6 +178,30 @@ Use this path when the run already has a completed SQL output and the user asks 
    - Returns a compact `visualization_set_target`.
 5. `call_tool` -> `visualization_set_to_html` or `visualization_set_to_svg`
    - Pass the `visualization_set_target`; do not pass full HTML, SQL, values, or a full VisualizationSet through the conversation.
+
+## Shortest Agent Path: Read And Visualize EPW DataCollections
+
+Use this path when the user wants weather-file time series such as dry-bulb temperature, relative humidity, wind speed, radiation, or an original EPW vs UWG morphed EPW comparison.
+
+1. `search_tools`
+   - Query: `read epw weather data collection monthly chart visualization`
+2. `call_tool` -> `read_weather_file_data`
+   - Required:
+     - `garden_root`
+     - exactly one of `weather_target` or `epw_path`
+   - Common:
+     - `data_type="dry_bulb_temperature"`
+     - `analysis_period="7/21 to 7/21 between 0 and 23 @1"` for one day
+     - `analysis_period="7/1 to 7/31 between 0 and 23 @1"` for a July monthly-per-hour comparison
+     - `identifier` for a stable DataCollection target name
+   - Use `weather_target` from `download_epw`, `search_weather_files`, `run_uwg`, or `get_uwg_run` when available. Use `epw_path` only for a Garden-contained EPW path.
+3. `call_tool` -> `data_collection_monthly_chart_to_visualization_set`
+   - Put each `read_weather_file_data.data_collection_target` in `series[]`.
+   - Use explicit labels such as `Original EPW` and `UWG Morphed EPW`.
+   - Use `time_interval="monthly_per_hour"` for monthly average by hour patterns.
+   - Set `return_visualization_set=false`.
+4. `call_tool` -> `visualization_set_to_html` or `visualization_set_to_svg`
+   - Pass the compact `visualization_set_target`.
 
 ## Shortest Agent Path: Monthly Chart For Multiple Series
 

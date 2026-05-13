@@ -88,7 +88,7 @@ For `glass`, the SDK uses transmittance or transmissivity rather than reflectanc
 Do not describe glass inputs as reflectance in user-facing output; say transmittance or transmissivity.
 The tool also accepts natural Agent shapes such as `transmission`, `transmittance`, or `transmissivity`, and `[r, g, b]` lists for glass RGB values. Treat these as compatibility shapes; planned calls should still use the canonical examples above.
 
-If you need to confirm an existing Garden before applying a modifier, call `get_garden` or `get_base_model`. Do not use filesystem probes or Python imports inside Code Mode.
+If you need to confirm an existing Garden before applying a modifier, call `get_garden` or `get_base_honeybee_model`. Do not use filesystem probes or Python imports inside Code Mode.
 
 ## Minimal Examples
 

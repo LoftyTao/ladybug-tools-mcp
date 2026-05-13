@@ -336,7 +336,7 @@ def add_radiance_luminaire_to_model(
         "persistence_receipt": make_persistence_receipt(
             status="persisted",
             garden_id=manifest.garden_id,
-            base_model_changed=True,
+            base_honeybee_model_changed=True,
             model_target=updated_model_target,
             persisted_path=persisted_path,
             change_summary={

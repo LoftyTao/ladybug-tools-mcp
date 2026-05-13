@@ -159,7 +159,7 @@ def create_honeybee_model(
             "model_identifier": identifier,
             "units": units,
             "saved": save_back,
-            "base_model_changed": bool(save_back and set_base),
+            "base_honeybee_model_changed": bool(save_back and set_base),
             **add_summary,
         },
         "persistence_receipt": receipt,
@@ -191,7 +191,7 @@ def _save_changed_model(
         manifest,
         model,
         name=str(model_target["model_identifier"]),
-        set_base=manifest.base_model == model_target,
+        set_base=manifest.base_honeybee_model == model_target,
     )
 
 

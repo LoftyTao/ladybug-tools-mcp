@@ -34,9 +34,9 @@ def register(mcp: FastMCP) -> None:
         include_paths: Annotated[
             bool, Field(description="Whether to include Garden root paths in matches.")
         ] = True,
-        include_base_model: Annotated[
+        include_base_models: Annotated[
             bool,
-            Field(description="Whether to include each Garden's base model summary."),
+            Field(description="Whether to include each Garden's base_honeybee_model and base_dragonfly_model summaries."),
         ] = True,
         include_description: Annotated[
             bool, Field(description="Whether to include each Garden description.")
@@ -46,6 +46,6 @@ def register(mcp: FastMCP) -> None:
         return list_gardens_service(
             root_dir=root_dir,
             include_paths=include_paths,
-            include_base_model=include_base_model,
+            include_base_models=include_base_models,
             include_description=include_description,
         )

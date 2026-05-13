@@ -15,12 +15,18 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="visualization_set_to_vtkjs",
-        description="Export a Ladybug Display VisualizationSet to a vtkjs artifact inside a Garden and record it in garden.json artifacts. This is the SDK-native geometry package for downstream React, vtk.js, and Remotion workflows. Preferred Agent path is visualization_set_target from an upstream visualize tool; direct visualization_set dict input remains available for payload/debug workflows.",
+        description="Export a Ladybug Display VisualizationSet to a persistent .vtkjs artifact inside a Garden and record it in garden.json artifacts. When start_web_view_mode is active, Dragonfly/Honeybee visualization tools already auto-refresh the local demo panel and usually do not need this exporter; use this only when the user explicitly asks for a saved vtk.js/Web 3D asset. This is the SDK-native Web 3D geometry package for downstream React, vtk.js, WebGL, Remotion, and reusable geometry asset workflows; it does not export GLB/VTP and has no file_format parameter. Preferred Agent path is visualization_set_target from an upstream visualize tool; the parameter name is exactly visualization_set_target, not visualization_target. Direct visualization_set dict input remains available for payload/debug workflows.",
         tags={
             "visualize",
             "garden-mode",
             "artifact",
             "export",
+            "web-3d",
+            "webgl",
+            "geometry-asset",
+            "model-asset",
+            "react-viewer",
+            "remotion",
             "write",
             "safe",
             "vtkjs",

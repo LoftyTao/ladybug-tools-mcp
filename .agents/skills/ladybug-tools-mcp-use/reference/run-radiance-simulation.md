@@ -170,7 +170,7 @@ For DGP/glare, use `summarize_radiance_glare_metrics` only on a completed glare-
 
 - Prefer canonical planned calls shown above. Recovery aliases exist because Agents have already drifted into them, but do not use aliases as the first-choice style.
 - If a long Radiance setup fails after writes have succeeded, search the current Garden and resume from the existing targets. Do not replay Garden/model/library setup from the top.
-- For existing setup, use `get_base_model`, `search_radiance_sensor_grids`, and `search_radiance_sky_files` to recover compact targets before calling `start_radiance_grid_run`.
+- For existing setup, use `get_base_honeybee_model`, `search_radiance_sensor_grids`, and `search_radiance_sky_files` to recover compact targets before calling `start_radiance_grid_run`.
 - SensorGrids and Views must be attached to the Honeybee model with `attach_to_model=true`; standalone `.pts` and `.vf` artifacts are useful evidence but are not enough for current recipe inputs.
 - If the requested output is surface mesh coloring, create the SensorGrid from a Honeybee object surface instead of explicit points so the attached model carries `SensorGrid.mesh`.
 - Point-in-time recipes pass the text inside the `.sky` file to the recipe input named `sky`.

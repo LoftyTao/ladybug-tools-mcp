@@ -111,7 +111,7 @@ def relate_honeybee_model(
         manifest,
         model,
         name=str(model_target["model_identifier"]),
-        set_base=manifest.base_model == model_target,
+        set_base=manifest.base_honeybee_model == model_target,
     )
     warnings = []
     if intersect:

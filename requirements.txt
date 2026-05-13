@@ -20,4 +20,7 @@ honeybee-display
 dragonfly-core
 dragonfly-energy
 dragonfly-radiance
+dragonfly-uwg
+fairyfly-core
+fairyfly-therm
 lbt-recipes

@@ -15,7 +15,7 @@ from flowerpot.active_context import write_active_context
 from flowerpot.properties_input import read_properties_input
 from flowerpot.registry import create_flowerpot, get_flowerpot
 from garden.manifest import GardenManifest
-from garden.store import create_garden, get_base_model, list_gardens
+from garden.store import create_garden, get_base_honeybee_model, list_gardens
 from garden.honeybee_core.model_io import (
     load_honeybee_model,
     save_honeybee_model,
@@ -176,7 +176,7 @@ def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
         )
         created = create_flowerpot(
             garden_root=str(garden_path),
-            source="base_model",
+            source="base_honeybee_model",
             target=model_target,
             label=getattr(model, "display_name", None) or model.identifier,
             platform={"adapter": "grasshopper"},
@@ -235,7 +235,7 @@ def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
             "report": report,
         }
 
-    base = get_base_model(garden_root=garden_root)
+    base = get_base_honeybee_model(garden_root=garden_root)
     model_target = base.get("model_target")
     if not model_target:
         report = make_report(
@@ -264,7 +264,7 @@ def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
     model = load_honeybee_model(Path(garden_root), model_target)
     created = create_flowerpot(
         garden_root=garden_root,
-        source="base_model",
+        source="base_honeybee_model",
         target=model_target,
         label=model_target.get("model_identifier"),
         platform={"adapter": "grasshopper", "follow": follow},

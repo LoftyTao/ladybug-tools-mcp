@@ -15,7 +15,7 @@ from garden.manifest import GardenManifest, utc_now_iso
 
 REGISTRY_RELATIVE_PATH = "flowerpots/registry.json"
 ITEMS_RELATIVE_DIR = "flowerpots/items"
-SUPPORTED_SOURCES = {"garden", "base_model", "target"}
+SUPPORTED_SOURCES = {"garden", "base_honeybee_model", "base_dragonfly_model", "target"}
 SUPPORTED_CLEANUP_SCOPES = {"orphaned", "expired", "all"}
 
 
@@ -84,13 +84,24 @@ def _target_for_source(
             _validate_typed_target(target)
             return target
         return manifest.target()
-    if source == "base_model":
-        if not manifest.base_model:
-            raise ValueError("Garden has no base model for a base_model Flowerpot.")
-        if target is not None and target != manifest.base_model:
+    if source == "base_honeybee_model":
+        if not manifest.base_honeybee_model:
+            raise ValueError(
+                "Garden has no base Honeybee model for a base_honeybee_model Flowerpot."
+            )
+        if target is not None and target != manifest.base_honeybee_model:
             _validate_typed_target(target)
             return target
-        return manifest.base_model
+        return manifest.base_honeybee_model
+    if source == "base_dragonfly_model":
+        if not manifest.base_dragonfly_model:
+            raise ValueError(
+                "Garden has no base Dragonfly model for a base_dragonfly_model Flowerpot."
+            )
+        if target is not None and target != manifest.base_dragonfly_model:
+            _validate_typed_target(target)
+            return target
+        return manifest.base_dragonfly_model
 
     if target is None:
         raise ValueError("target is required when source is 'target'.")
@@ -117,8 +128,8 @@ def _label_for_source(
         return str(label)
     if source == "garden":
         return manifest.name
-    if source == "base_model":
-        return str(target.get("model_identifier") or f"{manifest.name} base model")
+    if source in {"base_honeybee_model", "base_dragonfly_model"}:
+        return str(target.get("model_identifier") or f"{manifest.name} {source}")
     return str(target.get("identifier") or target.get("target_type") or "Flowerpot")
 
 
