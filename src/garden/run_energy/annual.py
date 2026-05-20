@@ -28,6 +28,11 @@ from garden.run_energy.output_requests import (
 ENERGY_RUN_TARGET_TYPE = "energy_run"
 ENERGY_RUN_DOMAIN = "honeybee_energy"
 ENERGY_RUN_RECIPE = "annual_energy_use"
+ENERGY_RUN_RECIPES = {
+    ENERGY_RUN_RECIPE,
+    "energyplus_idf",
+    "openstudio_osm",
+}
 ENERGY_RUNS_DIR = Path("runs") / "energy"
 ENERGY_RUN_INDEX = ENERGY_RUNS_DIR / "index.json"
 OUTPUT_NAMES = ("err", "eui", "html", "result-report", "sql", "visual-report", "zsz")
@@ -160,12 +165,17 @@ def _write_index(garden_root: Path, records: list[dict[str, Any]]) -> None:
         _write_index_unlocked(garden_root, records)
 
 
-def _run_target(garden_id: str, run_id: str) -> dict[str, str]:
+def _run_target(
+    garden_id: str,
+    run_id: str,
+    *,
+    recipe: str = ENERGY_RUN_RECIPE,
+) -> dict[str, str]:
     return {
         "target_type": ENERGY_RUN_TARGET_TYPE,
         "garden_id": garden_id,
         "domain": ENERGY_RUN_DOMAIN,
-        "recipe": ENERGY_RUN_RECIPE,
+        "recipe": recipe,
         "run_id": run_id,
     }
 
@@ -228,13 +238,13 @@ def _weather_paths_from_inputs(
         if weather_target.get("target_type") != "weather_file":
             raise ValueError("weather_target must be a weather_file target.")
         target_garden_id = weather_target.get("garden_id")
-        if target_garden_id and target_garden_id != garden_id:
+        if target_garden_id != garden_id:
             raise ValueError("weather_target belongs to a different Garden.")
         epw_path = str(weather_target.get("epw_path") or epw_path or "")
         ddy_path = str(weather_target.get("ddy_path") or ddy_path or "")
     if not epw_path or not ddy_path:
         raise ValueError(
-            "Provide _epw_path and _ddy_path, or provide weather_target_ with both paths."
+            "Provide epw_path and ddy_path, or provide weather_target with both paths."
         )
     epw = Path(epw_path).expanduser()
     ddy = Path(ddy_path).expanduser()
@@ -498,8 +508,9 @@ def _run_id_from_target_or_value(
             raise ValueError("run_target must be an energy_run target.")
         if run_target.get("domain") != ENERGY_RUN_DOMAIN:
             raise ValueError("run_target must reference honeybee_energy.")
-        if run_target.get("recipe") != ENERGY_RUN_RECIPE:
-            raise ValueError("run_target must reference annual_energy_use.")
+        if run_target.get("recipe") not in ENERGY_RUN_RECIPES:
+            allowed = ", ".join(sorted(ENERGY_RUN_RECIPES))
+            raise ValueError(f"run_target must reference one of: {allowed}.")
         return str(run_target["run_id"])
     if run_id:
         return run_id
@@ -545,6 +556,11 @@ def _public_run(record: dict[str, Any]) -> dict[str, Any]:
         "additional_idf_path",
         "additional_idf_source",
         "measures_path",
+        "input_file_path",
+        "workflow_path",
+        "source_file_path",
+        "run_input_path",
+        "expand_objects",
     )
     return {key: record.get(key) for key in keys if key in record}
 
@@ -1056,10 +1072,17 @@ def get_energy_run(
     manifest = GardenManifest.read(garden_root_path)
     resolved_run_id = _run_id_from_target_or_value(run_target=run_target, run_id=run_id)
     record = _public_run(_run_record_by_id(garden_root_path, resolved_run_id))
+    outputs = list(record.get("outputs", []))
+    status = record.get("status")
     return {
+        "status": status,
+        "run_id": resolved_run_id,
         "summary_view": {
             "garden_target": manifest.target(),
             "run": record,
+            "run_id": resolved_run_id,
+            "status": status,
+            "outputs": outputs,
         },
         "report": make_report(
             status="ok", message=f"Energy run returned: {resolved_run_id}"

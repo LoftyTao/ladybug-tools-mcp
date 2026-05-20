@@ -9,7 +9,7 @@ from dragonfly.model import Model
 
 from garden.manifest import GardenManifest
 from garden.paths import to_posix_relative
-from ladybug_tools_mcp.contracts.targets import make_model_target
+from garden.dragonfly_core.targets import is_dragonfly_model_target
 
 DRAGONFLY_MODELS_DIR = Path("models") / "dragonfly"
 
@@ -31,98 +31,48 @@ def model_target_for_manifest(
     path: str | None = None,
 ) -> dict[str, Any]:
     """Build a Dragonfly model target with optional Garden-relative path."""
-    target: dict[str, Any] = make_model_target(
-        garden_id=garden_id,
-        model_identifier=model_identifier,
-        domain="dragonfly",
-    )
+    target: dict[str, Any] = {
+        "target_type": "dragonfly_model",
+        "id": model_identifier,
+        "garden_id": garden_id,
+        "domain": "dragonfly",
+        "model_identifier": model_identifier,
+    }
     if path:
         target["path"] = path
     return target
 
 
-def dragonfly_model_target_from_path(
-    garden_id: str,
-    path_value: str,
-) -> dict[str, Any]:
-    """Build a Dragonfly model target from a Garden-relative DFJSON path."""
-    model_identifier = Path(path_value).stem
-    return model_target_for_manifest(
-        garden_id,
-        model_identifier,
-        path=path_value,
-    )
-
-
-def dragonfly_model_target_from_object_target(
-    garden_id: str,
-    value: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Infer a Dragonfly model target from a Dragonfly object target."""
-    if value.get("target_type") == "model" or value.get("domain") != "dragonfly":
-        return None
-    model_identifier = value.get("model_identifier")
-    if not isinstance(model_identifier, str) or not model_identifier:
-        return None
-    path_value = value.get("path")
-    model_path = None
-    if (
-        isinstance(path_value, str)
-        and path_value.startswith("models/dragonfly/")
-        and path_value.endswith(".dfjson")
-    ):
-        model_path = path_value
-    return model_target_for_manifest(garden_id, model_identifier, path=model_path)
-
-
-def normalize_dragonfly_model_target(value: dict[str, Any]) -> dict[str, Any]:
+def normalize_dragonfly_model_target(value: Any) -> dict[str, Any]:
     """Validate and normalize a Dragonfly model target."""
-    if not isinstance(value, dict):
-        raise ValueError("Dragonfly model target must be a dictionary.")
-    if value.get("target_type") != "model":
-        raise ValueError("Dragonfly model target must have target_type 'model'.")
-    if value.get("domain") != "dragonfly":
-        raise ValueError("Dragonfly model target must have domain 'dragonfly'.")
-    model_identifier = value.get("model_identifier")
-    if not isinstance(model_identifier, str) or not model_identifier:
-        raise ValueError("Dragonfly model target requires model_identifier.")
-    return dict(value)
+    if not is_dragonfly_model_target(value):
+        raise ValueError(
+            "Dragonfly model target must be a dict with target_type "
+            "'dragonfly_model' and a non-empty id."
+        )
+    target = dict(value)
+    target["domain"] = "dragonfly"
+    target["model_identifier"] = str(target["id"])
+    return target
 
 
 def load_dragonfly_model(garden_root: Path, model_target: dict[str, Any]) -> Model:
     """Load a Dragonfly model from a Garden model target."""
     model_target = normalize_dragonfly_model_target(model_target)
     path_value = model_target.get("path")
-    if path_value:
-        model_path = garden_root / str(path_value)
-    else:
-        model_path = dragonfly_model_path(
-            garden_root,
-            str(model_target["model_identifier"]),
-        )
+    if not isinstance(path_value, str) or not path_value:
+        raise ValueError("Dragonfly model target requires a Garden-relative path.")
+    model_path = garden_root / path_value
     return Model.from_dfjson(str(model_path), cleanup_irrational=False)
 
 
 def resolve_model_target(
     garden_root: Path,
-    model_target: dict[str, Any] | str | None = None,
+    model_target: dict[str, Any] | None = None,
 ) -> tuple[GardenManifest, dict[str, Any]]:
     """Resolve an explicit Dragonfly model target or the Garden base Dragonfly model."""
     manifest = GardenManifest.read(garden_root)
-    if isinstance(model_target, str):
-        model_target = dragonfly_model_target_from_path(manifest.garden_id, model_target)
-    else:
-        model_target = model_target or manifest.base_dragonfly_model
-    if isinstance(model_target, dict):
-        nested_model_target = model_target.get("model_target")
-        if isinstance(nested_model_target, dict):
-            model_target = nested_model_target
-        elif isinstance(model_target.get("target"), dict):
-            model_target = model_target["target"]
-        model_target = (
-            dragonfly_model_target_from_object_target(manifest.garden_id, model_target)
-            or model_target
-        )
+    model_target = model_target or manifest.base_dragonfly_model
     if not model_target:
         raise ValueError(
             "Garden has no base Dragonfly model. Create or set a Dragonfly model first."

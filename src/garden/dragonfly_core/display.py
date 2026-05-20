@@ -76,7 +76,7 @@ def _visualization_set_response(
     return result
 
 
-def _edge_fallback_visualization_set_response(
+def _edge_degraded_visualization_set_response(
     *,
     garden_root_path: Path,
     model: Any,
@@ -86,8 +86,8 @@ def _edge_fallback_visualization_set_response(
     name: str | None,
     return_visualization_set: bool,
 ) -> dict[str, Any]:
-    """Return an honest wireframe fallback when Dragonfly Display edge view fails."""
-    fallback_name = name or "dragonfly_envelope_edges_fallback"
+    """Return an honest wireframe preview when Dragonfly Display edge view fails."""
+    degraded_name = name or "dragonfly_envelope_edges_degraded"
     vis_set = model_to_vis_set(
         model,
         use_multiplier=True,
@@ -96,7 +96,7 @@ def _edge_fallback_visualization_set_response(
         hide_color_by=True,
         reset_coordinates=True,
     )
-    _set_visualization_set_name(vis_set, fallback_name)
+    _set_visualization_set_name(vis_set, degraded_name)
     visualization_set = vis_set.to_dict()
     summary = _summarize_visualization_set(visualization_set)
     original_error_message = str(original_error)
@@ -105,8 +105,8 @@ def _edge_fallback_visualization_set_response(
             "garden_target": manifest.target(),
             "model_target": resolved_target,
             "edge_view_status": "degraded",
-            "fallback_tool": "dragonfly_model_to_visualization_set",
-            "fallback_reason": "dragonfly_display_envelope_edges_failed",
+            "degraded_tool": "dragonfly_model_to_visualization_set",
+            "degraded_reason": "dragonfly_display_envelope_edges_failed",
             "original_error": original_error_message,
             "use_multiplier": True,
             "include_wireframe": True,
@@ -122,29 +122,29 @@ def _edge_fallback_visualization_set_response(
         source={
             "tool": "dragonfly_model_envelope_edges_to_visualization_set",
             "model_target": resolved_target,
-            "fallback_tool": "dragonfly_model_to_visualization_set",
+            "degraded_tool": "dragonfly_model_to_visualization_set",
             "original_error": original_error_message,
         },
-        name=fallback_name,
+        name=degraded_name,
         return_visualization_set=return_visualization_set,
         message=(
             "Dragonfly envelope-edge SDK view failed; returned a wireframe "
-            "model VisualizationSet fallback."
+            "model VisualizationSet preview."
         ),
     )
     result["report"] = make_report(
         status="degraded",
         message=(
             "Dragonfly envelope-edge SDK view failed; returned a wireframe "
-            "model VisualizationSet fallback."
+            "model VisualizationSet preview."
         ),
         warnings=[
-            "This is a wireframe model preview fallback, not the strict Dragonfly "
+            "This is a wireframe model preview, not the strict Dragonfly "
             "Display envelope-edge output."
         ],
         details={
-            "fallback_tool": "dragonfly_model_to_visualization_set",
-            "fallback_reason": "dragonfly_display_envelope_edges_failed",
+            "degraded_tool": "dragonfly_model_to_visualization_set",
+            "degraded_reason": "dragonfly_display_envelope_edges_failed",
             "original_error": original_error_message,
         },
     )
@@ -245,7 +245,7 @@ def dragonfly_model_envelope_edges_to_visualization_set(
             reset_coordinates=reset_coordinates,
         )
     except Exception as exc:
-        return _edge_fallback_visualization_set_response(
+        return _edge_degraded_visualization_set_response(
             garden_root_path=garden_root_path,
             model=model,
             manifest=manifest,

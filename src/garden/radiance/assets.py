@@ -449,10 +449,9 @@ def _sensor_grid_from_target(
     garden_root: Path,
     target: dict[str, Any],
 ) -> SensorGrid:
-    actual_target = target.get("target") if isinstance(target.get("target"), dict) else target
-    if actual_target.get("target_type") != SENSOR_GRID_TARGET_TYPE:
+    if target.get("target_type") != SENSOR_GRID_TARGET_TYPE:
         raise ValueError("add_sensor_grids entries must be radiance_sensor_grid targets.")
-    relative_path = actual_target.get("path")
+    relative_path = target.get("path")
     if not isinstance(relative_path, str) or not relative_path:
         raise ValueError("radiance_sensor_grid target must include a Garden-relative path.")
     pts_path = (garden_root / relative_path).resolve()
@@ -468,7 +467,7 @@ def _sensor_grid_from_target(
             raise ValueError("Radiance sensor grid .pts lines must contain x y z dx dy dz.")
         positions.append(values[:3])
         directions.append(values[3:])
-    identifier = str(actual_target.get("identifier") or pts_path.stem)
+    identifier = str(target.get("identifier") or pts_path.stem)
     return _sensor_grid_from_inputs(
         identifier=identifier,
         positions=positions,
@@ -481,15 +480,14 @@ def _view_from_target(
     garden_root: Path,
     target: dict[str, Any],
 ) -> View:
-    actual_target = target.get("target") if isinstance(target.get("target"), dict) else target
-    if actual_target.get("target_type") != VIEW_TARGET_TYPE:
+    if target.get("target_type") != VIEW_TARGET_TYPE:
         raise ValueError("add_radiance_views entries must be radiance_view targets.")
-    relative_path = actual_target.get("path")
+    relative_path = target.get("path")
     if not isinstance(relative_path, str) or not relative_path:
         raise ValueError("radiance_view target must include a Garden-relative path.")
     vf_path = (garden_root / relative_path).resolve()
     vf_path.relative_to(garden_root)
-    identifier = str(actual_target.get("identifier") or vf_path.stem)
+    identifier = str(target.get("identifier") or vf_path.stem)
     view = View.from_string(identifier, vf_path.read_text(encoding="utf-8"))
     if view.identifier != identifier:
         view.identifier = identifier

@@ -51,7 +51,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         epw_path: Annotated[
             str | None,
-            Field(description="Optional Garden-relative EPW path fallback. Use instead of wea_target, weather_target, or location."),
+            Field(description="Optional Garden-relative EPW path. Use instead of wea_target, weather_target, or location."),
         ] = None,
         location: Annotated[
             dict[str, Any] | None,
@@ -61,18 +61,10 @@ def register(mcp: FastMCP) -> None:
             float,
             Field(description="ASHRAE sky clearness when location is used."),
         ] = 1,
-        sky_type: Annotated[
-            str | None,
-            Field(description="Optional Agent hint accepted for compatibility. Ignored; source WEA/location determines sky data."),
-        ] = None,
         north: Annotated[
             float,
             Field(description="Counterclockwise north angle in degrees."),
         ] = 0,
-        north_angle: Annotated[
-            float | None,
-            Field(description="Optional Agent alias for north."),
-        ] = None,
         high_density: Annotated[
             bool,
             Field(description="Use Reinhart high-density sky patches instead of default Tregenza patches."),
@@ -87,19 +79,12 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         output_subdir: Annotated[
             str,
-            Field(description="Garden-relative output folder for sky matrix JSON artifacts. Weather-folder hints such as imports/weather normalize to artifacts/radiance/sky."),
+            Field(description="Garden-relative output folder for sky matrix JSON artifacts."),
         ] = "artifacts/radiance/sky",
-        return_object_dict: Annotated[
-            bool | None,
-            Field(description="Ignored compatibility hint; sky matrix tools return compact targets and summaries."),
-        ] = None,
     ) -> dict[str, Any]:
         """Create a SkyMatrix target."""
-        _ = (return_object_dict, sky_type)
         if identifier is None:
             identifier = "sky_matrix"
-        if north_angle is not None:
-            north = north_angle
         return service(
             garden_root=garden_root,
             identifier=identifier,

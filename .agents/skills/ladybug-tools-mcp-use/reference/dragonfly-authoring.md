@@ -1,6 +1,5 @@
 # Dragonfly Authoring Path
 
-Status: Dragonfly core authoring is agent-verified. Dragonfly UWG Alternative Weather is deterministic-pass with a retained scaffolded Agent cross-suite; it still needs a fully natural retained run before it becomes a recommended natural-language path. The core authoring path is covered by Code Mode deterministic tests and a retained OpenAI Agents SDK 40-task cross run. The run creates a Garden, Dragonfly Model, Room2D, Story, Building, searches Dragonfly objects, reads compact summaries, validates the model, creates Dragonfly Display VisualizationSets, exports vtk.js, edits Model/Building/Story/Room2D metadata, solves/resets Story adjacency, cleans Room2D geometry, applies SDK-backed window/shading parameters, applies Dragonfly Energy ProgramType/ConstructionSet identifiers, applies Dragonfly Radiance ModifierSet/grid parameters, reads Dragonfly Energy/Radiance properties summaries, converts Dragonfly to Honeybee, converts Honeybee back to Dragonfly, and confirms both base slots. ContextShade creation is deterministic-pass through the SDK-backed `create_dragonfly_context_shade` path. Treat future retained failures as tool-surface feedback, not as a reason to add legacy aliases.
 
 Use this when the user explicitly wants Dragonfly, district/building massing, Room2D/Story/Building authoring, Dragonfly validation, Dragonfly Display, or Dragonfly-to-Honeybee conversion.
 
@@ -18,7 +17,7 @@ Core sequence inside one Code Mode `execute` block:
 10. `dragonfly_model_to_honeybee` with `set_base=true` when downstream Honeybee tools are needed.
 11. Confirm split base slots with `get_base_dragonfly_model` and `get_base_honeybee_model`.
 
-Do not call a mixed `get_base_model`, `set_base_model`, or `save_base_model` path. The Garden manifest writes `base_dragonfly_model` and `base_honeybee_model` separately.
+Do not call generic model-slot tools for Dragonfly. The Garden manifest writes `base_dragonfly_model` and `base_honeybee_model` separately.
 
 Expanded SDK-backed operations:
 
@@ -32,6 +31,7 @@ Expanded SDK-backed operations:
 - Add Story objects to an existing Building with `add_dragonfly_stories_to_building`. The existing Building is selected by `building_identifier`; pass draft Story targets in `story_targets`.
 - Remove Story objects with `remove_dragonfly_stories_from_building`. This uses Dragonfly SDK `Building.remove_stories_by_identifier`. Do not invent Building or Room2D deletion tools; those are not exposed as stable public SDK methods.
 - Deterministic-pass: Building-level create/add/remove operations call Dragonfly SDK `Building.separate_top_bottom_floors()` before saving. A repeated Story multiplier is split into explicit ground / typical / top Stories where needed; the ground Story's Room2Ds are saved with `is_ground_contact=true`, and the top Story's Room2Ds are saved with `is_top_exposed=true`. Agents do not need to add an extra Room2D edit step for normal roof/ground assignment after creating or changing a Building.
+- Agent-observed parameter trap: `create_dragonfly_story` takes `room2d_targets`, exactly, with `room["room2d_target"]` values. Do not use `room2ds` and do not use `room_2ds`.
 - Solve/reset Room2D adjacency on an embedded Story with `solve_dragonfly_story_adjacency` and `reset_dragonfly_story_adjacency`.
 - Clean Room2D boundaries with `clean_dragonfly_room2d_geometry`, which calls SDK cleanup methods and does not handwrite geometry algorithms.
 - Create and apply Dragonfly-native window parameters with `create_dragonfly_window_parameter` and `apply_dragonfly_window_parameter`. Supported types are `simple_window_ratio` and `repeating_window_ratio`.
@@ -64,15 +64,30 @@ Common UWG boundaries:
 - Do not return full UWG JSON, full EPW text, or full DFJSON bodies by default.
 - Treat water-body modeling, wind-speed expectation changes, and terrain/water limitations as UWG scope notes rather than silently creating fake parameters.
 - If the EPW preflight fails, inspect the failed `uwg_run` ledger; do not proceed into Energy with the bad weather.
+- Agent-observed parameter trap: `terrain` is a Dragonfly UWG Terrain dictionary, not a label like `Suburban`; omit it in simple Agent workflows unless a real Terrain object dictionary is already available.
+- Agent-observed enum trap: use UWG program identifiers such as `MediumOffice`, `LargeOffice`, `SmallOffice`, or `MidriseApartment`; do not pass broad labels like `Office`.
+- Agent-observed enum trap: UWG vintage values are `New`, `1980_Present`, and `Pre1980`; do not pass EnergyPlus or ASHRAE labels like `ASHRAE_2019`.
+- For simple cool-roof / green-roof setup, edit model-level tree and grass cover on the Dragonfly Model target, then edit each Building target once with `program`, `vintage`, `roof_albedo`, and `roof_veg_fraction`. Read `get_dragonfly_uwg_properties_summary` once after the edits and avoid looping over the same Building unless the summary shows a real mismatch.
 
 Minimal Code Mode sketch:
 
 ```python
+model_props = await call_tool("apply_dragonfly_uwg_properties", {
+    "garden_root": garden_root,
+    "host_target": model_target,
+    "tree_coverage_fraction": 0.18,
+    "grass_coverage_fraction": 0.12
+})
 props = await call_tool("apply_dragonfly_uwg_properties", {
     "garden_root": garden_root,
     "host_target": building_target,
+    "program": "MediumOffice",
+    "vintage": "New",
     "roof_albedo": 0.65,
     "roof_veg_fraction": 0.3
+})
+summary = await call_tool("get_dragonfly_uwg_properties_summary", {
+    "garden_root": garden_root
 })
 param = await call_tool("create_uwg_simulation_parameter", {
     "garden_root": garden_root,

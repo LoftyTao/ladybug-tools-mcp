@@ -28,20 +28,15 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(description="Optional Dragonfly Story target from creation or search."),
         ] = None,
-        target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional natural alias for story_target."),
-        ] = None,
         story_identifier: Annotated[
             str | None,
             Field(description="Optional Story identifier when story_target is not available."),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | str | None,
+            dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Accepts the typed target or a "
-                    "Garden-relative DFJSON path. Defaults to base Dragonfly model."
+                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
                 )
             ),
         ] = None,
@@ -63,8 +58,6 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Edit a Dragonfly Story."""
-        if story_target is None:
-            story_target = target
         return service(
             garden_root=garden_root,
             story_target=story_target,

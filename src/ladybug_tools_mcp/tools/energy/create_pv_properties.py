@@ -12,7 +12,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="create_pv_properties",
-        description="Create Honeybee Energy PVProperties for shade-attached photovoltaic electricity generation on Honeybee Shades. Use this for PV panels, solar photovoltaics, PVWatts, rated efficiency, active area fraction, mounting_type, and shade-attached electricity generation. In Garden mode, pass garden_root and return_object_dict=false to save directly as a pv_properties target for edit_honeybee_shade.pv_properties. Inverter and DC-to-AC sizing belong in create_electric_load_center; not pv_type and not dc_to_ac_size_ratio.",
+        description="Create Honeybee Energy PVProperties for shade-attached photovoltaic electricity generation on Honeybee Shades. Use this for PV panels, solar photovoltaics, PVWatts, rated efficiency, active area fraction, mounting_type, and shade-attached electricity generation. mounting_type must be one of FixedOpenRack, FixedRoofMounted, OneAxis, OneAxisBacktracking, or TwoAxis; use FixedRoofMounted, not FixedRoofMount or FlushMount. In Garden mode, pass garden_root and return_object_dict=false to save directly as a pv_properties target for edit_honeybee_shade.pv_properties. Inverter and DC-to-AC sizing belong in create_electric_load_center; not pv_type and not dc_to_ac_size_ratio.",
         tags={
             "honeybee-energy",
             "garden-mode",
@@ -46,7 +46,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         mounting_type: Annotated[
             str,
-            Field(description="PV mounting type, for example FixedOpenRack, FixedRoofMounted, OneAxis, OneAxisBacktracking, or TwoAxis."),
+            Field(description="PV mounting type, for example FixedOpenRack, FixedRoofMounted, OneAxis, OneAxisBacktracking, or TwoAxis. Use exactly FixedRoofMounted, not FixedRoofMount."),
         ] = "FixedOpenRack",
         system_loss_fraction: Annotated[
             float,

@@ -204,7 +204,7 @@ def _transform_object(
 
 
 def _model_target_from_target(target: dict[str, Any]) -> dict[str, Any] | None:
-    if target.get("target_type") == "model" and target.get("domain") == "honeybee":
+    if target.get("target_type") == "honeybee_model" and target.get("domain") == "honeybee":
         return target
     return None
 
@@ -214,7 +214,7 @@ def _resolve_transform_target(
     target: dict[str, Any],
     model_target: dict[str, Any],
 ) -> Transformable:
-    if target.get("target_type") == "model" and target.get("domain") == "honeybee":
+    if target.get("target_type") == "honeybee_model" and target.get("domain") == "honeybee":
         if target.get("model_identifier") != model_target.get("model_identifier"):
             raise ValueError("target and model_target identify different Honeybee models.")
         return model
@@ -272,6 +272,6 @@ def _transform_warnings(target: dict[str, Any], obj: Transformable) -> list[str]
 
 
 def _target_label(target: dict[str, Any]) -> str:
-    if target.get("target_type") == "model":
+    if target.get("target_type") == "honeybee_model":
         return f"model: {target.get('model_identifier')}"
     return f"{target.get('object_type')}: {target.get('object_identifier')}"

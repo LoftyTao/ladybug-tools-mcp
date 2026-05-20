@@ -55,12 +55,6 @@ def register(mcp: FastMCP) -> None:
         max_results: Annotated[
             int, Field(description="Maximum number of candidate records to return.")
         ] = 10,
-        detail: Annotated[
-            str | None,
-            Field(
-                description="Optional Agent search-detail hint accepted for compatibility with Code Mode search habits. Ignored; EPW map results are always compact targets."
-            ),
-        ] = None,
     ) -> dict[str, Any]:
         """Search EPW map records."""
         query_value = query if query is not None else query

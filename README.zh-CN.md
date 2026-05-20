@@ -553,7 +553,7 @@ Ladybug Tools MCP 不适合做少量工具式的 MCP 服务，这是由于我们
 - [ ] Dragonfly Model 的创建与编辑工具
 - [ ] 添加 UrbanOpt 支持
 - [ ] 更多的 Visualization Set 前后处理支持
-- [ ] 支持 Ironbug 以完成真正的自定义空调系统定制
+- [ ] 重新设计 custom HVAC / Ironbug 支持，以完成真正的自定义空调系统定制
 - [ ] 与 Agent 直接协同的 Web View 与 Model Editor 工具
 - [ ] 可以将所有流程和步骤可视化的演示模式（就像 REAEME 中提供的视频那样）
 - [ ] 云服务支持 (我认为这可以是 Pollination 的拓展)

@@ -12,7 +12,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="create_honeybee_model",
-        description="Create an empty Honeybee model in a Garden and optionally set it as the base Honeybee model. Returns target and model_target for downstream calls. Ordinary Agent workflows should create the model first, then call create_honeybee_room for rooms; do not use add_objects unless you already have complete Honeybee Room, Face, Aperture, Door, or Shade object dictionaries. Requires garden_root and identifier; do not pass arguments null or {}.",
+        description="Create an empty Honeybee model in a Garden and optionally set it as the base Honeybee model with set_base; not set_as_base. Returns target and model_target for downstream calls; no return_object_dict parameter is available because this tool already returns compact targets unless include_body=true is requested, and no display_name parameter is available. Ordinary Agent workflows should create the model first, then call create_honeybee_room for rooms; do not use add_objects unless you already have complete Honeybee Room, Face, Aperture, Door, or Shade object dictionaries. Requires garden_root and identifier; do not pass arguments null or {}.",
         tags={
             "honeybee-core",
             "garden-mode",
@@ -43,7 +43,7 @@ def register(mcp: FastMCP) -> None:
         unit_system: Annotated[
             str | None,
             Field(
-                description="Optional natural unit-system alias such as Metric or Imperial. Metric maps to Meters; Imperial maps to Feet."
+                description="Optional unit system such as Metric or Imperial. Metric maps to Meters; Imperial maps to Feet."
             ),
         ] = None,
         tolerance: Annotated[
@@ -56,7 +56,10 @@ def register(mcp: FastMCP) -> None:
             bool, Field(description="Whether to save the model into Garden.")
         ] = True,
         set_base: Annotated[
-            bool, Field(description="Whether to set as Garden base Honeybee model.")
+            bool,
+            Field(
+                description="Whether to set as Garden base Honeybee model. Use set_base; not set_as_base."
+            ),
         ] = True,
         include_body: Annotated[
             bool, Field(description="Whether to return full model body if not saved.")

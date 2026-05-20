@@ -19,8 +19,10 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     save_honeybee_model,
 )
+from garden.honeybee_core.targets import normalize_honeybee_model_target
 from garden.dragonfly_core.model_io import (
     load_dragonfly_model,
+    normalize_dragonfly_model_target,
     save_dragonfly_model,
 )
 
@@ -88,7 +90,10 @@ def _resolve_garden_root(garden_root: str) -> Path:
 def _ensure_manifest_root(garden_root: Path) -> GardenManifest:
     manifest_path = garden_root / "garden.json"
     if not manifest_path.is_file():
-        raise ValueError(f"Garden manifest not found at {manifest_path}")
+        raise ValueError(
+            f"Garden manifest not found at {manifest_path}. "
+            "Call create_garden first for blank-project workflows."
+        )
     return GardenManifest.read(garden_root)
 
 
@@ -216,7 +221,7 @@ def get_garden(
 ) -> dict[str, Any]:
     """Read a compact Garden manifest summary."""
     garden_root_path = _resolve_garden_root(garden_root)
-    manifest = GardenManifest.read(garden_root_path)
+    manifest = _ensure_manifest_root(garden_root_path)
     return {
         "exists": True,
         "garden_root": str(garden_root_path),
@@ -279,6 +284,10 @@ def set_domain_base_model(
     garden_root = _resolve_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root)
     resolved_domain = str(domain or model_target.get("domain") or "").strip().lower()
+    if resolved_domain == "honeybee":
+        model_target = normalize_honeybee_model_target(model_target)
+    elif resolved_domain == "dragonfly":
+        model_target = normalize_dragonfly_model_target(model_target)
     if model_target.get("domain") != resolved_domain:
         raise ValueError("model_target domain must match the requested base domain.")
     _set_domain_base_model(manifest, resolved_domain, model_target)
@@ -487,40 +496,23 @@ def _get_domain_base_model(
     *,
     garden_root: str,
     domain: str,
-    include_body: bool = False,
 ) -> dict[str, Any]:
     """Read a Garden's base model target for one domain."""
     garden_root = Path(garden_root).expanduser().resolve()
     manifest = GardenManifest.read(garden_root)
     base_model = _domain_base_model(manifest, domain)
-    object_dict = base_model or {}
+    object_dict = base_model
     slot_name = _base_slot_name(domain)
     summary_view = {
         "garden_root": str(garden_root),
         "garden_target": manifest.target(),
         f"has_{slot_name}": base_model is not None,
         slot_name: base_model,
-        "include_body": include_body,
         "domain": domain,
     }
-    if include_body:
-        summary_view["body_returned"] = False
-        warning = (
-            f"Base {domain.title()} model body loading is not implemented in this tool."
-        )
-        warnings = [warning]
-    else:
-        warnings = []
 
     return {
-        "garden_root": str(garden_root),
         "target": base_model,
-        "model_target": base_model,
-        "model_identifier": (
-            base_model.get("model_identifier")
-            if isinstance(base_model, dict)
-            else None
-        ),
         "object_dict": object_dict,
         "summary_view": summary_view,
         "report": make_report(
@@ -530,7 +522,6 @@ def _get_domain_base_model(
                 if base_model
                 else f"Garden has no base {domain.title()} model yet."
             ),
-            warnings=warnings,
         ),
     }
 
@@ -538,39 +529,33 @@ def _get_domain_base_model(
 def get_base_honeybee_model(
     *,
     garden_root: str,
-    include_body: bool = False,
 ) -> dict[str, Any]:
     """Read a Garden's base Honeybee model target."""
     return _get_domain_base_model(
         garden_root=garden_root,
         domain="honeybee",
-        include_body=include_body,
     )
 
 
 def get_base_dragonfly_model(
     *,
     garden_root: str,
-    include_body: bool = False,
 ) -> dict[str, Any]:
     """Read a Garden's base Dragonfly model target."""
     return _get_domain_base_model(
         garden_root=garden_root,
         domain="dragonfly",
-        include_body=include_body,
     )
 
 
 def get_base_fairyfly_model(
     *,
     garden_root: str,
-    include_body: bool = False,
 ) -> dict[str, Any]:
     """Read a Garden's base Fairyfly model target."""
     return _get_domain_base_model(
         garden_root=garden_root,
         domain="fairyfly",
-        include_body=include_body,
     )
 
 

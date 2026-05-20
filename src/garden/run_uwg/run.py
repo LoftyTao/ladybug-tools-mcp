@@ -42,7 +42,6 @@ def run_uwg(
     garden_root: str,
     model_target: dict[str, Any] | None = None,
     weather_target: dict[str, Any] | None = None,
-    epw_path: str | None = None,
     simulation_parameter_target: dict[str, Any] | None = None,
     simulation_parameter: dict[str, Any] | None = None,
     run_id: str | None = None,
@@ -75,8 +74,8 @@ def run_uwg(
         model = load_dragonfly_model(garden_root_path, resolved_model_target)
         resolved_epw = resolve_epw_path(
             garden_root=garden_root_path,
+            manifest=manifest,
             weather_target=weather_target,
-            epw_path=epw_path,
         )
         preflight = (
             _preflight_epw(resolved_epw)
@@ -250,7 +249,6 @@ def start_uwg_run(
     garden_root: str,
     model_target: dict[str, Any] | None = None,
     weather_target: dict[str, Any] | None = None,
-    epw_path: str | None = None,
     simulation_parameter_target: dict[str, Any] | None = None,
     simulation_parameter: dict[str, Any] | None = None,
     run_id: str | None = None,
@@ -277,8 +275,8 @@ def start_uwg_run(
     try:
         resolved_epw = resolve_epw_path(
             garden_root=garden_root_path,
+            manifest=manifest,
             weather_target=weather_target,
-            epw_path=epw_path,
         )
         preflight = (
             _preflight_epw(resolved_epw)
@@ -330,7 +328,6 @@ def start_uwg_run(
         garden_root=str(garden_root_path),
         model_target=resolved_model_target,
         weather_target=weather_target,
-        epw_path=epw_path,
         simulation_parameter_target=simulation_parameter_target,
         simulation_parameter=simulation_parameter,
         run_id=normalized_run_id,
@@ -611,7 +608,7 @@ def _register_morphed_weather_target(
         metadata={
             "source": "uwg",
             "source_run_target": run_target,
-            "query_aliases": ["uwg", "urban", "morphed", run_id],
+            "search_terms": ["uwg", "urban", "morphed", run_id],
         },
     )
     manifest.weather_files = [

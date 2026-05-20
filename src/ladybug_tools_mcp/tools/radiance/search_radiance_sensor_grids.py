@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
@@ -13,11 +12,14 @@ from garden.store import list_garden_artifacts
 
 def _target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any]) -> dict[str, Any]:
     path = str(artifact.get("path") or "")
+    name = artifact.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("radiance_sensor_grid artifact requires a name.")
     return {
         "target_type": "radiance_sensor_grid",
         "domain": "honeybee_radiance",
         "garden_id": garden_target.get("garden_id"),
-        "identifier": str(artifact.get("name") or Path(path).stem),
+        "identifier": name,
         "path": path,
     }
 
@@ -46,15 +48,9 @@ def register(mcp: FastMCP) -> None:
     def search_radiance_sensor_grids(
         garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
         query: Annotated[str | None, Field(description="Optional identifier or path substring filter.")] = None,
-        object_type: Annotated[
-            str | None,
-            Field(description="Optional object-type hint accepted for Agent compatibility. This tool always searches radiance_sensor_grid artifacts."),
-        ] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
-        return_object_dict: Annotated[bool | None, Field(description="Ignored compatibility hint.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance SensorGrid artifacts."""
-        _ = (object_type, return_object_dict)
         listed = list_garden_artifacts(
             garden_root=garden_root,
             artifact_type="radiance_sensor_grid",
@@ -84,7 +80,6 @@ def register(mcp: FastMCP) -> None:
                 "garden_target": garden_target,
                 "count": len(matches),
                 "query": query,
-                "object_type_hint": object_type,
                 "artifact_type": "radiance_sensor_grid",
             },
         }

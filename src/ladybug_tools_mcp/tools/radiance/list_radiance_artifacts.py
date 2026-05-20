@@ -1,4 +1,4 @@
-"""Alias for listing Radiance Garden artifact files."""
+"""List Radiance Garden artifacts."""
 
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ from garden.store import list_garden_artifacts as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the list_radiance_artifacts alias tool."""
+    """Register the list_radiance_artifacts tool."""
 
     @mcp.tool(
         name="list_radiance_artifacts",
-        description="Alias for list_radiance_artifact_files. List Garden-managed Radiance artifact records and compact artifact_paths.",
+        description="List Garden-managed Radiance artifact records and compact artifact_paths.",
         tags={
             "honeybee-radiance",
             "radiance",
@@ -27,7 +27,6 @@ def register(mcp: FastMCP) -> None:
             "list",
             "read-only",
             "safe",
-            "alias",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
@@ -35,16 +34,10 @@ def register(mcp: FastMCP) -> None:
     def list_radiance_artifacts(
         garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
         artifact_type: Annotated[str | None, Field(description="Optional Radiance artifact type filter.")] = None,
-        object_type: Annotated[
-            str | None,
-            Field(description="Alias for artifact_type accepted for Agent compatibility."),
-        ] = None,
         query: Annotated[str | None, Field(description="Optional name/path substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """List Radiance artifacts."""
-        if artifact_type is None and object_type is not None:
-            artifact_type = object_type
         result = service(
             garden_root=garden_root,
             artifact_type=_normalize_artifact_type(artifact_type),

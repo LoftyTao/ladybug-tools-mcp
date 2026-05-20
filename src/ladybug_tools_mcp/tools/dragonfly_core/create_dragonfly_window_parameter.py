@@ -21,7 +21,7 @@ def register(mcp: FastMCP) -> None:
             "Create a compact SDK-backed Dragonfly WindowParameter artifact for "
             "Room2D, Story, Building, or Model outdoor wall application. Supports "
             "parameter_type simple_window_ratio and repeating_window_ratio only; "
-            "this is not a Honeybee aperture alias. Returns the compact artifact "
+            "this is a Dragonfly envelope parameter, not a Honeybee Aperture. Returns the compact artifact "
             "as parameter, window_parameter, target, and object_dict."
         ),
         tags={"dragonfly-core", "garden-mode", "window", "parameter", "create", "safe"},
@@ -42,10 +42,6 @@ def register(mcp: FastMCP) -> None:
             float | None,
             Field(description="Window-to-wall ratio used by the Dragonfly parameter."),
         ] = None,
-        wwr: Annotated[
-            float | None,
-            Field(description="Optional natural alias for window_ratio."),
-        ] = None,
         rect_split: Annotated[
             bool,
             Field(description="SimpleWindowRatio rect_split flag."),
@@ -62,26 +58,14 @@ def register(mcp: FastMCP) -> None:
             float | None,
             Field(description="Required for repeating_window_ratio."),
         ] = None,
-        horiz_separator: Annotated[
-            float | None,
-            Field(description="Optional natural alias for horizontal_separation."),
-        ] = None,
         vertical_separation: Annotated[
             float,
             Field(description="Optional vertical separation for repeating_window_ratio."),
         ] = 0,
-        return_object_dict: Annotated[
-            bool | None,
-            Field(description="Optional low-cost output hint; this tool already returns a compact artifact."),
-        ] = None,
     ) -> dict[str, Any]:
         """Create a Dragonfly WindowParameter artifact."""
         if window_ratio is None:
-            window_ratio = wwr
-        if window_ratio is None:
-            raise ValueError("create_dragonfly_window_parameter requires window_ratio or wwr.")
-        if horizontal_separation is None and horiz_separator is not None:
-            horizontal_separation = horiz_separator
+            raise ValueError("create_dragonfly_window_parameter requires window_ratio.")
         return service(
             garden_root=garden_root,
             parameter_type=parameter_type,

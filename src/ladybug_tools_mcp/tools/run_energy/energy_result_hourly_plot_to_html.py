@@ -17,7 +17,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="energy_result_hourly_plot_to_html",
-        description="Compatibility path: create an interactive Garden HTML artifact directly from one hourly EnergyPlus SQL DataCollection using Ladybug HourlyPlot and VisualizationSet. Prefer read_energy_result_data with save_data_collections=true, then data_collection_hourly_plot_to_visualization_set with return_visualization_set=false, then visualization_set_to_html with visualization_set_target. Keep this direct tool for legacy/debug clients that need one Energy-owned chart-to-HTML call after read_energy_result_data finds an output_name such as zone loads, HVAC demand, unmet hours, or a custom output variable.",
+        description="Create a ready-to-open Garden HTML artifact directly from one hourly EnergyPlus SQL DataCollection using Ladybug HourlyPlot. Use this only when the requested result is an HTML file.",
         tags={
             "run-energy",
             "energy",

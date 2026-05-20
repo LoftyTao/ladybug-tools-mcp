@@ -47,11 +47,6 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional run identifier when run_target is omitted."),
         ] = None,
-        output_name: Annotated[
-            str | None,
-            Field(description="Optional Agent output filter hint accepted for compatibility. Ignored; this tool always returns the compact output list."),
-        ] = None,
     ) -> dict[str, Any]:
         """List outputs for one Radiance simulation run."""
-        _ = output_name
         return service(garden_root=garden_root, run_target=run_target, run_id=run_id)

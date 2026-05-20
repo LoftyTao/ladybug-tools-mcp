@@ -14,13 +14,13 @@
 
 ## 已验证最短路径
 
-1. `search_tools`
+1. `search`
    查询 `create garden honeybee model`
-2. `search_tools`
+2. `search`
    查询 `get base model honeybee`
-3. `call_tool(create_garden)`
-4. `call_tool(create_honeybee_model)`
-5. `call_tool(get_base_honeybee_model)`
+3. `await call_tool(create_garden)`
+4. `await call_tool(create_honeybee_model)`
+5. `await call_tool(get_base_honeybee_model)`
 
 ## 已验证最小参数形态
 

@@ -5,7 +5,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 from garden.honeybee_core.edit import edit_honeybee_shade as service
-from ladybug_tools_mcp.contracts.report import make_report
 
 
 def register(mcp: FastMCP) -> None:
@@ -77,10 +76,6 @@ def register(mcp: FastMCP) -> None:
                 description="Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from search_radiance_library_objects."
             ),
         ] = None,
-        radiance_modifier_target: Annotated[
-            dict[str, Any] | str | None,
-            Field(description="Alias for modifier accepted for Agent compatibility."),
-        ] = None,
         modifier_blk: Annotated[
             dict[str, Any] | str | None,
             Field(
@@ -97,45 +92,8 @@ def register(mcp: FastMCP) -> None:
                 description="Optional Honeybee Radiance state update. Accepts a state list for replace_all, or a dict with operation=replace_all|add|clear and states=[...]."
             ),
         ] = None,
-        radiance_properties: Annotated[
-            dict[str, Any] | None,
-            Field(description="Ignored Agent compatibility hint. Use dynamic_group_identifier and states to edit Radiance properties."),
-        ] = None,
-        return_object_dict: Annotated[
-            bool | None,
-            Field(description="Ignored compatibility hint; shade edits return compact targets and summaries."),
-        ] = None,
     ) -> dict[str, Any]:
         """Edit a Honeybee Shade."""
-        _ = (radiance_properties, return_object_dict)
-        if modifier is None and radiance_modifier_target is not None:
-            modifier = radiance_modifier_target
-        if (
-            radiance_properties is not None
-            and display_name is None
-            and user_data is None
-            and geometry is None
-            and is_detached is None
-            and construction is None
-            and transmittance_schedule is None
-            and pv_properties is None
-            and modifier is None
-            and modifier_blk is None
-            and dynamic_group_identifier is None
-            and states is None
-        ):
-            return {
-                "target": target,
-                "summary_view": {
-                    "status": "no_change",
-                    "ignored_hint": "radiance_properties",
-                    "ready_for": "use setup_radiance_dynamic_group or states for Radiance state edits",
-                },
-                "report": make_report(
-                    status="ok",
-                    message="Ignored radiance_properties compatibility hint; no shade edit was requested.",
-                ),
-            }
         return service(
             garden_root=garden_root,
             target=target,

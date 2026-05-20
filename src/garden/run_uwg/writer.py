@@ -25,7 +25,6 @@ def dragonfly_model_to_uwg(
     garden_root: str,
     model_target: dict[str, Any] | None = None,
     weather_target: dict[str, Any] | None = None,
-    epw_path: str | None = None,
     simulation_parameter_target: dict[str, Any] | None = None,
     simulation_parameter: dict[str, Any] | None = None,
     name: str | None = None,
@@ -37,8 +36,8 @@ def dragonfly_model_to_uwg(
     model = load_dragonfly_model(garden_root_path, resolved_model_target)
     resolved_epw = resolve_epw_path(
         garden_root=garden_root_path,
+        manifest=manifest,
         weather_target=weather_target,
-        epw_path=epw_path,
     )
     parameter, parameter_target, parameter_dict = load_uwg_simulation_parameter(
         garden_root=garden_root_path,
@@ -109,22 +108,24 @@ def dragonfly_model_to_uwg(
 def resolve_epw_path(
     *,
     garden_root: Path,
-    weather_target: dict[str, Any] | None = None,
-    epw_path: str | None = None,
+    manifest: GardenManifest,
+    weather_target: dict[str, Any] | None,
 ) -> Path:
-    """Resolve a Garden weather target or explicit Garden-local EPW path."""
-    if weather_target is not None and epw_path is not None:
-        raise ValueError("Pass either weather_target or epw_path, not both.")
-    if weather_target is not None:
-        if weather_target.get("target_type") != "weather_file":
-            raise ValueError("weather_target must be a Garden weather_file target.")
-        path_value = weather_target.get("epw_path")
-        if not path_value:
-            raise ValueError("weather_target requires epw_path.")
-        return _resolve_existing_garden_file(garden_root, str(path_value), suffix=".epw")
-    if epw_path is not None:
-        return _resolve_existing_garden_file(garden_root, epw_path, suffix=".epw")
-    raise ValueError("A Garden weather_target or Garden-relative epw_path is required.")
+    """Resolve an exact Garden weather_file target to its EPW path."""
+    if weather_target is None:
+        raise ValueError("weather_target is required.")
+    if not isinstance(weather_target, dict):
+        raise ValueError("weather_target must be a dictionary.")
+    if weather_target.get("target_type") != "weather_file":
+        raise ValueError("weather_target must be a Garden weather_file target.")
+    if weather_target.get("garden_id") != manifest.garden_id:
+        raise ValueError("weather_target belongs to a different Garden.")
+    path_value = weather_target.get("epw_path")
+    if not isinstance(path_value, str) or not path_value:
+        raise ValueError("weather_target requires epw_path.")
+    if Path(path_value).is_absolute():
+        raise ValueError("weather_target epw_path must be Garden-relative.")
+    return _resolve_existing_garden_file(garden_root, path_value, suffix=".epw")
 
 
 def make_uwg_json_artifact_target(

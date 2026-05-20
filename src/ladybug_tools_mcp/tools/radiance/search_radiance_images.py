@@ -31,7 +31,7 @@ def _run_id_from_target(value: Any) -> str | None:
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_radiance_images alias tool."""
+    """Register the search_radiance_images tool."""
 
     @mcp.tool(
         name="search_radiance_images",
@@ -45,7 +45,6 @@ def register(mcp: FastMCP) -> None:
             "search",
             "read-only",
             "safe",
-            "alias",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
@@ -55,30 +54,18 @@ def register(mcp: FastMCP) -> None:
         run_id: Annotated[str | None, Field(description="Optional Radiance view run identifier.")] = None,
         run_target: Annotated[
             dict[str, Any] | str | None,
-            Field(description="Alias for run_id accepted when passing a radiance_run target."),
+            Field(description="Optional radiance_run target used to identify a view run."),
         ] = None,
         file_type: Annotated[
             str | None,
-            Field(description="Optional image type hint such as hdr, falsecolor, or gif."),
-        ] = None,
-        object_type: Annotated[
-            str | None,
-            Field(description="Alias for file_type accepted for Agent compatibility."),
+            Field(description="Optional formal image artifact type such as radiance_hdr_image or radiance_gif_image."),
         ] = None,
         query: Annotated[str | None, Field(description="Optional name/path substring filter.")] = None,
-        identifier: Annotated[
-            str | None,
-            Field(description="Alias for query accepted for Agent compatibility."),
-        ] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance images."""
         if run_id is None:
             run_id = _run_id_from_target(run_target)
-        if file_type is None and object_type is not None:
-            file_type = object_type
-        if query is None and identifier is not None:
-            query = identifier
         query_text = (query or "").strip().lower()
         matches: list[dict[str, Any]] = []
 

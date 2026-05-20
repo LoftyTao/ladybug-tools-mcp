@@ -17,6 +17,7 @@ def register(mcp: FastMCP) -> None:
         name="create_dragonfly_story",
         description=(
             "Create a Dragonfly Story draft object from Dragonfly Room2D targets. "
+            "The parameter name is exactly room2d_targets, not room2ds and not room_2ds. "
             "Pass identifier or a natural display_name; the returned Story target "
             "can be passed to create_dragonfly_building."
         ),
@@ -32,19 +33,12 @@ def register(mcp: FastMCP) -> None:
             list[dict[str, Any]] | None,
             Field(
                 description=(
-                    "Required list of Dragonfly Room2D targets. Use room2d_target "
-                    "values returned by create_dragonfly_room2d or target values "
-                    "from a Room2D search."
+                    "Required list of Dragonfly Room2D targets. The parameter name "
+                    "is exactly room2d_targets, not room2ds and not room_2ds. Use "
+                    "room2d_target values returned by create_dragonfly_room2d or "
+                    "target values from a Room2D search."
                 )
             ),
-        ] = None,
-        room_targets: Annotated[
-            list[dict[str, Any]] | None,
-            Field(description="Optional natural alias for room2d_targets."),
-        ] = None,
-        rooms: Annotated[
-            list[dict[str, Any]] | None,
-            Field(description="Optional natural alias for room2d_targets."),
         ] = None,
         identifier: Annotated[
             str | None,
@@ -55,16 +49,11 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = None,
-        story_identifier: Annotated[
-            str | None,
-            Field(description="Optional natural alias for identifier."),
-        ] = None,
         model_target: Annotated[
-            dict[str, Any] | str | None,
+            dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Accepts the typed target or a "
-                    "Garden-relative DFJSON path. Defaults to base Dragonfly model."
+                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
                 )
             ),
         ] = None,
@@ -75,27 +64,6 @@ def register(mcp: FastMCP) -> None:
         floor_height: Annotated[
             float | None,
             Field(description="Optional Story floor height."),
-        ] = None,
-        floor_z: Annotated[
-            float | None,
-            Field(description="Optional natural alias for Story floor_height."),
-        ] = None,
-        floor_to_ceiling_height: Annotated[
-            float | None,
-            Field(
-                description=(
-                    "Optional natural floor height hint. Used as floor_to_floor_height "
-                    "when floor_to_floor_height is omitted."
-                )
-            ),
-        ] = None,
-        height: Annotated[
-            float | None,
-            Field(
-                description=(
-                    "Optional natural height alias for floor_to_floor_height."
-                )
-            ),
         ] = None,
         multiplier: Annotated[
             int,
@@ -120,43 +88,16 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = None,
-        story_number: Annotated[
-            int | None,
-            Field(
-                description=(
-                    "Optional natural story number hint. Used to infer floor_height "
-                    "when floor_height is omitted."
-                )
-            ),
-        ] = None,
-        host_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Building target for natural temporary-floor workflows. "
-                    "When room2d_targets are omitted, the service copies the host "
-                    "Building top-floor layout into a draft Story."
-                )
-            ),
-        ] = None,
     ) -> dict[str, Any]:
         """Create a Dragonfly Story."""
         return service(
             garden_root=garden_root,
             identifier=identifier,
-            story_identifier=story_identifier,
             room2d_targets=room2d_targets,
-            room_targets=room_targets,
-            rooms=rooms,
             model_target=model_target,
             floor_to_floor_height=floor_to_floor_height,
             floor_height=floor_height,
-            floor_z=floor_z,
-            floor_to_ceiling_height=floor_to_ceiling_height,
-            height=height,
             multiplier=multiplier,
             story_type=story_type,
             display_name=display_name,
-            story_number=story_number,
-            host_target=host_target,
         )

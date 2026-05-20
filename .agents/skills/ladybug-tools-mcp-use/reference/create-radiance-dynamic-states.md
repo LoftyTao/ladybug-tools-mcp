@@ -67,11 +67,8 @@ setup = await call_tool("setup_radiance_dynamic_group", {
 - Use `create_radiance_shade_state` for Shade targets.
 - Use `create_radiance_subface_state` for Aperture and Door targets.
 - `create_radiance_state_geometry` requires exactly one of `geometry` or `vertices`.
-- `setup_radiance_dynamic_group.operation` is `replace_all`, `add`, or `clear`. Natural aliases such as `set`, `assign`, `apply`, `set_states`, and `add_states` are accepted, but planned calls should use the canonical names.
-- For `replace_all` / `add`, `setup_radiance_dynamic_group` requires at least one state. Do not pass only `state_identifier`; that is only an ignored Agent label/index.
+- For `replace_all` / `add`, `setup_radiance_dynamic_group` requires at least one state. Do not pass `state_identifier`.
 - `create_radiance_shade_state` accepts `shades` or `states` as the list of `StateGeometry` dictionaries. Use `state_geo["object_dict"]` or the full state-geometry result, not `state_geo["target"]`.
-- `create_radiance_state_geometry` can use standards identifiers such as `black`; observed aliases like `generic_black` normalize to the SDK `black` modifier.
-- `return_object_dict` hints are harmless compatibility inputs on these creation tools; they do not change the compact state handoff.
 - For Garden checks, use `get_garden`, `get_base_honeybee_model`, or `search_honeybee_model_objects`. Do not call an inner `search` tool inside `execute`; Code Mode domain tools are reached only through `await call_tool(...)`.
 
 ## Success Criteria

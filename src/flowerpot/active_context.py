@@ -85,103 +85,27 @@ def _sanitize_flowerpot(flowerpot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _public_model_target(model_target: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(model_target, dict):
+        return None
+    return _sanitize_value(model_target)
+
+
+def _validate_model_target(value: Any) -> None:
+    if not isinstance(value, dict):
+        return
+    if value.get("target_type") == "model":
+        raise ValueError(
+            "Active Flowerpot context contains a non-formal model target. "
+            "Recreate the active context with a honeybee_model target."
+        )
+
+
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as handle:
         json.dump(data, handle, indent=2)
         handle.write("\n")
-
-
-def _registry_fallback_context(
-    *,
-    garden_root: Path,
-    manifest: GardenManifest,
-    platform: str,
-) -> dict[str, Any] | None:
-    from flowerpot.registry import _read_item, _read_registry
-
-    registry = _read_registry(garden_root)
-    entries = list(registry.get("flowerpots", []))
-    if not entries:
-        return None
-    normalized_platform = _normalize_platform(platform)
-
-    def _platform_matches(entry: dict[str, Any]) -> bool:
-        entry_platform = entry.get("platform")
-        if not isinstance(entry_platform, dict) or not entry_platform:
-            return True
-        platform_name = entry_platform.get("name") or entry_platform.get("platform")
-        if platform_name is None:
-            return True
-        return _normalize_platform(str(platform_name)) == normalized_platform
-
-    candidates = [entry for entry in entries if _platform_matches(entry)]
-    if not candidates:
-        candidates = entries
-    candidates.sort(
-        key=lambda entry: str(entry.get("updated_at") or entry.get("created_at") or ""),
-        reverse=True,
-    )
-    entry = candidates[0]
-    flowerpot_id = str(entry.get("flowerpot_id") or "")
-    if not flowerpot_id:
-        return None
-    item = _read_item(garden_root, flowerpot_id)
-    flowerpot = _sanitize_flowerpot(item.get("flowerpot", {}))
-    context = {
-        "schema_version": "1",
-        "updated_at": entry.get("updated_at") or item.get("updated_at"),
-        "platform": normalized_platform,
-        "component": {},
-        "garden_root": str(garden_root),
-        "garden_target": manifest.target(),
-        "flowerpot": flowerpot,
-        "flowerpot_id": flowerpot_id,
-        "flowerpot_kind": flowerpot.get("kind") or entry.get("kind"),
-        "base_honeybee_model_target": manifest.base_honeybee_model,
-        "base_dragonfly_model_target": manifest.base_dragonfly_model,
-        "model_identifier": (
-            manifest.base_honeybee_model.get("model_identifier")
-            if isinstance(manifest.base_honeybee_model, dict)
-            else None
-        ),
-        "model_display_name": None,
-        "mode": "registry_fallback",
-        "follow": False,
-        "changed": False,
-        "report_status": "ok",
-        "source": "registry_fallback",
-    }
-    return {
-        "active_context": context,
-        "garden_root": str(garden_root),
-        "flowerpot": flowerpot,
-        "model_target": manifest.base_honeybee_model,
-        "summary_view": {
-            "found": True,
-            "source": "registry_fallback",
-            "platform": normalized_platform,
-            "flowerpot_id": flowerpot_id,
-            "flowerpot_kind": context.get("flowerpot_kind"),
-            "model_identifier": context.get("model_identifier"),
-            "model_display_name": None,
-            "mode": "registry_fallback",
-            "follow": False,
-            "changed": False,
-            "report_status": "ok",
-            "garden_target": manifest.target(),
-        },
-        "report": make_report(
-            status="ok",
-            message=(
-                f"No explicit active Flowerpot context found for {normalized_platform}; "
-                "returned latest registered Flowerpot fallback."
-            ),
-            warnings=[
-                "Returned registry fallback context because no platform active-context file exists."
-            ],
-        ),
-    }
 
 
 def write_active_context(
@@ -203,6 +127,7 @@ def write_active_context(
     normalized_platform = _normalize_platform(platform)
     safe_flowerpot = _sanitize_flowerpot(flowerpot)
     payload_context = safe_flowerpot.get("payload_context", {})
+    public_model_target = _public_model_target(model_target)
     context = {
         "schema_version": "1",
         "updated_at": utc_now_iso(),
@@ -213,7 +138,7 @@ def write_active_context(
         "flowerpot": safe_flowerpot,
         "flowerpot_id": payload_context.get("flowerpot_id"),
         "flowerpot_kind": safe_flowerpot.get("kind"),
-        "base_honeybee_model_target": _sanitize_value(model_target),
+        "base_honeybee_model_target": public_model_target,
         "model_identifier": model_identifier,
         "model_display_name": model_display_name,
         "mode": mode,
@@ -250,25 +175,20 @@ def read_active_context(
     path = _context_path(str(garden_root_path), normalized_platform)
 
     if not path.is_file():
-        fallback = _registry_fallback_context(
-            garden_root=garden_root_path,
-            manifest=manifest,
-            platform=normalized_platform,
-        )
-        if fallback is not None:
-            return fallback
         return {
-            "active_context": {},
+            "exists": False,
+            "active_context": None,
             "garden_root": str(garden_root_path),
-            "flowerpot": {},
+            "flowerpot": None,
             "model_target": None,
             "summary_view": {
                 "found": False,
                 "platform": normalized_platform,
                 "garden_target": manifest.target(),
+                "active_context_file": str(path),
             },
             "report": make_report(
-                status="ok",
+                status="not_found",
                 message=f"No active Flowerpot context found for {normalized_platform}.",
             ),
         }
@@ -283,7 +203,9 @@ def read_active_context(
 
     flowerpot = context.get("flowerpot") or {}
     model_target = context.get("base_honeybee_model_target")
+    _validate_model_target(model_target)
     return {
+        "exists": True,
         "active_context": context,
         "garden_root": str(garden_root_path),
         "flowerpot": flowerpot,
@@ -338,9 +260,10 @@ def read_latest_active_context(
 
     if not matches:
         return {
-            "active_context": {},
+            "exists": False,
+            "active_context": None,
             "garden_root": None,
-            "flowerpot": {},
+            "flowerpot": None,
             "model_target": None,
             "summary_view": {
                 "found": False,
@@ -348,7 +271,7 @@ def read_latest_active_context(
                 "root_folder": str(root),
             },
             "report": make_report(
-                status="ok",
+                status="not_found",
                 message=f"No active Flowerpot context found for {normalized_platform}.",
             ),
         }

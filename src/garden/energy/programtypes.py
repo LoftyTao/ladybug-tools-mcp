@@ -39,14 +39,6 @@ LoadT = TypeVar(
 )
 
 
-def _unwrap_object_dict(data: Any) -> Any:
-    if isinstance(data, dict) and isinstance(data.get("object_dict"), dict):
-        return data["object_dict"]
-    if isinstance(data, dict) and isinstance(data.get("target"), dict):
-        return data["target"]
-    return data
-
-
 def _library_object_dict_from_target(
     *,
     garden_root: str | None,
@@ -55,23 +47,14 @@ def _library_object_dict_from_target(
     domain: str,
     object_family: str,
 ) -> Any:
-    data = _unwrap_object_dict(data)
     if not isinstance(data, dict) or data.get("target_type") != "garden_properties_library_object":
         return data
     if garden_root is None:
         raise ValueError(f"{field_name} target requires garden_root.")
     if data.get("domain") != domain or data.get("object_family") != object_family:
         raise ValueError(f"{field_name} target must reference {domain}:{object_family}.")
-    if "path" not in data:
-        identifier = data.get("identifier")
-        if not identifier:
-            raise ValueError(f"{field_name} target requires path or identifier.")
-        return get_garden_properties_library_object(
-            garden_root=garden_root,
-            domain=domain,
-            object_family=object_family,
-            identifier=str(identifier),
-        )["object_dict"]
+    if not isinstance(data.get("path"), str) or not data.get("path"):
+        raise ValueError(f"{field_name} target requires a Garden-relative path.")
     return get_garden_properties_library_object(
         garden_root=garden_root,
         target=data,
@@ -452,8 +435,6 @@ def _save_library_result(
         object_dict=result["object_dict"],
     )
     result["target"] = saved["target"]
-    if object_family in {"load", "program_type", "schedule"}:
-        result[f"{object_family}_target"] = saved["target"]
     result["persistence_receipt"] = saved["persistence_receipt"]
     result["summary_view"]["target"] = saved["target"]
     result["summary_view"]["ready_for"] = ready_for

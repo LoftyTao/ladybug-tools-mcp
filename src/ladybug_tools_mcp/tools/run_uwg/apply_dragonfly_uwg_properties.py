@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
@@ -17,10 +17,16 @@ def register(mcp: FastMCP) -> None:
         name="apply_dragonfly_uwg_properties",
         description=(
             "Apply SDK-backed Dragonfly UWG properties to a Dragonfly model, "
-            "Building, or ContextShade target. Model fields include terrain, "
-            "traffic, tree cover, and grass cover. Building fields include "
-            "program, vintage, heat-to-canyon fraction, SHGC, wall/roof albedo, "
-            "and roof vegetation fraction. ContextShade supports is_vegetation. "
+            "Building, or ContextShade target. Requires host_target; "
+            "use the Dragonfly model target for model-level tree_coverage_fraction "
+            "and grass_coverage_fraction, and use Building targets for program, "
+            "vintage, heat-to-canyon fraction, SHGC, wall/roof albedo, and roof "
+            "vegetation fraction. Omit terrain in simple workflows unless you "
+            "already have a Dragonfly UWG Terrain dictionary; terrain is not a "
+            "string such as Suburban. Building program values include LargeOffice, "
+            "MediumOffice, SmallOffice, and MidriseApartment; not Office. Vintage "
+            "values are New, 1980_Present, or Pre1980; not ASHRAE_2019. "
+            "ContextShade supports is_vegetation. "
             "These UWG properties are separate from Dragonfly Energy/OpenStudio "
             "properties."
         ),
@@ -42,20 +48,27 @@ def register(mcp: FastMCP) -> None:
             Field(description="Required exact Garden root path containing garden.json."),
         ],
         host_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Dragonfly model, Building, or ContextShade target."),
-        ] = None,
-        target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional natural alias for host_target."),
-        ] = None,
+            dict[str, Any],
+            Field(
+                description=(
+                    "Dragonfly model target, Building target, or ContextShade target. "
+                    "This tool requires host_target."
+                ),
+            ),
+        ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional Dragonfly model target. Defaults to base Dragonfly model."),
         ] = None,
         terrain: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional dragonfly_uwg Terrain dictionary for model-level UWG ground properties."),
+            Field(
+                description=(
+                    "Optional dragonfly_uwg Terrain dictionary for model-level UWG "
+                    "ground properties. Omit terrain unless you already have a real "
+                    "Terrain object dictionary; it is not a string like Suburban."
+                ),
+            ),
         ] = None,
         traffic: Annotated[
             dict[str, Any] | None,
@@ -70,12 +83,43 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional model-level grass/shrub coverage fraction from 0 to 1."),
         ] = None,
         program: Annotated[
-            str | None,
-            Field(description="Optional UWG building program, such as LargeOffice or MidriseApartment."),
+            Literal[
+                "LargeOffice",
+                "MediumOffice",
+                "SmallOffice",
+                "MidriseApartment",
+                "Retail",
+                "StripMall",
+                "PrimarySchool",
+                "SecondarySchool",
+                "SmallHotel",
+                "LargeHotel",
+                "Hospital",
+                "Outpatient",
+                "Warehouse",
+                "SuperMarket",
+                "FullServiceRestaurant",
+                "QuickServiceRestaurant",
+            ]
+            | None,
+            Field(
+                description=(
+                    "Optional UWG building program. Valid examples: LargeOffice, "
+                    "MediumOffice, SmallOffice, MidriseApartment, Retail, StripMall, "
+                    "PrimarySchool, SecondarySchool, SmallHotel, LargeHotel, Hospital, "
+                    "Outpatient, Warehouse, SuperMarket, FullServiceRestaurant, "
+                    "QuickServiceRestaurant. Not Office."
+                ),
+            ),
         ] = None,
         vintage: Annotated[
-            str | None,
-            Field(description="Optional UWG building vintage, such as New, 1980_Present, or Pre1980."),
+            Literal["New", "1980_Present", "Pre1980"] | None,
+            Field(
+                description=(
+                    "Optional UWG building vintage. Valid values are New, "
+                    "1980_Present, or Pre1980. Not ASHRAE_2019."
+                ),
+            ),
         ] = None,
         fract_heat_to_canyon: Annotated[
             float | None,
@@ -103,10 +147,6 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Apply Dragonfly UWG properties."""
-        if host_target is None:
-            host_target = target
-        if host_target is None:
-            raise ValueError("apply_dragonfly_uwg_properties requires host_target or target.")
         return service(
             garden_root=garden_root,
             host_target=host_target,

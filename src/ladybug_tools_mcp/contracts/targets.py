@@ -30,21 +30,6 @@ def make_garden_version_target(
     return target
 
 
-def make_model_target(
-    garden_id: str,
-    model_identifier: str,
-    *,
-    domain: str = "honeybee",
-) -> dict[str, str]:
-    """Build a model target."""
-    return {
-        "target_type": "model",
-        "garden_id": garden_id,
-        "domain": domain,
-        "model_identifier": model_identifier,
-    }
-
-
 def make_garden_properties_library_target(
     garden_id: str,
     *,

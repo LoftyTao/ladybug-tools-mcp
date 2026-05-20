@@ -38,14 +38,6 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Path to an existing IES file. Provide exactly one of ies_path or ies_content."),
         ] = None,
-        ies_file_path: Annotated[
-            str | None,
-            Field(description="Alias for ies_path accepted for Agent compatibility."),
-        ] = None,
-        ies_file: Annotated[
-            str | None,
-            Field(description="Alias for ies_path accepted for Agent compatibility."),
-        ] = None,
         identifier: Annotated[
             str | None,
             Field(description="Optional Luminaire identifier. If omitted, the SDK derives one from IES metadata or file name."),
@@ -66,10 +58,6 @@ def register(mcp: FastMCP) -> None:
             float,
             Field(description="Positive candela multiplier applied to the IES distribution."),
         ] = 1.0,
-        save_to_library: Annotated[
-            bool | None,
-            Field(description="Compatibility hint. With garden_root this tool already saves to the Garden Properties Library."),
-        ] = None,
         garden_root: Annotated[
             str | None,
             Field(description="Optional existing Garden root. Pass garden_root with return_object_dict=false to save and return a reusable luminaire target."),
@@ -80,10 +68,6 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance Luminaire from IES content or path."""
-        if ies_path is None and ies_file_path is not None:
-            ies_path = ies_file_path
-        if ies_path is None and ies_file is not None:
-            ies_path = ies_file
         return service(
             ies_content=ies_content,
             ies_path=ies_path,

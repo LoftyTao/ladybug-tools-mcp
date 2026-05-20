@@ -16,12 +16,12 @@
 
 ## 已验证最短路径
 
-1. `search_tools("search_honeybee_model_objects")`
-2. `search_tools("remove_honeybee_shade")`
-3. `call_tool(search_honeybee_model_objects)`，`_object_type_ = "shade"`
+1. `search("search_honeybee_model_objects")`
+2. `search("remove_honeybee_shade")`
+3. `await call_tool(search_honeybee_model_objects)`，`_object_type_ = "shade"`
 4. 读取第一个 match 的 `target`
-5. `call_tool(remove_honeybee_shade)`，将上一步 `target` 传入 `target`
-6. `call_tool(search_honeybee_model_objects)` 再次确认
+5. `await call_tool(remove_honeybee_shade)`，将上一步 `target` 传入 `target`
+6. `await call_tool(search_honeybee_model_objects)` 再次确认
 
 ## 已验证最小参数形态
 

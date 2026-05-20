@@ -220,10 +220,10 @@ def _object_type(obj: Any, object_dict: dict[str, Any]) -> str:
     return str(object_dict.get("type") or obj.__class__.__name__)
 
 
-def _object_to_dict(obj: Any, fallback: dict[str, Any]) -> dict[str, Any]:
+def _object_to_dict(obj: Any, source_dict: dict[str, Any]) -> dict[str, Any]:
     if hasattr(obj, "to_dict"):
         return obj.to_dict()
-    return fallback
+    return source_dict
 
 
 def _family_dir(garden_root: Path, spec: _FamilySpec) -> Path:
@@ -281,6 +281,17 @@ def _is_legacy_record(data: Any) -> bool:
 
 def _extract_object_dict(data: Any) -> dict[str, Any]:
     if _is_legacy_record(data):
+        raise ValueError(
+            "Garden Properties Library record uses legacy wrapped storage. "
+            "Run normalize_garden_properties_library_storage before reading it."
+        )
+    if not isinstance(data, dict):
+        raise ValueError("Garden Properties Library file must contain a JSON object.")
+    return dict(data)
+
+
+def _extract_object_dict_for_normalization(data: Any) -> dict[str, Any]:
+    if _is_legacy_record(data):
         return dict(data["object_dict"])
     if not isinstance(data, dict):
         raise ValueError("Garden Properties Library file must contain a JSON object.")
@@ -312,11 +323,9 @@ def _resolved_object_type(
     obj: Any,
     object_dict: dict[str, Any],
     index_entry: IndexEntry | None,
-    legacy_record: dict[str, Any] | None = None,
 ) -> str:
     return str(
         (index_entry or {}).get("object_type")
-        or (legacy_record or {}).get("object_type")
         or _object_type(obj, object_dict)
     )
 
@@ -454,7 +463,11 @@ def get_garden_properties_library_object(
     record = _read_record(root, target)
     object_dict = _extract_object_dict(record)
     obj = spec.validator(object_dict)
-    resolved_identifier = _identifier_from_object(obj, object_dict, None)
+    resolved_identifier = _identifier_from_object(
+        obj,
+        object_dict,
+        str(target.get("identifier") or "") or None,
+    )
     if (
         isinstance(target.get("identifier"), str)
         and str(target["identifier"]) != resolved_identifier
@@ -466,7 +479,6 @@ def get_garden_properties_library_object(
         obj=obj,
         object_dict=object_dict,
         index_entry=index_entry,
-        legacy_record=record if _is_legacy_record(record) else None,
     )
     return {
         "object_dict": object_dict,
@@ -507,30 +519,40 @@ def search_garden_properties_library_objects(
     query: str = "",
     domain: str | None = None,
     object_family: str | None = None,
-    object_type: str | None = None,
     limit: int = 10,
 ) -> dict[str, Any]:
     """Search Garden Properties Library indexes."""
     if limit < 1:
         raise ValueError("limit must be greater than zero.")
-    selected_family = object_family if object_family is not None else object_type
     root = _garden_root(garden_root)
     manifest = GardenManifest.read(root)
     matches: list[dict[str, Any]] = []
-    for spec in _selected_specs(domain, selected_family):
+    for spec in _selected_specs(domain, object_family):
         index = _read_index(root, spec)
         for item in index.get("objects", []):
             score = _score(str(item["identifier"]), str(item.get("object_type", "")), query)
             if score <= 0:
                 continue
+            target = item.get("target")
+            if not isinstance(target, dict):
+                raise ValueError(
+                    "Garden Properties Library index entry is missing a target."
+                )
+            object_dict = _extract_object_dict(_read_record(root, target))
+            obj = spec.validator(object_dict)
+            object_type_value = _resolved_object_type(
+                obj=obj,
+                object_dict=object_dict,
+                index_entry=item,
+            )
             matches.append(
                 {
                     "domain": spec.domain,
                     "object_family": spec.key,
                     "identifier": item["identifier"],
-                    "object_type": item.get("object_type"),
+                    "object_type": object_type_value,
                     "path": item.get("path"),
-                    "target": item["target"],
+                    "target": target,
                     "score": score,
                 }
             )
@@ -542,7 +564,7 @@ def search_garden_properties_library_objects(
             "garden_target": manifest.target(),
             "query": query,
             "domain": domain or "all",
-            "object_family": selected_family or "all",
+            "object_family": object_family or "all",
             "match_count": len(limited),
         },
         "report": make_report(
@@ -583,7 +605,7 @@ def normalize_garden_properties_library_storage(
                 continue
             try:
                 record = _read_record(root, target)
-                object_dict = _extract_object_dict(record)
+                object_dict = _extract_object_dict_for_normalization(record)
                 spec.validator(object_dict)
             except Exception as exc:
                 skipped.append(

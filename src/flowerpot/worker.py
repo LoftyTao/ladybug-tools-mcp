@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 from typing import Any
 
 
@@ -50,13 +51,36 @@ def _src_root() -> Path:
 
 def _worker_python_executable() -> Path:
     """Return the external Python executable used for bridge worker calls."""
-    candidate = _repository_root() / ".venv" / "Scripts" / "python.exe"
-    if not candidate.is_file():
-        raise RuntimeError(
-            f"Flowerpot worker Python was not found at {candidate}. "
-            "Create the project .venv before using Grasshopper components."
-        )
-    return candidate
+    candidates = _worker_python_candidates()
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    searched = ", ".join(str(candidate) for candidate in candidates) or "<none>"
+    raise RuntimeError(
+        "Flowerpot worker Python was not found. "
+        "Create the project .venv before using Grasshopper components. "
+        f"Searched: {searched}"
+    )
+
+
+def _worker_python_candidates() -> list[Path]:
+    root = _repository_root()
+    candidates = [root / ".venv" / "Scripts" / "python.exe"]
+    if root.parent.name == ".worktrees":
+        candidates.append(root.parent.parent / ".venv" / "Scripts" / "python.exe")
+    src_root = os.environ.get("LADYBUG_TOOLS_MCP_SRC")
+    if src_root:
+        candidates.append(Path(src_root).expanduser().resolve().parent / ".venv" / "Scripts" / "python.exe")
+    executable = Path(sys.executable)
+    if executable.name.lower().startswith("python"):
+        candidates.append(executable)
+
+    unique: list[Path] = []
+    for candidate in candidates:
+        resolved = candidate.expanduser().resolve()
+        if resolved not in unique:
+            unique.append(resolved)
+    return unique
 
 
 def _worker_environment() -> dict[str, str]:

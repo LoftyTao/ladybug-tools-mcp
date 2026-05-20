@@ -72,18 +72,6 @@ AnyConstruction = (
 )
 
 
-def _unwrap_object_dict(data: Any) -> Any:
-    if isinstance(data, dict) and isinstance(data.get("object_dict"), dict):
-        return data["object_dict"]
-    if (
-        isinstance(data, dict)
-        and isinstance(data.get("target"), dict)
-        and data["target"].get("target_type") == "garden_properties_library_object"
-    ):
-        return data["target"]
-    return data
-
-
 def _library_object_dict_from_target(
     *,
     garden_root: str | None,
@@ -92,7 +80,6 @@ def _library_object_dict_from_target(
     domain: str,
     object_family: str,
 ) -> Any:
-    data = _unwrap_object_dict(data)
     if not isinstance(data, dict) or data.get("target_type") != "garden_properties_library_object":
         return data
     if garden_root is None:
@@ -155,8 +142,6 @@ def _save_library_result(
         object_dict=result["object_dict"],
     )
     result["target"] = saved["target"]
-    if object_family in {"construction", "construction_set", "material"}:
-        result[f"{object_family}_target"] = saved["target"]
     result["persistence_receipt"] = saved["persistence_receipt"]
     result["summary_view"]["target"] = saved["target"]
     result["summary_view"]["ready_for"] = ready_for
@@ -548,18 +533,6 @@ def _material_from_input(
         domain="honeybee_energy",
         object_family="material",
     )
-    if isinstance(data, dict) and "type" not in data and isinstance(data.get("identifier"), str):
-        target_type = str(data.get("target_type", "")).lower()
-        if target_type in {
-            "material",
-            "energy_material",
-            "window_material",
-            "opaque_material",
-            "honeybee_energy_material",
-        }:
-            data = data["identifier"]
-    if isinstance(data, dict) and "type" not in data and isinstance(data.get("material_type"), str):
-        data = {**data, "type": data["material_type"]}
     try:
         if isinstance(data, str):
             try:
@@ -599,16 +572,6 @@ def _construction_from_input(
         domain="honeybee_energy",
         object_family="construction",
     )
-    if isinstance(data, dict) and "type" not in data and isinstance(data.get("identifier"), str):
-        target_type = str(data.get("target_type", "")).lower()
-        if target_type in {
-            "construction",
-            "window_construction",
-            "opaque_construction",
-            "shade_construction",
-            "honeybee_energy_construction",
-        } or set(data).issubset({"identifier", "display_name"}):
-            data = data["identifier"]
     try:
         if isinstance(data, str):
             try:
@@ -669,7 +632,6 @@ def _construction_set_from_input(
 
 
 def _subset_from_input(data: dict[str, Any] | None, cls: type, *, field_name: str) -> Any:
-    data = _unwrap_object_dict(data)
     if data is None:
         return None
     if not isinstance(data, dict):
@@ -688,16 +650,12 @@ def _opaque_subset_from_input(
     garden_root: str | None = None,
 ) -> Any:
     """Resolve subset input, wrapping a single OpaqueConstruction when provided."""
-    data = _unwrap_object_dict(data)
     if data is None:
         return None
     if isinstance(data, dict) and data.get("type") == cls.__name__:
         return _subset_from_input(data, cls, field_name=field_name)
     if isinstance(data, dict) and data.get("type") is None:
-        exterior_construction = (
-            data.get("exterior_construction_")
-            or data.get("exterior_construction")
-        )
+        exterior_construction = data.get("exterior_construction")
         if exterior_construction is not None:
             return cls(
                 _construction_from_input(
@@ -726,16 +684,10 @@ def _aperture_set_from_input(
     *,
     garden_root: str | None = None,
 ) -> ApertureConstructionSet | None:
-    data = _unwrap_object_dict(data)
     if data is None:
         return None
     if isinstance(data, dict) and data.get("type") is None:
-        window_construction = (
-            data.get("window_construction_")
-            or data.get("window_construction")
-            or data.get("exterior_construction_")
-            or data.get("exterior_construction")
-        )
+        window_construction = data.get("window_construction")
         if window_construction is not None:
             return ApertureConstructionSet(
                 _construction_from_input(

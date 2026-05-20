@@ -98,14 +98,13 @@ climate = await call_tool("create_climate_based_sky", {
 - WEA and SkyMatrix outputs are Garden artifacts, not Honeybee model properties.
 - Single-timestep `.sky` outputs are Garden artifacts with `radiance_sky_file` targets, not annual sky matrices.
 - Pass returned targets downstream; do not copy WEA file text or sky patch arrays through Agent context.
+- For visual context, pass a returned `sky_matrix` target into `sky_matrix_to_skydome_visualization_set` or cumulative-only `sky_matrix_to_radiation_dome_visualization_set`; see `reference/visualize-sunpath-sky-dome.md`.
 - `create_sky_matrix` accepts exactly one source shape: `wea_target`, `weather_target` / `epw_path`, or `location`.
 - `compute=false` stores compact setup parameters. Use `compute=true` only when the user needs persisted direct/diffuse patch values immediately.
 - `create_cie_standard_sky` and `create_climate_based_sky` persist command-backed Radiance scene includes starting with `!gensky` or `!gendaylit`. They do not execute Radiance binaries.
 - For simple natural requests like "clear summer noon", `create_cie_standard_sky` accepts `season="summer"`, `hour=12`, and `sky_condition="clear"`; planned calls may still use explicit `month=6`, `day=21`, and `time="12:00"`.
 - Numeric `time_zone` offsets like `-5` / `-7` are accepted on single-timestep sky tools and normalized to common Radiance tokens such as `EST` / `MST`.
-- Natural output folders such as `sky_files` are normalized to the Garden artifact path `artifacts/radiance/sky`.
-- Natural WEA folder hints such as `wea` or `radiance/wea` are normalized to `artifacts/radiance/wea`.
-- Natural SkyMatrix folder hints such as `imports/weather`, `radiance/sky_matrix`, or `sky_matrix` are normalized to `artifacts/radiance/sky`.
+- Use exact Garden artifact output directories such as `artifacts/radiance/wea` and `artifacts/radiance/sky`.
 - Use outer Code Mode `search` / `get_schema` before `execute` if discovery is needed. Do not call `await call_tool("search", ...)` inside `execute`; it is a residual Agent cost smell, not the recommended path.
 - This path does not run a complete Radiance recipe. Treat it as sky setup before the deterministic-pass `start_radiance_grid_run`, `start_radiance_view_run`, or `start_radiance_matrix_run` path.
 

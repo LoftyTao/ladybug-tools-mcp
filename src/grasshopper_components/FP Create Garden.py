@@ -1,10 +1,10 @@
 #! python 2
-# env: prefer file-relative bootstrap, then fall back to the current development checkout
+# env: prefer LADYBUG_TOOLS_MCP_SRC, then file-relative bootstrap
 
 """
 Create a Ladybug Tools Garden and wrap it as a Flowerpot.
 -
-This component is a GHPython-compatible shell over the formal Python 3 worker.
+This component is the GHPython shell over the formal Python 3 worker.
 -
 
     Args:
@@ -20,8 +20,6 @@ This component is a GHPython-compatible shell over the formal Python 3 worker.
 import os
 import sys
 
-_DEVELOPMENT_SRC_ROOT = r"D:\Desktop\Codex\rec-ladybug-tools-mcp\src"
-
 
 def _script_src_root():
     file_path = globals().get("__file__")
@@ -32,11 +30,11 @@ def _script_src_root():
 
 
 def _ensure_src_root():
-    env_root = os.environ.get("LADYBUG_TOOLS_MCP_ROOT")
+    env_src = os.environ.get("LADYBUG_TOOLS_MCP_SRC")
     candidates = []
-    if env_root:
-        candidates.append(os.path.join(env_root, "src"))
-    candidates.extend([_script_src_root(), _DEVELOPMENT_SRC_ROOT])
+    if env_src:
+        candidates.append(env_src)
+    candidates.append(_script_src_root())
     for src_root in candidates:
         if not src_root:
             continue

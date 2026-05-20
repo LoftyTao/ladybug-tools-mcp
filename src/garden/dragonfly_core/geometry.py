@@ -26,7 +26,7 @@ from ladybug_tools_mcp.contracts.report import make_report
 
 def _load_target_model(
     garden_root: str,
-    model_target: dict[str, Any] | str | None,
+    model_target: dict[str, Any] | None,
 ) -> tuple[Path, Any, dict[str, Any], Model]:
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
@@ -342,7 +342,7 @@ def clean_dragonfly_room2d_geometry(
     garden_root: str,
     room2d_target: dict[str, Any] | None = None,
     room_identifier: str | None = None,
-    model_target: dict[str, Any] | str | None = None,
+    model_target: dict[str, Any] | None = None,
     remove_duplicate_vertices: bool = True,
     remove_colinear_vertices: bool = True,
     remove_short_segments_distance: float | None = None,

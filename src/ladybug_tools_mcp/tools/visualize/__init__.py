@@ -35,6 +35,15 @@ from ladybug_tools_mcp.tools.visualize.honeybee_model_to_visualization_set impor
 from ladybug_tools_mcp.tools.visualize.honeybee_room_to_visualization_set import (
     register as register_honeybee_room_to_visualization_set,
 )
+from ladybug_tools_mcp.tools.visualize.sky_matrix_to_radiation_dome_visualization_set import (
+    register as register_sky_matrix_to_radiation_dome_visualization_set,
+)
+from ladybug_tools_mcp.tools.visualize.sky_matrix_to_skydome_visualization_set import (
+    register as register_sky_matrix_to_skydome_visualization_set,
+)
+from ladybug_tools_mcp.tools.visualize.sunpath_to_visualization_set import (
+    register as register_sunpath_to_visualization_set,
+)
 from ladybug_tools_mcp.tools.visualize.visualization_set_to_html import (
     register as register_visualization_set_to_html,
 )
@@ -57,6 +66,9 @@ def register(mcp: FastMCP) -> None:
     register_honeybee_model_to_visualization_set(mcp)
     register_honeybee_room_to_visualization_set(mcp)
     register_honeybee_face_to_visualization_set(mcp)
+    register_sunpath_to_visualization_set(mcp)
+    register_sky_matrix_to_skydome_visualization_set(mcp)
+    register_sky_matrix_to_radiation_dome_visualization_set(mcp)
     register_compose_visualization_sets(mcp)
     register_compose_model_analysis_visualization_set(mcp)
     register_visualization_set_to_html(mcp)

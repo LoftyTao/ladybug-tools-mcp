@@ -299,8 +299,6 @@ def load_data_collection(
     if not isinstance(data_collection_target, dict):
         raise ValueError("data_collection_target must be a dictionary.")
     target_type = data_collection_target.get("target_type")
-    if target_type == "data_collection":
-        target_type = DATA_COLLECTION_TARGET_TYPE
     if target_type != DATA_COLLECTION_TARGET_TYPE:
         raise ValueError(
             "data_collection_target target_type must be "
@@ -310,31 +308,15 @@ def load_data_collection(
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest = GardenManifest.read(garden_root_path)
     garden_id = data_collection_target.get("garden_id")
-    if garden_id and garden_id != manifest.garden_id:
+    if garden_id != manifest.garden_id:
         raise ValueError(
             "data_collection_target garden_id does not match the Garden root."
         )
     target_path = data_collection_target.get("path")
-    if not target_path:
-        artifact_name = data_collection_target.get("artifact_name") or data_collection_target.get(
-            "identifier"
-        )
-        if isinstance(artifact_name, str) and artifact_name.strip():
-            artifact_path = artifact_name.strip().replace("\\", "/")
-            if "/" not in artifact_path:
-                artifact_path = f"artifacts/data_collections/{artifact_path}"
-            target_path = artifact_path
     if not isinstance(target_path, str) or not target_path:
         raise ValueError("data_collection_target requires a Garden-relative path.")
     data_path = (garden_root_path / target_path).resolve()
     data_path.relative_to(garden_root_path)
-    if not data_path.suffix:
-        for suffix in (".json", ".csv"):
-            candidate = data_path.with_suffix(suffix)
-            if candidate.is_file():
-                data_path = candidate
-                target_path = to_posix_relative(data_path, garden_root_path)
-                break
     if not data_path.is_file():
         raise ValueError(f"DataCollection target file was not found: {target_path}")
     suffix = data_path.suffix.lower()

@@ -24,7 +24,7 @@ found = await call_tool("search_garden_properties_library_objects", {
 })
 ```
 
-The create result returns a `target` / `luminaire_target` with:
+The create result returns a `target` with:
 
 - `target_type`: `garden_properties_library_object`
 - `domain`: `honeybee_radiance`
@@ -45,7 +45,7 @@ luminaire = await call_tool("create_radiance_luminaire", {
 attached = await call_tool("add_radiance_luminaire_to_model", {
     "garden_root": garden_root,
     "model_target": model["target"],
-    "luminaire_target": luminaire["target"]
+    "luminaires": [luminaire["target"]]
 })
 ```
 

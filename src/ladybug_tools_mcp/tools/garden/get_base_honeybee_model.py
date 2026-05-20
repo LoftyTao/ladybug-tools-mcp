@@ -25,10 +25,6 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(description="Garden root directory containing garden.json."),
         ],
-        include_body: Annotated[
-            bool,
-            Field(description="Explicitly request full model body. Defaults to false."),
-        ] = False,
     ) -> dict[str, Any]:
         """Return the Garden base Honeybee model target."""
-        return service(garden_root=garden_root, include_body=include_body)
+        return service(garden_root=garden_root)

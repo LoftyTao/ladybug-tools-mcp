@@ -37,10 +37,6 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(description="Optional Honeybee model target. Defaults to base Honeybee model."),
         ] = None,
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional natural alias for honeybee_model_target."),
-        ] = None,
         conversion_method: Annotated[
             str,
             Field(description="Dragonfly Model.from_honeybee conversion_method, for example AllRoom2D."),
@@ -49,16 +45,8 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Whether to set this as Garden base_dragonfly_model."),
         ] = True,
-        set_base_dragonfly_model: Annotated[
-            bool | None,
-            Field(description="Natural alias for set_base."),
-        ] = None,
     ) -> dict[str, Any]:
         """Convert a Honeybee model to Dragonfly."""
-        if honeybee_model_target is None:
-            honeybee_model_target = model_target
-        if set_base_dragonfly_model is not None:
-            set_base = set_base_dragonfly_model
         return service(
             garden_root=garden_root,
             identifier=identifier or "dragonfly_from_honeybee",

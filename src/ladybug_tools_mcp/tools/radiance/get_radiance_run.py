@@ -42,28 +42,22 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional run identifier when run_target is omitted."),
         ] = None,
-        wait: Annotated[
-            int | float | None,
-            Field(description="Optional Agent compatibility hint: poll for up to this many seconds before returning. Prefer wait_seconds=60 or higher for real Radiance runs instead of repeated immediate calls."),
-        ] = None,
         wait_seconds: Annotated[
             int | float | None,
-            Field(description="Alias for wait accepted for Agent compatibility. Prefer this when waiting for a background Radiance run to finish."),
+            Field(description="Optional maximum polling duration in seconds before returning."),
         ] = None,
         poll_interval: Annotated[
             int | float | None,
-            Field(description="Optional polling interval in seconds when wait is supplied."),
+            Field(description="Optional polling interval in seconds when wait_seconds is supplied."),
         ] = None,
     ) -> dict[str, Any]:
         """Get one Radiance simulation run."""
-        if wait is None and wait_seconds is not None:
-            wait = wait_seconds
         interval = max(float(poll_interval or 1.0), 0.2)
-        deadline = time.monotonic() + max(float(wait or 0), 0)
+        deadline = time.monotonic() + max(float(wait_seconds or 0), 0)
         result = service(garden_root=garden_root, run_target=run_target, run_id=run_id)
-        while wait and result.get("status") in {"queued", "running"} and time.monotonic() < deadline:
+        while wait_seconds and result.get("status") in {"queued", "running"} and time.monotonic() < deadline:
             time.sleep(min(interval, max(deadline - time.monotonic(), 0.0)))
             result = service(garden_root=garden_root, run_target=run_target, run_id=run_id)
-        if wait:
-            result.setdefault("summary_view", {})["wait_seconds_requested"] = wait
+        if wait_seconds:
+            result.setdefault("summary_view", {})["wait_seconds_requested"] = wait_seconds
         return result

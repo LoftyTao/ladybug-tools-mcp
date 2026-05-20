@@ -8,7 +8,7 @@ Use this path when the user needs to create a Honeybee Energy HVAC object and at
 
 Deterministic MCP tests cover:
 
-- `search_tools` can find `create_ideal_air_system` and `search_hvac_templates`.
+- `search` can find `create_ideal_air_system` and `search_hvac_templates`.
 - `search_hvac_templates` can search SDK template HVAC classes and instantiate a selected template when `identifier` is provided.
 - `create_setpoint` returns a full SDK `Setpoint.to_dict(abridged=False)` object_dict.
 - `search_hvac_templates` and `create_setpoint` can save created objects directly into Garden Properties Library when `garden_root` is provided.
@@ -17,7 +17,7 @@ Deterministic MCP tests cover:
 
 OpenAI Agents smoke passed on 2026-04-25 in `tests/agent_integration/test_agent_hvac_smoke.py`:
 
-- `search_tools -> search_hvac_templates(garden_root_, return_object_dict_=false) -> create_setpoint(garden_root_, return_object_dict_=false) -> search_honeybee_model_objects -> edit_honeybee_room(targets) -> validate_honeybee_model`
+- `search -> search_hvac_templates(garden_root_, return_object_dict_=false) -> create_setpoint(garden_root_, return_object_dict_=false) -> search_honeybee_model_objects -> edit_honeybee_room(targets) -> validate_honeybee_model`
 - persisted room HVAC type: `PSZ`
 - persisted room setpoint identifier: `agent_setpoint`
 
@@ -28,7 +28,7 @@ OpenAI Agents smoke passed on 2026-04-25 in `tests/agent_integration/test_agent_
 
 ## Shortest Agent Path
 
-1. `search_tools`
+1. `search`
    - Query: `search create honeybee energy hvac template setpoint edit room validate`
 2. `call_tool` -> `search_hvac_templates`
    - Use `query` or `system_type_` to select an SDK HVAC template.

@@ -11,9 +11,9 @@
 
 当前真实自然语言验证已经稳定通过的路径是：
 
-1. `search_tools("create honeybee room from polyface or box in garden model")`
-2. `call_tool(create_honeybee_room)`，传入 `_garden_root + _identifier + _room_geometry`
-3. `call_tool(search_honeybee_model_objects)`，`_object_type_ = "room"`，确认新 room 已进入当前 Garden 模型
+1. `search("create honeybee room from polyface or box in garden model")`
+2. `await call_tool(create_honeybee_room)`，传入 `_garden_root + _identifier + _room_geometry`
+3. `await call_tool(search_honeybee_model_objects)`，`_object_type_ = "room"`，确认新 room 已进入当前 Garden 模型
 
 ## 已验证 prompt 特征
 
@@ -51,8 +51,8 @@
 
 ## 已验证成功判据
 
-- 工具调用里同时出现 `search_tools`、`create_honeybee_room`、`search_honeybee_model_objects`
-- `search_tools` query 中能收敛到 `room`
+- 工具调用里同时出现 `search`、`create_honeybee_room`、`search_honeybee_model_objects`
+- `search` query 中能收敛到 `room`
 - 持久化后的模型里 `len(model.rooms) == 1`
 - 新 room 的 identifier 为 `polyface_room`
 - 最终回答或确认信息里能提到新建 room
@@ -92,6 +92,5 @@
 - `faces` 是完整 Honeybee Face object dict 列表，不是 typed targets
 - `room_geometry` 必须是合法 `Polyface3D` dict，不要传 `Face3D`
 - `create_honeybee_room` 会写入并 auto-attaches 到 Garden base model；do not pass `host_target` in planned calls
-- Low-capability Agents may pass model-like `host_target`, `add_shades`, or `shade_distance`; these are accepted only as compatibility hints and should not be used to request room-attached shade generation.
 - 成功后不要把 `target` / `room_target` 再传给模型级 add：do not pass returned room targets into `edit_honeybee_model.add_objects`
 - 如果目标是“给墙开窗”，不要把它误写成 `create_honeybee_room`；这类请求应先定位 host wall/face，再走 `create_honeybee_apertures_by_parameters`

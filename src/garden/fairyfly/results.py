@@ -141,7 +141,7 @@ def _thmz_path_from_target(
     if thmz_target.get("target_type") != FAIRYFLY_THMZ_TARGET_TYPE:
         raise ValueError("thmz_target must have target_type 'fairyfly_thmz'.")
     garden_id = thmz_target.get("garden_id")
-    if garden_id and garden_id != manifest.garden_id:
+    if garden_id != manifest.garden_id:
         raise ValueError("thmz_target belongs to a different Garden.")
     path_value = thmz_target.get("path")
     if not isinstance(path_value, str) or not path_value:
@@ -162,20 +162,14 @@ def _thmz_path_from_run(
 ) -> tuple[Path, dict[str, Any] | None]:
     record = _run_record(garden_root, run_id)
     thmz_target = record.get("thmz_target")
-    path_value = None
-    if isinstance(thmz_target, dict):
-        path_value = thmz_target.get("path")
-    if path_value is None:
-        path_value = record.get("thmz_path")
-    if not isinstance(path_value, str) or not path_value:
-        path_value = f"runs/fairyfly_therm/{run_id}/model.thmz"
-    path = (garden_root / path_value).resolve()
-    path.relative_to(garden_root)
-    if not path.is_file():
-        raise ValueError(f"THERM THMZ file was not found for run: {run_id}")
-    if isinstance(thmz_target, dict):
-        return path, thmz_target
-    return path, None
+    if not isinstance(thmz_target, dict):
+        raise ValueError("Fairyfly run record requires a thmz_target.")
+    path, _, resolved_target = _thmz_path_from_target(
+        garden_root=garden_root,
+        manifest=manifest,
+        thmz_target=thmz_target,
+    )
+    return path, resolved_target
 
 
 def _resolve_thmz_path(

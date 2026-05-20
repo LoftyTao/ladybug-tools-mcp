@@ -62,7 +62,6 @@ def register(mcp: FastMCP) -> None:
             "search",
             "read-only",
             "safe",
-            "alias",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
@@ -70,17 +69,9 @@ def register(mcp: FastMCP) -> None:
     def search_radiance_parameters(
         garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
         query: Annotated[str | None, Field(description="Optional run_id, identifier, path, or parameter substring filter.")] = None,
-        identifier: Annotated[
-            str | None,
-            Field(description="Alias for query accepted for Agent compatibility."),
-        ] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
-        return_object_dict: Annotated[bool | None, Field(description="Ignored compatibility hint.")] = None,
     ) -> dict[str, Any]:
         """Search stored Radiance parameter inputs."""
-        _ = return_object_dict
-        if query is None and identifier is not None:
-            query = identifier
         garden_root_path = Path(garden_root).expanduser().resolve()
         manifest = GardenManifest.read(garden_root_path)
         query_text = (query or "").strip().lower()
@@ -115,7 +106,7 @@ def register(mcp: FastMCP) -> None:
                 "garden_target": manifest.target(),
                 "count": len(matches),
                 "query": query,
-                "recommended_fallback": "create_radiance_parameters",
+                "recommended_tool": "create_radiance_parameters",
             },
             "report": make_report(
                 status="ok",

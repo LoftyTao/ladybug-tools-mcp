@@ -19,6 +19,7 @@ from honeybee.room import Room
 from ladybug_display.visualization import VisualizationSet
 
 from ladybug_tools_mcp.contracts.report import make_report
+from garden.manifest import GardenManifest
 from garden.honeybee_core.locate import find_object
 from garden.honeybee_core.model_io import (
     load_honeybee_model,
@@ -63,16 +64,25 @@ def _normalize_object_color_by(color_by: str | None) -> str | None:
     return None if value == "none" else value
 
 
-def _target_model_hint(target: dict[str, Any]) -> dict[str, Any] | None:
+def _model_target_for_object(
+    manifest: GardenManifest,
+    target: dict[str, Any],
+) -> dict[str, Any]:
     model_identifier = target.get("model_identifier")
     if not model_identifier:
-        return None
-    return {
-        "target_type": "model",
-        "garden_id": target.get("garden_id"),
-        "domain": "honeybee",
-        "model_identifier": model_identifier,
-    }
+        raise ValueError("Honeybee object target requires model_identifier.")
+    for candidate in manifest.models:
+        if (
+            isinstance(candidate, dict)
+            and candidate.get("target_type") == "honeybee_model"
+            and candidate.get("domain") == "honeybee"
+            and candidate.get("model_identifier") == model_identifier
+        ):
+            return candidate
+    raise ValueError(
+        "Honeybee object target references a model that is not registered in "
+        "the Garden manifest."
+    )
 
 
 def _summarize_visualization_set(
@@ -317,14 +327,16 @@ def honeybee_room_to_visualization_set(
     include_sub_faces: bool = True,
     include_shades: bool = True,
     name: str | None = None,
+    return_visualization_set: bool = True,
 ) -> dict[str, Any]:
     """Translate a Garden Honeybee Room typed target into a VisualizationSet."""
     if target.get("object_type") != "room":
         raise ValueError("honeybee_room_to_visualization_set requires a room typed target.")
     garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(garden_root_path)
     manifest, resolved_target = resolve_model_target(
         garden_root_path,
-        model_target or _target_model_hint(target),
+        model_target or _model_target_for_object(manifest, target),
     )
     model = load_honeybee_model(garden_root_path, resolved_target)
     room = find_object(model, target)
@@ -351,7 +363,7 @@ def honeybee_room_to_visualization_set(
             )
     _set_visualization_set_name(vis_set, name)
     visualization_set = vis_set.to_dict()
-    return _object_visualization_response(
+    result = _object_visualization_response(
         manifest_target=manifest.target(),
         model_target=resolved_target,
         object_target=target,
@@ -361,6 +373,26 @@ def honeybee_room_to_visualization_set(
         include_wireframe=include_wireframe,
         wireframe_only=effective_wireframe_only,
     )
+    if not return_visualization_set:
+        saved = save_visualization_set(
+            garden_root=str(garden_root_path),
+            visualization_set=visualization_set,
+            name=name or visualization_set.get("identifier") or "honeybee_room",
+            source={
+                "tool": "honeybee_room_to_visualization_set",
+                "model_target": resolved_target,
+                "object_target": target,
+            },
+        )
+        result["target"] = saved["target"]
+        result["visualization_set_target"] = saved["visualization_set_target"]
+        result["persistence_receipt"] = saved["persistence_receipt"]
+        result["summary_view"]["visualization_set_target"] = saved[
+            "visualization_set_target"
+        ]
+        result["summary_view"]["body_returned"] = False
+        result.pop("visualization_set", None)
+    return result
 
 
 def honeybee_face_to_visualization_set(
@@ -374,14 +406,16 @@ def honeybee_face_to_visualization_set(
     include_sub_faces: bool = True,
     include_shades: bool = True,
     name: str | None = None,
+    return_visualization_set: bool = True,
 ) -> dict[str, Any]:
     """Translate a Garden Honeybee Face typed target into a VisualizationSet."""
     if target.get("object_type") != "face":
         raise ValueError("honeybee_face_to_visualization_set requires a face typed target.")
     garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(garden_root_path)
     manifest, resolved_target = resolve_model_target(
         garden_root_path,
-        model_target or _target_model_hint(target),
+        model_target or _model_target_for_object(manifest, target),
     )
     model = load_honeybee_model(garden_root_path, resolved_target)
     face = find_object(model, target)
@@ -408,7 +442,7 @@ def honeybee_face_to_visualization_set(
             )
     _set_visualization_set_name(vis_set, name)
     visualization_set = vis_set.to_dict()
-    return _object_visualization_response(
+    result = _object_visualization_response(
         manifest_target=manifest.target(),
         model_target=resolved_target,
         object_target=target,
@@ -418,31 +452,71 @@ def honeybee_face_to_visualization_set(
         include_wireframe=include_wireframe,
         wireframe_only=effective_wireframe_only,
     )
+    if not return_visualization_set:
+        saved = save_visualization_set(
+            garden_root=str(garden_root_path),
+            visualization_set=visualization_set,
+            name=name or visualization_set.get("identifier") or "honeybee_face",
+            source={
+                "tool": "honeybee_face_to_visualization_set",
+                "model_target": resolved_target,
+                "object_target": target,
+            },
+        )
+        result["target"] = saved["target"]
+        result["visualization_set_target"] = saved["visualization_set_target"]
+        result["persistence_receipt"] = saved["persistence_receipt"]
+        result["summary_view"]["visualization_set_target"] = saved[
+            "visualization_set_target"
+        ]
+        result["summary_view"]["body_returned"] = False
+        result.pop("visualization_set", None)
+    return result
 
 
 def compose_visualization_sets(
     *,
-    visualization_sets: list[dict[str, Any]],
+    visualization_sets: list[dict[str, Any]] | None = None,
+    garden_root: str | None = None,
+    visualization_set_targets: list[dict[str, Any]] | None = None,
     name: str | None = None,
     units: str | None = None,
     check_duplicate_geometry_ids: bool = True,
     conflict_strategy: str = "error",
+    return_visualization_set: bool = True,
 ) -> dict[str, Any]:
-    """Compose multiple VisualizationSet dictionaries into one VisualizationSet."""
-    if not visualization_sets:
+    """Compose multiple VisualizationSets from dicts or Garden-backed targets."""
+    input_sets = list(visualization_sets or [])
+    input_targets = list(visualization_set_targets or [])
+    if input_targets:
+        if not garden_root:
+            raise ValueError(
+                "garden_root is required when composing visualization_set_targets."
+            )
+        input_sets.extend(
+            load_visualization_set(
+                garden_root=garden_root,
+                visualization_set_target=target,
+            )
+            for target in input_targets
+        )
+    if not input_sets:
         raise ValueError("compose_visualization_sets requires at least one VisualizationSet.")
     strategy = str(conflict_strategy).strip().lower()
     if strategy not in COMPOSE_CONFLICT_STRATEGIES:
         allowed = ", ".join(sorted(COMPOSE_CONFLICT_STRATEGIES))
         raise ValueError(f"Unsupported conflict_strategy: {conflict_strategy}. Allowed values: {allowed}.")
 
-    vis_sets = [VisualizationSet.from_dict(item) for item in visualization_sets]
-    resolved_units = units if units is not None else vis_sets[0].units
+    vis_sets = [VisualizationSet.from_dict(item) for item in input_sets]
+    resolved_units = units if units is not None else next(
+        (vis_set.units for vis_set in vis_sets if vis_set.units),
+        vis_sets[0].units,
+    )
     if units is None:
         mismatches = [
             vis_set.units
             for vis_set in vis_sets
-            if vis_set.units != resolved_units
+            if vis_set.units and vis_set.units != resolved_units
         ]
         if mismatches:
             raise ValueError("VisualizationSet units must match when units is not provided.")
@@ -469,13 +543,15 @@ def compose_visualization_sets(
     summary = _summarize_visualization_set(visualization_set)
     summary.update(
         {
-            "input_count": len(visualization_sets),
+            "input_count": len(input_sets),
+            "dict_input_count": len(visualization_sets or []),
+            "target_input_count": len(input_targets),
             "check_duplicate_geometry_ids": check_duplicate_geometry_ids,
             "conflict_strategy": strategy,
             "renamed_geometry_ids": renamed_geometry_ids,
         }
     )
-    return {
+    result: dict[str, Any] = {
         "visualization_set": visualization_set,
         "summary_view": summary,
         "report": make_report(
@@ -483,6 +559,25 @@ def compose_visualization_sets(
             message="VisualizationSets composed.",
         ),
     }
+    if garden_root and not return_visualization_set:
+        saved = save_visualization_set(
+            garden_root=garden_root,
+            visualization_set=visualization_set,
+            name=name or "composed_visualization_set",
+            source={
+                "producer": "compose_visualization_sets",
+                "visualization_set_targets": input_targets,
+            },
+        )
+        result["target"] = saved["target"]
+        result["visualization_set_target"] = saved["visualization_set_target"]
+        result["persistence_receipt"] = saved["persistence_receipt"]
+        result["summary_view"]["visualization_set_target"] = saved[
+            "visualization_set_target"
+        ]
+        result["summary_view"]["body_returned"] = False
+        result.pop("visualization_set", None)
+    return result
 
 
 def compose_model_analysis_visualization_set(

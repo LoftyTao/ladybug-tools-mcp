@@ -17,7 +17,7 @@
 
 ## 已验证推荐路径
 
-1. `search_tools query='face attribute wall outdoors legend visualization svg'`
+1. `search query='face attribute wall outdoors legend visualization svg'`
 2. `call_tool name=create_2d_legend_parameter`
 3. `call_tool name=honeybee_model_to_visualization_set`
 4. 第 3 步传 `color_by_ = "none"`

@@ -551,7 +551,7 @@ These are the main directions for later development. Before there is a broad use
 - [ ] Dragonfly Model creation and editing tools
 - [ ] Add UrbanOpt support
 - [ ] More Visualization Set pre-processing and post-processing support
-- [ ] Support Ironbug in order to enable real custom HVAC system authoring
+- [ ] Redesign custom HVAC / Ironbug support for real custom HVAC system authoring
 - [ ] Web View and Model Editor tools for direct agent collaboration
 - [ ] A demo mode that can visualize all processes and steps
 - [ ] Cloud service support

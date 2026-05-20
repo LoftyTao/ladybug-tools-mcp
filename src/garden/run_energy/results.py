@@ -225,15 +225,15 @@ def _output_parameter(
     }
 
 
-def _data_collection_name(collection: Any, fallback: str) -> str:
+def _data_collection_name(collection: Any, default_name: str) -> str:
     if hasattr(collection, "ToString"):
         try:
             value = str(collection.ToString()).strip()
-            if value:
+            if value and "\n" not in value:
                 return value
         except Exception:
             pass
-    return fallback
+    return default_name
 
 
 def _data_collection_identifier(
@@ -298,6 +298,15 @@ def _data_collections(
     return list(
         sql.data_collections_by_output_name_run_period(output_name, run_period_index)
     )
+
+
+def _available_output_name_message(sql: Any, *, limit: int = 12) -> str:
+    names = [str(name) for name in (getattr(sql, "available_outputs", []) or []) if name]
+    if not names:
+        return "Call read_energy_result_data without output_name to inspect available SQL outputs."
+    preview = "; ".join(names[:limit])
+    suffix = "" if len(names) <= limit else f"; ... ({len(names)} total)"
+    return f"Available output names include: {preview}{suffix}."
 
 
 def _collection_time_interval(collection: Any) -> str:
@@ -527,6 +536,8 @@ def read_energy_result_data(
                         "output_parameter": parameter,
                     },
                 )
+                summary["target"] = saved["target"]
+                summary["data_collection_target"] = saved["target"]
                 summary["data_target"] = saved["target"]
                 summary["data_persistence_receipt"] = saved["persistence_receipt"]
                 data_collection_targets.append(saved["target"])
@@ -551,6 +562,9 @@ def read_energy_result_data(
             ),
             "collections_by_output": collections_by_output,
             "saved_data_collection_count": len(data_collection_targets),
+            "first_data_collection_target": (
+                data_collection_targets[0] if data_collection_targets else None
+            ),
             "data_collection_targets": data_collection_targets,
         },
         "report": make_report(
@@ -560,38 +574,6 @@ def read_energy_result_data(
             ),
         ),
     }
-
-
-def _fallback_hourly_plot_html(
-    *,
-    path: Path,
-    output_name: str,
-    collection_summary: dict[str, Any],
-    warning: str,
-) -> None:
-    values = list(collection_summary.get("values") or [])
-    rows = "\n".join(
-        f"<tr><td>{index}</td><td>{html.escape(str(value))}</td></tr>"
-        for index, value in enumerate(values)
-    )
-    path.write_text(
-        "\n".join(
-            [
-                "<!doctype html>",
-                '<html><head><meta charset="utf-8"><title>Energy Result</title>',
-                "<style>body{font-family:Arial,sans-serif;margin:24px}"
-                "table{border-collapse:collapse}td,th{border:1px solid #bbb;padding:4px 8px}"
-                "</style></head><body>",
-                f"<h1>{html.escape(output_name)}</h1>",
-                f"<p>{html.escape(warning)}</p>",
-                f"<p>Unit: {html.escape(str(collection_summary.get('unit')))}</p>",
-                "<table><thead><tr><th>Index</th><th>Value</th></tr></thead><tbody>",
-                rows,
-                "</tbody></table></body></html>",
-            ]
-        ),
-        encoding="utf-8",
-    )
 
 
 def _inject_html_legend(
@@ -681,7 +663,10 @@ def energy_result_hourly_plot_to_html(
     )
     collections = _data_collections(sql, output_name, None)
     if not collections:
-        raise ValueError(f"No DataCollections found for output: {output_name}")
+        raise ValueError(
+            f"No DataCollections found for output: {output_name}. "
+            f"{_available_output_name_message(sql)}"
+        )
     if collection_index < 0 or collection_index >= len(collections):
         raise ValueError(
             "collection_index is outside the returned DataCollection range."
@@ -698,7 +683,6 @@ def energy_result_hourly_plot_to_html(
     output_dir.mkdir(parents=True, exist_ok=True)
     safe_name = slugify_name(name)
     html_path = output_dir / f"{safe_name}.html"
-    warnings: list[str] = []
     try:
         hourly_plot = HourlyPlot(collection)
         vis_set = hourly_plot_to_vis_set(hourly_plot)
@@ -711,14 +695,7 @@ def energy_result_hourly_plot_to_html(
         ).resolve()
         html_path = exported
     except Exception as exc:
-        warning = f"Ladybug HourlyPlot export failed; wrote a compact fallback HTML table. {exc}"
-        warnings.append(warning)
-        _fallback_hourly_plot_html(
-            path=html_path,
-            output_name=output_name,
-            collection_summary=collection_summary,
-            warning=warning,
-        )
+        raise ValueError(f"Ladybug HourlyPlot export failed: {exc}") from exc
 
     html_path.relative_to(garden_root_path)
     artifact_path = to_posix_relative(html_path, garden_root_path)
@@ -754,7 +731,6 @@ def energy_result_hourly_plot_to_html(
         "report": make_report(
             status="ok",
             message="Energy result hourly plot HTML artifact exported.",
-            warnings=warnings,
         ),
     }
 
@@ -781,7 +757,7 @@ def _monthly_chart_series(
         if collection_index < 0 or collection_index >= len(candidates):
             raise ValueError(
                 f"collection_index {collection_index} is outside the DataCollection "
-                f"range for output {output_name}."
+                f"range for output {output_name}. {_available_output_name_message(sql)}"
             )
         collection = _transform_collection(candidates[collection_index], time_interval)
         label = str(item.get("label") or _data_collection_name(collection, output_name))

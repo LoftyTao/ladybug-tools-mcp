@@ -60,31 +60,14 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional parent Building identifier filter."),
         ] = None,
-        parent_building: Annotated[
-            str | None,
-            Field(description="Optional natural alias for building_identifier."),
-        ] = None,
         story_identifier: Annotated[
             str | None,
             Field(description="Optional parent Story identifier filter for Room2Ds."),
         ] = None,
-        parent_story: Annotated[
-            str | None,
-            Field(description="Optional natural alias for story_identifier."),
-        ] = None,
-        floor_identifier_pattern: Annotated[
-            str | None,
-            Field(
-                description=(
-                    "Optional natural floor/story identifier pattern. Used as "
-                    "query when query is omitted."
-                )
-            ),
-        ] = None,
         children_scope: Annotated[
-            dict[str, Any] | str | None,
+            dict[str, Any] | None,
             Field(
-                description="Optional Dragonfly Building or Story object target used to return only child Stories or Room2Ds. A string is treated as a parent identifier."
+                description="Optional Dragonfly Building or Story object target used to return only child Stories or Room2Ds."
             ),
         ] = None,
         include_geometry: Annotated[
@@ -93,16 +76,8 @@ def register(mcp: FastMCP) -> None:
                 description="Whether to include compact Room2D Face3D floor geometry summaries. Defaults false to avoid large object payloads."
             ),
         ] = False,
-        include_child_counts: Annotated[
-            bool | None,
-            Field(description="Optional natural hint accepted for compact searches; child counts are already summarized where available."),
-        ] = None,
     ) -> dict[str, Any]:
         """Search Dragonfly objects and return compact typed targets."""
-        if building_identifier is None:
-            building_identifier = parent_building
-        if story_identifier is None:
-            story_identifier = parent_story
         return service(
             garden_root=garden_root,
             model_target=model_target,
@@ -111,7 +86,6 @@ def register(mcp: FastMCP) -> None:
             query=query,
             building_identifier=building_identifier,
             story_identifier=story_identifier,
-            floor_identifier_pattern=floor_identifier_pattern,
             children_scope=children_scope,
             include_geometry=include_geometry,
         )

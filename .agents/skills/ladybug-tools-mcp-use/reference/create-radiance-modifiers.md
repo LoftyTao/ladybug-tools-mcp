@@ -17,7 +17,6 @@ Use these tools when the user needs a project-specific Radiance modifier instead
 - Glass modifier: `create_radiance_glass_modifier`
   - SDK object: `Glass`
 
-Prefer the specific create tool when you know the material kind. `create_radiance_modifier` is a bounded compatibility alias for common opaque/plastic and simple glass requests, but it is not a reason to skip the specific tools in planned calls.
 
 ## Compact Garden Target Path
 
@@ -37,7 +36,6 @@ The create result returns a `target` / `modifier_target` with:
 - `object_family`: `modifier`
 
 Use that target directly in `edit_honeybee_face`, `edit_honeybee_aperture`, `edit_honeybee_door`, or `edit_honeybee_shade` `modifier` / `modifier_blk` fields.
-For apertures, `radiance_modifier` and `radiance_modifier_target` are accepted aliases, but the canonical parameter remains `modifier`.
 
 ## Input Shapes
 
@@ -86,7 +84,6 @@ For `glass`, the SDK uses transmittance or transmissivity rather than reflectanc
 ```
 
 Do not describe glass inputs as reflectance in user-facing output; say transmittance or transmissivity.
-The tool also accepts natural Agent shapes such as `transmission`, `transmittance`, or `transmissivity`, and `[r, g, b]` lists for glass RGB values. Treat these as compatibility shapes; planned calls should still use the canonical examples above.
 
 If you need to confirm an existing Garden before applying a modifier, call `get_garden` or `get_base_honeybee_model`. Do not use filesystem probes or Python imports inside Code Mode.
 

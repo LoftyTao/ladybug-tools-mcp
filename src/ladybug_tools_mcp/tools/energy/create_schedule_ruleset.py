@@ -53,12 +53,6 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | str | None,
             Field(description="Optional ScheduleTypeLimit dict or library identifier."),
         ] = None,
-        schedule_type: Annotated[
-            str | None,
-            Field(
-                description="Agent-friendly alias for schedule_type_limit, such as fraction, Fractional, percentage, temperature, activity, Activity Level, or on/off."
-            ),
-        ] = None,
         default_value: Annotated[
             float | None,
             Field(
@@ -145,7 +139,6 @@ def register(mcp: FastMCP) -> None:
             schedule_rules=schedule_rules,
             rules=rules,
             schedule_type_limit=schedule_type_limit,
-            schedule_type=schedule_type,
             default_value=default_value,
             summer_designday_schedule=summer_designday_schedule,
             winter_designday_schedule=winter_designday_schedule,

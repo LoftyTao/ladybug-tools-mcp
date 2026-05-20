@@ -11,7 +11,7 @@
 
 这轮自然语言测试已经验证了以下事实：
 
-- Agent 会先尝试 `search_tools`
+- Agent 会先尝试 `search`
 - 后续会把 `room / wall / face / boundary` 这些口语收敛到 `search_honeybee_model_objects`
 - 对于 `Face` 边界条件修改，测试已经覆盖到 `search -> edit -> confirm` 这条链路的目标形态
 
@@ -49,9 +49,9 @@
 
 当前测试想要验证的目标路径是：
 
-1. `search_tools("edit honeybee face boundary condition in garden model")`
-2. `call_tool(search_honeybee_model_objects)`，收敛到目标 `face`
-3. `call_tool(edit_honeybee_face)`，传入 `_target + boundary_condition_`
+1. `search("edit honeybee face boundary condition in garden model")`
+2. `await call_tool(search_honeybee_model_objects)`，收敛到目标 `face`
+3. `await call_tool(edit_honeybee_face)`，传入 `_target + boundary_condition_`
 4. 再做结果确认
 
 已观察到的真实口语示例：
@@ -128,7 +128,7 @@ Room energy 属性写回的最小形态：
 
 如果 face 编辑自然语言路径成功，当前应至少满足：
 
-- 工具调用里出现 `search_tools`
+- 工具调用里出现 `search`
 - 后续出现 `search_honeybee_model_objects`
 - query 里出现 `boundary`、`wall` 或 `face`
 - 持久化后的目标 face 边界条件为 `Ground`

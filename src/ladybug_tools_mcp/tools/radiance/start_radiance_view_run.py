@@ -8,50 +8,15 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from garden.radiance.run import start_radiance_view_run as service
-from garden.store import list_garden_artifacts
 
 
 def _view_filter_from_target(view_target: dict[str, Any] | None) -> str | None:
     if not isinstance(view_target, dict):
         return None
-    target = view_target.get("target") if isinstance(view_target.get("target"), dict) else view_target
-    identifier = target.get("identifier") or target.get("full_id") or target.get("name")
+    if view_target.get("target_type") != "radiance_view":
+        raise ValueError("view_target must be a radiance_view target.")
+    identifier = view_target.get("identifier")
     return str(identifier) if identifier else None
-
-
-def _latest_sky_file_target(garden_root: str) -> dict[str, Any] | None:
-    listed = list_garden_artifacts(
-        garden_root=garden_root,
-        artifact_type="radiance_sky_file",
-    )
-    matches = listed.get("matches", [])
-    if not matches:
-        return None
-    artifact = matches[-1]
-    garden_target = listed.get("summary_view", {}).get("garden_target", {})
-    path = str(artifact.get("path") or "")
-    return {
-        "target_type": "radiance_sky_file",
-        "domain": "honeybee_radiance",
-        "garden_id": garden_target.get("garden_id"),
-        "identifier": str(artifact.get("name") or path.rsplit("/", 1)[-1].rsplit(".", 1)[0]),
-        "path": path,
-    }
-
-
-def _normalize_model_target(model_target: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not isinstance(model_target, dict):
-        return None
-    target = model_target.get("target") if isinstance(model_target.get("target"), dict) else model_target
-    if target.get("target_type") != "model":
-        return None
-    if target.get("domain") is None:
-        target = dict(target)
-        target["domain"] = "honeybee"
-    if not target.get("path") and target.get("model_identifier"):
-        target = dict(target)
-        target["path"] = f"models/honeybee/{target['model_identifier']}.hbjson"
-    return target
 
 
 def register(mcp: FastMCP) -> None:
@@ -81,39 +46,15 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Honeybee model target. Defaults to the Garden base model and should already have Views attached."),
+            Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model and should already have Views attached."),
         ] = None,
         calculation_type: Annotated[
             str,
             Field(description="View calculation type. Currently point_in_time."),
         ] = "point_in_time",
-        sky_file_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Radiance sky_file target from create_cie_standard_sky or create_climate_based_sky."),
-        ] = None,
         radiance_sky_file: Annotated[
             dict[str, Any] | None,
-            Field(description="Alias for sky_file_target accepted for Agent compatibility."),
-        ] = None,
-        radiance_sky_file_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Alias for sky_file_target accepted for Agent compatibility."),
-        ] = None,
-        sky_file: Annotated[
-            dict[str, Any] | None,
-            Field(description="Alias for sky_file_target accepted for Agent compatibility."),
-        ] = None,
-        sky_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Alias for sky_file_target accepted for Agent compatibility."),
-        ] = None,
-        radiance_sky_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Alias for sky_file_target accepted for Agent compatibility."),
-        ] = None,
-        sky: Annotated[
-            str | None,
-            Field(description="Inline Radiance sky text fallback. Prefer sky_file_target for Garden workflows."),
+            Field(description="Radiance sky file target from create_cie_standard_sky, create_climate_based_sky, create_radiance_sky, or create_radiance_sky_file."),
         ] = None,
         view_filter: Annotated[
             str,
@@ -122,14 +63,6 @@ def register(mcp: FastMCP) -> None:
         view_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional radiance_view target. When supplied and view_filter is '*', its identifier is used as the view-filter."),
-        ] = None,
-        radiance_view_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Alias for view_target accepted for Agent compatibility."),
-        ] = None,
-        radiance_view: Annotated[
-            dict[str, Any] | None,
-            Field(description="Alias for view_target accepted for Agent compatibility."),
         ] = None,
         metric: Annotated[
             str,
@@ -143,25 +76,13 @@ def register(mcp: FastMCP) -> None:
             bool | None,
             Field(description="Optional skip-overture recipe flag."),
         ] = None,
-        output_format: Annotated[
-            str | None,
-            Field(description="Optional Agent image-format hint such as hdr accepted for compatibility. Point-in-time view runs produce HDR output."),
-        ] = None,
         radiance_parameters: Annotated[
             str | dict[str, Any] | None,
-            Field(description="Optional Radiance parameters string or full create_radiance_parameters result."),
-        ] = None,
-        radiance_parameters_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional radiance_parameters target from create_radiance_parameters. Alias for radiance_parameters."),
+            Field(description="Optional Radiance parameters string or a dictionary with radiance_parameters."),
         ] = None,
         run_id: Annotated[
             str | None,
             Field(description="Optional stable run identifier. Omit to generate one."),
-        ] = None,
-        identifier: Annotated[
-            str | None,
-            Field(description="Alias for run_id accepted for Agent compatibility."),
         ] = None,
         workers: Annotated[int | None, Field(description="Optional recipe worker count.")] = None,
         reload_old: Annotated[
@@ -171,36 +92,16 @@ def register(mcp: FastMCP) -> None:
         silent: Annotated[bool, Field(description="Run the Radiance recipe silently.")] = True,
     ) -> dict[str, Any]:
         """Start a Radiance view run."""
-        _ = output_format
-        model_target = _normalize_model_target(model_target)
-        if view_target is None and radiance_view_target is not None:
-            view_target = radiance_view_target
-        if view_target is None and radiance_view is not None:
-            view_target = radiance_view
+        if radiance_sky_file is None:
+            raise ValueError("Provide radiance_sky_file for Radiance view runs.")
         if view_filter == "*":
             view_filter = _view_filter_from_target(view_target) or view_filter
-        if sky_file_target is None and radiance_sky_file is not None:
-            sky_file_target = radiance_sky_file
-        if sky_file_target is None and radiance_sky_file_target is not None:
-            sky_file_target = radiance_sky_file_target
-        if sky_file_target is None and sky_file is not None:
-            sky_file_target = sky_file
-        if sky_file_target is None and sky_target is not None:
-            sky_file_target = sky_target
-        if sky_file_target is None and radiance_sky_target is not None:
-            sky_file_target = radiance_sky_target
-        if sky_file_target is None and sky is None:
-            sky_file_target = _latest_sky_file_target(garden_root)
-        if radiance_parameters is None and radiance_parameters_target is not None:
-            radiance_parameters = radiance_parameters_target
-        if run_id is None and identifier is not None:
-            run_id = identifier
         return service(
             garden_root=garden_root,
             model_target=model_target,
             calculation_type=calculation_type,
-            sky_file_target=sky_file_target,
-            sky=sky,
+            sky_file_target=radiance_sky_file,
+            sky=None,
             view_filter=view_filter,
             metric=metric,
             resolution=resolution,

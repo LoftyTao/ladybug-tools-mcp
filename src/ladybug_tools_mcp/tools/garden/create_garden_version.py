@@ -63,7 +63,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | str | None,
             Field(
                 description=(
-                    "Optional Agent compatibility details. Merged into summary when "
+                    "Optional compact structured details. Merged into summary when "
                     "summary is structured; never include full file bodies or diffs."
                 )
             ),

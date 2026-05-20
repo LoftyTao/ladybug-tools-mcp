@@ -280,7 +280,7 @@ def _object_type_from_target(target: dict[str, Any] | None) -> str | None:
 def _is_model_target(target: dict[str, Any] | None) -> bool:
     return (
         isinstance(target, dict)
-        and target.get("target_type") == "model"
+        and target.get("target_type") == "honeybee_model"
         and target.get("domain") == "honeybee"
     )
 

@@ -25,7 +25,7 @@ THERM runtime sequence, after the model validates:
 5. `read_fairyfly_u_factor_result` when boundaries include matching `u_factor_tag` values.
 6. `fairyfly_therm_result_to_visualization_set` with `return_visualization_set=false`, then a generic VisualizationSet exporter such as `visualization_set_to_vtkjs`.
 
-Do not call a mixed `get_base_model`, `set_base_model`, or `save_base_model` path. Fairyfly uses `base_fairyfly_model`, separate from `base_honeybee_model` and `base_dragonfly_model`.
+Do not call generic Honeybee/Dragonfly model-slot tools for Fairyfly. Fairyfly uses `base_fairyfly_model`, separate from `base_honeybee_model` and `base_dragonfly_model`.
 
 Important boundaries:
 
@@ -34,7 +34,6 @@ Important boundaries:
 - Continuous adjacent regions with the same material should be authored as one Shape, including L-shaped or other non-rectangular polygons when geometry allows it. Do not split same-material geometry only for drawing convenience; split only for different materials, embedded objects/voids, distinct boundary/tag requirements, or a documented THERM meshing issue.
 - Boundary geometry is `line_segments_2d`, a list of `[[x1, y1], [x2, y2]]` segment pairs.
 - Shape, Boundary, and Material are not separate Garden resources in this slice; they live inside the saved Fairyfly model.
-- If `search` cannot find Fairyfly tools, explain that the current platform or package setup does not enable Fairyfly tools instead of inventing fallback tools.
 - U-Factor summaries need U-Factor tags on the relevant boundaries. If tags or completed THERM results are missing, result readers return `no_results` with a diagnostic rather than fake values.
 - THMZ artifacts and THERM run records live under `runs/fairyfly_therm/`; compact result JSON and VisualizationSet artifacts are Garden artifacts.
 

@@ -1,8 +1,7 @@
-"""Search Radiance View artifacts alias MCP tool."""
+"""Search Radiance View artifacts MCP tool."""
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
@@ -13,17 +12,20 @@ from garden.store import list_garden_artifacts
 
 def _target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any]) -> dict[str, Any]:
     path = str(artifact.get("path") or "")
+    name = artifact.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError("radiance_view artifact requires a name.")
     return {
         "target_type": "radiance_view",
         "domain": "honeybee_radiance",
         "garden_id": garden_target.get("garden_id"),
-        "identifier": str(artifact.get("name") or Path(path).stem),
+        "identifier": name,
         "path": path,
     }
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_radiance_views alias tool."""
+    """Register the search_radiance_views tool."""
 
     @mcp.tool(
         name="search_radiance_views",
@@ -38,7 +40,6 @@ def register(mcp: FastMCP) -> None:
             "garden-mode",
             "read-only",
             "safe",
-            "alias",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
@@ -46,17 +47,9 @@ def register(mcp: FastMCP) -> None:
     def search_radiance_views(
         garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
         query: Annotated[str | None, Field(description="Optional identifier or path substring filter.")] = None,
-        identifier: Annotated[
-            str | None,
-            Field(description="Alias for query accepted for Agent compatibility."),
-        ] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
-        return_object_dict: Annotated[bool | None, Field(description="Ignored compatibility hint.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance View artifacts."""
-        _ = return_object_dict
-        if query is None and identifier is not None:
-            query = identifier
         listed = list_garden_artifacts(
             garden_root=garden_root,
             artifact_type="radiance_view",

@@ -12,7 +12,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="search_energy_library_objects",
-        description="Search Honeybee Energy standards library identifiers for schedules, schedule type limits, program types, materials, constructions, and construction sets. Use returned identifiers in energy foundation tools. This searches built-in standards, not the Garden, so garden_root is accepted only as an ignored Agent context hint.",
+        description="Search Honeybee Energy standards library identifiers for schedules, schedule type limits, program types, materials, constructions, and construction sets. Use returned identifiers in energy foundation tools. This searches built-in standards, not Garden files. This does not search room thermostat Setpoints; for heating_setpoint/cooling_setpoint values call create_setpoint. Required call shape: {\"query\":\"generic office lighting\",\"object_family\":\"schedule\",\"limit\":3}.",
         tags={
             "honeybee-energy",
             "energy",
@@ -35,30 +35,16 @@ def register(mcp: FastMCP) -> None:
         object_family: Annotated[
             str | None,
             Field(
-                description="Optional family filter: schedule, schedule_type_limit, program_type, opaque_material, window_material, construction for all construction families, opaque_construction, window_construction, shade_construction, construction_set, or all."
-            ),
-        ] = None,
-        object_type: Annotated[
-            str | None,
-            Field(
-                description="Optional Agent-friendly object type filter with the same values as object_family. If both are provided, object_family wins."
+                description="Optional family filter: schedule, schedule_type_limit, program_type, opaque_material, window_material, opaque_construction, window_construction, shade_construction, construction_set, or all. Not setpoint; use create_setpoint with heating_setpoint and cooling_setpoint for thermostat setpoints."
             ),
         ] = None,
         limit: Annotated[
             int, Field(description="Maximum number of identifiers to return.")
         ] = 10,
-        garden_root: Annotated[
-            str | None,
-            Field(
-                description="Ignored Agent context hint. Built-in Energy library search does not read Garden files; use search_garden_properties_library_objects for saved Garden objects."
-            ),
-        ] = None,
     ) -> dict[str, Any]:
         """Search Honeybee Energy standards library identifiers."""
-        _ = garden_root
         return service(
             query=query,
             object_family=object_family,
-            object_type=object_type,
-            limit=limit if limit is not None else limit,
+            limit=limit,
         )

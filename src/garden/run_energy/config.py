@@ -134,7 +134,7 @@ def _searchable_weather_values(target: dict[str, Any]) -> list[str]:
         value = target.get(key)
         if value is not None:
             values.append(str(value))
-    for key in ("aliases", "query_aliases", "search_aliases"):
+    for key in ("search_terms",):
         value = target.get(key)
         if isinstance(value, (list, tuple, set)):
             values.extend(str(item) for item in value if item is not None)

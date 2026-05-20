@@ -15,8 +15,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="get_garden",
-        description="Read a compact Garden manifest summary from an existing garden_root. Use this to confirm a Garden exists, get its target, split Honeybee/Dragonfly base model targets, and counts; it does not create or mutate the Garden.",
-        tags={"garden", "project", "manifest", "summary", "read", "safe"},
+        description="Read a compact Garden manifest summary from an existing garden_root. Use this workspace_get / workspace gate check after list_gardens or create_garden when the user has chosen one Garden; confirm it exists, get its target, split Honeybee/Dragonfly base model targets, and counts. It does not create or mutate the Garden.",
+        tags={
+            "garden",
+            "workspace-get",
+            "workspace-gate",
+            "manifest",
+            "summary",
+            "read",
+            "safe",
+        },
         timeout=20,
     )
     def get_garden(

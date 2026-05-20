@@ -14,7 +14,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="validate_honeybee_model",
-        description="Validate an existing Honeybee model already stored in a Garden base Honeybee model or explicit model target. Use this tool, not get_base_honeybee_model, when a user asks to validate, check model validity, return a validation flag, or inspect validation issues. Returns top-level is_valid/valid helpers, report, summary_view.is_valid, and structured validation issues. Requires garden_root; this is read-only and does not repair, relate, or save the model.",
+        description="Validate an existing Honeybee model already stored in a Garden base Honeybee model or explicit model target. Use this tool, not get_base_honeybee_model, when a user asks to validate, check model validity, return a validation flag, or inspect validation issues. Returns validation report data with top-level is_valid/valid helpers, report, summary_view.is_valid, and structured validation issues. Requires garden_root; this is read-only and does not repair, relate, or save the model. There is no raise_exception parameter; validation problems are returned in the report.",
         tags={
             "honeybee-core",
             "garden-mode",
@@ -40,12 +40,6 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description="Optional Honeybee model target dict. Defaults to the Garden base model; do not pass full model body."
-            ),
-        ] = None,
-        return_object_dict: Annotated[
-            bool | None,
-            Field(
-                description="Ignored Agent compatibility hint. Validation always returns a compact report, not the full model body."
             ),
         ] = None,
     ) -> dict[str, Any]:

@@ -15,11 +15,11 @@
 
 ## 已验证最短路径
 
-1. `call_tool(create_garden)`
-2. `call_tool(create_honeybee_model)`
-3. `call_tool(create_honeybee_face)`
-4. `call_tool(create_honeybee_shade)`
-5. `call_tool(search_honeybee_model_objects)`
+1. `await call_tool(create_garden)`
+2. `await call_tool(create_honeybee_model)`
+3. `await call_tool(create_honeybee_face)`
+4. `await call_tool(create_honeybee_shade)`
+5. `await call_tool(search_honeybee_model_objects)`
 
 ## Deterministic 交叉验证补充
 
@@ -43,7 +43,7 @@
 
 2026-04-25 的 Agent 交叉测试通过了从空 Garden 创建 `Model -> Face -> Aperture -> Door -> hosted Shade -> Validate` 的长链路。该路径要求 Agent 先搜索 `wall_1`，再把 `search_honeybee_model_objects` 返回的 `matches[0].target` 作为 `host_target` 传给 aperture / door / hosted shade 创建工具。
 
-注意：推荐路径仍是给下游 `host_target` 传嵌套 typed target dict。服务层可以在完整搜索结果或完整 create 返回中只有一个有效 target 时自动 unwrap；如果 response 中有多个 target，会要求明确选择一个。
+注意：下游 `host_target` 必须传嵌套 typed target dict，例如 `matches[i].target` 或写工具返回的 `target`；不要传完整搜索结果或完整 create 返回。
 
 同一 Garden/model 的多个写工具应避免并行发出。服务端已对同进程 Honeybee model 写入做串行化保护，但推荐节奏仍是：写入 aperture，搜索/确认 host face，再写入 door，搜索/确认 host face，再写入 hosted shade。
 

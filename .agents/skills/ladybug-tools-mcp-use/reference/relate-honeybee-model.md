@@ -1,6 +1,6 @@
 # Relate Honeybee Model
 
-本路径已通过本地 deterministic tests 验证，包括默认 intersect、单侧单子面复制、显式 full repair、多子面复制、无法修复 mismatch 删除，以及克隆 subface 时的 Radiance dynamic state geometry 同步。2026-04-24 的 OpenAI Agents focused smoke 已验证 `search_tools -> call_tool(relate_honeybee_model, _relation_mode_=explicit_relate_full)` 可执行。
+本路径已通过本地 deterministic tests 验证，包括默认 intersect、单侧单子面复制、显式 full repair、多子面复制、无法修复 mismatch 删除，以及克隆 subface 时的 Radiance dynamic state geometry 同步。2026-04-24 的 OpenAI Agents focused smoke 已验证 `search -> await call_tool(relate_honeybee_model, _relation_mode_=explicit_relate_full)` 可执行。
 
 ## 适用场景
 
@@ -9,7 +9,7 @@
 
 ## 最短路径
 
-1. `search_tools` 查询 `relate honeybee model solve adjacency`。
+1. `search` 查询 `relate honeybee model solve adjacency`。
 2. 调用 `relate_honeybee_model`。
 3. 继续调用 `validate_honeybee_model` 检查关系处理后的模型。
 

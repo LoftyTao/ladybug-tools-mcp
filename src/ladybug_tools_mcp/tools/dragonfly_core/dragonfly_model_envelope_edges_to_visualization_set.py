@@ -17,7 +17,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="dragonfly_model_envelope_edges_to_visualization_set",
-        description="Create a Ladybug Display VisualizationSet showing Dragonfly model envelope edges using Dragonfly Display model_envelope_edges_to_vis_set. If Web View mode is active, this tool automatically refreshes the demo panel; call visualization_set_to_vtkjs only when the user explicitly asks for a saved vtk.js asset. If the SDK edge view is unavailable for the model geometry, this tool returns report.status=degraded and a wireframe model VisualizationSet fallback target instead of raising an error or inviting repeated retries.",
+        description="Create a Ladybug Display VisualizationSet showing Dragonfly model envelope edges using Dragonfly Display model_envelope_edges_to_vis_set. If Web View mode is active, this tool automatically refreshes the demo panel; call visualization_set_to_vtkjs only when the user explicitly asks for a saved vtk.js asset. If the SDK edge view is unavailable for the model geometry, this tool returns report.status=degraded and a wireframe model VisualizationSet target instead of raising an error or inviting repeated retries.",
         tags={
             "dragonfly-core",
             "dragonfly-display",
@@ -25,7 +25,7 @@ def register(mcp: FastMCP) -> None:
             "garden-mode",
             "visualize",
             "edge-preview",
-            "wireframe-fallback",
+            "wireframe-degraded",
             "web-3d-source",
             "vtkjs-source",
             "geometry-asset",

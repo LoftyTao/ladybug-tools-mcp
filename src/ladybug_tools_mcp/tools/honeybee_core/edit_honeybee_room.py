@@ -12,7 +12,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="edit_honeybee_room",
-        description="Edit a Honeybee Room display name, story, zone, multiplier, floor-area flag, and room-level Energy or Radiance properties in a Garden model. Requires garden_root and edit_honeybee_room.target from search_honeybee_model_objects matches[i].target or create_honeybee_room.target. The parameter name is exactly target, not room_target; do not pass a room identifier string, do not pass the full search response, and do not pass matches[i] itself. Do not pass arguments null or {}.",
+        description="Edit a Honeybee Room display name, story, zone, multiplier, floor-area flag, and room-level Energy or Radiance properties in a Garden model. Requires garden_root and edit_honeybee_room.target from search_honeybee_model_objects matches[i].target or create_honeybee_room.target. For room Energy properties, parameter names are exactly program_type and setpoint. Do not pass energy_properties_program_type or energy_properties_setpoint. Do not pass a room identifier string, do not pass the full search response, and do not pass matches[i] itself. Do not pass arguments null or {}.",
         tags={
             "honeybee-core",
             "garden-mode",
@@ -41,7 +41,7 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee room typed target dict for edit_honeybee_room.target. Use search_honeybee_model_objects matches[i].target or create_honeybee_room.target; the parameter name is exactly target, not room_target. Not a room identifier string; do not pass the full search response and do not pass matches[i] itself."
+                description="Required Honeybee room typed target dict for edit_honeybee_room.target. Use search_honeybee_model_objects matches[i].target or create_honeybee_room.target. Not a room identifier string; do not pass the full search response and do not pass matches[i] itself."
             ),
         ],
         model_target: Annotated[
@@ -73,7 +73,7 @@ def register(mcp: FastMCP) -> None:
         program_type: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Honeybee Energy ProgramType dict, Garden target, or exact standards library identifier from search_energy_library_objects matches[i].identifier, for example Generic Office Program."
+                description="Optional Honeybee Energy ProgramType dict, Garden target, or exact standards library identifier from search_energy_library_objects matches[i].identifier, for example Generic Office Program. The parameter name is program_type, not energy_properties_program_type."
             ),
         ] = None,
         construction_set: Annotated[
@@ -85,7 +85,7 @@ def register(mcp: FastMCP) -> None:
         hvac: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee Energy HVAC dict or Garden Properties Library hvac target from create_ideal_air_system or search_hvac_templates with garden_root and return_object_dict=false. Do not hand-write fake HVAC dicts."
+                description="Optional Honeybee Energy HVAC dict or Garden Properties Library hvac target from create_ideal_air_system or search_hvac_templates. Do not hand-write fake HVAC dicts."
             ),
         ] = None,
         ventilation: Annotated[
@@ -103,7 +103,7 @@ def register(mcp: FastMCP) -> None:
         setpoint: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee Energy Setpoint dict or Garden Properties Library load target. Agents may pass a lightweight Setpoint dict with schedule identifiers instead of expanded schedule JSON."
+                description="Optional Honeybee Energy Setpoint dict or Garden Properties Library load target from create_setpoint.target. The parameter name is setpoint, not energy_properties_setpoint. Agents may pass a lightweight Setpoint dict with schedule identifiers instead of expanded schedule JSON."
             ),
         ] = None,
         modifier_set: Annotated[
@@ -112,12 +112,6 @@ def register(mcp: FastMCP) -> None:
                 description="Optional Honeybee Radiance ModifierSet dictionary to attach or replace."
             ),
         ] = None,
-        return_object_dict: Annotated[
-            bool,
-            Field(
-                description="Optional Agent hint accepted for compatibility. Ignored; edit_honeybee_room returns a compact edit receipt and summary."
-            ),
-        ] = False,
     ) -> dict[str, Any]:
         """Edit a Honeybee Room."""
         return service(

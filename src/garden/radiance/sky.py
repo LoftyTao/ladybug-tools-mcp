@@ -46,26 +46,9 @@ _CIE_SKY_TYPE_INDEX = {
 
 
 def _resolve_output_dir(garden_root: Path, output_subdir: str) -> Path:
-    normalized_subdir = output_subdir.strip().lower().replace("\\", "/")
-    if normalized_subdir in {
-        "wea",
-        "weather/wea",
-        "radiance/wea",
-        "radiance/weather",
-        "artifacts/wea",
-    }:
-        output_subdir = WEA_OUTPUT_SUBDIR
-    elif normalized_subdir in {
-        "sky",
-        "skies",
-        "sky_files",
-        "radiance_sky",
-        "radiance_skies",
-        "radiance/sky",
-        "radiance/sky_files",
-        "artifacts/sky",
-    }:
-        output_subdir = RADIANCE_SKY_OUTPUT_SUBDIR
+    output_subdir = output_subdir.strip().replace("\\", "/")
+    if not output_subdir:
+        raise ValueError("output_subdir must be a non-empty Garden-relative path.")
     output_dir = (garden_root / output_subdir).resolve()
     output_dir.relative_to(garden_root)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -73,21 +56,10 @@ def _resolve_output_dir(garden_root: Path, output_subdir: str) -> Path:
 
 
 def _normalize_sky_matrix_output_subdir(output_subdir: str) -> str:
-    normalized_subdir = output_subdir.strip().lower().replace("\\", "/")
-    if normalized_subdir in {
-        "imports/weather",
-        "weather",
-        "wea",
-        "sky_matrix",
-        "sky_matrices",
-        "radiance/sky_matrix",
-        "radiance/sky_matrices",
-        "artifacts/radiance/sky_matrix",
-        "artifacts/radiance/sky_matrices",
-        "artifacts/radiance/wea",
-    }:
-        return SKY_MATRIX_OUTPUT_SUBDIR
-    return output_subdir
+    normalized_subdir = output_subdir.strip().replace("\\", "/")
+    if not normalized_subdir:
+        raise ValueError("output_subdir must be a non-empty Garden-relative path.")
+    return normalized_subdir
 
 
 def _register_artifact(
@@ -138,12 +110,6 @@ def _target(
     return target
 
 
-def _unwrap_target(target: dict[str, Any] | None) -> dict[str, Any] | None:
-    if isinstance(target, dict) and isinstance(target.get("target"), dict):
-        return target["target"]
-    return target
-
-
 def _validate_target_garden(
     *,
     target: dict[str, Any],
@@ -151,7 +117,7 @@ def _validate_target_garden(
     field_name: str,
 ) -> None:
     garden_id = target.get("garden_id")
-    if garden_id and garden_id != manifest.garden_id:
+    if garden_id != manifest.garden_id:
         raise ValueError(f"{field_name} belongs to a different Garden.")
 
 
@@ -170,7 +136,6 @@ def _resolve_epw_path(
     weather_target: dict[str, Any] | None,
     epw_path: str | None,
 ) -> tuple[Path, dict[str, Any]]:
-    weather_target = _unwrap_target(weather_target)
     if (weather_target is None) == (epw_path is None):
         raise ValueError("Provide exactly one of weather_target or epw_path.")
     if weather_target is not None:
@@ -199,7 +164,6 @@ def _resolve_wea_path(
     manifest: GardenManifest,
     wea_target: dict[str, Any],
 ) -> Path:
-    wea_target = _unwrap_target(wea_target) or {}
     if wea_target.get("target_type") != WEA_TARGET_TYPE:
         raise ValueError("wea_target must be a wea_file target.")
     _validate_target_garden(
@@ -861,7 +825,7 @@ def create_sky_matrix(
         )
         source = {
             "source_type": source_type,
-            "wea_target": _unwrap_target(wea_target),
+            "wea_target": wea_target,
             "wea_path": to_posix_relative(wea_path, garden_root_path),
         }
         wea = Wea.from_file(str(wea_path))

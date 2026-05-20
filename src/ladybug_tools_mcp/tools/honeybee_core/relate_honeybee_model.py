@@ -50,7 +50,7 @@ def register(mcp: FastMCP) -> None:
         solve_adjacency: Annotated[
             bool | None,
             Field(
-                description="Optional Agent compatibility hint. Passing true is equivalent to relation_mode='solve_adjacency'. Prefer relation_mode for new calls."
+                description="Optional solve-adjacency flag. Passing true is equivalent to relation_mode='solve_adjacency'."
             ),
         ] = None,
         intersect: Annotated[

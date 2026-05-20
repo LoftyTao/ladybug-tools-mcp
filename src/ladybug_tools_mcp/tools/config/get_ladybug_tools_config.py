@@ -52,18 +52,13 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(
                 description=(
-                    "Include compact PATH prepend hints for local shells and Agent "
+                    "Include compact PATH prepend entries for local shells and Agent "
                     "test harnesses."
                 )
             ),
         ] = True,
-        garden_root: Annotated[
-            str | None,
-            Field(description="Optional Garden context hint accepted for Agent compatibility. Ignored."),
-        ] = None,
     ) -> dict:
         """Return compact local Ladybug Tools SDK runtime configuration."""
-        _ = garden_root
         result = service()
         if not include_path_updates:
             result["summary_view"].pop("path_updates", None)

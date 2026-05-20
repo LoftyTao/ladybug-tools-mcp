@@ -8,8 +8,8 @@
 
 ## 已验证最短路径
 
-1. `search_tools("cleanup garden workspace tmp artifacts without touching models")`
-2. `call_tool(cleanup_garden_workspace)`，传入 `garden_root + cleanup_scopes`
+1. `search("cleanup garden workspace tmp artifacts without touching models")`
+2. `await call_tool(cleanup_garden_workspace)`，传入 `garden_root + cleanup_scopes`
 3. 如需确认结果，可检查对应 scope 目录是否仍存在且已清空
 
 ## 已验证最小参数形态
@@ -39,7 +39,7 @@
 
 ## 成功判据
 
-- `cleanup_garden_workspace` 能被 `search_tools` 找到
+- `cleanup_garden_workspace` 能被 `search` 找到
 - 返回包含：
   - `report`
   - `summary_view`

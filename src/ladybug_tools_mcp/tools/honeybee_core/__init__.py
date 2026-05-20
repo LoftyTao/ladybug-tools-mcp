@@ -26,9 +26,6 @@ from ladybug_tools_mcp.tools.honeybee_core.create_honeybee_shade import (
 from ladybug_tools_mcp.tools.honeybee_core.create_honeybee_shades_by_parameters import (
     register as register_create_honeybee_shades_by_parameters,
 )
-from ladybug_tools_mcp.tools.honeybee_core.create_honeybee_shades_by_ratio import (
-    register as register_create_honeybee_shades_by_ratio,
-)
 from ladybug_tools_mcp.tools.honeybee_core.edit_honeybee_aperture import (
     register as register_edit_honeybee_aperture,
 )
@@ -93,7 +90,6 @@ def register(mcp: FastMCP) -> None:
     register_create_honeybee_aperture(mcp)
     register_create_honeybee_apertures_by_parameters(mcp)
     register_create_honeybee_shades_by_parameters(mcp)
-    register_create_honeybee_shades_by_ratio(mcp)
     register_create_honeybee_door(mcp)
     register_create_honeybee_shade(mcp)
     register_edit_honeybee_model(mcp)

@@ -789,7 +789,7 @@ def edit_honeybee_model(
 ) -> dict[str, Any]:
     """Edit one Honeybee Model by model target."""
     target = normalize_honeybee_model_target(target)
-    if target.get("target_type") != "model" or target.get("domain") != "honeybee":
+    if target.get("target_type") != "honeybee_model" or target.get("domain") != "honeybee":
         raise ValueError("edit_honeybee_model requires a Honeybee model target.")
 
     updated_fields: list[str] = []

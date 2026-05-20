@@ -14,8 +14,8 @@
 
 ## 已验证失败路径
 
-1. `call_tool(create_garden)`
-2. `call_tool(save_base_honeybee_model)`
+1. `await call_tool(create_garden)`
+2. `await call_tool(save_base_honeybee_model)`
 
 ## 典型错误语义
 

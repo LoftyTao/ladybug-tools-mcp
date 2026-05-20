@@ -12,10 +12,9 @@ Use this path when the user asks for daylight sensors, workplane test points, Ra
 - Sensor grid from a Honeybee object surface: `create_radiance_sensor_grid_from_object`
   - Use `object_target`, `shade_target`, or `surface_target` from `search_honeybee_model_objects` or a create result.
   - Use this for irradiance-style sensors on shades, PV panels, apertures, doors, or faces.
-  - Do not pass a shade target to `create_radiance_sensor_grid.host_target`; that parameter remains a model attachment alias.
 - View from explicit camera vectors: `create_radiance_view`
   - Use `position`, `direction`, `up_vector`, `view_type`, `h_size`, and `v_size`.
-  - Radiance view types include `v`, `h`, `l`, `c`, `a`, and `s`; Radiance CLI tokens such as `vtv` / `vtc` and natural perspective hints such as `perspective` / `vterrain` are accepted.
+  - Radiance view types are the exact Honeybee Radiance view tokens: `v`, `h`, `l`, `c`, `a`, and `s`.
 
 ## Main Path
 
@@ -70,10 +69,11 @@ shade_grid = await call_tool("create_radiance_sensor_grid_from_object", {
 - Set `attach_to_model=true` when the asset should be included in the Honeybee model Radiance properties for later recipe execution. Passing `model_target` or `host_target` is treated as an attach intent by the Agent-facing tools.
 - `create_radiance_sensor_grid_from_object` samples Face3D-backed Honeybee objects. It is suitable for surface irradiance/radiation style studies on shades and PV panels; it is not the same assumption as an indoor workplane illuminance grid.
 - Deterministic-pass/candidate: object-hosted SensorGrids now preserve the SDK `SensorGrid.mesh` when attached to a model, so downstream Radiance grid result VisualizationSets can render surface mesh color instead of falling back to point coloring.
-- Natural output folders such as `radiance/sensorgrids` and `radiance/views` are normalized to `artifacts/radiance/sensors` and `artifacts/radiance/views`.
+- Use exact Garden artifact output folders such as `artifacts/radiance/sensors` and `artifacts/radiance/views`.
 - For a quick rectangular grid, `x_count` / `y_count` can stand alone and imply 1 model-unit spacing; provide `x_dim` / `y_dim` for explicit dimensions.
 - These tools create setup assets only. They do not run Radiance binaries, build octrees, render images, or calculate daylight metrics; use `reference/run-radiance-simulation.md` for the deterministic-pass start/poll path.
 - For compact Agent handoff, pass targets and `summary_view`; do not copy `.pts`, `.vf`, or full object dictionaries through context unless explicitly needed.
+- In multi-turn Radiance workflows, create each setup asset once, report the setup checkpoint, then stop. The next turn should search or reuse the existing `radiance_sensor_grid` / `radiance_view` / `radiance_sky_file` targets instead of recreating them.
 
 ## Success Criteria
 
@@ -86,6 +86,5 @@ shade_grid = await call_tool("create_radiance_sensor_grid_from_object", {
 ## Evidence
 
 - Agent integration smoke added 2026-04-29 verifies one Code Mode `execute` can create a Honeybee model, attach one SensorGrid and one View, and persist both Garden artifacts.
-- Supervised external Matrix task 28 on 2026-04-30 verifies a natural MiniMax Agent can attach a compact SensorGrid and View to the current Honeybee model. Pre-fix runs exposed `host_target`, missing identifier, `radiance/sensorgrids`, `center`, `vtc` / `vterrain`, and implicit attach drift; after bounded compatibility, the retained run passed at `31.128s`, with one SensorGrid create and one View create. Residual cost smell: repeated `get_base_honeybee_model`.
 - 2026-05-01 deterministic regression verifies `create_radiance_sensor_grid_from_object` can create and attach a SensorGrid from a detached Honeybee Shade target.
 - 2026-05-01 deterministic regression verifies the same object-hosted path persists `SensorGrid.mesh` for surface-result VisualizationSet mesh coloring.

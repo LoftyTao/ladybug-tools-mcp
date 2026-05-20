@@ -1,4 +1,4 @@
-"""Search Radiance visualization/image artifacts alias MCP tool."""
+"""Search Radiance visualization/image artifacts MCP tool."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from garden.store import list_garden_artifacts as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_radiance_visualizations alias tool."""
+    """Register the search_radiance_visualizations tool."""
 
     @mcp.tool(
         name="search_radiance_visualizations",
@@ -28,31 +28,18 @@ def register(mcp: FastMCP) -> None:
             "search",
             "read-only",
             "safe",
-            "alias",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def search_radiance_visualizations(
         garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        object_type: Annotated[
-            str | None,
-            Field(description="Optional artifact hint such as hdr_image, falsecolor, gif, view, or sensor_grid."),
-        ] = None,
-        artifact_type: Annotated[str | None, Field(description="Alias for object_type.")] = None,
+        artifact_type: Annotated[str | None, Field(description="Optional formal Radiance artifact type: radiance_hdr_image, radiance_gif_image, radiance_view, or radiance_sensor_grid.")] = None,
         query: Annotated[str | None, Field(description="Optional name/path substring filter.")] = None,
-        identifier: Annotated[
-            str | None,
-            Field(description="Alias for query accepted for Agent compatibility."),
-        ] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance visualization artifacts."""
-        if artifact_type is None:
-            artifact_type = object_type
         normalized_artifact_type = _normalize_artifact_type(artifact_type)
-        if query is None and identifier is not None:
-            query = identifier
         result = service(garden_root=garden_root, artifact_type=normalized_artifact_type)
         query_text = (query or "").strip().lower()
         matches = list(result["matches"])
@@ -75,7 +62,7 @@ def register(mcp: FastMCP) -> None:
             matches = matches[:limit]
         result["matches"] = matches
         result["summary_view"]["artifact_type"] = normalized_artifact_type
-        result["summary_view"]["artifact_type_hint"] = artifact_type
+        result["summary_view"]["requested_artifact_type"] = artifact_type
         result["summary_view"]["query"] = query
         result["summary_view"]["count"] = len(matches)
         if len(matches) == 1:

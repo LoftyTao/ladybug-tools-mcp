@@ -18,7 +18,7 @@
 
 Agent 推荐 target-first 路径：
 
-1. `search_tools query='visualize honeybee model as visualization set'`
+1. `search query='visualize honeybee model as visualization set'`
 2. `call_tool name=honeybee_model_to_visualization_set`
 3. 传入 `garden_root`
 4. 如需自定义输出名，传 `name_`

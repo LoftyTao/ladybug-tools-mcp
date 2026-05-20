@@ -26,7 +26,6 @@ Use this path when a user asks to turn screenshots, cited standards, technical m
 - Level B: mostly source-backed construction with limited library-backed substitutions and explicit gaps.
 - Level C: performance-target resource where only aggregate values are known.
 - Level D: simplified draft resource for incomplete sources.
-- Level E: `NoMass` fallback. Use only for rough checks or unreadable/incomplete data that the user accepts.
 
 ## Boundaries
 

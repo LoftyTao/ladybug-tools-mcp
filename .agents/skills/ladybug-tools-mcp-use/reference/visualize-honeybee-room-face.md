@@ -16,7 +16,7 @@
 
 ## 已验证推荐路径
 
-1. `search_tools query='visualize honeybee room as visualization set'` 或 `search_tools query='visualize honeybee face as visualization set'`
+1. `search query='visualize honeybee room as visualization set'` 或 `search query='visualize honeybee face as visualization set'`
 2. `call_tool name=search_honeybee_model_objects`
 3. Room 使用 `_object_type_ = "room"`，Face 使用 `_object_type_ = "face"`
 4. 从搜索结果中取 `matches[0].target`

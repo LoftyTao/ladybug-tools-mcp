@@ -4,7 +4,7 @@ Use this path when the user needs a Honeybee Energy `ProgramType` object for roo
 
 ## Shortest Verified Path
 
-1. `search_tools`
+1. `search`
    - Query: `create honeybee energy program type lighting override`
 2. `call_tool` -> `search_energy_library_objects`
    - Required:

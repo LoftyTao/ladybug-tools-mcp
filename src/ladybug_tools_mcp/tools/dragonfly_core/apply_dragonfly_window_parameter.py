@@ -36,10 +36,6 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = None,
-        window_parameter_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional natural alias for window_parameter."),
-        ] = None,
         host_type: Annotated[
             str | None,
             Field(description="Host type: room2d, story, building, or model."),
@@ -62,8 +58,6 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Apply a Dragonfly WindowParameter."""
-        if window_parameter is None:
-            window_parameter = window_parameter_target
         if window_parameter is None:
             raise ValueError("apply_dragonfly_window_parameter requires window_parameter.")
         return service(

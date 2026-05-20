@@ -17,10 +17,14 @@ honeybee-core
 honeybee-energy
 honeybee-radiance
 honeybee-display
+honeybee-doe2
+honeybee-designbuilder
 dragonfly-core
 dragonfly-energy
 dragonfly-radiance
 dragonfly-uwg
+dragonfly-doe2
+dragonfly-designbuilder
 fairyfly-core
 fairyfly-therm
 lbt-recipes

@@ -14,7 +14,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="honeybee_model_to_visualization_set",
-        description="Create a Ladybug Display VisualizationSet / visualization set from a Honeybee model in a Garden. For Agent HTML/SVG export paths, set return_visualization_set=false so the tool saves a compact visualization_set_target for visualization_set_to_html/svg instead of moving the full VisualizationSet dict.",
+        description="Create a Ladybug Display VisualizationSet / visualization set from a Honeybee model in a Garden. color_by accepts only type, boundary_condition, or none; use type for simple model previews. For Agent HTML/SVG export paths, set return_visualization_set=false so the tool saves a compact visualization_set_target for visualization_set_to_html/svg instead of moving the full VisualizationSet dict.",
         tags={
             "visualize",
             "visualization-set",

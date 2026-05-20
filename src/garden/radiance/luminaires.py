@@ -92,10 +92,8 @@ def _custom_lamp_from_input(data: dict[str, Any] | None) -> CustomLamp | None:
             depreciation_factor=depreciation_factor,
             color_space=int(data.get("color_space", 0)),
         )
-    if mode in {"lamp_name", "legacy"}:
-        return CustomLamp.from_lamp_name(str(data["lamp_name"]))
     raise ValueError(
-        "custom_lamp.mode must be default_white, color_temperature, rgb, xy, or lamp_name."
+        "custom_lamp.mode must be default_white, color_temperature, rgb, or xy."
     )
 
 
@@ -215,7 +213,6 @@ def create_radiance_luminaire(
         object_dict=result["object_dict"],
     )
     result["target"] = saved["target"]
-    result["luminaire_target"] = saved["target"]
     result["persistence_receipt"] = saved["persistence_receipt"]
     result["summary_view"]["target"] = saved["target"]
     result["summary_view"]["ready_for"] = "radiance luminaire / IES workflows"
@@ -224,26 +221,7 @@ def create_radiance_luminaire(
     return result
 
 
-def _unwrap_luminaire_input(data: Any) -> Any:
-    if isinstance(data, dict) and isinstance(data.get("object_dict"), dict):
-        return data["object_dict"]
-    if (
-        isinstance(data, dict)
-        and isinstance(data.get("target"), dict)
-        and data["target"].get("target_type") == "garden_properties_library_object"
-    ):
-        return data["target"]
-    if (
-        isinstance(data, dict)
-        and isinstance(data.get("luminaire_target"), dict)
-        and data["luminaire_target"].get("target_type") == "garden_properties_library_object"
-    ):
-        return data["luminaire_target"]
-    return data
-
-
 def _luminaire_from_input(data: Any, *, garden_root: str) -> Luminaire:
-    data = _unwrap_luminaire_input(data)
     if isinstance(data, dict) and data.get("target_type") == "garden_properties_library_object":
         if data.get("domain") != "honeybee_radiance" or data.get("object_family") != "luminaire":
             raise ValueError("Luminaire targets must reference honeybee_radiance:luminaire.")

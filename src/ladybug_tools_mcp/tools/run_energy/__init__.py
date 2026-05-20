@@ -38,6 +38,12 @@ from ladybug_tools_mcp.tools.run_energy.read_weather_file_data import (
 from ladybug_tools_mcp.tools.run_energy.run_energy import (
     register as register_run_energy,
 )
+from ladybug_tools_mcp.tools.run_energy.run_idf_file import (
+    register as register_run_idf_file,
+)
+from ladybug_tools_mcp.tools.run_energy.run_osm_file import (
+    register as register_run_osm_file,
+)
 from ladybug_tools_mcp.tools.run_energy.search_epw_map import (
     register as register_search_epw_map,
 )
@@ -57,6 +63,8 @@ def register(mcp: FastMCP) -> None:
     register_create_energy_output_request(mcp)
     register_start_energy_run(mcp)
     register_run_energy(mcp)
+    register_run_osm_file(mcp)
+    register_run_idf_file(mcp)
     register_list_energy_runs(mcp)
     register_get_energy_run(mcp)
     register_list_energy_run_outputs(mcp)

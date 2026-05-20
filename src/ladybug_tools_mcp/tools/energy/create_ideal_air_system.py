@@ -12,8 +12,18 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="create_ideal_air_system",
-        description="Create a Honeybee Energy IdealAirSystem HVAC object for room-level conditioning. Returns a full object_dict, or saves to Garden Properties Library and returns a target when garden_root is provided. For a simple HVAC, omit heating_air_temperature_ and cooling_air_temperature_; they are supply air temperatures, not room setpoints.",
-        tags={"honeybee-energy", "energy", "hvac", "ideal-air", "create", "safe"},
+        description="Create a Honeybee Energy IdealAirSystem HVAC object for a simple HVAC choice, compact office conditioning, early-stage room energy properties, or program/setpoint assignment workflows. Returns a full object_dict, or saves to Garden Properties Library and returns a target when garden_root is provided. For a simple HVAC, omit heating_air_temperature_ and cooling_air_temperature_; they are supply air temperatures, not room setpoints.",
+        tags={
+            "honeybee-energy",
+            "energy",
+            "hvac",
+            "simple-hvac",
+            "office-hvac",
+            "ideal-air",
+            "room-conditioning",
+            "create",
+            "safe",
+        },
         timeout=20,
     )
     def create_ideal_air_system(

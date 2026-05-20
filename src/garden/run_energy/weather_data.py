@@ -47,37 +47,14 @@ _EPW_DATA_FIELDS = {
     "zenith_luminance",
 }
 
-_EPW_DATA_ALIASES = {
-    "air_temperature": "dry_bulb_temperature",
-    "dbt": "dry_bulb_temperature",
-    "dry_bulb": "dry_bulb_temperature",
-    "temperature": "dry_bulb_temperature",
-    "dew_point": "dew_point_temperature",
-    "dpt": "dew_point_temperature",
-    "humidity": "relative_humidity",
-    "rh": "relative_humidity",
-    "pressure": "atmospheric_station_pressure",
-    "station_pressure": "atmospheric_station_pressure",
-    "dni": "direct_normal_radiation",
-    "direct_normal": "direct_normal_radiation",
-    "dhi": "diffuse_horizontal_radiation",
-    "diffuse_horizontal": "diffuse_horizontal_radiation",
-    "ghi": "global_horizontal_radiation",
-    "global_horizontal": "global_horizontal_radiation",
-    "wind_dir": "wind_direction",
-    "wind": "wind_speed",
-}
-
-
 def _normalize_data_type(value: str) -> str:
     key = re.sub(r"[^a-zA-Z0-9]+", "_", value).strip("_").lower()
-    field = _EPW_DATA_ALIASES.get(key, key)
-    if field not in _EPW_DATA_FIELDS:
-        allowed = ", ".join(sorted(_EPW_DATA_FIELDS | set(_EPW_DATA_ALIASES)))
+    if key not in _EPW_DATA_FIELDS:
+        allowed = ", ".join(sorted(_EPW_DATA_FIELDS))
         raise ValueError(
             f"Unsupported EPW data_type: {value}. Allowed: {allowed}."
         )
-    return field
+    return key
 
 
 def _resolve_garden_epw_path(
@@ -102,7 +79,7 @@ def _resolve_garden_epw_path(
                 f"{WEATHER_TARGET_TYPE!r}; got {target_type!r}."
             )
         target_garden_id = weather_target.get("garden_id")
-        if target_garden_id and target_garden_id != manifest.garden_id:
+        if target_garden_id != manifest.garden_id:
             raise ValueError("weather_target garden_id does not match the Garden root.")
         raw_path = weather_target.get("epw_path")
         if not isinstance(raw_path, str) or not raw_path.strip():
@@ -141,7 +118,7 @@ def _resolve_garden_epw_path(
     return resolved, source
 
 
-def _collection_name(collection: Any, fallback: str) -> str:
+def _collection_name(collection: Any, default_name: str) -> str:
     if hasattr(collection, "ToString"):
         try:
             value = str(collection.ToString()).strip()
@@ -149,7 +126,7 @@ def _collection_name(collection: Any, fallback: str) -> str:
                 return value
         except Exception:
             pass
-    return fallback
+    return default_name
 
 
 def _header_value(header: Any, attr: str) -> Any:

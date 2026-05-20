@@ -45,10 +45,6 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional Garden-relative folder containing grids_info.json. Use instead of run_target/run_id."),
         ] = None,
-        grid_results_path: Annotated[
-            str | None,
-            Field(description="Optional Agent alias for grid_data_path."),
-        ] = None,
         output_name: Annotated[
             str | None,
             Field(description="Optional run output name to use. Defaults to results when resolving from a run."),
@@ -81,10 +77,6 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(description="Result display mode: Surface, SurfaceWithEdges, Wireframe, or Points."),
         ] = "Surface",
-        grid_index: Annotated[
-            int | None,
-            Field(description="Optional Agent index hint accepted for compatibility. Ignored; the first matching grid result folder is used."),
-        ] = None,
         active_grid_data: Annotated[
             str | None,
             Field(description="Optional active grid data folder name when grid_data_path contains multiple datasets."),
@@ -99,15 +91,6 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a VisualizationSet from Radiance grid results."""
-        if grid_data_path is None and grid_results_path is not None:
-            grid_data_path = grid_results_path
-        if grid_data_display_mode.strip().lower() in {
-            "illuminance",
-            "irradiance",
-            "radiation",
-            "luminance",
-        }:
-            grid_data_display_mode = "Surface"
         return service(
             garden_root=garden_root,
             run_target=run_target,

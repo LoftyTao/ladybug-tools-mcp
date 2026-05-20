@@ -50,25 +50,11 @@ def register(mcp: FastMCP) -> None:
         name: Annotated[
             str, Field(description="SVG artifact file name without extension.")
         ] = "visualization_set",
-        visualization_set_identifier: Annotated[
-            str | None,
-            Field(
-                description="Optional ignored compatibility hint from upstream VisualizationSet metadata. Use name for the SVG artifact file name."
-            ),
-        ] = None,
-        visualization_set_display_name: Annotated[
-            str | None,
-            Field(
-                description="Optional ignored compatibility hint from upstream VisualizationSet metadata. Use name for the SVG artifact file name."
-            ),
-        ] = None,
         output_subdir: Annotated[
             str, Field(description="Garden-relative artifact output directory.")
         ] = "artifacts/visualization/svg",
     ) -> dict[str, Any]:
         """Export a VisualizationSet to a Garden SVG artifact."""
-        if name == "visualization_set" and visualization_set_identifier:
-            name = visualization_set_identifier
         return service(
             garden_root=garden_root,
             visualization_set=visualization_set,

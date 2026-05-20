@@ -43,10 +43,6 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(description="Garden weather_file target with epw_path to morph."),
         ] = None,
-        epw_path: Annotated[
-            str | None,
-            Field(description="Garden-relative EPW path fallback for controlled tests."),
-        ] = None,
         simulation_parameter_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional uwg_simulation_parameter target."),
@@ -77,7 +73,6 @@ def register(mcp: FastMCP) -> None:
             garden_root=garden_root,
             model_target=model_target,
             weather_target=weather_target,
-            epw_path=epw_path,
             simulation_parameter_target=simulation_parameter_target,
             simulation_parameter=simulation_parameter,
             run_id=run_id,

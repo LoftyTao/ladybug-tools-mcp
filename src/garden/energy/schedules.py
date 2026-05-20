@@ -20,12 +20,6 @@ from garden.data_collection import data_collection_summary, save_data_collection
 from garden.libraries.properties import save_garden_properties_library_object
 
 
-def _unwrap_object_dict(data: Any) -> Any:
-    if isinstance(data, dict) and isinstance(data.get("object_dict"), dict):
-        return data["object_dict"]
-    return data
-
-
 def _date_from_input(data: dict[str, Any] | str | None, *, field_name: str) -> Date | None:
     if data is None:
         return None
@@ -47,7 +41,6 @@ def _time_from_input(data: dict[str, Any] | str, *, field_name: str) -> Time:
 
 
 def _schedule_day_from_input(data: dict[str, Any], *, field_name: str) -> ScheduleDay:
-    data = _unwrap_object_dict(data)
     if not isinstance(data, dict):
         raise ValueError(f"{field_name} must be a ScheduleDay dictionary.")
     try:
@@ -60,7 +53,6 @@ def _schedule_day_from_input(data: dict[str, Any], *, field_name: str) -> Schedu
 
 
 def _schedule_rule_from_input(data: dict[str, Any], *, field_name: str) -> ScheduleRule:
-    data = _unwrap_object_dict(data)
     if not isinstance(data, dict):
         raise ValueError(f"{field_name} must be a ScheduleRule dictionary.")
     try:
@@ -75,27 +67,10 @@ def _schedule_rule_from_input(data: dict[str, Any], *, field_name: str) -> Sched
 def _schedule_type_limit_from_input(
     data: dict[str, Any] | str | None,
 ) -> ScheduleTypeLimit | None:
-    data = _unwrap_object_dict(data)
     if data is None:
         return None
     if isinstance(data, str):
         normalized = data.strip()
-        aliases = {
-            "fraction": "Fractional",
-            "fractional": "Fractional",
-            "percent": "Percentage",
-            "percentage": "Percentage",
-            "temperature": "Temperature",
-            "onoff": "On/Off",
-            "on_off": "On/Off",
-            "on/off": "On/Off",
-            "activity": "Activity Level",
-            "activitylevel": "Activity Level",
-            "activity_level": "Activity Level",
-            "activity level": "Activity Level",
-            "metabolic": "Activity Level",
-        }
-        data = aliases.get(normalized.lower(), normalized)
         try:
             return schedule_type_limit_by_identifier(data)
         except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
@@ -355,7 +330,6 @@ def create_schedule_ruleset(
     schedule_rules: list[dict[str, Any]] | None = None,
     rules: list[dict[str, Any]] | None = None,
     schedule_type_limit: dict[str, Any] | str | None = None,
-    schedule_type: str | None = None,
     default_value: float | None = None,
     summer_designday_schedule: dict[str, Any] | None = None,
     winter_designday_schedule: dict[str, Any] | None = None,
@@ -373,8 +347,6 @@ def create_schedule_ruleset(
     return_object_dict: bool = True,
 ) -> dict[str, Any]:
     """Create a Honeybee Energy ScheduleRuleset."""
-    if schedule_type_limit is None and schedule_type is not None:
-        schedule_type_limit = schedule_type
     if default_day_schedule is None:
         value = 0.0 if default_value is None else float(default_value)
         default_day = _schedule_day_from_values(
@@ -503,7 +475,6 @@ def create_schedule_ruleset(
             object_dict=result["object_dict"],
         )
         result["target"] = saved["target"]
-        result["schedule_target"] = saved["target"]
         result["persistence_receipt"] = saved["persistence_receipt"]
         result["summary_view"]["target"] = saved["target"]
         result["summary_view"]["ready_for"] = (

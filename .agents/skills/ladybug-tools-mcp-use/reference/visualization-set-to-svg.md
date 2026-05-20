@@ -16,7 +16,7 @@
 
 ## 已验证推荐路径
 
-1. `search_tools query='export visualization set to svg artifact'`
+1. `search query='export visualization set to svg artifact'`
 2. 优先用 `honeybee_model_to_visualization_set`、
    `honeybee_room_to_visualization_set`、`honeybee_face_to_visualization_set`
    或 `compose_visualization_sets`，并设置 `return_visualization_set=false`
@@ -49,7 +49,6 @@
 
 ## 避坑说明
 
-- 不要把 `_visualization_set` 写成占位符、路径或摘要。Agent 路径优先传
   `visualization_set_target`，不要把完整 `VisualizationSet` 大对象搬进上下文。
 - `view_` 第一阶段支持 `Top`、`Left`、`Right`、`Front`、`Back`、`NE`、`NW`、`SE`、`SW`。
 - `output_subdir_` 必须是 Garden 内部相对目录，不能写出 Garden。

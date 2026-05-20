@@ -17,7 +17,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="normalize_garden_properties_library_storage",
-        description="Rewrite legacy Garden Properties Library files that still store MCP wrapper metadata beside object_dict into native SDK dict JSON files. Keep using the same targets, index entries, and receipts. Use this when older reusable resources need to be handed to non-MCP users without manual cleanup.",
+        description="Rewrite Garden Properties Library files that store MCP wrapper metadata beside object_dict into native SDK dict JSON files. Keep using the same targets, index entries, and receipts. Use this maintenance tool when reusable resources need native SDK JSON files for non-MCP handoff.",
         tags={
             "garden",
             "properties",
@@ -49,11 +49,11 @@ def register(mcp: FastMCP) -> None:
         dry_run: Annotated[
             bool,
             Field(
-                description="When true, report which legacy files would be rewritten without changing any files."
+                description="When true, report which wrapped files would be rewritten without changing any files."
             ),
         ] = False,
     ) -> dict:
-        """Normalize legacy Garden Properties Library storage files."""
+        """Normalize wrapped Garden Properties Library storage files."""
         return service(
             garden_root=garden_root,
             domain=domain,

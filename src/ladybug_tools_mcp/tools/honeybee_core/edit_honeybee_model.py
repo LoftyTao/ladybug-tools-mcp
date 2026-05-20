@@ -50,7 +50,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Alias for target accepted for Agent compatibility."),
+            Field(description="Optional Honeybee model target dict."),
         ] = None,
         display_name: Annotated[
             str | None, Field(description="Optional updated display name.")
@@ -83,31 +83,25 @@ def register(mcp: FastMCP) -> None:
         add_sensor_grids: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description="Agent compatibility path for attaching existing radiance_sensor_grid targets to model Radiance properties. Prefer create_radiance_sensor_grid.attach_to_model=true when creating new grids."
+                description="Attach existing radiance_sensor_grid targets to model Radiance properties. Prefer create_radiance_sensor_grid.attach_to_model=true when creating new grids."
             ),
         ] = None,
         radiance_sensor_grid_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Single radiance_sensor_grid target alias for add_sensor_grids accepted for Agent compatibility."),
+            Field(description="Single radiance_sensor_grid target for add_sensor_grids."),
         ] = None,
         add_radiance_views: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="Agent compatibility path for attaching existing radiance_view targets to model Radiance properties. Prefer create_radiance_view.attach_to_model=true when creating new views."),
+            Field(description="Attach existing radiance_view targets to model Radiance properties. Prefer create_radiance_view.attach_to_model=true when creating new views."),
         ] = None,
         radiance_view_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Single radiance_view target alias for add_radiance_views accepted for Agent compatibility."),
+            Field(description="Single radiance_view target for add_radiance_views."),
         ] = None,
         remove_targets: Annotated[
             list[dict[str, Any]] | None,
             Field(
                 description="Optional Honeybee typed targets from search_honeybee_model_objects to remove from the model. Only top-level Room and orphaned Face, Aperture, Door, and Shade targets are supported."
-            ),
-        ] = None,
-        return_object_dict: Annotated[
-            bool | None,
-            Field(
-                description="Optional Agent compatibility hint accepted and ignored; edit_honeybee_model always keeps normal compact/target-first returns."
             ),
         ] = None,
     ) -> dict[str, Any]:

@@ -236,7 +236,7 @@ def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
         }
 
     base = get_base_honeybee_model(garden_root=garden_root)
-    model_target = base.get("model_target")
+    model_target = base.get("model_target") or base.get("target")
     if not model_target:
         report = make_report(
             status="ok",
@@ -337,7 +337,7 @@ def _model_target_from_flowerpot(
     target = flowerpot.get("target")
     if not (
         isinstance(target, dict)
-        and target.get("target_type") == "model"
+        and target.get("target_type") == "honeybee_model"
         and target.get("model_identifier") == model_identifier
     ):
         return None

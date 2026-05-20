@@ -35,17 +35,9 @@ def register(mcp: FastMCP) -> None:
             Field(description="Required exact Garden root path string containing garden.json."),
         ],
         luminaires: Annotated[
-            list[dict[str, Any]] | None,
+            list[dict[str, Any]],
             Field(description="Luminaire object_dict values or Garden Properties Library luminaire targets."),
-        ] = None,
-        luminaire_targets: Annotated[
-            list[dict[str, Any]] | None,
-            Field(description="Alias for luminaires when passing saved luminaire targets."),
-        ] = None,
-        luminaire_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Alias for one saved luminaire target."),
-        ] = None,
+        ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional Honeybee model target. Defaults to the Garden base model."),
@@ -56,16 +48,9 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Attach Radiance Luminaire objects to a Garden Honeybee model."""
-        resolved_luminaires = luminaires
-        if resolved_luminaires is None:
-            resolved_luminaires = luminaire_targets
-        if resolved_luminaires is None and luminaire_target is not None:
-            resolved_luminaires = [luminaire_target]
-        if resolved_luminaires is None:
-            raise ValueError("Provide luminaires, luminaire_targets, or luminaire_target.")
         return service(
             garden_root=garden_root,
-            luminaires=resolved_luminaires,
+            luminaires=luminaires,
             model_target=model_target,
             replace_existing=replace_existing,
         )

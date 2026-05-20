@@ -16,7 +16,7 @@
 
 ## 已验证最短路径
 
-1. `search_tools`
+1. `search`
    查询词优先贴近用户动作，例如 `create garden`
 2. `call_tool`
    调 `create_garden`
@@ -62,7 +62,7 @@ this as deterministic-pass/candidate until a real Agent run verifies the path.
 
 ## 额外注意
 
-- 这是典型的 `search_tools -> call_tool(create_garden)` 场景
+- 这是典型的 `search -> await call_tool(create_garden)` 场景
 - root directory 越明确，越不容易漂移到错误路径
 - 引导阶段如果没有用户指定目录，先让 `list_gardens` 和 `create_garden` 使用默认 Gardens root，不要把当前仓库目录当成默认搜索范围。
 - 2026-04-30 supervised task 24 verified that `get_garden(garden_root=...)`

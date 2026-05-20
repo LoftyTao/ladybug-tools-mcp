@@ -4,7 +4,7 @@ Use this path when the user needs a complete Honeybee Energy schedule that can f
 
 ## Shortest Verified Path
 
-1. `search_tools`
+1. `search`
    - Query: `create complete schedule ruleset data collection`
 2. `call_tool` -> `create_schedule_day`
    - Required:

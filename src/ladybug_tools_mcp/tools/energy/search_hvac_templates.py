@@ -12,7 +12,15 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="search_hvac_templates",
-        description="Search Honeybee Energy SDK HVAC templates and, when identifier is provided with a unique template selection, return a ready-to-use HVAC object_dict or Garden Properties Library target for edit_honeybee_room hvac. Supports all-air, DOAS, and heat-cool template HVAC systems.",
+        description=(
+            "Search Honeybee Energy SDK HVAC templates and, when identifier is "
+            "provided with a unique template selection, return a ready-to-use "
+            "HVAC object_dict or Garden Properties Library target for "
+            "edit_honeybee_room hvac. Supports all-air, DOAS, and heat-cool "
+            "template HVAC systems. This is the current public HVAC authoring "
+            "surface; custom non-template HVAC remains outside the active MCP "
+            "tool contract until a new API is designed."
+        ),
         tags={
             "honeybee-energy",
             "energy",

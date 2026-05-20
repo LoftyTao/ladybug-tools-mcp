@@ -231,36 +231,16 @@ def _resolve_candidate(
     host: str | None,
 ) -> dict[str, Any]:
     if epw_map_target is not None:
-        if isinstance(epw_map_target.get("matches"), list):
-            matches = epw_map_target["matches"]
-            if len(matches) != 1:
-                raise ValueError(
-                    "epw_map_target search response must contain exactly one match. "
-                    f"Found {len(matches)}; pass matches[i].target explicitly."
-            )
-            epw_map_target = matches[0].get("target")
-        if isinstance(epw_map_target, dict) and isinstance(epw_map_target.get("target"), dict):
-            epw_map_target = epw_map_target["target"]
-        target_type = epw_map_target.get("target_type") or epw_map_target.get("type")
+        if not isinstance(epw_map_target, dict):
+            raise ValueError("epw_map_target must be an epw_map_weather target.")
+        target_type = epw_map_target.get("target_type")
         if target_type != EPWMAP_CANDIDATE_TARGET_TYPE:
             raise ValueError("epw_map_target must be an epw_map_weather target.")
         if "download_url" not in epw_map_target:
-            station_id = epw_map_target.get("station_id") or epw_map_target.get("identifier")
-            source_value = str(epw_map_target.get("source") or "").lower()
-            host_value = str(epw_map_target.get("host") or "").lower()
-            candidates = [
-                record
-                for record in _epwmap_records()
-                if (station_id is None or str(record.get("station_id")) == str(station_id))
-                and (not source_value or str(record.get("source", "")).lower() == source_value)
-                and (not host_value or str(record.get("host", "")).lower() == host_value)
-            ]
-            if len(candidates) != 1:
-                raise ValueError(
-                    "Minimal epw_map_target must identify exactly one EPW map record. "
-                    f"Found {len(candidates)}; pass search_epw_map matches[i].target."
-                )
-            epw_map_target = _candidate_target(candidates[0])
+            raise ValueError(
+                "epw_map_target requires the full target returned by "
+                "search_epw_map matches[i].target."
+            )
         return {
             "station_id": epw_map_target.get("station_id"),
             "station": epw_map_target.get("station"),

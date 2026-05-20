@@ -281,21 +281,15 @@ def _host_type_from_target(host_type: str | None, host_target: dict[str, Any] | 
 
 def _target_for_host(
     *,
-    garden_id: str,
-    model_identifier: str,
+    model_target: dict[str, Any],
     host_type: str,
     host_identifier: str | None,
 ) -> dict[str, Any]:
     if host_type == "model":
-        return {
-            "target_type": "model",
-            "garden_id": garden_id,
-            "domain": "dragonfly",
-            "model_identifier": model_identifier,
-        }
+        return model_target
     return make_dragonfly_object_target(
-        garden_id=garden_id,
-        model_identifier=model_identifier,
+        garden_id=str(model_target["garden_id"]),
+        model_identifier=str(model_target["model_identifier"]),
         object_type=host_type,
         object_identifier=str(host_identifier),
     )
@@ -401,8 +395,7 @@ def apply_dragonfly_window_parameter(
         model,
     )
     target = _target_for_host(
-        garden_id=manifest.garden_id,
-        model_identifier=str(updated_model_target["model_identifier"]),
+        model_target=updated_model_target,
         host_type=resolved_host_type,
         host_identifier=host_identifier,
     )
@@ -468,8 +461,7 @@ def apply_dragonfly_shading_parameter(
         model,
     )
     target = _target_for_host(
-        garden_id=manifest.garden_id,
-        model_identifier=str(updated_model_target["model_identifier"]),
+        model_target=updated_model_target,
         host_type=resolved_host_type,
         host_identifier=host_identifier,
     )

@@ -36,18 +36,11 @@ _TEMPLATES_BY_NORMALIZED = {
 }
 
 
-def _unwrap_object_dict(data: Any) -> Any:
-    if isinstance(data, dict) and isinstance(data.get("object_dict"), dict):
-        return data["object_dict"]
-    return data
-
-
 def _schedule_from_input(
     data: dict[str, Any] | str | None,
     *,
     field_name: str,
 ) -> Any:
-    data = _unwrap_object_dict(data)
     if data is None:
         return None
     try:

@@ -8,34 +8,34 @@ Use this path when the user needs to find or download EPW weather data and run a
 
 Deterministic MCP tests cover:
 
-- `search_tools` can find `search_epw_map`, `download_epw`, `search_weather_files`, `start_energy_run`, `run_energy`, `list_energy_runs`, `get_energy_run`, `list_energy_run_outputs`, `read_energy_eui`, and `read_energy_errors`.
+- `search` can find `search_epw_map`, `download_epw`, `search_weather_files`, `start_energy_run`, `run_energy`, `list_energy_runs`, `get_energy_run`, `list_energy_run_outputs`, `read_energy_eui`, and `read_energy_errors`.
 - `search_epw_map` returns bounded candidates with an `epw_map_weather` target and does not return the full EPW map dataset.
 - `download_epw` requires `garden_root`, stores weather under `imports/weather/<identifier>/`, registers the `weather_file` target in `garden.json`, and returns Garden-relative EPW/DDY paths.
 - `search_weather_files` only searches `weather_file` targets already registered in the Garden manifest; it does not search SDK/global folders.
-- `search_weather_files` normalizes identifiers, station text, EPW paths, and alias metadata so city-like queries such as `Shanghai weather` can reuse a registered target when that target carries the city token or alias.
 - `read_weather_file_data` reads a Garden-managed `weather_file` target or Garden-contained EPW path into a saved Ladybug `DataCollection` target using the SDK `EPW` interface. Use it for EPW weather charts and original-EPW vs UWG-morphed-EPW comparisons before passing targets into generic visualize tools.
 - `start_energy_run` consumes a Garden-managed `weather_file` target, writes a `running` record to `runs/energy/index.json`, returns immediately with an `energy_run` target and `poll_next`, and schedules `run_energy` as background work.
+- `get_energy_run` accepts `wait_seconds` and `poll_interval` for bounded polling. It returns top-level `status` and `run_id`, and repeats `status`, `run_id`, and `outputs` in `summary_view` so Agents can stop without unpacking the nested run record.
 - `run_energy` remains available for deterministic direct-MCP verification and blocking clients. It writes `runs/energy/index.json`, captures recipe stdout/stderr into `recipe_stdio.log`, returns an `energy_run` target, and does not return large output payloads.
 - `create_energy_output_request` creates compact `energy_output_request` targets for requested EnergyPlus outputs, custom output variables, SQL output, summary reports, and later `DataCollection` reads.
 - `start_energy_run` and `run_energy` accept `output_request_target`; prefer this over having an Agent copy or invent a large `SimulationParameter` dictionary.
 - Deterministic-pass: `start_energy_run` and `run_energy` accept advanced `additional_idf_path`, `additional_idf_text`, and Garden-local `measures_path` arguments, mapping to the `annual-energy-use` recipe inputs `additional-idf` and `measures`. Use these only when the user explicitly provides or asks to use additional EnergyPlus IDF objects, EMS snippets, or OpenStudio measures; this is not a default Agent path.
+- Deterministic-pass: `run_osm_file` and `run_idf_file` rerun user-edited Garden-contained Energy files outside the annual recipe path. Use them when the user has explicitly edited or asked to rerun an OSM/IDF file. `run_osm_file` creates or updates a persistent `workflow.osw` beside the `.osm`; `run_idf_file` follows the Ladybug Tools Grasshopper `run/in.idf` convention for non-`in.idf` files. These are not yet Agent-verified natural paths.
 - `read_energy_result_data` reads completed SQL outputs as compact Ladybug `DataCollection` summaries. It can list available SQL outputs when output selection and filters are omitted, filter outputs with `output_query`, `unit`, `data_type`, or `object_type`, and persist returned collections as `ladybug_data_collection` targets for the generic visualize tools when `save_data_collections=true`.
 - `read_energy_result_data.summary_view.result_context` links returned DataCollections back to the run ledger, SQL artifact, selected output metadata, filter inputs, and the `energy_output_request` / custom outputs when available. Use this context to explain where a result came from instead of guessing from the output name alone.
 - `data_collection_hourly_plot_to_visualization_set` and `data_collection_monthly_chart_to_visualization_set` consume saved Energy result `ladybug_data_collection` targets and return compact `visualization_set_target` outputs for HTML/SVG export.
-- `energy_result_hourly_plot_to_html` and `energy_result_monthly_chart_to_html` remain compatibility/debug direct-to-HTML paths; do not use them as the default Agent chart path.
 - A direct MCP custom full flow has been verified with a custom box room, custom ScheduleDay/ScheduleRuleset setpoint schedules saved to the Garden Properties Library, custom PSZ template HVAC saved to the Garden Properties Library, room edit by targets, real Boston TMY3 EPW/DDY from EPW Map, actual OpenStudio/EnergyPlus execution, and `read_energy_eui`.
 - Invalid EPW/DDY preflight saves a failed run ledger instead of launching a long recipe.
 
 OpenAI Agents smoke passed on 2026-04-25 in `tests/agent_integration/test_agent_energy_run_smoke.py`:
 
-- `search_tools -> search_epw_map -> download_epw`
+- `search -> search_epw_map -> download_epw`
   - Recorded metrics: 3 outer tool calls, 2 real MCP calls, 12,963 total tokens, no repeated MCP tools.
 
 OpenAI Agents smoke passed on 2026-04-27 in `tests/agent_integration/test_agent_energy_run_smoke.py`:
 
 - `execute(search_epw_map -> download_epw)` for Garden-managed weather download.
   - Recorded metrics: 1 outer `execute`, 2 inner MCP calls, no repeated MCP tools.
-- `search_tools -> start_energy_run -> get_energy_run` on a preflight-failure ledger fixture.
+- `search -> start_energy_run -> get_energy_run` on a preflight-failure ledger fixture.
   - Recorded metrics: 3 outer tool calls, 2 real MCP calls, 21,561 total tokens, no repeated MCP tools.
   - The prompt did not call `run_energy`, `search_epw_map`, or `download_epw`.
 - `execute(start_energy_run(reload_old=true) -> get_energy_run -> list_energy_run_outputs -> read_energy_eui)` on a completed-run ledger fixture.
@@ -63,6 +63,11 @@ OpenAI Agents smoke passed on 2026-04-27 in `tests/agent_integration/test_agent_
   - Recorded metrics: 1 outer `execute`, 3 inner MCP calls, `5,908` total tokens, no repeated MCP tools.
   - This verifies Agent-side argument discovery and ledger recording for advanced inputs; it does not verify successful OpenStudio/EnergyPlus execution with a real measure because weather preflight was intentionally invalid.
 
+Deterministic MCP tests passed on 2026-05-18:
+
+- `run_osm_file` writes a persistent `workflow.osw` beside the OSM, calls the SDK `run_osw` path with `measures_only=false`, records the OSM folder's `run/` outputs, and returns an `energy_run` target with recipe `openstudio_osm`.
+- `run_idf_file` copies a non-`in.idf` input to sibling `run/in.idf`, calls the SDK `run_idf` path, records EnergyPlus outputs, and returns an `energy_run` target with recipe `energyplus_idf`.
+
 Manual OpenAI Agents Code Mode smoke passed on 2026-04-26:
 
 - `search -> execute(start_energy_run -> get_energy_run)` on invalid EPW/DDY preflight.
@@ -70,8 +75,8 @@ Manual OpenAI Agents Code Mode smoke passed on 2026-04-26:
 
 ### 候选/未稳定内容
 
-- The blocking Agent-side `run_energy -> list_energy_runs -> get_energy_run -> list_energy_run_outputs` path is not recommended. Recorded MiniMax/OpenAI Agents attempts either produced `arguments:null` with legacy `call_tool` or held a long `execute` request open until timeout/interruption.
-- The `start_energy_run -> get_energy_run` preflight-failure path has been verified with OpenAI Agents in both Code Mode and legacy `search_tools/call_tool` smoke shapes.
+- The blocking Agent-side `run_energy -> list_energy_runs -> get_energy_run -> list_energy_run_outputs` path is not recommended. Recorded MiniMax/OpenAI Agents attempts either produced `arguments:null` with old `call_tool` or held a long `execute` request open until timeout/interruption.
+- The `start_energy_run -> get_energy_run` preflight-failure path has been verified with OpenAI Agents in both Code Mode and old `search/call_tool` smoke shapes.
 - The completed-run output path has been verified with OpenAI Agents through a reloadable completed ledger fixture. This verifies result discovery and reading, not fresh EnergyPlus execution.
 - A supervised fresh completed-run success path now exists: task 18 completed a new background recipe, task 19 read outputs/EUI, and task 20 saved SQL result DataCollections. Treat it as functionally verified but cost-heavy until more tasks reduce repeated search/result reads.
 - The one-shot low-intelligence Agent full workflow from blank Garden to custom edit to actual simulation is not yet a stable recommended path. A recorded failed run used about 533k total tokens, made 23 outer tool calls, repeated `run_energy`, and did not reliably reach `read_energy_eui`. Treat this as a prompt/tool-description optimization input; prefer staged Agent workflows until it is re-verified.
@@ -79,16 +84,15 @@ Manual OpenAI Agents Code Mode smoke passed on 2026-04-26:
 - 2026-04-26 MiniMax v16 reached `start_energy_run -> get_energy_run` in the focused custom model-edit-simulate path and returned a final `running` run ledger. This verifies the natural Agent path can close to simulation start, but v17 failed before weather/run, so treat the one-shot large path as candidate rather than stable.
 - 2026-04-26 staged MiniMax validation reached `search_epw_map -> download_epw -> start_energy_run -> get_energy_run` from an already-edited Garden and returned a final run summary. This staged run is a stable assumption for simulation-start handoff, but not evidence that the full one-shot create/edit/simulate prompt is stable.
 - 2026-04-26 Garden-only weather rerun reached `search_epw_map -> download_epw(garden_root) -> search_weather_files -> start_energy_run -> get_energy_run` with Lhasa weather in a real MiniMax segment. It is now verified that weather files can stay inside Garden management through the Agent path.
-- 2026-05-01 Codex `ladybug_mcp_tester` natural broad Batch C Task 12 verified natural city weather switching and reuse: Shanghai-area and Beijing weather were downloaded as Garden `weather_file` targets, `search_weather_files` could rediscover the downloaded Shanghai file by internal station identifier such as `lang_gang` / `584760`, and a Beijing `start_energy_run -> get_energy_run` short launch reached `running`. A follow-up deterministic regression added normalized city/alias matching so `Shanghai weather` can rediscover a registered target with a Shanghai alias.
 - 2026-05-01 Codex `ladybug_mcp_tester` natural broad Batch C Task 13 verified a fresh annual run to completion in a natural prompt chain, then `start_energy_run(reload_old=true) -> get_energy_run -> list_energy_run_outputs -> read_energy_eui` reused the completed ledger without starting a duplicate simulation. The retained run `task13_annual_office_baseline` produced 7 outputs and EUI total `401.979` in about 24 seconds.
 - Broad weather choice decisions, such as selecting the best source for a climate study, are not yet a stable MCP decision workflow.
 - More Energy recipes should reuse the same `energy_run` target, ledger, output index, and result-reader pattern when added.
 
 ## Shortest Agent Path: Download EPW
 
-Use this as a weather-management stage. Do not mix broad weather-download discovery with simulation-start discovery in one `search_tools` query; mixed queries have caused Agents to repeatedly call `search_epw_map` with invalid arguments.
+Use this as a weather-management stage. Do not mix broad weather-download discovery with simulation-start discovery in one `search` query; mixed queries have caused Agents to repeatedly call `search_epw_map` with invalid arguments.
 
-1. `search_tools`
+1. `search`
    - Query: `search epw map download weather file`
 2. `call_tool` -> `search_epw_map`
    - Use `query`, `source`, `host`, and optional coordinates to find a bounded candidate list.
@@ -121,7 +125,7 @@ Use Code Mode for Agent workflows. Keep all intermediate targets inside the `exe
       - `additional_idf_path`: Garden-relative path to an existing `.idf` file for advanced EnergyPlus objects.
       - `additional_idf_text`: small inline EnergyPlus IDF text, such as complete EMS objects. Do not pass it together with `additional_idf_path`.
       - `measures_path`: Garden-relative path to an existing OpenStudio measures folder.
-4. Poll with `get_energy_run` using `start_energy_run.target` or `run_id`.
+4. Poll with `get_energy_run` using `start_energy_run.target` or `run_id`. When waiting for a short background run, pass bounded `wait_seconds` and `poll_interval` instead of making repeated immediate calls.
 5. When status is `completed`, call `list_energy_run_outputs`, then `read_energy_eui` if the EUI output exists.
 6. When status is `failed`, call `list_energy_run_outputs` and `read_energy_errors` for bounded diagnostics.
 7. When status remains `running`, return the `energy_run` target and tell the user the run is still in progress; do not retry `start_energy_run` for the same run.
@@ -130,7 +134,7 @@ Use Code Mode for Agent workflows. Keep all intermediate targets inside the `exe
 
 Use this path when a Garden already has a completed `energy_run` ledger and the user wants result summaries such as EUI.
 
-1. `search_tools`
+1. `search`
    - Query: `completed annual energy simulation outputs eui read energy use intensity`
 2. Optional `call_tool` -> `start_energy_run`
    - Use this only when the user says to reload or resume a known completed run.
@@ -148,9 +152,8 @@ Use this path when a Garden already has a completed `energy_run` ledger and the 
 
 ## Shortest Agent Path: Read And Visualize SQL DataCollections
 
-Use this path when the run already has a completed SQL output and the user asks for hourly loads, HVAC demand, unmet hours, surface temperatures, or a custom EnergyPlus output variable. Prefer the generic `visualize` target path for new charts; the Energy-owned direct HTML tools remain available for compatibility.
 
-1. `search_tools`
+1. `search`
    - Query: `request hourly custom output datacollection sql results visualization`
 2. Optional pre-run setup: `call_tool` -> `create_energy_output_request`
    - Use before a fresh run when the requested output was not already requested.
@@ -183,7 +186,7 @@ Use this path when the run already has a completed SQL output and the user asks 
 
 Use this path when the user wants weather-file time series such as dry-bulb temperature, relative humidity, wind speed, radiation, or an original EPW vs UWG morphed EPW comparison.
 
-1. `search_tools`
+1. `search`
    - Query: `read epw weather data collection monthly chart visualization`
 2. `call_tool` -> `read_weather_file_data`
    - Required:
@@ -207,7 +210,7 @@ Use this path when the user wants weather-file time series such as dry-bulb temp
 
 Use this path when the user wants a chart comparing multiple same-unit Energy result series, or wants hourly SQL results displayed as hourly, daily, monthly average, or monthly-per-hour patterns. Prefer reading each SQL output into a `ladybug_data_collection` target and then using the generic DataCollection monthly chart tool.
 
-1. `search_tools`
+1. `search`
    - Query: `monthly chart energy result datacollection target visualization set legend`
 2. `call_tool` -> `read_energy_result_data`
    - Pass `output_names` with all desired exact EnergyPlus output names.
@@ -229,13 +232,54 @@ Use this path when the user wants a chart comparing multiple same-unit Energy re
    - All series in one MonthlyChart must have the same interval after conversion.
 4. `call_tool` -> `visualization_set_to_html` or `visualization_set_to_svg`
    - Pass the `visualization_set_target`.
-   - Do not use Energy-owned direct chart tools unless you specifically need the compatibility/debug one-call path.
 
 ## Blocking Direct-MCP Path
 
 Use `run_energy` only for deterministic direct-MCP tests, debugging, or clients that can safely hold a long tool call open. Do not use it as the ordinary low-intelligence Agent path.
 
 `run_energy` now captures Python stdout/stderr, logging handlers, and process-level stdout/stderr file descriptors into `recipe_stdio.log` so OpenStudio/EnergyPlus output does not corrupt stdio JSON-RPC. This hardens blocking direct-MCP use but does not make blocking `run_energy` the Agent default.
+
+## Deterministic-Pass Path: Edited OSM/IDF File Runs
+
+Use this only when the user explicitly has a Garden-contained edited OSM or IDF file.
+
+Edited OSM:
+
+```python
+run = await call_tool("run_osm_file", {
+    "garden_root": garden_root,
+    "osm_path": "imports/energy/edited.osm",
+    "weather_target": weather_target,
+    "run_id": "edited_osm_rerun",
+})
+outputs = await call_tool("list_energy_run_outputs", {
+    "garden_root": garden_root,
+    "run_target": run["target"],
+})
+```
+
+Edited IDF:
+
+```python
+run = await call_tool("run_idf_file", {
+    "garden_root": garden_root,
+    "idf_path": "imports/energy/edited.idf",
+    "weather_target": weather_target,
+    "expand_objects": True,
+    "run_id": "edited_idf_rerun",
+})
+errors = await call_tool("read_energy_errors", {
+    "garden_root": garden_root,
+    "run_target": run["target"],
+})
+```
+
+Boundaries:
+
+- Do not create or expose a separate `run_osw_file` path unless the public contract is redesigned.
+- Do not ask the Agent to handwrite OSW JSON. `run_osm_file` owns the deterministic `workflow.osw` creation/update.
+- All file paths must stay inside the Garden.
+- These tools are blocking local runs, so use them only when the user expects to wait for an edited-file rerun.
 
 ## Minimal Examples
 
@@ -334,7 +378,7 @@ Use `run_energy` only for deterministic direct-MCP tests, debugging, or clients 
 }
 ```
 
-Legacy direct Energy-owned chart path:
+Old direct Energy-owned chart path:
 
 ```json
 {
@@ -360,7 +404,9 @@ Legacy direct Energy-owned chart path:
 - `download_epw.target`: a Garden-managed `weather_file` target with Garden-relative `epw_path` and usually `ddy_path`.
 - `start_energy_run.target`: an `energy_run` target.
 - `start_energy_run.summary_view.poll_next`: compact next-call guidance for `get_energy_run`.
+- `get_energy_run.status` / `get_energy_run.run_id`: top-level stop-condition fields for Agents.
 - `get_energy_run.summary_view.run.status`: `running`, `completed`, or `failed`.
+- `get_energy_run.summary_view.status`, `run_id`, and `outputs`: compact duplicates for common polling/reporting.
 - `list_energy_run_outputs.matches`: output names, Garden-relative paths, and existence flags.
 - `read_energy_errors.text`: bounded ERR text with `summary_view.truncated`.
 - `create_energy_output_request.target`: an `energy_output_request` target saved under `runs/energy/output_requests/`.
@@ -384,7 +430,7 @@ Legacy direct Energy-owned chart path:
 - `read_energy_result_data` needs a completed SQL output. If `list_energy_run_outputs` has no existing `sql` output, create a new output request with `include_sqlite=true` and run the simulation again.
 - For Code Mode, keep search, weather download, model edits, and `start_energy_run` in one `execute` block whenever they depend on one another. Variables do not persist across separate `execute` calls, and repeated weather/library searches were a major token sink in failed MiniMax natural runs.
 - For compact exact-code Agent smoke prompts, prefer non-streamed model responses. MiniMax streamed ChatCompletions can expose partial `execute.code` function-call arguments before the final tool call is assembled, causing a syntax-error retry even when the second call succeeds.
-- The server can recover direct tool proxy calls inside `execute`, such as `await search_epw_map(...)`, when the exact tool name is known. Keep `await call_tool("tool_name", arguments)` as the general default, but direct proxies are useful for short exact-code prompts where long nested `call_tool(...)` strings were causing function-call argument truncation.
+- The server can recover direct tool proxy calls inside `execute`, such as `await search_epw_map(...)`, when the exact tool name is known. Keep `await call_tool("tool_name", arguments)` as the general default, but direct proxies are useful for short exact-code prompts where long nested `await call_tool(...)` strings were causing function-call argument truncation.
 - Service-side Code Mode now suppresses `print()` output from execute blocks so an Agent debug print does not corrupt stdio MCP transport. Still return compact dicts instead of printing because printed diagnostics are discarded.
 - 2026-04-26 staged metrics D rerun closed `search_epw_map -> download_epw -> start_energy_run -> get_energy_run`, but MiniMax first tried `download_epw.station_id` and `start_energy_run.units="kWh"`. Prefer passing `search_epw_map.matches[i].target` to `download_epw.epw_map_target`, then pass `download_epw.target` or `weather_target` directly to `start_energy_run`.
 - 2026-04-26 Garden-only D rerun still exposed point drift: MiniMax tried `units_system="SI"` once and invented `search_garden_assets` once before recovering. Keep `units` exactly `si` or `ip`, and use `search_weather_files` for Garden weather reuse.

@@ -10,10 +10,10 @@
 
 当前自然语言验证已经稳定通过的路径是：
 
-1. `search_tools("remove a window or aperture from a room wall in garden model")`
-2. `call_tool(search_honeybee_model_objects)`，定位 `Tiny_House_Office`、前墙和 `Front_Aperture`
+1. `search("remove a window or aperture from a room wall in garden model")`
+2. `await call_tool(search_honeybee_model_objects)`，定位 `Tiny_House_Office`、前墙和 `Front_Aperture`
 3. 读取 aperture 的 typed target
-4. `call_tool(remove_honeybee_aperture)`，将该 target 传入 `target`
+4. `await call_tool(remove_honeybee_aperture)`，将该 target 传入 `target`
 5. 用后续确认说明或再次搜索确认 aperture 已被删除
 
 ## 已验证 prompt 特征
@@ -55,7 +55,7 @@
 
 ## 已验证成功判据
 
-- 工具调用里出现 `search_tools`
+- 工具调用里出现 `search`
 - 后续出现 `search_honeybee_model_objects`
 - 后续出现 `remove_honeybee_aperture`
 - 搜索 query 中出现 `room`、`wall` 或 `window`

@@ -11,9 +11,6 @@ from ladybug_tools_mcp.tools.libraries.normalize_garden_properties_library_stora
 from ladybug_tools_mcp.tools.libraries.save_garden_properties_library_object import (
     register as register_save_garden_properties_library_object,
 )
-from ladybug_tools_mcp.tools.libraries.search_garden_properties_library import (
-    register as register_search_garden_properties_library,
-)
 from ladybug_tools_mcp.tools.libraries.search_garden_properties_library_objects import (
     register as register_search_garden_properties_library_objects,
 )
@@ -24,5 +21,4 @@ def register(mcp: FastMCP) -> None:
     register_save_garden_properties_library_object(mcp)
     register_get_garden_properties_library_object(mcp)
     register_normalize_garden_properties_library_storage(mcp)
-    register_search_garden_properties_library(mcp)
     register_search_garden_properties_library_objects(mcp)

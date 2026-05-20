@@ -184,7 +184,6 @@ def _result(
         object_dict=result["object_dict"],
     )
     result["target"] = saved["target"]
-    result["modifier_target"] = saved["target"]
     result["persistence_receipt"] = saved["persistence_receipt"]
     result["summary_view"]["target"] = saved["target"]
     result["summary_view"]["ready_for"] = "radiance modifier inputs"

@@ -49,8 +49,7 @@ def register(mcp: FastMCP) -> None:
                     "Required ContextShade face geometry as a list of 3D face "
                     "boundaries: [[[x, y, z], ...], ...], or Face3D-style "
                     "dicts with vertices/boundary. Each face needs at least "
-                    "three points. shade_faces is also accepted as a natural "
-                    "field name."
+                    "three points."
                 )
             ),
         ] = None,
@@ -65,11 +64,10 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | str | None,
+            dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Accepts the typed target or a "
-                    "Garden-relative DFJSON path. Defaults to base Dragonfly model."
+                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
                 )
             ),
         ] = None,
@@ -77,20 +75,6 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Whether this ContextShade is detached from buildings."),
         ] = True,
-        shade_faces: Annotated[
-            Any,
-            Field(
-                description="Optional natural field for ContextShade faces; normalized to geometry."
-            ),
-        ] = None,
-        faces: Annotated[
-            Any,
-            Field(description="Optional natural alias for ContextShade face geometry."),
-        ] = None,
-        face3d_list: Annotated[
-            Any,
-            Field(description="Optional natural alias for ContextShade Face3D geometry."),
-        ] = None,
         x_dim: Annotated[
             float | None,
             Field(description="Optional rectangular context footprint width."),
@@ -107,26 +91,17 @@ def register(mcp: FastMCP) -> None:
             list[float] | None,
             Field(description="Optional rectangular context origin [x, y] or [x, y, z]."),
         ] = None,
-        floor_z: Annotated[
-            float | None,
-            Field(
-                description=(
-                    "Optional natural z-offset alias. When provided with a 2D origin, "
-                    "it becomes the origin z value."
-                )
-            ),
-        ] = None,
         display_name: Annotated[
             str | None,
             Field(description="Optional user-facing ContextShade display name."),
         ] = None,
         context_shade_type: Annotated[
             str | None,
-            Field(description="Optional natural context type hint, such as tree or building."),
+            Field(description="Optional natural context type, such as tree or building."),
         ] = None,
         is_vegetation: Annotated[
             bool | None,
-            Field(description="Optional UWG vegetation hint when UWG properties are available."),
+            Field(description="Optional UWG vegetation flag when UWG properties are available."),
         ] = None,
         cen_pt: Annotated[
             list[float] | None,
@@ -143,16 +118,12 @@ def register(mcp: FastMCP) -> None:
             identifier=identifier,
             geometry=geometry,
             vertices=vertices,
-            face3d_list=face3d_list,
             model_target=model_target,
             is_detached=is_detached,
-            shade_faces=shade_faces,
-            faces=faces,
             x_dim=x_dim,
             y_dim=y_dim,
             height=height,
             origin=origin,
-            floor_z=floor_z,
             display_name=display_name,
             context_shade_type=context_shade_type,
             is_vegetation=is_vegetation,

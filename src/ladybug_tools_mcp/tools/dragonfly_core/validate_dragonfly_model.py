@@ -34,20 +34,13 @@ def register(mcp: FastMCP) -> None:
             Field(description="Required exact Garden root path containing garden.json."),
         ],
         model_target: Annotated[
-            dict[str, Any] | str | None,
+            dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Accepts the typed target or a "
-                    "Garden-relative DFJSON path. Defaults to base Dragonfly model."
+                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
                 )
             ),
         ] = None,
-        target: Annotated[
-            dict[str, Any] | str | None,
-            Field(description="Optional natural alias for model_target."),
-        ] = None,
     ) -> dict[str, Any]:
         """Validate a Dragonfly model."""
-        if model_target is None:
-            model_target = target
         return service(garden_root=garden_root, model_target=model_target)

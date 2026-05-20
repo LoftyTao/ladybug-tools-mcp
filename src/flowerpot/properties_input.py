@@ -9,47 +9,12 @@ from typing import Any
 from flowerpot.registry import get_flowerpot
 from garden.libraries.properties import (
     get_garden_properties_library_object,
-    search_garden_properties_library_objects,
 )
 from ladybug_tools_mcp.contracts.report import make_report
 
-ENERGY_ALIASES = {
-    "schedule": "schedule",
-    "schedules": "schedule",
-    "schedule_type_limit": "schedule_type_limit",
-    "schedule type limit": "schedule_type_limit",
-    "program_type": "program_type",
-    "program": "program_type",
-    "programs": "program_type",
-    "load": "load",
-    "loads": "load",
-    "material": "material",
-    "materials": "material",
-    "construction": "construction",
-    "constructions": "construction",
-    "construction_set": "construction_set",
-    "construction set": "construction_set",
-    "construction sets": "construction_set",
-    "hvac": "hvac",
-    "zone_ventilation_fan": "zone_ventilation_fan",
-    "zone ventilation fan": "zone_ventilation_fan",
-    "pv_properties": "pv_properties",
-    "pv properties": "pv_properties",
-    "electric_load_center": "electric_load_center",
-    "electric load center": "electric_load_center",
-}
-
-RADIANCE_ALIASES = {
-    "modifier": "modifier",
-    "modifiers": "modifier",
-    "modifier_set": "modifier_set",
-    "modifier set": "modifier_set",
-    "modifier sets": "modifier_set",
-}
-
-ALIASES_BY_DOMAIN = {
-    "honeybee_energy": ENERGY_ALIASES,
-    "honeybee_radiance": RADIANCE_ALIASES,
+PROPERTIES_TYPES = {
+    "energy": "honeybee_energy",
+    "radiance": "honeybee_radiance",
 }
 
 INDEX_FOLDERS = {
@@ -66,23 +31,19 @@ INDEX_FOLDERS = {
     ("honeybee_energy", "electric_load_center"): "electric_load_centers",
     ("honeybee_radiance", "modifier"): "modifiers",
     ("honeybee_radiance", "modifier_set"): "modifier_sets",
+    ("honeybee_radiance", "luminaire"): "luminaires",
 }
 
 
-def normalize_properties_type(domain: str, value: str) -> str:
-    """Normalize a user-facing properties type into a Garden family key."""
-    aliases = ALIASES_BY_DOMAIN.get(domain)
-    if aliases is None:
-        raise ValueError(f"Unsupported properties domain: {domain}")
+def normalize_properties_type(value: str) -> str:
+    """Return a current Flowerpot properties type."""
+    normalized = str(value or "").strip()
+    if normalized in PROPERTIES_TYPES:
+        return normalized
 
-    normalized = " ".join(str(value or "").strip().lower().replace("-", " ").split())
-    family = aliases.get(normalized) or aliases.get(normalized.replace(" ", "_"))
-    if family:
-        return family
-
-    allowed = ", ".join(sorted(set(aliases.values())))
+    allowed = ", ".join(sorted(PROPERTIES_TYPES))
     raise ValueError(
-        f"Unsupported {domain} properties type: {value}. Supported: {allowed}."
+        f"Unsupported properties_type: {value}. Supported: {allowed}."
     )
 
 
@@ -96,10 +57,14 @@ def garden_root_from_flowerpot(flowerpot: dict[str, Any]) -> str:
     return str(Path(garden_root).expanduser().resolve())
 
 
-def properties_index_path(garden_root: str, domain: str, object_family: str) -> str:
-    """Return the family index path used for Grasshopper follow signatures."""
+def properties_index_path(garden_root: str, domain: str) -> str:
+    """Return the domain library path used for Grasshopper follow signatures."""
+    return str(Path(garden_root).expanduser().resolve() / "libraries" / domain)
+
+
+def _family_index_path(garden_root: str, domain: str, object_family: str) -> Path:
     folder = INDEX_FOLDERS[(domain, object_family)]
-    return str(
+    return (
         Path(garden_root).expanduser().resolve()
         / "libraries"
         / domain
@@ -108,45 +73,81 @@ def properties_index_path(garden_root: str, domain: str, object_family: str) -> 
     )
 
 
-def _all_index_matches(garden_root: str, domain: str, object_family: str) -> list[dict[str, Any]]:
-    """Return every indexed match for one Garden Properties Library family."""
-    path = Path(properties_index_path(garden_root, domain, object_family))
-    if not path.is_file():
-        return []
-    with path.open("r", encoding="utf-8") as handle:
-        index = json.load(handle)
-    return [
-        {
-            "domain": domain,
-            "object_family": object_family,
-            "identifier": item.get("identifier"),
-            "object_type": item.get("object_type"),
-            "path": item.get("path"),
-            "target": item["target"],
-            "score": 1,
-        }
-        for item in index.get("objects", [])
-    ]
+def _all_index_matches(garden_root: str, domain: str) -> list[dict[str, Any]]:
+    """Return every indexed match for one Garden Properties Library domain."""
+    matches: list[dict[str, Any]] = []
+    for index_domain, object_family in sorted(INDEX_FOLDERS):
+        if index_domain != domain:
+            continue
+        path = _family_index_path(garden_root, domain, object_family)
+        if not path.is_file():
+            continue
+        with path.open("r", encoding="utf-8") as handle:
+            index = json.load(handle)
+        matches.extend(
+            {
+                "domain": domain,
+                "object_family": object_family,
+                "identifier": item.get("identifier"),
+                "object_type": item.get("object_type"),
+                "path": item.get("path"),
+                "target": item["target"],
+                "score": 1,
+            }
+            for item in index.get("objects", [])
+        )
+    return matches
 
 
 def _search_matches(
     *,
     garden_root: str,
     domain: str,
-    object_family: str,
     query: str,
 ) -> list[dict[str, Any]]:
-    """Search properties, returning all indexed family objects for empty queries."""
+    """Search properties, returning all indexed domain objects for empty queries."""
+    matches = _all_index_matches(garden_root, domain)
     if not query:
-        return _all_index_matches(garden_root, domain, object_family)
-    search_result = search_garden_properties_library_objects(
-        garden_root=garden_root,
-        query=query,
-        domain=domain,
-        object_family=object_family,
-        limit=100,
+        return matches
+    scored = []
+    for match in matches:
+        score = _match_score(
+            identifier=str(match.get("identifier") or ""),
+            object_type=str(match.get("object_type") or ""),
+            query=query,
+        )
+        if score <= 0:
+            continue
+        match = dict(match)
+        match["score"] = score
+        scored.append(match)
+    scored.sort(
+        key=lambda match: (
+            -int(match["score"]),
+            str(match["domain"]),
+            str(match["object_family"]),
+            str(match["identifier"]),
+        )
     )
-    return list(search_result.get("matches", []))
+    return scored
+
+
+def _match_score(*, identifier: str, object_type: str, query: str) -> int:
+    text = f"{identifier} {object_type}".lower().replace("_", " ").replace("-", " ")
+    tokens = [
+        token
+        for token in query.lower().replace("_", " ").replace("-", " ").split()
+        if token
+    ]
+    score = 0
+    if query.lower() in text:
+        score += 20
+    for token in tokens:
+        if token in text:
+            score += 4
+        if text.startswith(token):
+            score += 2
+    return score
 
 
 def read_properties_input(
@@ -158,12 +159,17 @@ def read_properties_input(
 ) -> dict[str, Any]:
     """Read Garden Properties Library object dicts for a Grasshopper component."""
     garden_root = garden_root_from_flowerpot(flowerpot)
-    object_family = normalize_properties_type(domain, properties_type)
+    normalized_type = normalize_properties_type(properties_type)
+    expected_domain = PROPERTIES_TYPES[normalized_type]
+    if domain != expected_domain:
+        raise ValueError(
+            f"properties_type {normalized_type!r} is not valid for {domain}; "
+            f"expected {expected_domain}."
+        )
     query = str(value or "").strip()
     matches = _search_matches(
         garden_root=garden_root,
         domain=domain,
-        object_family=object_family,
         query=query,
     )
 
@@ -192,24 +198,35 @@ def read_properties_input(
 
     search_match_count = len(matches)
     loaded_count = len(objects)
+    matched_families = sorted(
+        {
+            str(match.get("object_family"))
+            for match in matches
+            if match.get("object_family")
+        }
+    )
+    object_family = matched_families[0] if len(matched_families) == 1 else "all"
     if search_match_count > 0 and loaded_count == 0 and warnings:
         report_status = "error"
-        message = f"Failed to load {search_match_count} matched {object_family} properties."
+        message = (
+            f"Failed to load {search_match_count} matched "
+            f"{normalized_type} properties."
+        )
     elif warnings:
         report_status = "partial"
         message = (
             f"Loaded {loaded_count} of {search_match_count} matched "
-            f"{object_family} properties."
+            f"{normalized_type} properties."
         )
     else:
         report_status = "ok"
-        message = f"Found {loaded_count} {object_family} properties."
+        message = f"Found {loaded_count} {normalized_type} properties."
 
     return {
         "property": property_value,
         "properties": objects,
         "targets": targets,
-        "follow_path": properties_index_path(garden_root, domain, object_family),
+        "follow_path": properties_index_path(garden_root, domain),
         "report": make_report(
             status=report_status,
             message=message,

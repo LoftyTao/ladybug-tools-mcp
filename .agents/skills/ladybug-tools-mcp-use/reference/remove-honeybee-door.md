@@ -16,11 +16,11 @@
 
 ## 已验证最短路径
 
-1. `search_tools("search_honeybee_model_objects")`
-2. `call_tool(search_honeybee_model_objects)`，`_object_type_ = "door"`
+1. `search("search_honeybee_model_objects")`
+2. `await call_tool(search_honeybee_model_objects)`，`_object_type_ = "door"`
 3. 读取第一个 match 的 `target`
-4. `call_tool(remove_honeybee_door)`，将上一步 `target` 传入 `target`
-5. `call_tool(search_honeybee_model_objects)` 再次确认
+4. `await call_tool(remove_honeybee_door)`，将上一步 `target` 传入 `target`
+5. `await call_tool(search_honeybee_model_objects)` 再次确认
 
 搜索参数使用正式字段名：
 

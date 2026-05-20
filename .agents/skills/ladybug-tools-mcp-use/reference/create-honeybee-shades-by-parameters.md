@@ -10,15 +10,13 @@ OpenAI Agents focused smoke 已通过 `create_honeybee_shades_by_parameters -> m
 
 ## 最短路径
 
-1. `search_tools` 查询 `create honeybee shade louver by parameters`。
+1. `search` 查询 `create honeybee shade louver by parameters`。
 2. 如还没有宿主 target，先用 `search_honeybee_model_objects` 找到 `face` 或 `aperture`。
 3. 调用 `create_honeybee_shades_by_parameters`。
 4. 用 `search_honeybee_model_objects` 验证生成的 `shade`。
 
-Compatibility note: `create_honeybee_shades_by_ratio` exists only as a bounded
-fallback for low-capability Agents that invent that tool name during simple
-overhang/louver tasks. Planned calls should still use
-`create_honeybee_shades_by_parameters`.
+Strict-contract note: 所有参数化遮阳板、百叶和窗洞外框调用都统一使用
+`create_honeybee_shades_by_parameters`。
 
 ## 成功调用形态
 
@@ -38,28 +36,11 @@ overhang/louver tasks. Planned calls should still use
 }
 ```
 
-Deterministic fallback: if a low-capability Agent writes `mode` instead of
-`generation_mode`, or puts `depth`, `count`, `louver_count`, `distance`,
-`offset`, `angle`, `indoor`, or a harmless `width` hint at the top level, the
-tool normalizes those into the canonical `generation_mode` and `parameters`
-shape. Prefer the compact canonical JSON above in planned calls; current SDK
-shade parameter methods use `depth` plus `count/distance`, not `width`.
-2026-04-26 token-sink 修复后，服务还接受真实 MiniMax 已生成的
-`parameters.louver_depth`、`parameters.louver_angle`，并把顶层
-`identifier` / `identifier_prefix` 作为 shade `base_name`。推荐调用仍使用
-`parameters.depth`、`parameters.angle` 和可选 `identifier_prefix`，这些
-fallback 只是为了避免 Agent 因自然命名重试。
-2026-04-26 B-stage short-path rerun 又观察到顶层 `offset_from_host` 和
-`louver_orientation="horizontal"`。服务现在把 `offset_from_host` 归一到
-`parameters.offset`，并接受 `louver_orientation` 作为无害自然 hint。推荐调用仍使用
-`parameters.offset`；精确方向控制应继续用已支持的几何/角度参数。
-2026-04-28 forum-fuzzy Test-Garden probe verified that natural
-`generation_mode="overhang"` works for aperture-hosted overhangs. The service
-normalizes it to one `louver_by_count` shade when only `depth` is provided, and
-also accepts top-level `vertical_offset` as `parameters.offset`. Recommended
-planned calls should still use the canonical shape below, but Agents can recover
-from common forum-style wording without switching to low-level explicit shade
-geometry:
+Use the compact canonical JSON above in planned calls. Current SDK shade
+parameter methods use `parameters.depth` plus `parameters.count` or
+`parameters.distance`, and optional `identifier_prefix`; do not pass top-level
+geometry parameters or `louver_orientation`. For aperture-hosted overhangs,
+use the explicit `generation_mode` and `parameters` shape below.
 
 ```json
 {
@@ -68,7 +49,7 @@ geometry:
     "garden_root": "D:/Desktop/Codex/gardens/test-garden",
     "host_target": {"target_type": "honeybee_object", "object_type": "aperture"},
     "generation_mode": "overhang",
-    "depth": 0.6,
+    "parameters": {"depth": 0.6},
     "identifier_prefix": "window_overhang"
   }
 }

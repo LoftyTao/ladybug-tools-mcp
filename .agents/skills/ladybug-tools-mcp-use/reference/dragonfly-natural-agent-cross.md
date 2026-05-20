@@ -8,7 +8,6 @@ Verified progress:
 
 - The suite now starts from a clean Garden artifact on each run.
 - Large district modeling and project-editing workflows can close in retained runs with multi-building, multi-story, multi-room Dragonfly models, ContextShade objects, Story add/remove, adjacency solve/reset, Room2D cleanup, and validation.
-- Deterministic regression coverage now accepts common natural handoff shapes: full upstream create-result envelopes, object targets where model targets are expected, Garden-relative DFJSON paths, plural object types, floor/geometry aliases, ContextShade 2D vertices and `face3d_list`, Story `floor_z`, `story_identifier`, `typical` Story type, Building natural count/type hints, Room2D `geometry` / `room_geometry`, UWG `target`, window `wwr`, and low-cost `return_object_dict=false` where compact output is valid.
 
 Observed remaining failures:
 
@@ -28,4 +27,3 @@ MiMo-specific finding:
 - `mimo-v2.5-pro` requires Chat Completions tool-call histories to replay provider `reasoning_content`. The OpenAI Agents SDK harness now enables a MiMo-only replay hook alongside the SDK's default DeepSeek replay path.
 - MiMo may emit numeric JSON fields as strings on outer Code Mode discovery calls. Code Mode `search.limit` now accepts numeric strings and coerces them before search.
 - A retained MiMo run of the first fused district-modeling scenario completed functionally after the above fixes and the `edit_dragonfly_room2d` `floor_z` / string-identifier recovery. Metrics: 6 model requests, 7 outer tools, 50 inner MCP calls, 113,973 total tokens. This is functional evidence for the first scenario only; the full natural suite remains candidate.
-- A retained MiMo Dragonfly Web View demo-mode run passed after bounded natural aliases and auto-refresh wording were added. Metrics: 6 model requests, 7 outer tools, 14 inner MCP calls, no repeated MCP tools, 133,093 total tokens, and 10 Web View session preview steps. This verifies targeted demo mode only; the full sequential Dragonfly natural suite remains candidate.

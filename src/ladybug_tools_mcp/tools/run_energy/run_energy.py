@@ -30,18 +30,6 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str, Field(description="Garden root containing garden.json.")
         ],
-        epw_path: Annotated[
-            str | None,
-            Field(
-                description="Garden-relative EPW path fallback for controlled tests. Agents should pass the Garden weather_file target instead."
-            ),
-        ] = None,
-        ddy_path: Annotated[
-            str | None,
-            Field(
-                description="Garden-relative DDY path fallback for controlled tests. Agents should pass the Garden weather_file target instead."
-            ),
-        ] = None,
         weather_target: Annotated[
             dict[str, Any] | None,
             Field(
@@ -113,8 +101,6 @@ def register(mcp: FastMCP) -> None:
         """Run annual energy-use simulation and register an energy_run target."""
         return service(
             garden_root=garden_root,
-            epw_path=epw_path,
-            ddy_path=ddy_path,
             weather_target=weather_target,
             model_target=model_target,
             sim_par=sim_par,

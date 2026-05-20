@@ -78,7 +78,7 @@ def _header_value(header: Any, attr: str) -> Any:
     return value
 
 
-def _collection_name(collection: Any, fallback: str) -> str:
+def _collection_name(collection: Any, default_name: str) -> str:
     if hasattr(collection, "ToString"):
         try:
             value = str(collection.ToString()).strip()
@@ -86,7 +86,7 @@ def _collection_name(collection: Any, fallback: str) -> str:
                 return value
         except Exception:
             pass
-    return fallback
+    return default_name
 
 
 def _collection_time_interval(collection: Any) -> str:

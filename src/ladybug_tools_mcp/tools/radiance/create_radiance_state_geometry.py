@@ -50,13 +50,8 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional Garden root required when modifier is a Garden target."),
         ] = None,
-        return_object_dict: Annotated[
-            bool | None,
-            Field(description="Ignored compatibility hint; this tool always returns a StateGeometry dictionary."),
-        ] = None,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance StateGeometry."""
-        _ = return_object_dict
         identifier = identifier or "state_geometry"
         return service(
             identifier=identifier,

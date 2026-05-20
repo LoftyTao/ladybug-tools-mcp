@@ -42,12 +42,12 @@ Store one of these labels in the conversation state before handing off to the Ga
 - `reusable_resource_preparation`: reusable simulation resources, such as schedules, constructions, loads, HVAC, Radiance modifiers, or library objects.
 - `platform_collaboration`: collaborative editing with another interface such as Rhino / Grasshopper through Flowerpot.
 
-## Shortest Legacy Tool Path
+## Shortest Old Tool Path
 
-When the host exposes legacy FastMCP tools, first confirm that Garden discovery is available through Tool Search:
+When the host exposes old FastMCP tools, first confirm that Garden discovery is available through Tool Search:
 
 ```text
-search_tools query="list_gardens create_garden get_garden create choose existing recent Garden"
+search query="list_gardens create_garden get_garden create choose existing recent Garden"
 ```
 
 The expected MCP tools are:

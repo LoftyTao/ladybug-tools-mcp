@@ -19,14 +19,27 @@
 新 Agent 路径优先传 `visualization_set_target`，不要搬运完整 `VisualizationSet` dict：
 
 1. 上游 visualize 工具使用 `garden_root` 并设置 `return_visualization_set=false`
-2. 从上游结果读取 `visualization_set_target`
+2. 从上游结果读取 `target` 或 `visualization_set_target`，并在同一个 `execute` block 内保留这个变量
 3. `call_tool name=visualization_set_to_html`
 4. 把 `visualization_set_target` 传入，而不是完整 `visualization_set`
-5. 读取返回的 `artifact_receipt.artifact_path`
+5. 读取返回的顶层 `artifact_name`、`artifact_path`、`artifact_type`，或 `artifact_receipt.artifact_path`
+
+Deterministic-pass/candidate for multi-format export:
+
+1. 创建或读取一个 compact `visualization_set_target`
+2. 对同一个 `visualization_set_target` 分别调用 HTML、SVG、vtk.js exporter
+3. 每个 exporter 成功后直接使用返回的 `artifact_name/artifact_path/artifact_type`
+4. 不要再为了确认 artifact 去反复 `list_garden_artifacts`，除非 exporter 返回 `exists=false` 或用户明确要求清单
+
+Deterministic-pass/candidate for object previews:
+
+- `honeybee_room_to_visualization_set` and `honeybee_face_to_visualization_set` now accept `return_visualization_set=false` and return compact `visualization_set_target`.
+- Exporters can also load a Garden `visualization_set_json` artifact record or a Garden-relative artifact path shape such as `{"artifact": "artifacts/visualization_sets/name.json"}` when recovering from `list_garden_artifacts`.
+- This recovery shape is deterministic-pass only. The broad MiMo `visualization_set_export_matrix` Agent scenario still failed final-output closure after doing the required exports, so do not promote it to a recommended Agent path until a focused rerun passes.
 
 旧 payload/debug 路径仍可传完整 `VisualizationSet` dict：
 
-1. `search_tools query='export visualization set to html artifact'`
+1. `search query='export visualization set to html artifact'`
 2. `call_tool name=honeybee_model_to_visualization_set`
 3. 从第 2 步结果中取完整 `visualization_set` 对象
 4. `call_tool name=visualization_set_to_html`
@@ -86,12 +99,13 @@ target 路径第 2 步：
 - `artifact_receipt.status` 为 `persisted`
 - `artifact_receipt.artifact_type` 为 `visualization_html`
 - `artifact_receipt.artifact_path` 指向 `artifacts/visualization/html/*.html`
+- 顶层 `artifact_name` / `artifact_path` / `artifact_type` 与 `summary_view` 中的同名字段一致
 - `summary_view.exists` 为 `true`
 
 ## 避坑说明
 
 - 优先使用 `visualization_set_target`；完整 `VisualizationSet` dict 可能很大，低智能 Agent 容易压坏其中的 nested geometry。
-- 不要把 `_visualization_set` 写成占位符、路径或摘要；必须传完整 `VisualizationSet` dict。
+- 多轮 Agent 场景要在设置阶段保留 compact `visualization_set_target`，下一轮直接使用；如果下一轮丢失 target，再通过 artifact/path 恢复，不要重建模型和 VisualizationSet。
 - 最小 agent smoke 推荐先用 `wireframe_only_ = true`，这样中间对象更小。
 - `output_subdir_` 必须是 Garden 内部相对目录，不能写出 Garden。
 - 这个工具会写 artifact 和更新 `garden.json.artifacts`，不是 read-only。

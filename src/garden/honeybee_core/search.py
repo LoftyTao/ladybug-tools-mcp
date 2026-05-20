@@ -12,7 +12,6 @@ from garden.honeybee_core.model_io import (
     resolve_model_target,
 )
 from garden.honeybee_core.targets import (
-    is_honeybee_model_target,
     is_honeybee_object_target,
     normalize_honeybee_object_target,
 )
@@ -53,6 +52,10 @@ def _object_metadata(obj: Any) -> dict[str, Any]:
         energy_summary = _room_energy_properties_summary(obj)
         if energy_summary:
             metadata["energy_properties"] = energy_summary
+    if obj.__class__.__name__ == "Shade":
+        energy_summary = _shade_energy_properties_summary(obj)
+        if energy_summary:
+            metadata["energy_properties"] = energy_summary
     return metadata
 
 
@@ -78,6 +81,36 @@ def _room_energy_properties_summary(room: Any) -> dict[str, Any]:
         identifier = getattr(value, "identifier", None)
         if identifier:
             summary[field] = identifier
+    fans = list(getattr(energy, "fans", []) or [])
+    fan_identifiers = [
+        str(identifier)
+        for fan in fans
+        if (identifier := getattr(fan, "identifier", None))
+    ]
+    if fan_identifiers:
+        summary["zone_ventilation_fans"] = fan_identifiers
+        summary["zone_ventilation_fan_count"] = len(fan_identifiers)
+    summary["has_energy_properties"] = bool(summary)
+    return summary
+
+
+def _shade_energy_properties_summary(shade: Any) -> dict[str, Any]:
+    properties = getattr(shade, "properties", None)
+    energy = getattr(properties, "energy", None)
+    if energy is None:
+        return {}
+    fields = [
+        "construction",
+        "transmittance_schedule",
+        "pv_properties",
+    ]
+    summary: dict[str, Any] = {}
+    for field in fields:
+        value = getattr(energy, field, None)
+        identifier = getattr(value, "identifier", None)
+        if identifier:
+            summary[field] = identifier
+            summary[f"{field}_identifier"] = identifier
     summary["has_energy_properties"] = bool(summary)
     return summary
 
@@ -168,40 +201,15 @@ def _identifier_matches(actual: Any, expected: str | None) -> bool:
     return actual_value == expected or actual_value.endswith(f"_{expected}")
 
 
-def _scope_from_shorthand(children_scope: dict[str, Any]) -> tuple[str, str] | None:
-    for scope_type in ("room", "face", "aperture", "door"):
-        value = children_scope.get(scope_type)
-        if isinstance(value, str) and value:
-            return scope_type, value
-    scope_type = children_scope.get("object_type") or children_scope.get("type")
-    identifier = children_scope.get("object_identifier") or children_scope.get(
-        "identifier"
-    )
-    if isinstance(scope_type, str) and isinstance(identifier, str):
-        return scope_type.lower(), identifier
-    if isinstance(identifier, str):
-        return "any", identifier
-    return None
-
-
 def _children_scope_matches(
     target: dict[str, Any],
-    children_scope: dict[str, Any] | str | bool | None,
+    children_scope: dict[str, Any] | None,
 ) -> bool:
-    if children_scope is None or isinstance(children_scope, bool):
+    if children_scope is None:
         return True
-    if isinstance(children_scope, str):
-        children_scope = {"identifier": children_scope}
-    if is_honeybee_model_target(children_scope):
-        return target.get("model_identifier") == children_scope.get("model_identifier")
-
-    shorthand_scope = _scope_from_shorthand(children_scope)
-    if shorthand_scope is None:
-        scope_target = normalize_honeybee_object_target(children_scope)
-        scope_type = scope_target["object_type"]
-        scope_identifier = scope_target["object_identifier"]
-    else:
-        scope_type, scope_identifier = shorthand_scope
+    scope_target = normalize_honeybee_object_target(children_scope)
+    scope_type = scope_target["object_type"]
+    scope_identifier = scope_target["object_identifier"]
     parent = target.get("parent") or {}
     parent_key_by_scope = {
         "room": "room_identifier",
@@ -210,10 +218,6 @@ def _children_scope_matches(
         "door": "door_identifier",
     }
     parent_key = parent_key_by_scope.get(scope_type)
-    if scope_type == "any":
-        return any(
-            _identifier_matches(value, scope_identifier) for value in parent.values()
-        )
     if parent_key is None:
         return False
     return _identifier_matches(parent.get(parent_key), scope_identifier)
@@ -230,14 +234,14 @@ def search_honeybee_model_objects(
     query: str | None = None,
     face_type: str | None = None,
     boundary_condition: str | dict[str, Any] | None = None,
-    children_scope: dict[str, Any] | str | bool | None = None,
+    children_scope: dict[str, Any] | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
     """Search Honeybee objects by type and simple identifier/display-name query."""
     if limit is not None and limit < 1:
         raise ValueError("limit must be greater than zero when provided.")
     original_object_type = object_type
-    object_type = _canonical_object_type(object_type)
+    object_type = str(object_type or "all").strip().lower().replace("-", "_")
     supported_object_types = {"all", "room", "face", "aperture", "door", "shade"}
     if object_type not in supported_object_types:
         raise ValueError(
@@ -247,7 +251,7 @@ def search_honeybee_model_objects(
             "create_program_type, create_construction_set, or search_hvac_templates."
         )
     if is_honeybee_object_target(model_target):
-        if children_scope is None or isinstance(children_scope, bool):
+        if children_scope is None:
             children_scope = model_target
         model_target = None
     identifier_filter = identifier
@@ -350,21 +354,3 @@ def search_honeybee_model_objects(
     if len(matches) == 1:
         result["target"] = matches[0]["target"]
     return result
-
-
-def _canonical_object_type(value: str) -> str:
-    normalized = str(value or "all").strip().lower().replace("-", "_")
-    aliases = {
-        "rooms": "room",
-        "faces": "face",
-        "wall": "face",
-        "walls": "face",
-        "window": "aperture",
-        "windows": "aperture",
-        "opening": "aperture",
-        "openings": "aperture",
-        "apertures": "aperture",
-        "doors": "door",
-        "shades": "shade",
-    }
-    return aliases.get(normalized, normalized)

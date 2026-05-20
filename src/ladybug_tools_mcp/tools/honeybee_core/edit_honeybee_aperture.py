@@ -71,11 +71,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         radiance_modifier_target: Annotated[
             dict[str, Any] | str | None,
-            Field(description="Alias for modifier accepted for Agent compatibility."),
+            Field(description="Optional Honeybee Radiance modifier target."),
         ] = None,
         radiance_modifier: Annotated[
             dict[str, Any] | str | None,
-            Field(description="Natural-language alias for modifier accepted for Agent compatibility."),
+            Field(description="Optional Honeybee Radiance modifier input."),
         ] = None,
         modifier_blk: Annotated[
             dict[str, Any] | str | None,

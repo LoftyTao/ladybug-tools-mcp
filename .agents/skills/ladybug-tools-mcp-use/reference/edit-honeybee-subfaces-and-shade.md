@@ -16,18 +16,18 @@
 
 ## 已验证最短路径
 
-1. `search_tools("edit honeybee shade geometry in model")`
-2. `search_tools("edit honeybee aperture operable geometry in model")`
-3. `search_tools("edit honeybee door glass geometry in model")`
-4. `call_tool(search_honeybee_model_objects)`，`_object_type_ = "shade"`
+1. `search("edit honeybee shade geometry in model")`
+2. `search("edit honeybee aperture operable geometry in model")`
+3. `search("edit honeybee door glass geometry in model")`
+4. `await call_tool(search_honeybee_model_objects)`，`_object_type_ = "shade"`
 5. 读取 `shade_1` 的 `target`
-6. `call_tool(edit_honeybee_shade)`，传入 `_target + geometry_ + display_name_ + user_data_ + energy/radiance hot-swap inputs`
-7. `call_tool(search_honeybee_model_objects)`，`_object_type_ = "aperture"`
+6. `await call_tool(edit_honeybee_shade)`，传入 `_target + geometry_ + display_name_ + user_data_ + energy/radiance hot-swap inputs`
+7. `await call_tool(search_honeybee_model_objects)`，`_object_type_ = "aperture"`
 8. 读取 `window_1` 的 `target`
-9. `call_tool(edit_honeybee_aperture)`，传入 `_target + geometry_ + is_operable_ + display_name_ + energy/radiance hot-swap inputs`
-10. `call_tool(search_honeybee_model_objects)`，`_object_type_ = "door"`
+9. `await call_tool(edit_honeybee_aperture)`，传入 `_target + geometry_ + is_operable_ + display_name_ + energy/radiance hot-swap inputs`
+10. `await call_tool(search_honeybee_model_objects)`，`_object_type_ = "door"`
 11. 读取 `door_1` 的 `target`
-12. `call_tool(edit_honeybee_door)`，传入 `_target + geometry_ + is_glass_ + display_name_ + energy/radiance hot-swap inputs`
+12. `await call_tool(edit_honeybee_door)`，传入 `_target + geometry_ + is_glass_ + display_name_ + energy/radiance hot-swap inputs`
 13. 如需确认结果，可再次 `search_honeybee_model_objects(_object_type_="all")`
 
 ## 已验证最小参数形态

@@ -20,19 +20,6 @@ from ladybug_tools_mcp.contracts.report import make_report
 
 
 SUPPORTED_OBJECT_TYPES = {"all", "building", "story", "room2d", "context_shade"}
-OBJECT_TYPE_ALIASES = {
-    "buildings": "building",
-    "stories": "story",
-    "floors": "story",
-    "floor": "story",
-    "room": "room2d",
-    "rooms": "room2d",
-    "room2ds": "room2d",
-    "context_shades": "context_shade",
-    "context shades": "context_shade",
-    "shade": "context_shade",
-    "shades": "context_shade",
-}
 
 
 def _query_tokens(value: str | None) -> set[str]:
@@ -131,12 +118,10 @@ def _metadata(obj: Any, object_type: str, include_geometry: bool) -> dict[str, A
 
 
 def _scope_filter(
-    children_scope: dict[str, Any] | str | None,
+    children_scope: dict[str, Any] | None,
 ) -> tuple[str, str] | None:
     if children_scope is None:
         return None
-    if isinstance(children_scope, str):
-        return "any", children_scope
     target = normalize_dragonfly_object_target(children_scope)
     return target["object_type"], target["object_identifier"]
 
@@ -145,8 +130,6 @@ def _scope_matches(parent: dict[str, str], scope: tuple[str, str] | None) -> boo
     if scope is None:
         return True
     scope_type, identifier = scope
-    if scope_type == "any":
-        return identifier in parent.values()
     if scope_type == "building":
         return parent.get("building_identifier") == identifier
     if scope_type == "story":
@@ -268,24 +251,16 @@ def search_dragonfly_model_objects(
     query: str | None = None,
     building_identifier: str | None = None,
     story_identifier: str | None = None,
-    floor_identifier_pattern: str | None = None,
-    children_scope: dict[str, Any] | str | None = None,
+    children_scope: dict[str, Any] | None = None,
     include_geometry: bool = False,
 ) -> dict[str, Any]:
     """Search Dragonfly objects by type and compact identifier/display-name query."""
     object_type = str(object_type or "all").strip().lower()
-    object_type = OBJECT_TYPE_ALIASES.get(object_type, object_type)
     if object_type not in SUPPORTED_OBJECT_TYPES:
         raise ValueError(
             "object_type must be one of all, building, story, room2d, or "
             "context_shade."
         )
-    if is_dragonfly_object_target(model_target):
-        if children_scope is None:
-            children_scope = model_target
-        model_target = None
-    if query is None and floor_identifier_pattern is not None:
-        query = floor_identifier_pattern
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
     model = load_dragonfly_model(garden_root_path, resolved_model_target)

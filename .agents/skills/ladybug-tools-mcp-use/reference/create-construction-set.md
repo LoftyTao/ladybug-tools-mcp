@@ -4,7 +4,7 @@ Use this path when the user needs Honeybee Energy material, construction, or `Co
 
 ## Shortest Verified Path
 
-1. `search_tools`
+1. `search`
    - Query: `create honeybee energy construction set wall aperture construction`
 2. `call_tool` -> `search_energy_library_objects`
    - Required:

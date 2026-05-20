@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
-import re
 from pathlib import Path
 from typing import Any
 
@@ -113,16 +111,13 @@ def create_dragonfly_model(
             change_details={"base_dragonfly_model_changed": bool(set_base)},
         )
     else:
-        object_dict = (
-            model.to_dict()
-            if include_body
-            else {"domain": "dragonfly", "model_identifier": resolved_identifier}
-        )
+        model_target = None
+        object_dict = model.to_dict() if include_body else None
 
     return {
         "object_dict": object_dict,
-        "target": object_dict,
-        "model_target": object_dict,
+        "target": model_target,
+        "model_target": model_target,
         "summary_view": {
             "model_identifier": resolved_identifier,
             "display_name": resolved_display_name,
@@ -210,7 +205,7 @@ def _target_from_response(value: dict[str, Any], expected_type: str) -> dict[str
 
 def _load_target_model(
     garden_root: str,
-    model_target: dict[str, Any] | str | None,
+    model_target: dict[str, Any] | None,
 ) -> tuple[Path, GardenManifest, dict[str, Any], Model]:
     garden_root_path = _garden_root(garden_root)
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
@@ -315,22 +310,9 @@ def create_dragonfly_room2d(
     identifier: str,
     display_name: str | None = None,
     floor_height: float | None = None,
-    floor_z: float | None = None,
     vertices: Any = None,
-    room_vertices: Any = None,
-    floor_verts: Any = None,
-    floor_boundary: Any = None,
-    segments: Any = None,
-    floor_geometry: Any = None,
-    geometry: Any = None,
-    room_geometry: Any = None,
-    room_polygon: Any = None,
-    plane: Any = None,
     floor_to_ceiling_height: float | None = None,
-    floor_to_floor_height: float | None = None,
-    story_height: float | None = None,
-    room_height: float | None = None,
-    model_target: dict[str, Any] | str | None = None,
+    model_target: dict[str, Any] | None = None,
     is_ground_contact: bool = False,
     is_top_exposed: bool = False,
     x_dim: float | None = None,
@@ -338,45 +320,12 @@ def create_dragonfly_room2d(
     origin: list[float] | None = None,
     height: float | None = None,
     story_number: int | None = None,
-    floor_num: int | None = None,
-    story_count: int | None = None,
-    story_identifier: str | None = None,
-    story: str | None = None,
-    multiplier: int | None = None,
-    floor_area: float | None = None,
-    segment_count: int | None = None,
-    room_type: str | None = None,
 ) -> dict[str, Any]:
     """Create a Dragonfly Room2D draft object inside a Garden."""
     garden_root_path, manifest, resolved_model_target, _model = _load_target_model(
         garden_root,
         model_target,
     )
-    if vertices is None and room_vertices is not None:
-        vertices = room_vertices
-    if vertices is None and floor_verts is not None:
-        vertices = floor_verts
-    if vertices is None and floor_boundary is not None:
-        vertices = floor_boundary
-    if vertices is None and segments is not None:
-        vertices = _room2d_vertices_from_segments(segments, origin)
-    if vertices is None and room_polygon is not None:
-        vertices = _room2d_vertices_from_floor_geometry(room_polygon)
-    if vertices is None and floor_geometry is not None:
-        vertices = _room2d_vertices_from_floor_geometry(floor_geometry)
-    if vertices is None and geometry is not None:
-        vertices = _room2d_vertices_from_floor_geometry(geometry)
-    if vertices is None and room_geometry is not None:
-        vertices = _room2d_vertices_from_floor_geometry(room_geometry)
-    if vertices is None and floor_area is not None and (x_dim is None or y_dim is None):
-        area = float(floor_area)
-        if x_dim is not None and y_dim is None:
-            y_dim = area / float(x_dim)
-        elif y_dim is not None and x_dim is None:
-            x_dim = area / float(y_dim)
-        else:
-            x_dim = math.sqrt(area)
-            y_dim = x_dim
     if vertices is None:
         if x_dim is None or y_dim is None:
             raise ValueError(
@@ -393,25 +342,8 @@ def create_dragonfly_room2d(
         ]
     vertices = _normalize_room2d_vertices(vertices)
     resolved_height = floor_to_ceiling_height if floor_to_ceiling_height is not None else height
-    if resolved_height is None and room_height is not None:
-        resolved_height = room_height
-    if resolved_height is None and story_height is not None:
-        resolved_height = story_height
-    if resolved_height is None and floor_to_floor_height is not None:
-        resolved_height = floor_to_floor_height
     if resolved_height is None:
         resolved_height = 3.0
-    resolved_story_identifier = story_identifier or (
-        str(story) if story is not None else None
-    )
-    if story_number is None and floor_num is not None:
-        story_number = floor_num
-    if story_number is None and story_count is not None:
-        story_number = story_count
-    if story_number is None and resolved_story_identifier:
-        story_number = _story_number_from_identifier(resolved_story_identifier)
-    if floor_height is None and floor_z is not None:
-        floor_height = floor_z
     if floor_height is None:
         floor_height = max(story_number - 1, 0) * resolved_height if story_number else 0.0
     resolved_identifier = _clean_dragonfly_identifier(identifier)
@@ -425,8 +357,6 @@ def create_dragonfly_room2d(
     )
     if display_name:
         room.display_name = display_name
-    if room_type:
-        room.user_data = {**(room.user_data or {}), "room_type_hint": room_type}
     object_dict = room.to_dict()
     target, persisted_path = _save_object_dict(
         garden_root=garden_root_path,
@@ -458,10 +388,6 @@ def _face3d_from_points(points: list[list[float]]) -> Face3D:
         points = (
             points.get("vertices")
             or points.get("boundary")
-            or points.get("boundary_vertices")
-            or points.get("face3d_list")
-            or points.get("faces")
-            or points.get("geometry")
         )
     if (
         isinstance(points, list)
@@ -472,10 +398,7 @@ def _face3d_from_points(points: list[list[float]]) -> Face3D:
     ):
         points = points[0]
     if points is None:
-        raise ValueError(
-            "ContextShade face dictionaries require vertices, boundary, "
-            "boundary_vertices, or face3d_list."
-        )
+        raise ValueError("ContextShade face dictionaries require vertices or boundary.")
     if len(points) < 3:
         raise ValueError("ContextShade geometry faces need at least three points.")
     vertices = []
@@ -497,68 +420,6 @@ def _clean_dragonfly_identifier(identifier: str) -> str:
     return clean_string(identifier, "dragonfly object identifier")
 
 
-def _story_number_from_identifier(identifier: str) -> int | None:
-    match = re.search(r"(\d+)(?!.*\d)", identifier)
-    if not match:
-        return None
-    return int(match.group(1))
-
-
-def _room2d_vertices_from_segments(
-    segments: Any,
-    origin: list[float] | None = None,
-) -> list[list[float]]:
-    origin_x = float(origin[0]) if origin else 0.0
-    origin_y = float(origin[1]) if origin and len(origin) > 1 else 0.0
-    vertices: list[list[float]] = []
-    for segment in segments:
-        if isinstance(segment, dict):
-            point = segment.get("p1") or segment.get("start") or segment.get("from")
-        else:
-            point = (
-                segment
-                if len(segment) >= 2 and not isinstance(segment[0], list)
-                else segment[0]
-            )
-        if point is None or len(point) < 2:
-            raise ValueError("Room2D segments must include p1/start 2D points.")
-        vertices.append([float(point[0]) + origin_x, float(point[1]) + origin_y])
-    if len(vertices) < 3:
-        raise ValueError("Room2D segments must define at least three vertices.")
-    return vertices
-
-
-def _room2d_vertices_from_floor_geometry(floor_geometry: Any) -> list[list[float]]:
-    if isinstance(floor_geometry, dict):
-        geometry_type = str(floor_geometry.get("type") or "").lower()
-        if geometry_type == "rectangle2d":
-            origin = floor_geometry.get("origin") or [0, 0]
-            width = floor_geometry.get("width")
-            depth = floor_geometry.get("depth", floor_geometry.get("height"))
-            if width is None or depth is None:
-                raise ValueError("Rectangle2D floor_geometry requires width and height/depth.")
-            x = float(origin[0])
-            y = float(origin[1]) if len(origin) > 1 else 0.0
-            return [[x, y], [x + float(width), y], [x + float(width), y + float(depth)], [x, y + float(depth)]]
-        points = (
-            floor_geometry.get("vertices")
-            or floor_geometry.get("boundary")
-            or floor_geometry.get("floor_boundary")
-            or floor_geometry.get("coordinates")
-        )
-        if points is not None:
-            if (
-                isinstance(points, list)
-                and points
-                and isinstance(points[0], list)
-                and points[0]
-                and isinstance(points[0][0], list)
-            ):
-                points = points[0]
-            return points
-    return floor_geometry
-
-
 def _normalize_room2d_vertices(vertices: Any) -> Any:
     if not isinstance(vertices, list):
         return vertices
@@ -576,17 +437,13 @@ def create_dragonfly_context_shade(
     garden_root: str,
     identifier: str,
     geometry: Any = None,
-    shade_faces: Any = None,
-    faces: Any = None,
     vertices: Any = None,
-    face3d_list: Any = None,
-    model_target: dict[str, Any] | str | None = None,
+    model_target: dict[str, Any] | None = None,
     is_detached: bool = True,
     x_dim: float | None = None,
     y_dim: float | None = None,
     height: float | None = None,
     origin: list[float] | None = None,
-    floor_z: float | None = None,
     display_name: str | None = None,
     context_shade_type: str | None = None,
     is_vegetation: bool | None = None,
@@ -600,18 +457,7 @@ def create_dragonfly_context_shade(
     )
     resolved_identifier = _clean_dragonfly_identifier(identifier)
     _ensure_unique_model_objects(model, [("context_shade", resolved_identifier)])
-    raw_geometry = geometry if geometry is not None else shade_faces
-    if raw_geometry is None and faces is not None:
-        raw_geometry = faces
-    if raw_geometry is None and face3d_list is not None:
-        raw_geometry = face3d_list
-    if floor_z is not None:
-        if origin is None:
-            origin = [0, 0, floor_z]
-        elif len(origin) < 3:
-            origin = [*origin, floor_z]
-        else:
-            origin = [origin[0], origin[1], floor_z]
+    raw_geometry = geometry
     if raw_geometry is None and x_dim is not None and y_dim is not None and height is not None:
         raw_geometry = _context_shade_box_faces(
             x_dim=float(x_dim),
@@ -646,8 +492,8 @@ def create_dragonfly_context_shade(
         )
     if raw_geometry is None:
         raise ValueError(
-            "create_dragonfly_context_shade requires geometry, shade_faces, "
-            "or x_dim/y_dim/height rectangular dimensions."
+            "create_dragonfly_context_shade requires geometry, vertices, "
+            "or x_dim/y_dim/height."
         )
     if isinstance(raw_geometry, dict):
         raw_geometry = [raw_geometry]
@@ -765,29 +611,19 @@ def create_dragonfly_story(
     *,
     garden_root: str,
     room2d_targets: list[dict[str, Any]] | None = None,
-    room_targets: list[dict[str, Any]] | None = None,
-    rooms: list[dict[str, Any]] | None = None,
     identifier: str | None = None,
-    story_identifier: str | None = None,
-    model_target: dict[str, Any] | str | None = None,
+    model_target: dict[str, Any] | None = None,
     floor_to_floor_height: float | None = None,
     floor_height: float | None = None,
-    floor_z: float | None = None,
-    floor_to_ceiling_height: float | None = None,
-    height: float | None = None,
     multiplier: int = 1,
     story_type: str = "Standard",
     display_name: str | None = None,
-    story_number: int | None = None,
-    host_target: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a Dragonfly Story draft object from Room2D targets."""
     garden_root_path, manifest, resolved_model_target, _model = _load_target_model(
         garden_root,
         model_target,
     )
-    if identifier is None and story_identifier is not None:
-        identifier = story_identifier
     resolved_identifier = (
         _clean_dragonfly_identifier(identifier)
         if identifier is not None
@@ -795,64 +631,27 @@ def create_dragonfly_story(
     )
     if resolved_identifier is None:
         raise ValueError("create_dragonfly_story requires identifier or display_name.")
-    if room2d_targets is None:
-        room2d_targets = room_targets or rooms
-    if floor_to_floor_height is None and floor_to_ceiling_height is not None:
-        floor_to_floor_height = floor_to_ceiling_height
-    if floor_to_floor_height is None and height is not None:
-        floor_to_floor_height = height
-    if floor_height is None and floor_z is not None:
-        floor_height = floor_z
-    if story_number is None:
-        story_number = _story_number_from_identifier(resolved_identifier)
-    if floor_height is None and story_number is not None:
-        floor_height = max(story_number - 1, 0) * (
-            floor_to_floor_height or floor_to_ceiling_height or 3.0
+    allowed_story_types = {"Standard", "CeilingPlenum", "FloorPlenum"}
+    if story_type not in allowed_story_types:
+        raise ValueError(
+            "create_dragonfly_story story_type must be Standard, CeilingPlenum, or FloorPlenum."
         )
-    story_type_map = {
-        "typical": "Standard",
-        "default": "Standard",
-        "standard": "Standard",
-        "ground": "Standard",
-        "groundfloor": "Standard",
-        "ground_floor": "Standard",
-        "top": "Standard",
-        "topfloor": "Standard",
-        "top_floor": "Standard",
-        "floor": "Standard",
-        "level": "Standard",
-        "ceiling_plenum": "CeilingPlenum",
-        "ceilingplenum": "CeilingPlenum",
-        "floor_plenum": "FloorPlenum",
-        "floorplenum": "FloorPlenum",
-    }
-    story_type = story_type_map.get(str(story_type).strip().lower(), story_type)
-    if room2d_targets:
-        room_targets = [
-            normalize_dragonfly_object_target(
-                _target_from_response(target, "room2d"),
-                expected_type="room2d",
-            )
-            for target in room2d_targets
-        ]
-        rooms = [
-            Room2D.from_dict(_load_object_dict(garden_root_path, target))
-            for target in room_targets
-        ]
-    elif host_target is not None:
-        rooms, floor_height, floor_to_floor_height = _story_rooms_from_host_building(
-            _model,
-            host_target=host_target,
-            story_identifier=resolved_identifier,
-            floor_height=floor_height,
-            floor_to_floor_height=floor_to_floor_height,
-        )
-    else:
+    if not room2d_targets:
         raise ValueError(
             "create_dragonfly_story requires room2d_targets. Use the room2d_target "
-            "returned by create_dragonfly_room2d, or pass a Building host_target "
-            "to create a temporary Story from the host Building top-floor layout."
+            "returned by create_dragonfly_room2d."
         )
+    room_targets = [
+        normalize_dragonfly_object_target(
+            _target_from_response(target, "room2d"),
+            expected_type="room2d",
+        )
+        for target in room2d_targets
+    ]
+    rooms = [
+        Room2D.from_dict(_load_object_dict(garden_root_path, target))
+        for target in room_targets
+    ]
     if floor_height is not None:
         for room in rooms:
             room.floor_height = floor_height
@@ -888,47 +687,6 @@ def create_dragonfly_story(
     )
 
 
-def _story_rooms_from_host_building(
-    model: Model,
-    *,
-    host_target: dict[str, Any],
-    story_identifier: str,
-    floor_height: float | None,
-    floor_to_floor_height: float | None,
-) -> tuple[list[Room2D], float, float | None]:
-    normalized_host = normalize_dragonfly_object_target(
-        host_target,
-        expected_type="building",
-    )
-    building = _one_by_identifier(
-        model.buildings_by_identifier([str(normalized_host["object_identifier"])]),
-        str(normalized_host["object_identifier"]),
-        "Building",
-    )
-    source_stories = list(building.unique_stories)
-    if not source_stories:
-        raise ValueError("Building host_target has no Stories to use as a template.")
-    source_story = max(source_stories, key=lambda story: story.floor_height or 0)
-    resolved_floor_to_floor = (
-        floor_to_floor_height
-        if floor_to_floor_height is not None
-        else source_story.floor_to_floor_height
-    )
-    if floor_height is None:
-        floor_height = (source_story.floor_height or 0) + (
-            resolved_floor_to_floor or 3.0
-        )
-    rooms: list[Room2D] = []
-    for room in source_story.room_2ds:
-        copied_room = Room2D.from_dict(room.to_dict())
-        copied_room.identifier = _clean_dragonfly_identifier(
-            f"{story_identifier}_{room.identifier}"
-        )
-        copied_room.floor_height = floor_height
-        rooms.append(copied_room)
-    return rooms, floor_height, resolved_floor_to_floor
-
-
 def create_dragonfly_building(
     *,
     garden_root: str,
@@ -937,14 +695,9 @@ def create_dragonfly_building(
     model_target: dict[str, Any] | None = None,
     sort_stories: bool = True,
     display_name: str | None = None,
-    height: float | None = None,
-    room2d_targets: list[dict[str, Any]] | None = None,
-    story_identifiers: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a Dragonfly Building in a model from Story targets."""
-    if story_targets is None and room2d_targets is not None:
-        story_targets = room2d_targets
-    if not story_targets and not story_identifiers:
+    if not story_targets:
         raise ValueError(
             "create_dragonfly_building requires story_targets. Pass the "
             "story_target values returned by create_dragonfly_story."
@@ -953,16 +706,6 @@ def create_dragonfly_building(
         garden_root,
         model_target,
     )
-    if story_targets is None and story_identifiers:
-        story_targets = [
-            make_dragonfly_object_target(
-                garden_id=manifest.garden_id,
-                model_identifier=str(resolved_model_target["model_identifier"]),
-                object_type="story",
-                object_identifier=story_identifier,
-            )
-            for story_identifier in story_identifiers
-        ]
     normalized_story_targets = [
         normalize_dragonfly_object_target(
             _target_from_response(target, "story"),
@@ -1016,6 +759,4 @@ def create_dragonfly_building(
         message=f"Created Dragonfly Building: {resolved_identifier}",
     )
     response["summary_view"]["story_count"] = len(building.unique_stories)
-    if height is not None:
-        response["summary_view"]["height_hint"] = height
     return response

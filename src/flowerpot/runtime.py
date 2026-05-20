@@ -1,7 +1,7 @@
 """Runtime helpers for Flowerpot platform shell components.
 
-This module stays compatible with old GHPython/IronPython hosts while delegating
-formal Garden and Flowerpot work to the Python 3 worker in the project `.venv`.
+This module is the GHPython/IronPython platform shell that delegates formal
+Garden and Flowerpot work to the Python 3 worker in the project `.venv`.
 """
 
 from __future__ import print_function
@@ -9,6 +9,12 @@ from __future__ import print_function
 import json
 import os
 import subprocess
+import sys
+
+try:
+    from collections.abc import Mapping
+except ImportError:
+    from collections import Mapping
 
 try:
     _reload_module = reload
@@ -52,7 +58,30 @@ class FlowerpotHandle(object):
     """Grasshopper-friendly opaque handle for Flowerpot values."""
 
     def __init__(self, flowerpot):
-        self._flowerpot = dict(flowerpot or {})
+        self._flowerpot = self._validated_payload(flowerpot)
+
+    @classmethod
+    def from_payload(cls, payload):
+        return cls(payload)
+
+    @staticmethod
+    def _validated_payload(payload):
+        if not isinstance(payload, Mapping):
+            raise TypeError("Flowerpot payload must be a mapping.")
+        values = list(payload.values())
+        if len(values) == 1 and isinstance(values[0], Mapping):
+            nested = values[0]
+            if nested.get("type") == "Flowerpot":
+                raise TypeError("Flowerpot payload must be a mapping.")
+        if payload.get("type") != "Flowerpot":
+            raise TypeError("Flowerpot payload must use current Flowerpot shape.")
+        payload_context = payload.get("payload_context")
+        if not isinstance(payload_context, Mapping):
+            raise TypeError("Flowerpot payload must use current Flowerpot shape.")
+        target = payload.get("target")
+        if target is not None and not isinstance(target, Mapping):
+            raise TypeError("Flowerpot payload must use current Flowerpot shape.")
+        return dict(payload)
 
     def __repr__(self):
         return self._display_text()
@@ -64,31 +93,35 @@ class FlowerpotHandle(object):
         return self._display_text()
 
     def to_dict(self):
+        return self.to_payload()
+
+    def to_payload(self):
         return dict(self._flowerpot)
 
-    def get(self, key, default=None):
-        return self._flowerpot.get(key, default)
+    @property
+    def payload_context(self):
+        return dict(self._flowerpot.get("payload_context") or {})
 
-    def __getitem__(self, key):
-        return self._flowerpot[key]
+    @property
+    def flowerpot_id(self):
+        return self.payload_context.get("flowerpot_id")
 
-    def __contains__(self, key):
-        return key in self._flowerpot
+    @property
+    def garden_root(self):
+        return self.payload_context.get("garden_root")
 
-    def keys(self):
-        return self._flowerpot.keys()
+    @property
+    def kind(self):
+        return self._flowerpot.get("kind")
 
-    def items(self):
-        return self._flowerpot.items()
-
-    def values(self):
-        return self._flowerpot.values()
+    @property
+    def label(self):
+        return self._flowerpot.get("label")
 
     def _display_text(self):
-        label = self.get("label")
+        label = self.label
         if not label:
-            payload_context = self.get("payload_context") or {}
-            label = payload_context.get("flowerpot_id")
+            label = self.flowerpot_id
         if not label:
             label = "Unnamed"
         return "Flowerpot : %s" % label
@@ -331,7 +364,10 @@ def _wrap_flowerpot(flowerpot):
     if isinstance(flowerpot, FlowerpotHandle):
         return flowerpot
     if isinstance(flowerpot, dict) and flowerpot.get("type") == "Flowerpot":
-        return FlowerpotHandle(flowerpot)
+        try:
+            return FlowerpotHandle.from_payload(flowerpot)
+        except TypeError:
+            return flowerpot
     return flowerpot
 
 
@@ -382,38 +418,12 @@ def _unwrap_grasshopper_input(value):
             return current
         seen.add(marker)
 
-        wrapped_value = _unwrap_known_value_attribute(current)
-        if wrapped_value is not None:
-            current = wrapped_value
-            continue
-
         singleton_value = _unwrap_singleton_sequence(current)
         if singleton_value is not None:
             current = singleton_value
             continue
 
         return current
-    return None
-
-
-def _unwrap_known_value_attribute(value):
-    for attribute_name in (
-        "Value",
-        "value",
-        "Data",
-        "data",
-        "Object",
-        "object",
-        "InnerValue",
-        "inner_value",
-        "ScriptVariable",
-    ):
-        if not hasattr(value, attribute_name):
-            continue
-        nested = getattr(value, attribute_name)
-        if callable(nested) or nested is value:
-            continue
-        return nested
     return None
 
 
@@ -501,6 +511,8 @@ def _follow_signature_changed(component):
     previous = _load_component_state().get_follow_signature(component)
     if previous is None:
         return True
+    if not previous.get("exists"):
+        return True
     current = _file_signature(previous.get("path"))
     return current != previous
 
@@ -515,7 +527,9 @@ def _follow_signature(flowerpot):
     if not garden_root:
         return None
     target = flowerpot.get("target") or {}
-    relative_path = target.get("path") or "garden.json"
+    relative_path = target.get("path")
+    if not relative_path:
+        return None
     path = os.path.join(garden_root, relative_path.replace("/", os.sep))
     return _file_signature(path)
 
@@ -627,19 +641,50 @@ def _run_worker_once(action, request):
 
 
 def _worker_python_executable():
-    python_exe = os.path.join(
-        _repository_root(),
-        ".venv",
-        "Scripts",
-        "python.exe",
+    candidates = _worker_python_candidates()
+    for python_exe in candidates:
+        if os.path.isfile(python_exe):
+            return python_exe
+    searched = ", ".join(candidates) if candidates else "<none>"
+    raise RuntimeError(
+        "Flowerpot worker Python was not found. "
+        "Create the project .venv before using Grasshopper shell components. "
+        "Searched: %s" % searched
     )
-    if not os.path.isfile(python_exe):
-        raise RuntimeError(
-            "Flowerpot worker Python was not found at %s. "
-            "Create the project .venv before using Grasshopper shell components."
-            % python_exe
+
+
+def _worker_python_candidates():
+    candidates = []
+
+    def _append(candidate):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    root = _repository_root()
+    _append(os.path.join(root, ".venv", "Scripts", "python.exe"))
+    parent = os.path.dirname(root)
+    if os.path.basename(parent) == ".worktrees":
+        _append(
+            os.path.join(
+                os.path.dirname(parent),
+                ".venv",
+                "Scripts",
+                "python.exe",
+            )
         )
-    return python_exe
+    src_root = os.environ.get("LADYBUG_TOOLS_MCP_SRC")
+    if src_root:
+        _append(
+            os.path.join(
+                os.path.abspath(os.path.join(src_root, os.pardir)),
+                ".venv",
+                "Scripts",
+                "python.exe",
+            )
+        )
+    if os.path.basename(sys.executable).lower().startswith("python"):
+        _append(sys.executable)
+    return candidates
 
 
 def _worker_environment():

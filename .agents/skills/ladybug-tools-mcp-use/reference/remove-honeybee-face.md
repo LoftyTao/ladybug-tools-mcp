@@ -16,10 +16,10 @@
 
 ## 已验证最短路径
 
-1. `call_tool(search_honeybee_model_objects)`，`_object_type_ = "face"`
+1. `await call_tool(search_honeybee_model_objects)`，`_object_type_ = "face"`
 2. 读取第一个 orphaned face 的 `target`
-3. `call_tool(remove_honeybee_face)`，将上一步 `target` 传入 `target`
-4. `call_tool(search_honeybee_model_objects)` 再次确认
+3. `await call_tool(remove_honeybee_face)`，将上一步 `target` 传入 `target`
+4. `await call_tool(search_honeybee_model_objects)` 再次确认
 
 ## 已验证最小参数形态
 

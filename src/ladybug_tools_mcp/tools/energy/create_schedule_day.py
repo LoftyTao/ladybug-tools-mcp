@@ -43,12 +43,6 @@ def register(mcp: FastMCP) -> None:
                 description="Whether to linearly interpolate between schedule values."
             ),
         ] = False,
-        garden_root: Annotated[
-            str | None,
-            Field(
-                description="Ignored Agent compatibility hint. ScheduleDay is an intermediate object and is not saved directly to Garden."
-            ),
-        ] = None,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy ScheduleDay."""
         return service(

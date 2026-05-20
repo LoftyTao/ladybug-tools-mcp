@@ -49,17 +49,9 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional city name accepted when location is omitted."),
         ] = None,
-        location_name: Annotated[
-            str | None,
-            Field(description="Optional location/city name alias accepted when location is omitted."),
-        ] = None,
-        location_identifier: Annotated[
-            str | None,
-            Field(description="Optional Agent alias for identifier/location_name."),
-        ] = None,
         region: Annotated[
             str | None,
-            Field(description="Optional state/region hint accepted when location is omitted."),
+            Field(description="Optional state or region value used when location is omitted."),
         ] = None,
         latitude: Annotated[
             float | None,
@@ -103,12 +95,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create a clear-sky WEA target."""
-        if identifier is None and location_identifier is not None:
-            identifier = location_identifier
-        if location_name is None and location_identifier is not None:
-            location_name = location_identifier
         if identifier is None:
-            identifier = city or location_name or "ashrae_clear_sky_wea"
+            identifier = city or "ashrae_clear_sky_wea"
         if location is None:
             if latitude is None or longitude is None or time_zone is None:
                 raise ValueError(
@@ -116,7 +104,7 @@ def register(mcp: FastMCP) -> None:
                 )
             location = {
                 "type": "Location",
-                "city": city or location_name or identifier,
+                "city": city or identifier,
                 "state": region,
                 "latitude": latitude,
                 "longitude": longitude,

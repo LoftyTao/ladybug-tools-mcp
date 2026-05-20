@@ -40,33 +40,10 @@ def _normalize_view_type(value: str) -> str:
     normalized = value.strip().lower()
     if normalized.startswith("vt") and len(normalized) == 3:
         normalized = normalized[-1]
-    aliases = {
-        "absolute": "v",
-        "perspective": "v",
-        "vterrain": "v",
-        "terrain": "v",
-        "view": "v",
-        "camera": "v",
-        "vertical": "v",
-        "glare": "v",
-        "g": "v",
-        "hemispherical": "h",
-    }
-    if normalized in aliases:
-        return aliases[normalized]
     allowed = {"v", "h", "l", "c", "a", "s"}
-    if normalized not in allowed and normalized[:1] in allowed:
-        normalized = normalized[:1]
+    if normalized not in allowed:
+        raise ValueError("view_type must be one of v, h, l, c, a, s, or a Radiance vt* token.")
     return normalized
-
-
-def _normalize_view_size(view_type: str, h_size: float, v_size: float) -> tuple[float, float]:
-    if view_type == "v":
-        if h_size >= 180:
-            h_size = 60
-        if v_size >= 180:
-            v_size = 60
-    return h_size, v_size
 
 
 def register(mcp: FastMCP) -> None:
@@ -95,15 +72,11 @@ def register(mcp: FastMCP) -> None:
     def create_radiance_view(
         identifier: Annotated[
             str | None,
-            Field(description="Stable View identifier. Defaults to view when omitted by an Agent."),
+            Field(description="Stable View identifier. Defaults to view when omitted."),
         ] = None,
         position: Annotated[
             list[float] | dict[str, float] | None,
             Field(description="View position [x, y, z]. Default is [0, 0, 0]."),
-        ] = None,
-        center: Annotated[
-            list[float] | dict[str, float] | None,
-            Field(description="Optional Agent alias for position."),
         ] = None,
         direction: Annotated[
             list[float] | dict[str, float] | None,
@@ -113,25 +86,9 @@ def register(mcp: FastMCP) -> None:
             list[float] | dict[str, float] | None,
             Field(description="Optional look-at point [x, y, z]. Used to derive direction as target - position when direction is omitted."),
         ] = None,
-        look_at: Annotated[
-            list[float] | dict[str, float] | None,
-            Field(description="Alias for target look-at point accepted for Agent compatibility."),
-        ] = None,
-        look: Annotated[
-            list[float] | dict[str, float] | None,
-            Field(description="Alias for target/look_at accepted for Agent compatibility."),
-        ] = None,
-        look_at_target: Annotated[
-            list[float] | dict[str, float] | None,
-            Field(description="Alias for target/look_at accepted for Agent compatibility."),
-        ] = None,
         up_vector: Annotated[
             list[float] | dict[str, float] | None,
             Field(description="View up vector [x, y, z]. Default is [0, 1, 0]."),
-        ] = None,
-        up: Annotated[
-            list[float] | dict[str, float] | None,
-            Field(description="Alias for up_vector accepted for Agent compatibility."),
         ] = None,
         view_type: Annotated[
             str,
@@ -173,10 +130,6 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(description="Optional Honeybee model target. Used when attach_to_model is true; omitted means Garden base model."),
         ] = None,
-        host_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent alias for model_target when attaching the View to a Honeybee model."),
-        ] = None,
         attach_to_model: Annotated[
             bool,
             Field(description="When true, add the View to model.properties.radiance.views and save the model."),
@@ -193,34 +146,15 @@ def register(mcp: FastMCP) -> None:
         """Create a Honeybee Radiance View."""
         if identifier is None:
             identifier = "view"
-        if model_target is None and host_target is not None:
-            model_target = host_target
-            attach_to_model = True
-        elif model_target is not None and not attach_to_model:
+        if model_target is not None and not attach_to_model:
             attach_to_model = True
         position = _vector(position, "position")
-        center = _vector(center, "center")
         direction = _vector(direction, "direction")
         target = _vector(target, "target")
-        look_at = _vector(look_at, "look_at")
-        look = _vector(look, "look")
-        look_at_target = _vector(look_at_target, "look_at_target")
         up_vector = _vector(up_vector, "up_vector")
-        up = _vector(up, "up")
-        if position is None and center is not None:
-            position = center
-        if target is None:
-            target = look_at
-        if target is None:
-            target = look
-        if target is None:
-            target = look_at_target
         if direction is None:
             direction = _direction_from_target(position, target)
-        if up_vector is None and up is not None:
-            up_vector = up
         view_type = _normalize_view_type(view_type)
-        h_size, v_size = _normalize_view_size(view_type, h_size, v_size)
         return service(
             identifier=identifier,
             position=position,

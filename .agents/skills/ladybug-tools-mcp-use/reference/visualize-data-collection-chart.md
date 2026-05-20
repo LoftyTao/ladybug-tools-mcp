@@ -4,7 +4,7 @@ Use this path when the user wants to plot Ladybug `DataCollection` values such a
 
 ## Shortest Verified Path
 
-1. `search_tools`
+1. `search`
    - Query: `monthly chart data collection visualization set schedule data`
 2. `call_tool` -> `create_garden`
 3. `call_tool` -> `create_schedule_day`
@@ -94,6 +94,7 @@ Energy SQL result source:
 
 Use the returned `data_collection_targets[0]` in the same Step 5 shape shown above. For multiple Energy result series, pass `output_names` in one `read_energy_result_data` call and place each returned target in its own `series[]` item with an explicit `label`. If the user does not know the exact EnergyPlus output names, pass `output_query` with optional `unit`, `data_type`, or `object_type` filters first, then use `summary_view.result_context.selected_outputs` to confirm which SQL outputs were selected. Natural heating/cooling requests can use `output_query="heating cooling"` or `"heating or cooling"` to match either load family, but exact `output_names` remains cheaper when available.
 
+
 EPW / UWG weather source:
 
 ```json
@@ -143,14 +144,13 @@ Use `file_format="json"` for SDK-native Ladybug JSON and `file_format="csv"` for
 
 - Step 4 returns `data_target.target_type = "ladybug_data_collection"`.
 - Step 4 returns `data = null` when `return_data=false`, so the Agent does not carry 8760 values.
-- Energy result reads return `data_collection_targets[].target_type = "ladybug_data_collection"` when `save_data_collections=true`.
 - Weather reads return `data_collection_target.target_type = "ladybug_data_collection"` from `read_weather_file_data`.
-- DataCollection target loading can recover from bounded Agent-observed target shapes when the artifact still resolves inside the Garden: `artifact_name` instead of `path`, no-extension `.json` / `.csv` paths, or legacy `target_type="data_collection"`.
+- DataCollection target loading requires the exact `ladybug_data_collection` target returned by the upstream tool, including its Garden-relative `path`.
 - Step 5 returns `summary_view.series[].value_count`.
 - Step 5 returns `summary_view.time_marks=true` and `summary_view.chart_dimensions` for `monthly_per_hour` charts. The default is `{"x_dim": 50.0, "y_dim": 40.0}`, and explicit SDK dimension inputs are echoed there.
 - Step 5 returns `visualization_set_target` plus top-level `target` and omits `visualization_set` when `return_visualization_set=false`.
 - Step 6 returns `artifact_receipt.artifact_type = "visualization_html"` and an HTML path under `artifacts/visualization/html/`.
-- Step 6 accepts harmless `visualization_set_identifier` and `visualization_set_display_name` metadata hints if an Agent carries them from the upstream VisualizationSet; use `name` for the intended artifact file name.
+- Step 6 uses `name` for the intended artifact file name. Do not pass upstream VisualizationSet metadata fields as exporter arguments.
 - `data_collection_to_file(file_format="csv")` returns `persistence_receipt.artifact_type = "data_collection_csv"` and a `.csv` path under `artifacts/data_collections/`.
 
 ## Avoid
@@ -158,7 +158,7 @@ Use `file_format="json"` for SDK-native Ladybug JSON and `file_format="csv"` for
 - Do not pass the full `data` object between tools when `data_target` is available.
 - Do not pass the full `visualization_set` object into `visualization_set_to_html` when `visualization_set_target` is available.
 - Do not handwrite CSV, SQL, JSON, or DataCollection values for charts or raw exports.
-- Do not use Energy-owned direct chart tools for new visualization workflows when a generic DataCollection target path is available.
+- Do not use Energy-owned direct chart tools when the user needs reusable DataCollection targets, raw exports, or cross-source chart composition. They are acceptable for quick completed-run HTML chart export when exact SQL output names are known.
 - Do not pass a `ScheduleRuleset` dict as `data_collection`.
 - Do not put `data_collection_target` or `label` at the tool's top level for monthly charts. They must be inside `series[]`.
 - Do not omit top-level `garden_root` when using `data_collection_target`.
@@ -166,17 +166,19 @@ Use `file_format="json"` for SDK-native Ladybug JSON and `file_format="csv"` for
 
 ## Evidence
 
-- 2026-04-27 Agent smoke passed with `search_tools -> create_garden -> create_schedule_day -> create_schedule_ruleset(return_data=false) -> data_collection_monthly_chart_to_visualization_set(data_collection_target, return_visualization_set=false) -> visualization_set_to_html(visualization_set_target)`.
+- 2026-04-27 Agent smoke passed with `search -> create_garden -> create_schedule_day -> create_schedule_ruleset(return_data=false) -> data_collection_monthly_chart_to_visualization_set(data_collection_target, return_visualization_set=false) -> visualization_set_to_html(visualization_set_target)`.
 - A later verification rerun also passed, but the Agent first tried a flattened chart shape with top-level `data_collection_target` and recovered after FastMCP validation. Keep the `series[]` shape explicit in prompts.
 - 2026-04-27 deterministic MCP verification passed for a real EnergyPlus SQL sample copied from `resources/honeybee-schema-samples/.../single_family_home_eplusout.sql`: `read_energy_result_data(save_data_collections=true) -> data_collection_monthly_chart_to_visualization_set(data_collection_target, return_visualization_set=false) -> visualization_set_to_html(visualization_set_target)`.
 - 2026-04-27 deterministic MCP verification passed for the Energy result visualize matrix: `read_energy_result_data(output_query="heating energy", unit="kWh", data_type="Energy", save_data_collections=true)` then generic hourly plot plus MonthlyChart `hourly`, `daily`, `monthly`, and `monthly_per_hour` intervals.
 - 2026-04-27 Agent smoke passed for the natural result-query monthly chart path: no exact EnergyPlus output name, one `execute`, `read_energy_result_data(output_query="heating energy", unit="kWh", data_type="Energy", save_data_collections=true) -> data_collection_monthly_chart_to_visualization_set(return_visualization_set=false) -> visualization_set_to_html`, no repeated tools.
 - 2026-04-27 deterministic MCP verification passed for SDK-native DataCollection persistence/export: new JSON targets are readable by `ladybug.datautil.collections_from_json`, and `data_collection_to_file(file_format="csv")` exports a CSV readable by `collections_from_csv`.
-- 2026-04-27 Agent smoke passed for compact CSV export: `search_tools -> create_garden -> create_schedule_day -> create_schedule_ruleset(return_data=false) -> data_collection_to_file(file_format="csv")`.
+- 2026-04-27 Agent smoke passed for compact CSV export: `search -> create_garden -> create_schedule_day -> create_schedule_ruleset(return_data=false) -> data_collection_to_file(file_format="csv")`.
 - 2026-04-30 supervised external Agent task 20 persisted heating/cooling Energy SQL result DataCollections from a fresh completed background run after `read_energy_result_data` gained natural two-intent query matching. The run was `intervened_functional` because the supervisor stopped final-output idle after artifacts existed; repeated result reads remain a cost smell.
-- 2026-04-30 supervised external Agent task 21 created an HourlyPlot VisualizationSet and HTML artifact from the task 20 SQL DataCollection target. A pre-fix run failed from hand-built target-shape drift; after bounded target normalization and top-level `target` output, the rerun passed with 4 inner MCP calls.
-- 2026-04-30 supervised external Agent task 22 created a monthly chart VisualizationSet and HTML artifact from saved SQL DataCollection targets. After HTML/SVG export accepted metadata hints, the rerun passed with 3 inner MCP calls and no repeated MCP tools.
+- 2026-04-30 supervised external Agent task 21 created an HourlyPlot VisualizationSet and HTML artifact from the task 20 SQL DataCollection target after the prompt was tightened to pass the upstream target directly.
+- 2026-04-30 supervised external Agent task 22 created a monthly chart VisualizationSet and HTML artifact from saved SQL DataCollection targets with 3 inner MCP calls and no repeated MCP tools.
 - 2026-05-01 Codex main-process follow-up to `ladybug_mcp_tester` Batch C verified a real completed Energy SQL run path: `read_energy_result_data(output_name="Electricity:Facility", save_data_collections=true) -> data_collection_to_file(file_format=json/csv, name=...) -> data_collection_monthly_chart_to_visualization_set(name=..., return_visualization_set=false) -> data_collection_hourly_plot_to_visualization_set(name=..., return_visualization_set=false) -> visualization_set_to_html(name=...) -> visualization_set_to_svg(name=..., view="Top")`. The run used `data_collection_targets[0]`; no full 52,560-value collection was passed through Agent context.
 - 2026-05-01 Codex `ladybug_mcp_tester` natural broad Batch C Task 15 verified the same path from a fresh completed run. The retained artifacts included non-empty JSON, CSV, monthly HTML/SVG, hourly HTML, and VisualizationSet JSON files. Do not treat the recipe-generated `visual-report` output as the chart deliverable unless it is non-empty; create explicit DataCollection/VisualizationSet exports for user-facing charts.
 - 2026-05-13 deterministic MCP verification passed for EPW weather data: `read_weather_file_data(weather_target, analysis_period="7/1 to 7/31 between 0 and 23 @1") -> data_collection_monthly_chart_to_visualization_set(time_interval="monthly_per_hour", return_visualization_set=false) -> visualization_set_to_html`. A retained Boston UWG case also used original EPW plus UWG morphed EPW dry-bulb targets to create July 21 and July monthly-per-hour VisualizationSet HTML/SVG artifacts.
 - 2026-05-13 deterministic MCP verification passed for SDK chart dimensions: `data_collection_hourly_plot_to_visualization_set(x_dim=3, y_dim=5)` and `data_collection_monthly_chart_to_visualization_set(x_dim=20, y_dim=55)` both returned `summary_view.chart_dimensions` and generated matching axis geometry through Ladybug SDK chart objects.
+- 2026-05-17 deterministic MCP verification passed for the improved Energy result target handoff: `read_energy_result_data(save_data_collections=true)` now returns the saved `ladybug_data_collection` target inside each collection summary as `target`, `data_collection_target`, and `data_target`, plus `summary_view.first_data_collection_target`.
+- 2026-05-17 focused MiMo broad reruns showed two valid result-chart behaviors: the generic DataCollection chart path can pass, and the direct Energy result HTML chart tools are lower-cost when exact output names are correct. A failed retry guessed `Zone Ideal Loads Zone Sensible Heating Energy`; future Agents should inventory first or use query-based selection instead of guessing exact names.

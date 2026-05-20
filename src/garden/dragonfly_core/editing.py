@@ -69,7 +69,7 @@ def _receipt(
 
 def _load_target_model(
     garden_root: str,
-    model_target: dict[str, Any] | str | None,
+    model_target: dict[str, Any] | None,
 ) -> tuple[Path, Any, dict[str, Any], Model]:
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
@@ -519,7 +519,7 @@ def add_dragonfly_stories_to_building(
     garden_root: str,
     building_identifier: str,
     story_targets: list[dict[str, Any]] | None = None,
-    model_target: dict[str, Any] | str | None = None,
+    model_target: dict[str, Any] | None = None,
     story_identifiers: list[str] | None = None,
 ) -> dict[str, Any]:
     """Add Story draft objects to an existing Building with Building.add_stories."""

@@ -17,7 +17,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="energy_result_monthly_chart_to_html",
-        description="Compatibility path: create a Garden HTML artifact directly from one or more EnergyPlus SQL DataCollections using Ladybug MonthlyChart / monthly chart. Prefer read_energy_result_data with save_data_collections=true for each output_name, then data_collection_monthly_chart_to_visualization_set with series[].data_collection_target and return_visualization_set=false, then visualization_set_to_html with visualization_set_target. Keep this direct tool for legacy/debug clients that need one Energy-owned chart-to-HTML call for hourly, annual monthly, daily or monthly aggregation, monthly-per-hour patterns, and multi-series result comparisons. Each series item uses output_name, optional collection_index, and optional label; the label is written into the DataCollection header metadata for the chart legend.",
+        description="Create a ready-to-open Garden HTML artifact directly from one or more EnergyPlus SQL DataCollections using Ladybug MonthlyChart / monthly chart. Use this only when the requested result is an HTML file. Each series item uses output_name, optional collection_index, and optional label; the label is written into the DataCollection header metadata for the chart legend.",
         tags={
             "run-energy",
             "energy",

@@ -168,7 +168,7 @@ def summarize_annual_daylight_metrics(
     _require_completed(record)
     result_root = _results_root(root, record)
     metrics_root = _existing_output_root(root, record, "metrics")
-    folder_aliases = {
+    folder_names_by_metric = {
         "da": ("da",),
         "cda": ("cda",),
         "udi": ("udi",),
@@ -179,12 +179,12 @@ def summarize_annual_daylight_metrics(
     }
     requested = [
         metric.strip().lower().replace("-", "_")
-        for metric in (metrics or list(folder_aliases))
+        for metric in (metrics or list(folder_names_by_metric))
     ]
     metric_summaries: dict[str, Any] = {}
     warnings: list[str] = []
     for metric in requested:
-        folder_names = folder_aliases.get(metric, (metric,))
+        folder_names = folder_names_by_metric.get(metric, (metric,))
         folder = next(
             (
                 candidate

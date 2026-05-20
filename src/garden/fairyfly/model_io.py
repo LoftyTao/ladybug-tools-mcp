@@ -11,7 +11,6 @@ from fairyfly.model import Model
 
 from garden.manifest import GardenManifest
 from garden.paths import to_posix_relative
-from ladybug_tools_mcp.contracts.targets import make_model_target
 
 FAIRYFLY_MODELS_DIR = Path("models") / "fairyfly"
 
@@ -33,11 +32,13 @@ def model_target_for_manifest(
     path: str | None = None,
 ) -> dict[str, Any]:
     """Build a Fairyfly model target with optional Garden-relative path."""
-    target: dict[str, Any] = make_model_target(
-        garden_id=garden_id,
-        model_identifier=model_identifier,
-        domain="fairyfly",
-    )
+    target: dict[str, Any] = {
+        "target_type": "fairyfly_model",
+        "id": model_identifier,
+        "garden_id": garden_id,
+        "domain": "fairyfly",
+        "model_identifier": model_identifier,
+    }
     if path:
         target["path"] = path
     return target
@@ -47,8 +48,8 @@ def normalize_fairyfly_model_target(value: dict[str, Any]) -> dict[str, Any]:
     """Validate and normalize a Fairyfly model target."""
     if not isinstance(value, dict):
         raise ValueError("Fairyfly model target must be a dictionary.")
-    if value.get("target_type") != "model":
-        raise ValueError("Fairyfly model target must have target_type 'model'.")
+    if value.get("target_type") != "fairyfly_model":
+        raise ValueError("Fairyfly model target must have target_type 'fairyfly_model'.")
     if value.get("domain") != "fairyfly":
         raise ValueError("Fairyfly model target must have domain 'fairyfly'.")
     model_identifier = value.get("model_identifier")
@@ -61,13 +62,9 @@ def load_fairyfly_model(garden_root: Path, model_target: dict[str, Any]) -> Mode
     """Load a Fairyfly model from a Garden model target."""
     model_target = normalize_fairyfly_model_target(model_target)
     path_value = model_target.get("path")
-    if path_value:
-        model_path = garden_root / str(path_value)
-    else:
-        model_path = fairyfly_model_path(
-            garden_root,
-            str(model_target["model_identifier"]),
-        )
+    if not isinstance(path_value, str) or not path_value:
+        raise ValueError("Fairyfly model target requires a Garden-relative path.")
+    model_path = garden_root / path_value
     data = json.loads(model_path.read_text(encoding="utf-8"))
     return Model.from_dict(data)
 

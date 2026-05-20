@@ -25,19 +25,13 @@ def register(mcp: FastMCP) -> None:
             Field(description="Required exact Garden root path containing garden.json."),
         ],
         room2d_target: Annotated[
-            dict[str, Any] | str | None,
+            dict[str, Any] | None,
             Field(
                 description=(
                     "Dragonfly Room2D target from a model or creation workflow. "
-                    "May be omitted when target or room_identifier is provided. "
-                    "If a Room2D identifier string is accidentally passed here, "
-                    "it is interpreted as room_identifier."
+                    "May be omitted when room_identifier is provided."
                 )
             ),
-        ] = None,
-        target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional natural alias for room2d_target."),
         ] = None,
         room_identifier: Annotated[
             str | None,
@@ -49,11 +43,10 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | str | None,
+            dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Accepts the typed target or a "
-                    "Garden-relative DFJSON path. Defaults to base Dragonfly model."
+                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
                 )
             ),
         ] = None,
@@ -64,10 +57,6 @@ def register(mcp: FastMCP) -> None:
         floor_height: Annotated[
             float | None,
             Field(description="Optional floor height used with replacement vertices."),
-        ] = None,
-        floor_z: Annotated[
-            float | None,
-            Field(description="Optional natural alias for floor_height/elevation."),
         ] = None,
         floor_to_ceiling_height: Annotated[
             float | None,
@@ -95,18 +84,8 @@ def register(mcp: FastMCP) -> None:
         ] = 0,
     ) -> dict[str, Any]:
         """Edit a Dragonfly Room2D."""
-        if room2d_target is None:
-            room2d_target = target
-        if isinstance(room2d_target, str):
-            if room_identifier is None:
-                room_identifier = room2d_target
-            room2d_target = None
-        if floor_height is None and floor_z is not None:
-            floor_height = floor_z
         if room2d_target is None and room_identifier is None:
-            raise ValueError(
-                "edit_dragonfly_room2d requires room2d_target, target, or room_identifier."
-            )
+            raise ValueError("edit_dragonfly_room2d requires room2d_target or room_identifier.")
         return service(
             garden_root=garden_root,
             room2d_target=room2d_target,

@@ -15,7 +15,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="create_dragonfly_model",
-        description="Create an empty Dragonfly model in a Garden and optionally set it as the base Dragonfly model. Returns target and model_target for downstream Dragonfly calls. Requires garden_root and identifier.",
+        description="Create an empty Dragonfly model in a Garden and optionally set it as the base Dragonfly model with set_base; not set_as_base. Returns target and model_target for downstream Dragonfly calls. Requires garden_root and identifier.",
         tags={
             "dragonfly-core",
             "garden-mode",
@@ -72,7 +72,9 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         set_base: Annotated[
             bool,
-            Field(description="Whether to set as Garden base Dragonfly model."),
+            Field(
+                description="Whether to set as Garden base Dragonfly model. Use set_base; not set_as_base."
+            ),
         ] = True,
         include_body: Annotated[
             bool,

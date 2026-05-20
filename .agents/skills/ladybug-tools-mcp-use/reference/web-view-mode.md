@@ -74,7 +74,6 @@ For Dragonfly demo mode on an existing Garden, first do one compact object inven
 
 - Use `start_web_view_mode`, not an invented `open_browser`, `refresh_viewer`, or `publish_preview` tool.
 - Do not call a separate `start_web_view_server` tool; server startup is part of `start_web_view_mode`.
-- If the viewer port is already occupied, surface the startup error instead of choosing a fallback port silently.
 - Do not call `visualization_set_to_vtkjs` after every edit just to refresh demo mode; Web View Mode already does this automatically for significant writes.
 - Do not use Python filesystem imports inside `execute` to inspect `tmp/web_view`; return compact MCP tool results and let the service-side viewer/session manage preview files.
 - `stop_web_view_mode` disables future automatic previews but preserves the session history.

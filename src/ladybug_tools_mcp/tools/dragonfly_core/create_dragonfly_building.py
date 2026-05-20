@@ -50,11 +50,10 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | str | None,
+            dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Accepts the typed target or a "
-                    "Garden-relative DFJSON path. Defaults to base Dragonfly model."
+                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
                 )
             ),
         ] = None,
@@ -70,46 +69,6 @@ def register(mcp: FastMCP) -> None:
                     "spaces are converted to underscores for the identifier."
                 )
             ),
-        ] = None,
-        height: Annotated[
-            float | None,
-            Field(
-                description=(
-                    "Optional natural project height hint. Story geometry controls "
-                    "the actual Dragonfly Building height."
-                )
-            ),
-        ] = None,
-        room2d_targets: Annotated[
-            list[dict[str, Any]] | None,
-            Field(
-                description=(
-                    "Natural-language recovery alias for story_targets when the "
-                    "list actually contains Story targets. Do not pass raw Room2D "
-                    "targets here; create a Story first."
-                )
-            ),
-        ] = None,
-        story_identifiers: Annotated[
-            list[str] | None,
-            Field(
-                description=(
-                    "Optional natural Story identifier list. Used only for draft "
-                    "Stories already saved in the Garden."
-                )
-            ),
-        ] = None,
-        stories_count: Annotated[
-            int | None,
-            Field(description="Optional natural count hint; Story targets control actual stories."),
-        ] = None,
-        story_height: Annotated[
-            float | None,
-            Field(description="Optional natural height hint; Story objects control actual height."),
-        ] = None,
-        building_type: Annotated[
-            str | None,
-            Field(description="Optional natural building type hint for Agent notes."),
         ] = None,
         return_object_dict: Annotated[
             bool | None,
@@ -130,16 +89,7 @@ def register(mcp: FastMCP) -> None:
             model_target=model_target,
             sort_stories=sort_stories,
             display_name=display_name,
-            height=height,
-            room2d_targets=room2d_targets,
-            story_identifiers=story_identifiers,
         )
         if return_object_dict is False:
             result.pop("object_dict", None)
-        if stories_count is not None or story_height is not None or building_type is not None:
-            result["summary_view"]["natural_hints"] = {
-                "stories_count": stories_count,
-                "story_height": story_height,
-                "building_type": building_type,
-            }
         return result

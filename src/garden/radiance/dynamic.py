@@ -21,18 +21,6 @@ from garden.libraries.properties import get_garden_properties_library_object
 from ladybug_tools_mcp.contracts.report import make_report
 
 
-def _unwrap_object_dict(data: Any) -> Any:
-    if isinstance(data, dict) and isinstance(data.get("object_dict"), dict):
-        return data["object_dict"]
-    if (
-        isinstance(data, dict)
-        and isinstance(data.get("target"), dict)
-        and data["target"].get("target_type") == "garden_properties_library_object"
-    ):
-        return data["target"]
-    return data
-
-
 def _modifier_from_input(
     data: dict[str, Any] | str | None,
     *,
@@ -40,7 +28,6 @@ def _modifier_from_input(
     field_name: str = "modifier",
 ) -> Modifier | None:
     """Resolve a Radiance modifier from dict, standards identifier, or Garden target."""
-    data = _unwrap_object_dict(data)
     if data is None:
         return None
     if isinstance(data, dict) and data.get("target_type") == "garden_properties_library_object":
@@ -68,7 +55,6 @@ def _modifier_from_input(
 
 
 def _state_geometry_from_input(data: dict[str, Any]) -> StateGeometry:
-    data = _unwrap_object_dict(data)
     if (
         isinstance(data, dict)
         and isinstance(data.get("geometry"), dict)
@@ -196,7 +182,7 @@ def create_radiance_subface_state(
 
 
 def _target_object_type(target: dict[str, Any]) -> str:
-    object_type = str(target.get("object_type") or target.get("target_type") or "")
+    object_type = str(target.get("object_type") or "")
     return object_type.lower()
 
 

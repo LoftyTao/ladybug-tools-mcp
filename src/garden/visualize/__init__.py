@@ -20,6 +20,11 @@ from garden.visualize.legend import (
     create_2d_legend_parameter,
     edit_2d_legend_parameter,
 )
+from garden.visualize.sky import (
+    sky_matrix_to_radiation_dome_visualization_set,
+    sky_matrix_to_skydome_visualization_set,
+    sunpath_to_visualization_set,
+)
 
 __all__ = [
     "compose_visualization_sets",
@@ -31,6 +36,9 @@ __all__ = [
     "honeybee_face_to_visualization_set",
     "honeybee_model_to_visualization_set",
     "honeybee_room_to_visualization_set",
+    "sky_matrix_to_radiation_dome_visualization_set",
+    "sky_matrix_to_skydome_visualization_set",
+    "sunpath_to_visualization_set",
     "visualization_set_to_html",
     "visualization_set_to_svg",
     "visualization_set_to_vtkjs",

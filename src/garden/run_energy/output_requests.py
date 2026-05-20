@@ -154,14 +154,12 @@ def read_energy_output_request(
     if output_request_target.get("target_type") != ENERGY_OUTPUT_REQUEST_TARGET_TYPE:
         raise ValueError("output_request_target must be an energy_output_request target.")
     target_garden_id = output_request_target.get("garden_id")
-    if target_garden_id and target_garden_id != manifest.garden_id:
+    if target_garden_id != manifest.garden_id:
         raise ValueError("output_request_target belongs to a different Garden.")
     path_value = output_request_target.get("path")
-    if not path_value:
-        identifier = str(output_request_target.get("identifier") or "")
-        path = _request_path(garden_root_path, identifier)
-    else:
-        path = (garden_root_path / str(path_value)).resolve()
+    if not isinstance(path_value, str) or not path_value:
+        raise ValueError("output_request_target requires a Garden-relative path.")
+    path = (garden_root_path / path_value).resolve()
     path.relative_to(garden_root_path)
     if not path.is_file():
         raise ValueError("Energy output request file was not found.")

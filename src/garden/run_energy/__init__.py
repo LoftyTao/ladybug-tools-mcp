@@ -9,6 +9,7 @@ from garden.run_energy.annual import (
     run_energy,
     start_energy_run,
 )
+from garden.run_energy.files import run_idf_file, run_osm_file
 from garden.run_energy.output_requests import create_energy_output_request
 from garden.run_energy.results import (
     energy_result_hourly_plot_to_html,
@@ -29,5 +30,7 @@ __all__ = [
     "read_energy_result_data",
     "read_weather_file_data",
     "run_energy",
+    "run_idf_file",
+    "run_osm_file",
     "start_energy_run",
 ]

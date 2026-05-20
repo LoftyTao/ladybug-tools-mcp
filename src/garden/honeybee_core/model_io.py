@@ -11,7 +11,6 @@ from typing import Any
 
 from honeybee.model import Model
 
-from ladybug_tools_mcp.contracts.targets import make_model_target
 from garden.manifest import GardenManifest
 from garden.paths import to_posix_relative
 from garden.honeybee_core.locate import iter_honeybee_objects
@@ -44,11 +43,13 @@ def model_target_for_manifest(
     path: str | None = None,
 ) -> dict[str, Any]:
     """Build a Honeybee model target with optional Garden-relative path."""
-    target: dict[str, Any] = make_model_target(
-        garden_id=garden_id,
-        model_identifier=model_identifier,
-        domain="honeybee",
-    )
+    target: dict[str, Any] = {
+        "target_type": "honeybee_model",
+        "id": model_identifier,
+        "garden_id": garden_id,
+        "domain": "honeybee",
+        "model_identifier": model_identifier,
+    }
     if path:
         target["path"] = path
     return target
@@ -58,13 +59,9 @@ def load_honeybee_model(garden_root: Path, model_target: dict[str, Any]) -> Mode
     """Load a Honeybee model from a Garden model target."""
     model_target = normalize_honeybee_model_target(model_target)
     path_value = model_target.get("path")
-    if path_value:
-        model_path = garden_root / str(path_value)
-    else:
-        model_path = honeybee_model_path(
-            garden_root,
-            str(model_target["model_identifier"]),
-        )
+    if not isinstance(path_value, str) or not path_value:
+        raise ValueError("Honeybee model target requires a Garden-relative path.")
+    model_path = garden_root / path_value
     return Model.from_hbjson(str(model_path), cleanup_irrational=False)
 
 

@@ -15,10 +15,10 @@
 
 ## 已验证最短路径
 
-1. Code Mode `execute` 内 `call_tool("search_honeybee_model_objects", ...)`，`object_type = "room"`
+1. Code Mode `execute` 内 `await call_tool("search_honeybee_model_objects", ...)`，`object_type = "room"`
 2. 读取第一个 match 的 `target`
-3. `call_tool("remove_honeybee_room", ...)`，将上一步 `target` 传入 `target`
-4. `call_tool("search_honeybee_model_objects", ...)` 再次确认
+3. `await call_tool("remove_honeybee_room", ...)`，将上一步 `target` 传入 `target`
+4. `await call_tool("search_honeybee_model_objects", ...)` 再次确认
 5. 对相邻房间模型，额外 `validate_honeybee_model` 确认没有残留 `Missing Adjacency`
 
 ## 已验证最小参数形态

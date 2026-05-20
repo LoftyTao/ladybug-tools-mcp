@@ -35,22 +35,6 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(description="Required Dragonfly model target for the incoming model."),
         ] = None,
-        source_model_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional natural alias for base_model_target."),
-        ] = None,
-        target_model_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional natural alias for incoming_model_target."),
-        ] = None,
-        model_a_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional natural alias for base_model_target."),
-        ] = None,
-        model_b_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional natural alias for incoming_model_target."),
-        ] = None,
         use_multiplier: Annotated[
             bool,
             Field(description="Whether to display Dragonfly story multipliers."),
@@ -81,10 +65,6 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Dragonfly comparison VisualizationSet."""
-        base_model_target = base_model_target or source_model_target or model_a_target
-        incoming_model_target = (
-            incoming_model_target or target_model_target or model_b_target
-        )
         if base_model_target is None or incoming_model_target is None:
             raise ValueError(
                 "dragonfly_models_to_comparison_visualization_set requires "

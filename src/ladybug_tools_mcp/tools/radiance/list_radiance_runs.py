@@ -37,11 +37,6 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional status filter, for example running, completed, or failed."),
         ] = None,
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent context hint accepted for compatibility. Ignored; Radiance runs are listed at Garden scope."),
-        ] = None,
     ) -> dict[str, Any]:
         """List Radiance simulation runs."""
-        _ = model_target
         return service(garden_root=garden_root, status=status)

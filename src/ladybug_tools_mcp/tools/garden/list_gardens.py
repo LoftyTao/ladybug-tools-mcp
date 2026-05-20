@@ -12,11 +12,13 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="list_gardens",
-        description="List projects and project workspaces by finding existing Ladybug Tools Gardens, returned with the most recently created Gardens first. Use this when a user asks to list Gardens, find existing Gardens, discover project workspaces, or choose a saved Garden. At onboarding, show the first five matches and suggest cleanup when more than ten Gardens exist. Returns reusable garden_target objects for later Garden tools.",
+        description="List projects garden workspace entries by finding existing Ladybug Tools Gardens, returned with the most recently created Gardens first. This is the workspace_list / project workspace discovery tool. Use this when a user asks to list Gardens, find existing Gardens, discover project workspaces, or choose a saved Garden. At onboarding, show the first five matches and suggest cleanup when more than ten Gardens exist. Returns reusable garden_target objects for later Garden tools.",
         tags={
             "garden",
             "garden-mode",
             "project",
+            "workspace",
+            "workspace-list",
             "project-workspace",
             "find-existing-gardens",
             "list-projects",

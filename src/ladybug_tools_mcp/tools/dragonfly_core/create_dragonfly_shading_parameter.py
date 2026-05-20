@@ -20,7 +20,7 @@ def register(mcp: FastMCP) -> None:
         description=(
             "Create a compact SDK-backed Dragonfly ShadingParameter artifact for "
             "outdoor wall application. Supports parameter_type overhang and "
-            "extruded_border only; this is not a Honeybee shade alias. Returns "
+            "extruded_border only; this is a Dragonfly envelope parameter, not a Honeybee Shade. Returns "
             "the compact artifact as parameter, shading_parameter, target, and "
             "object_dict."
         ),

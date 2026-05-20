@@ -14,7 +14,6 @@ Use this path when the user asks for point-in-time daylight grids, point-in-time
 - Grid recipes: `start_radiance_grid_run`
   - Use for `point_in_time` and `daylight_factor`.
   - Point-in-time requires `sky_file_target` or inline `sky`.
-  - Recovery aliases accepted from observed Agent runs: `sky_file`, `sky_target`, `radiance_sky_target`, `sensorgrid_target`, and `radiance_sensor_grid_target`.
 - View recipes: `start_radiance_view_run`
   - Use for `point_in_time` views/images.
   - Requires `sky_file_target` or inline `sky`.
@@ -25,20 +24,22 @@ Use this path when the user asks for point-in-time daylight grids, point-in-time
 - `get_radiance_run` can repair a stale `running` ledger when a background recipe has already written final outputs and the recipe progress log is complete.
   - Run ledgers are written through a locked atomic replace path. If an older or interrupted ledger file contains one valid JSON object followed by stale trailing bytes, run readers recover the first valid object instead of surfacing `JSONDecodeError: Extra data`.
   - When the user asks to wait or poll until completion, pass `wait_seconds` and a small `poll_interval` to a single `get_radiance_run` call. Do not issue many immediate one-status calls from separate `execute` blocks.
-- Radiance artifact search: `search_radiance_sensor_grids`, `search_radiance_sky_files`, or generic `list_garden_files`.
+- Radiance artifact search: `search_radiance_sensor_grids`, `search_radiance_sky_files`, or `list_garden_artifacts`.
   - SensorGrids and sky files are Garden artifacts. Do not use Honeybee room/face/window search as the planned path for them, although `search_honeybee_model_objects(object_type="radiance_sensor_grid")` now redirects to compact artifact targets for recovery.
 - View image postprocess: `list_radiance_hdr_images`, `radiance_hdr_to_falsecolor`, `radiance_hdr_to_gif`.
   - This MCP path only supports `.hdr` inputs. Do not request `.pic` or `.unf` tools.
-  - Recovery aliases observed in supervised runs include `get_radiance_run_hdr_images`, `list_radiance_artifact_files`, and `search_radiance_images(run_target=...)`, but prefer `list_radiance_hdr_images` when the run target is already known.
 - SensorGrid visual postprocess: `list_radiance_grid_results`, `radiance_grid_result_to_visualization_set`.
   - Stop at `visualization_set_target`; use `visualization_set_to_html` or `visualization_set_to_svg` as the generic downstream export.
   - For object-hosted grids created with `create_radiance_sensor_grid_from_object`, prefer `grid_data_display_mode="SurfaceWithEdges"` when the user wants surface/mesh coloring.
   - Use `compose_model_analysis_visualization_set` to overlay a saved model-context VisualizationSet with a saved analysis/result VisualizationSet. This avoids hand-editing VisualizationSet JSON for model + result scenes.
-  - Natural aliases also exist for recovery (`convert_rad_result_to_vis`, `convert_radiance_grid_to_vis_set`, `convert_radiance_grid_result_to_vis_set`), but prefer the canonical tool in planned calls.
 
 ## Main Path
 
 For daylight evidence, create at least one Room with a small exterior Aperture before attaching grids or views. A model with no window can still exercise parts of the toolchain, but it is a weak daylight simulation case.
+
+### Point-In-Time Grid, Low-Replay Shape
+
+Use this shape for vague "is this room bright enough right now?" or "small daylight grid proof" prompts. Keep setup and run as separate user-level checkpoints. If the setup checkpoint already exists, search and reuse it instead of rebuilding.
 
 ```python
 model = await call_tool("create_honeybee_model", {
@@ -105,7 +106,7 @@ ledger = await call_tool("get_radiance_run", {
     "wait_seconds": 60,
     "poll_interval": 2,
 })
-while ledger["status"] in {"queued", "running", "pending"}:
+if ledger["status"] in {"queued", "running", "pending"}:
     ledger = await call_tool("get_radiance_run", {
         "garden_root": garden_root,
         "run_target": started["target"],
@@ -136,6 +137,72 @@ overlay = await call_tool("compose_model_analysis_visualization_set", {
     "return_visualization_set": False,
 })
 ```
+
+Stop after reporting the run status, grid result folder, and saved VisualizationSet target. Do not start a second grid run just because a result visualization or HTML export failed; first inspect `list_radiance_grid_results` and reuse the completed run target.
+
+### Point-In-Time View, HDR To Falsecolor/GIF
+
+Use this shape for "preview render", "see the interior", "falsecolor image", or "GIF export" prompts. Set up one simple room with daylight openings, one camera view, one sky, and one modest parameter set. Then do one render and at most one falsecolor plus one GIF from the first usable HDR.
+
+```python
+view = await call_tool("create_radiance_view", {
+    "garden_root": garden_root,
+    "identifier": "preview_view",
+    "position": [2, -6, 1.5],
+    "direction": [0, 1, 0],
+    "up_vector": [0, 0, 1],
+    "view_type": "v",
+    "h_size": 60,
+    "v_size": 45,
+    "model_target": model["target"],
+    "attach_to_model": True,
+    "return_object_dict": False,
+})
+sky = await call_tool("create_cie_standard_sky", {
+    "garden_root": garden_root,
+    "identifier": "preview_sky",
+    "month": 6,
+    "day": 21,
+    "time": "12:00",
+    "sky_type": "sunny",
+})
+params = await call_tool("create_radiance_parameters", {
+    "recipe_type": "point-in-time-view",
+    "detail_level": "low",
+})
+started = await call_tool("start_radiance_view_run", {
+    "garden_root": garden_root,
+    "model_target": model["target"],
+    "view_target": view["target"],
+    "sky_file_target": sky["target"],
+    "radiance_parameters": params,
+    "run_id": "preview_view_run",
+    "workers": 1,
+})
+ledger = await call_tool("get_radiance_run", {
+    "garden_root": garden_root,
+    "run_target": started["target"],
+    "wait_seconds": 60,
+    "poll_interval": 2,
+})
+hdrs = await call_tool("list_radiance_hdr_images", {
+    "garden_root": garden_root,
+    "run_target": started["target"],
+})
+first_hdr = hdrs["matches"][0]["target"]
+falsecolor = await call_tool("radiance_hdr_to_falsecolor", {
+    "garden_root": garden_root,
+    "hdr_image_target": first_hdr,
+    "identifier": "preview_view_falsecolor",
+})
+gif = await call_tool("radiance_hdr_to_gif", {
+    "garden_root": garden_root,
+    "hdr_image_target": first_hdr,
+    "identifier": "preview_view_gif",
+})
+```
+
+Stop after reporting the HDR, falsecolor, and GIF artifact names. If `list_radiance_hdr_images` is empty immediately after completion, wait once with `get_radiance_run(wait_seconds=...)`; do not create a second view, sky, or run until you have clear failure evidence.
 
 Annual/matrix path:
 
@@ -168,9 +235,10 @@ For DGP/glare, use `summarize_radiance_glare_metrics` only on a completed glare-
 
 ## Boundaries
 
-- Prefer canonical planned calls shown above. Recovery aliases exist because Agents have already drifted into them, but do not use aliases as the first-choice style.
 - If a long Radiance setup fails after writes have succeeded, search the current Garden and resume from the existing targets. Do not replay Garden/model/library setup from the top.
 - For existing setup, use `get_base_honeybee_model`, `search_radiance_sensor_grids`, and `search_radiance_sky_files` to recover compact targets before calling `start_radiance_grid_run`.
+- For broad Agent-style multi-turn tasks, separate "explain workflow", "setup checkpoint", and "run/postprocess" turns. The setup turn should end after assets exist; the run turn should not create geometry, grids, skies, views, or parameters again.
+- `create_radiance_parameters` accepts raw Radiance flags such as `ab`, `ad`, `as`, `ar`, and `aa`; prefer the readable `recipe_type` / `detail_level` path unless the user asks for specific flags.
 - SensorGrids and Views must be attached to the Honeybee model with `attach_to_model=true`; standalone `.pts` and `.vf` artifacts are useful evidence but are not enough for current recipe inputs.
 - If the requested output is surface mesh coloring, create the SensorGrid from a Honeybee object surface instead of explicit points so the attached model carries `SensorGrid.mesh`.
 - Point-in-time recipes pass the text inside the `.sky` file to the recipe input named `sky`.
@@ -205,10 +273,10 @@ For DGP/glare, use `summarize_radiance_glare_metrics` only on a completed glare-
 - Natural Agent cross test added 2026-04-29 verifies a real point-in-time grid illuminance run from a one-room Garden through SensorGrid, CIE sky, `start_radiance_grid_run`, polling, grid result listing, and VisualizationSet target creation. The pass is real but cost-heavy: `593,955` total tokens, `54` inner MCP calls, `32` Code Mode executes, and `38s` Radiance run time.
 - Natural Agent cross test added 2026-04-30 verifies a real point-in-time view render through View, CIE sky, `start_radiance_view_run`, HDR discovery, and image postprocess. The pass recorded `673,093` total tokens, `133` inner MCP calls, and `49s` Radiance run time.
 - Supervised external Agent matrix task 30 added 2026-04-30 verifies a fresh point-in-time view render through `start_radiance_view_run`, `get_radiance_run`, `list_radiance_hdr_images`, `radiance_hdr_to_falsecolor`, and `radiance_hdr_to_gif`. The retained run passed at `110.610s`, with `13` outer tool calls, `11` inner MCP calls, and about `38s` Radiance run time; MiniMax streaming token usage was unavailable, so cost is tracked by wall time and tool counts for this run.
+- MCP-wide focused MiMo repair on 2026-05-17 verified the point-in-time view HDR -> falsecolor -> GIF path with stricter stop conditions. `radiance_view_falsecolor_gif` moved from `425,147` tokens / `MaxTurnsExceeded` to a functional pass at `305,363` tokens with one completed view run, one HDR, one falsecolor HDR, and one GIF. This is functional evidence, not a low-cost path.
+- MCP-wide focused MiMo repair on 2026-05-17 verified the point-in-time grid path after bounded Radiance schema tolerance and equivalent SensorGrid expected-tool handling. `radiance_grid_point_in_time` moved from `366,166` tokens / failed replay to a functional pass at `299,106` tokens with one completed grid run and a saved VisualizationSet artifact. Remaining cost is state replay; do not solve it by adding new Radiance wrappers.
 - Natural Agent cross test added 2026-04-30 verifies a real annual/matrix irradiance workflow through WEA and matrix run targets. The pass recorded `311,596` total tokens, `22` inner MCP calls, and `39s` Radiance run time.
 - Natural Agent cross test added 2026-04-30 verifies dynamic Radiance properties and shade states flowing into a real grid simulation. The pass recorded `602,661` total tokens, `72` inner MCP calls, and `26s` Radiance run time.
-- Natural Agent cross test added 2026-04-30 verifies Luminaire/IES Garden Properties Library coexistence plus a physically windowed daylight simulation. The final pass recorded `269,454` total tokens, `126` inner MCP calls, and `28s` Radiance run time after a pre-fix `873,399` token failure exposed alias and replay cost.
-- Supervised external Agent matrix task 29 added 2026-04-30 verifies a real point-in-time Radiance grid run from existing SensorGrid and sky targets through `start_radiance_grid_run`, three `get_radiance_run` polls, and `list_radiance_run_outputs`. The retained run passed at `101.529s`, with 7 outer `execute` calls, 9 inner MCP calls, and one repeated polling tool. Pre-fix attempts exposed `sky_file` alias drift, invented Radiance search tools, `radiance_recipe` parameter alias drift, Honeybee-search use for SensorGrids, pathless hand-written model targets, and stale `running` run ledgers after recipe outputs existed.
 - 2026-05-01 Codex `ladybug_mcp_tester` 20-Task Batch D verified the Honeybee visualization matrix in Task 16: model/room/face VisualizationSets, legend create/edit, `compose_visualization_sets(conflict_strategy=rename)`, HTML export, SVG export, and artifact listing. Task 14 exposed a corrupt `runs/radiance/index.json` with `JSONDecodeError: Extra data` after concurrent grid/view runs; deterministic regression now covers trailing-stale-ledger recovery and atomic index writes. Task 15 confirmed failed Radiance runs should stop postprocess when result folders or HDR files are absent.
 - 2026-05-01 Codex `ladybug_mcp_tester` natural broad Batch D Task 16 verified a fresh point-in-time daylight grid from a windowed office: 9 sensors, CIE sky, `start_radiance_grid_run`, completed `rtrace`, grid result listing, VisualizationSet target, and HTML export. The Agent correctly scoped the result as point-in-time, not annual daylight autonomy.
 - 2026-05-01 deterministic regression verifies object-hosted SensorGrid mesh preservation, Radiance grid result `Mesh3D` VisualizationSet output, and target-based `compose_model_analysis_visualization_set` overlay export.

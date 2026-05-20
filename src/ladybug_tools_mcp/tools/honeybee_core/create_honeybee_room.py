@@ -68,27 +68,8 @@ def register(mcp: FastMCP) -> None:
                 description="Optional Honeybee model target dict. Defaults to the Garden base model. This is not host_target; no host_target is supported because create_honeybee_room auto-attaches to the selected model."
             ),
         ] = None,
-        host_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Agent compatibility alias for model_target when a model target is provided. Room creation does not use host objects."),
-        ] = None,
-        add_shades: Annotated[
-            bool | None,
-            Field(description="Ignored Agent compatibility hint. Create shades after the room with create_honeybee_shades_by_parameters or create_honeybee_shade."),
-        ] = None,
-        shade_distance: Annotated[
-            float | None,
-            Field(description="Ignored Agent compatibility hint paired with add_shades."),
-        ] = None,
-        return_object_dict: Annotated[
-            bool | None,
-            Field(description="Compatibility hint accepted for compact Agent workflows. Room creation returns compact targets regardless."),
-        ] = None,
     ) -> dict[str, Any]:
         """Create a Honeybee Room."""
-        _ = (add_shades, shade_distance, return_object_dict)
-        if model_target is None and isinstance(host_target, dict):
-            model_target = host_target
         origin_value = origin
         if isinstance(origin_value, dict):
             origin_value = [

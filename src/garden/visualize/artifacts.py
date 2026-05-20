@@ -134,6 +134,7 @@ def load_visualization_set(
     if not isinstance(visualization_set_target, dict):
         raise ValueError("visualization_set_target must be a dictionary.")
     target_type = visualization_set_target.get("target_type")
+    target_path = visualization_set_target.get("path")
     if target_type != VISUALIZATION_SET_TARGET_TYPE:
         raise ValueError(
             "visualization_set_target target_type must be "
@@ -142,9 +143,8 @@ def load_visualization_set(
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest = GardenManifest.read(garden_root_path)
     garden_id = visualization_set_target.get("garden_id")
-    if garden_id and garden_id != manifest.garden_id:
+    if garden_id != manifest.garden_id:
         raise ValueError("visualization_set_target garden_id does not match the Garden root.")
-    target_path = visualization_set_target.get("path")
     if not isinstance(target_path, str) or not target_path:
         raise ValueError("visualization_set_target requires a Garden-relative path.")
     vis_set_path = (garden_root_path / target_path).resolve()
@@ -223,6 +223,9 @@ def visualization_set_to_html(
     manifest.write(garden_root_path)
 
     return {
+        "artifact_name": safe_name,
+        "artifact_path": artifact_path,
+        "artifact_type": HTML_ARTIFACT_TYPE,
         "artifact_receipt": make_artifact_receipt(
             status="persisted",
             garden_id=manifest.garden_id,
@@ -234,6 +237,9 @@ def visualization_set_to_html(
         "summary_view": {
             "garden_target": manifest.target(),
             "artifact": artifact,
+            "artifact_name": safe_name,
+            "artifact_path": artifact_path,
+            "artifact_type": HTML_ARTIFACT_TYPE,
             "exists": html_path.is_file(),
         },
         "report": make_report(
@@ -286,6 +292,9 @@ def visualization_set_to_vtkjs(
     manifest.write(garden_root_path)
 
     return {
+        "artifact_name": safe_name,
+        "artifact_path": artifact_path,
+        "artifact_type": VTKJS_ARTIFACT_TYPE,
         "artifact_receipt": make_artifact_receipt(
             status="persisted",
             garden_id=manifest.garden_id,
@@ -297,6 +306,9 @@ def visualization_set_to_vtkjs(
         "summary_view": {
             "garden_target": manifest.target(),
             "artifact": artifact,
+            "artifact_name": safe_name,
+            "artifact_path": artifact_path,
+            "artifact_type": VTKJS_ARTIFACT_TYPE,
             "exists": vtkjs_path.is_file(),
         },
         "report": make_report(
@@ -324,6 +336,13 @@ def visualization_set_to_svg(
     """Export a VisualizationSet dict to a Garden SVG artifact."""
     if width <= 0 or height <= 0:
         raise ValueError("SVG width and height must be positive integers.")
+    view_text = view.strip()
+    normalized_view = (
+        view_text.upper()
+        if view_text.lower() in {"ne", "nw", "se", "sw"}
+        else view_text.title()
+    )
+    view = normalized_view
     if view not in SVG_VIEWS:
         allowed = ", ".join(sorted(SVG_VIEWS))
         raise ValueError(f"Unsupported SVG view: {view}. Allowed values: {allowed}.")
@@ -372,6 +391,9 @@ def visualization_set_to_svg(
     manifest.write(garden_root_path)
 
     return {
+        "artifact_name": safe_name,
+        "artifact_path": artifact_path,
+        "artifact_type": SVG_ARTIFACT_TYPE,
         "artifact_receipt": make_artifact_receipt(
             status="persisted",
             garden_id=manifest.garden_id,
@@ -383,6 +405,9 @@ def visualization_set_to_svg(
         "summary_view": {
             "garden_target": manifest.target(),
             "artifact": artifact,
+            "artifact_name": safe_name,
+            "artifact_path": artifact_path,
+            "artifact_type": SVG_ARTIFACT_TYPE,
             "exists": svg_path.is_file(),
             "view": view,
             "width": width,

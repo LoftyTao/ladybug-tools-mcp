@@ -8,8 +8,8 @@
 
 ## 已验证最短路径
 
-1. `search_tools("validate honeybee model in garden")`
-2. `call_tool(validate_honeybee_model)`，传入 `garden_root`
+1. `search("validate honeybee model in garden")`
+2. `await call_tool(validate_honeybee_model)`，传入 `garden_root`
 3. 读取返回里的：
    - `report.status`
    - `is_valid` / `valid`（Agent 摘要用的顶层 helper）

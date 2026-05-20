@@ -37,7 +37,7 @@ def register(mcp: FastMCP) -> None:
         epw_map_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional epw_map_weather target returned by search_epw_map, or a unique full search_epw_map response."
+                description="Optional epw_map_weather target returned by search_epw_map matches[i].target."
             ),
         ] = None,
         query: Annotated[

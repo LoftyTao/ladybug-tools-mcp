@@ -33,10 +33,6 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = None,
-        target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional natural alias for room2d_target."),
-        ] = None,
         room_identifier: Annotated[
             str | None,
             Field(
@@ -46,16 +42,11 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = None,
-        room2d_identifier: Annotated[
-            str | None,
-            Field(description="Optional natural alias for room_identifier."),
-        ] = None,
         model_target: Annotated[
-            dict[str, Any] | str | None,
+            dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Accepts the typed target or a "
-                    "Garden-relative DFJSON path. Defaults to base Dragonfly model."
+                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
                 )
             ),
         ] = None,
@@ -63,38 +54,13 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Whether to call Room2D.remove_duplicate_vertices."),
         ] = True,
-        remove_duplicate: Annotated[
-            bool | None,
-            Field(description="Optional natural alias for remove_duplicate_vertices."),
-        ] = None,
         remove_colinear_vertices: Annotated[
             bool,
             Field(description="Whether to call Room2D.remove_colinear_vertices."),
         ] = True,
-        remove_colinear: Annotated[
-            bool | None,
-            Field(description="Optional natural alias for remove_colinear_vertices."),
-        ] = None,
         remove_short_segments_distance: Annotated[
             float | None,
             Field(description="Optional distance for Room2D.remove_short_segments. Leave null to skip."),
-        ] = None,
-        short_segment_length: Annotated[
-            float | None,
-            Field(
-                description=(
-                    "Optional natural alias for remove_short_segments_distance."
-                )
-            ),
-        ] = None,
-        remove_short_segments: Annotated[
-            bool | None,
-            Field(
-                description=(
-                    "Optional natural boolean alias. When true and no explicit "
-                    "distance is supplied, tolerance is used as the short segment distance."
-                )
-            ),
         ] = None,
         tolerance: Annotated[
             float,
@@ -110,18 +76,6 @@ def register(mcp: FastMCP) -> None:
         ] = 1.0,
     ) -> dict[str, Any]:
         """Clean Dragonfly Room2D geometry."""
-        if room2d_target is None and target is not None:
-            room2d_target = target
-        if room_identifier is None:
-            room_identifier = room2d_identifier
-        if remove_duplicate is not None:
-            remove_duplicate_vertices = remove_duplicate
-        if remove_colinear is not None:
-            remove_colinear_vertices = remove_colinear
-        if remove_short_segments_distance is None and short_segment_length is not None:
-            remove_short_segments_distance = short_segment_length
-        if remove_short_segments and remove_short_segments_distance is None:
-            remove_short_segments_distance = tolerance
         return service(
             garden_root=garden_root,
             room2d_target=room2d_target,

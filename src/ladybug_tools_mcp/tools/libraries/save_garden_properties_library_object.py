@@ -14,7 +14,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="save_garden_properties_library_object",
-        description="Fallback save for an existing full object_dict: save one Honeybee Energy or Honeybee Radiance SDK object dict into the Garden Properties Library as a reusable file-backed resource. Prefer direct Garden-saving create tools when they expose garden_root and return_object_dict=false, because those return target/summary/receipt without moving the full SDK object through Agent context. Use this fallback for schedules, program types, loads, HVAC systems, materials, constructions, construction sets, modifiers, modifier sets, and luminaires only when the object_dict already exists.",
+        description="Save an existing full object_dict: save one Honeybee Energy or Honeybee Radiance SDK object dict into the Garden Properties Library as a reusable file-backed resource. Prefer direct Garden-saving create tools when they expose garden_root and return_object_dict=false, because those return target/summary/receipt without moving the full SDK object through Agent context. Use this tool for schedules, program types, loads, HVAC systems, materials, constructions, construction sets, modifiers, modifier sets, and luminaires when the object_dict already exists.",
         tags={
             "garden",
             "properties",

@@ -10,6 +10,10 @@ from pydantic import Field
 from garden.radiance.run import start_radiance_grid_run as service
 
 
+def _requires_radiance_sky_file(calculation_type: str) -> bool:
+    return calculation_type.strip().lower().replace("-", "_").replace(" ", "_") == "point_in_time"
+
+
 def register(mcp: FastMCP) -> None:
     """Register the start_radiance_grid_run tool."""
 
@@ -44,33 +48,9 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(description="Grid calculation type: point_in_time or daylight_factor."),
         ] = "point_in_time",
-        sky_file_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Radiance sky_file target from create_cie_standard_sky or create_climate_based_sky for point_in_time runs."),
-        ] = None,
-        sky_file: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent alias for sky_file_target."),
-        ] = None,
-        sky_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent alias for sky_file_target."),
-        ] = None,
-        radiance_sky_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent alias for sky_file_target."),
-        ] = None,
-        radiance_sky_file_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent alias for sky_file_target."),
-        ] = None,
         radiance_sky_file: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Agent alias for sky_file_target."),
-        ] = None,
-        sky: Annotated[
-            str | None,
-            Field(description="Inline Radiance sky text fallback. Prefer sky_file_target for Garden workflows."),
+            Field(description="Radiance sky file target from create_cie_standard_sky, create_climate_based_sky, create_radiance_sky, or create_radiance_sky_file. Required for point_in_time runs."),
         ] = None,
         grid_filter: Annotated[
             str,
@@ -80,30 +60,10 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(description="Optional SensorGrid target. When supplied and grid_filter is '*', its identifier is used as grid-filter."),
         ] = None,
-        radiance_sensor_grid_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent alias for sensor_grid_target."),
-        ] = None,
-        sensorgrid_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent alias for sensor_grid_target."),
-        ] = None,
-        radiance_sensor_grid: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent alias for sensor_grid_target."),
-        ] = None,
         metric: Annotated[
             str,
             Field(description="Point-in-time metric, usually illuminance, irradiance, luminance, or radiance depending on recipe."),
         ] = "illuminance",
-        grid_type: Annotated[
-            str | None,
-            Field(description="Optional Agent alias for metric, for example illuminance."),
-        ] = None,
-        grid_run_mode: Annotated[
-            str | None,
-            Field(description="Optional Agent alias for metric, for example illuminance."),
-        ] = None,
         min_sensor_count: Annotated[
             int | None,
             Field(description="Minimum sensor count per split grid. Defaults to 1 so small Agent test grids are not filtered out by the Radiance recipe default."),
@@ -114,11 +74,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         radiance_parameters: Annotated[
             str | dict[str, Any] | None,
-            Field(description="Optional Radiance parameters string or full create_radiance_parameters result."),
-        ] = None,
-        radiance_parameters_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional radiance_parameters target from create_radiance_parameters. Alias for radiance_parameters."),
+            Field(description="Optional Radiance parameters string or a dictionary with radiance_parameters."),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -132,41 +88,20 @@ def register(mcp: FastMCP) -> None:
         silent: Annotated[bool, Field(description="Run the Radiance recipe silently.")] = True,
     ) -> dict[str, Any]:
         """Start a Radiance grid run."""
-        if sky_file_target is None and sky_file is not None:
-            sky_file_target = sky_file
-        if sky_file_target is None and sky_target is not None:
-            sky_file_target = sky_target
-        if sky_file_target is None and radiance_sky_target is not None:
-            sky_file_target = radiance_sky_target
-        if sky_file_target is None and radiance_sky_file_target is not None:
-            sky_file_target = radiance_sky_file_target
-        if sky_file_target is None and radiance_sky_file is not None:
-            sky_file_target = radiance_sky_file
-        if sky_file_target is not None and sky is not None:
-            sky = None
-        if sensor_grid_target is None and radiance_sensor_grid_target is not None:
-            sensor_grid_target = radiance_sensor_grid_target
-        if sensor_grid_target is None and sensorgrid_target is not None:
-            sensor_grid_target = sensorgrid_target
-        if sensor_grid_target is None and radiance_sensor_grid is not None:
-            sensor_grid_target = radiance_sensor_grid
+        if _requires_radiance_sky_file(calculation_type) and radiance_sky_file is None:
+            raise ValueError("Provide radiance_sky_file for point_in_time Radiance grid runs.")
         if grid_filter == "*" and isinstance(sensor_grid_target, dict):
-            target = sensor_grid_target.get("target") if isinstance(sensor_grid_target.get("target"), dict) else sensor_grid_target
-            identifier = target.get("identifier") or target.get("full_id") or target.get("name")
+            if sensor_grid_target.get("target_type") != "radiance_sensor_grid":
+                raise ValueError("sensor_grid_target must be a radiance_sensor_grid target.")
+            identifier = sensor_grid_target.get("identifier")
             if identifier:
                 grid_filter = str(identifier)
-        if grid_type is not None:
-            metric = grid_type
-        if grid_run_mode is not None:
-            metric = grid_run_mode
-        if radiance_parameters is None and radiance_parameters_target is not None:
-            radiance_parameters = radiance_parameters_target
         return service(
             garden_root=garden_root,
             model_target=model_target,
             calculation_type=calculation_type,
-            sky_file_target=sky_file_target,
-            sky=sky,
+            sky_file_target=radiance_sky_file,
+            sky=None,
             grid_filter=grid_filter,
             metric=metric,
             min_sensor_count=min_sensor_count,

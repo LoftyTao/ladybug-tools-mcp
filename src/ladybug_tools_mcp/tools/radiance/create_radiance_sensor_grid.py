@@ -9,6 +9,21 @@ from pydantic import Field
 
 from garden.radiance.assets import create_radiance_sensor_grid as service
 
+VectorInput = list[float] | dict[str, float] | None
+
+
+def _vector(value: VectorInput, name: str) -> list[float] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        try:
+            return [float(value["x"]), float(value["y"]), float(value["z"])]
+        except KeyError as exc:
+            raise ValueError(f"{name} dict must include x, y, and z.") from exc
+    if len(value) != 3:
+        raise ValueError(f"{name} must include exactly three numbers.")
+    return [float(value[0]), float(value[1]), float(value[2])]
+
 
 def _room_identifier_from_target(
     room_identifier: str | None,
@@ -16,9 +31,8 @@ def _room_identifier_from_target(
 ) -> str | None:
     if room_identifier is not None or not isinstance(room_target, dict):
         return room_identifier
-    target = room_target.get("target") if isinstance(room_target.get("target"), dict) else room_target
-    if str(target.get("object_type", "")).lower() == "room":
-        value = target.get("object_identifier") or target.get("identifier")
+    if str(room_target.get("object_type", "")).lower() == "room":
+        value = room_target.get("object_identifier") or room_target.get("identifier")
         if isinstance(value, str) and value:
             return value
     return room_identifier
@@ -97,19 +111,11 @@ def register(mcp: FastMCP) -> None:
     def create_radiance_sensor_grid(
         identifier: Annotated[
             str | None,
-            Field(description="Stable SensorGrid identifier. Defaults to sensor_grid when omitted by an Agent."),
+            Field(description="Stable SensorGrid identifier. Defaults to sensor_grid when omitted."),
         ] = None,
         positions: Annotated[
             list[list[float]] | None,
             Field(description="Sensor positions as [[x, y, z], ...]. Omit only when using x_dim/y_dim/x_count/y_count."),
-        ] = None,
-        grid_points: Annotated[
-            list[list[float]] | None,
-            Field(description="Optional Agent alias for positions."),
-        ] = None,
-        grid_type: Annotated[
-            str | None,
-            Field(description="Optional Agent hint such as workplane. Ignored; this tool creates a SensorGrid."),
         ] = None,
         direction: Annotated[
             list[float] | None,
@@ -129,11 +135,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         room_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Honeybee Room target alias. Used to infer room_identifier when provided."),
-        ] = None,
-        room_targets: Annotated[
-            list[dict[str, Any]] | None,
-            Field(description="Optional Agent alias for one or more room targets. The first room target is used."),
+            Field(description="Optional Honeybee Room target used to infer room_identifier when provided."),
         ] = None,
         x_dim: Annotated[
             float | None,
@@ -147,14 +149,6 @@ def register(mcp: FastMCP) -> None:
             float | None,
             Field(description="Optional workplane height above origin. Defaults to 0.8 when generating positions."),
         ] = None,
-        workplane_height: Annotated[
-            float | None,
-            Field(description="Optional Agent alias for height."),
-        ] = None,
-        offset: Annotated[
-            float | None,
-            Field(description="Optional Agent alias for height/workplane offset."),
-        ] = None,
         x_count: Annotated[
             int | None,
             Field(description="Optional number of sensors along x when generating a rectangular grid."),
@@ -165,27 +159,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         grid_spacing: Annotated[
             float | None,
-            Field(description="Optional spacing hint used to derive x_count/y_count from x_dim/y_dim."),
-        ] = None,
-        spacing: Annotated[
-            float | None,
-            Field(description="Alias for grid_spacing accepted for Agent compatibility."),
-        ] = None,
-        x_axis: Annotated[
-            list[float] | None,
-            Field(description="Optional local x-axis hint accepted for Agent compatibility. Rectangular grids are currently axis-aligned."),
-        ] = None,
-        y_axis: Annotated[
-            list[float] | None,
-            Field(description="Optional local y-axis hint accepted for Agent compatibility. Rectangular grids are currently axis-aligned."),
+            Field(description="Optional spacing used to derive x_count/y_count from x_dim/y_dim."),
         ] = None,
         origin: Annotated[
-            list[float] | None,
-            Field(description="Optional rectangular grid origin [x, y, z]. Defaults to [0, 0, 0]."),
-        ] = None,
-        grid_origin: Annotated[
-            list[float] | None,
-            Field(description="Alias for origin accepted for Agent compatibility."),
+            VectorInput,
+            Field(description="Optional rectangular grid origin [x, y, z], or {'x': x, 'y': y, 'z': z}. Defaults to [0, 0, 0]."),
         ] = None,
         group_identifier: Annotated[
             str | None,
@@ -198,10 +176,6 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional Honeybee model target. Used when attach_to_model is true; omitted means Garden base model."),
-        ] = None,
-        host_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent alias for model_target when attaching the SensorGrid to a Honeybee model."),
         ] = None,
         attach_to_model: Annotated[
             bool,
@@ -219,19 +193,9 @@ def register(mcp: FastMCP) -> None:
         """Create a Honeybee Radiance SensorGrid."""
         if identifier is None:
             identifier = "sensor_grid"
-        if model_target is None and host_target is not None:
-            model_target = host_target
+        if model_target is not None and not attach_to_model:
             attach_to_model = True
-        elif model_target is not None and not attach_to_model:
-            attach_to_model = True
-        if height is None and workplane_height is not None:
-            height = workplane_height
-        if height is None and offset is not None:
-            height = offset
-        if grid_spacing is None and spacing is not None:
-            grid_spacing = spacing
-        if origin is None and grid_origin is not None:
-            origin = grid_origin
+        origin = _vector(origin, "origin")
         if (
             positions is None
             and x_dim is None
@@ -242,13 +206,6 @@ def register(mcp: FastMCP) -> None:
         ):
             x_dim = float(grid_spacing) * int(x_count)
             y_dim = float(grid_spacing) * int(y_count)
-        if room_target is None and room_targets:
-            room_target = room_targets[0]
-        if positions is None and x_dim is None and y_dim is None and room_target is not None:
-            x_dim = 4
-            y_dim = 4
-        if positions is None and grid_points is not None:
-            positions = grid_points
         positions = _positions_from_rectangular_grid(
             positions=positions,
             x_dim=x_dim,

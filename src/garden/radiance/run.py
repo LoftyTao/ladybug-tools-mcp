@@ -225,12 +225,6 @@ def _normalize_run_id(value: str | None) -> str:
     return f"radiance_{timestamp}"
 
 
-def _unwrap_target(target: dict[str, Any] | None) -> dict[str, Any] | None:
-    if isinstance(target, dict) and isinstance(target.get("target"), dict):
-        return target["target"]
-    return target
-
-
 def _validate_target_garden(
     *,
     target: dict[str, Any],
@@ -238,7 +232,7 @@ def _validate_target_garden(
     field_name: str,
 ) -> None:
     garden_id = target.get("garden_id")
-    if garden_id and garden_id != manifest.garden_id:
+    if garden_id != manifest.garden_id:
         raise ValueError(f"{field_name} belongs to a different Garden.")
 
 
@@ -281,7 +275,6 @@ def _resolve_sky_string(
     sky_file_target: dict[str, Any] | None,
     sky: str | None,
 ) -> str:
-    sky_file_target = _unwrap_target(sky_file_target)
     if (sky_file_target is None) == (sky is None):
         raise ValueError("Provide exactly one of sky_file_target or sky.")
     if sky_file_target is not None:
@@ -412,7 +405,6 @@ def _resolve_wea_path(
     wea_target: dict[str, Any] | None,
     wea_path: str | None,
 ) -> str:
-    wea_target = _unwrap_target(wea_target)
     if (wea_target is None) == (wea_path is None):
         raise ValueError("Provide exactly one of wea_target or wea_path.")
     if wea_target is not None:
@@ -437,10 +429,7 @@ def _radiance_parameters_from_input(value: str | dict[str, Any] | None) -> str |
     if isinstance(value, str):
         return value
     if isinstance(value, dict):
-        rad_par = value.get("radiance_parameters") or value.get("rad_par")
-        if not isinstance(rad_par, str) and isinstance(value.get("target"), dict):
-            target = value["target"]
-            rad_par = target.get("radiance_parameters") or target.get("value")
+        rad_par = value.get("radiance_parameters")
         if isinstance(rad_par, str):
             return rad_par
     raise ValueError("radiance_parameters must be a string or create_radiance_parameters result.")
@@ -489,7 +478,6 @@ def _run_id_from_target_or_value(
     run_target: dict[str, Any] | None,
     run_id: str | None,
 ) -> str:
-    run_target = _unwrap_target(run_target)
     if run_target is not None:
         if run_target.get("target_type") != RADIANCE_RUN_TARGET_TYPE:
             raise ValueError("run_target must be a radiance_run target.")
@@ -619,28 +607,6 @@ def _output_record(
     return record
 
 
-def _fallback_output_record(
-    *,
-    garden_root: Path,
-    run_dir: Path,
-    recipe_name: str,
-    output_name: str,
-) -> dict[str, Any] | None:
-    recipe_folder = run_dir / recipe_name.replace("-", "_")
-    if not recipe_folder.is_dir():
-        return None
-    candidate_roots = [recipe_folder / output_name, recipe_folder / "results"]
-    for root in candidate_roots:
-        if not root.exists():
-            continue
-        grid_info = sorted(root.rglob("grids_info.json"))
-        if grid_info:
-            return _output_record(garden_root, output_name, grid_info[0].parent)
-        if root.is_dir() and any(path.is_file() for path in root.rglob("*")):
-            return _output_record(garden_root, output_name, root)
-    return None
-
-
 def _recipe_outputs(
     *,
     garden_root_path: Path,
@@ -659,17 +625,12 @@ def _recipe_outputs(
             output_value = None
             warnings.append(f"Could not resolve recipe output {name}: {exc}")
         record = _output_record(garden_root_path, name, output_value)
-        if not record["exists"]:
-            fallback = _fallback_output_record(
-                garden_root=garden_root_path,
-                run_dir=run_dir,
-                recipe_name=recipe_name,
-                output_name=name,
-            )
-            if fallback is not None:
-                record = fallback
         outputs.append(record)
     return outputs
+
+
+def _missing_required_outputs(outputs: list[dict[str, Any]]) -> list[str]:
+    return [str(output.get("name")) for output in outputs if not output.get("exists")]
 
 
 def _public_run(record: dict[str, Any]) -> dict[str, Any]:
@@ -722,6 +683,7 @@ def _reconcile_running_record(
         warnings=warnings,
     )
     outputs_exist = bool(outputs) and all(output.get("exists") for output in outputs)
+    missing_outputs = _missing_required_outputs(outputs)
     logged_status, logged_message = _recipe_log_status(
         run_dir=run_dir,
         recipe_name=recipe_name,
@@ -740,9 +702,27 @@ def _reconcile_running_record(
         )
         _upsert_record(garden_root_path, record)
         return record
-    if outputs_exist and (
+    completed_in_log = (
         logged_status in {"completed", "complete", "done", "success", "succeeded"}
         or _recipe_log_progress_complete(run_dir=run_dir, recipe_name=recipe_name)
+    )
+    if completed_in_log and missing_outputs:
+        record.update(
+            {
+                "status": "failed",
+                "completed_at": record.get("completed_at") or utc_now_iso(),
+                "outputs": outputs,
+                "warnings": [
+                    *warnings,
+                    "Radiance recipe finished without required outputs: "
+                    + ", ".join(missing_outputs),
+                ],
+            }
+        )
+        _upsert_record(garden_root_path, record)
+        return record
+    if outputs_exist and (
+        completed_in_log
     ):
         record.update(
             {
@@ -913,6 +893,13 @@ def run_radiance_recipe(
         run_dir=run_dir,
         warnings=warnings,
     )
+    missing_outputs = _missing_required_outputs(outputs)
+    if status == "completed" and missing_outputs:
+        status = "failed"
+        warnings.append(
+            "Radiance recipe finished without required outputs: "
+            + ", ".join(missing_outputs)
+        )
     record = _run_record_by_id(garden_root_path, run_id)
     record.update(
         {
@@ -965,7 +952,7 @@ def _start_radiance_run(
     garden_root_path = _garden_root(garden_root)
     manifest, resolved_model_target = resolve_model_target(
         garden_root_path,
-        _unwrap_target(model_target),
+        model_target,
     )
     model_path = _model_path_from_target(garden_root_path, resolved_model_target)
     run_id = _normalize_run_id(run_id)

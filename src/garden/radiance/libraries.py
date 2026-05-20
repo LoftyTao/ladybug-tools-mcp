@@ -70,18 +70,14 @@ def search_radiance_library_objects(
     *,
     query: str,
     object_family: str | None = None,
-    object_type: str | None = None,
     limit: int = 10,
-    garden_root: str | None = None,
 ) -> dict[str, Any]:
     """Search Honeybee Radiance standards library identifiers."""
-    _ = garden_root
     if limit < 1:
         raise ValueError("limit must be greater than zero.")
     tokens = _query_tokens(query)
     matches: list[dict[str, Any]] = []
-    selected_family = object_family if object_family is not None else object_type
-    for family in _selected_families(selected_family):
+    for family in _selected_families(object_family):
         for identifier in family.identifiers:
             score = _score_identifier(identifier, tokens, query)
             if score <= 0:
@@ -101,7 +97,7 @@ def search_radiance_library_objects(
         "matches": limited,
         "summary_view": {
             "query": query,
-            "object_family": selected_family or "all",
+            "object_family": object_family or "all",
             "match_count": len(limited),
             "available_families": list(_FAMILIES_BY_KEY),
         },

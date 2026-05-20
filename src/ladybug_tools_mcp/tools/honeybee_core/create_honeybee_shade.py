@@ -12,7 +12,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="create_honeybee_shade",
-        description="Create an orphaned Honeybee Shade or attach it to a Room, Face, Aperture, or Door typed target from explicit Face3D geometry. This is not the default louver, overhang, sunshade, or window shade tool; for natural parametric shade requests use create_honeybee_shades_by_parameters instead. Requires garden_root, unique identifier, and geometry; hosted shades also need host_target from search_honeybee_model_objects matches[i].target or a prior result target. If the identifier already exists, search and reuse the existing shade target, remove it first, or choose a new identifier. The parameter names are exactly geometry and host_target, not Face3D and not host_face. Unique full tool/search responses can be auto-unwrapped; never pass arguments null or {}.",
+        description="Create an orphaned Honeybee Shade or attach it to a Room, Face, Aperture, or Door typed target from explicit Face3D geometry. This is not the default louver, overhang, sunshade, or window shade tool; for natural parametric shade requests use create_honeybee_shades_by_parameters instead. Requires garden_root, unique identifier, and geometry; hosted shades also need host_target from search_honeybee_model_objects matches[i].target or a prior result target. If the identifier already exists, search and reuse the existing shade target, remove it first, or choose a new identifier. The parameter names are exactly geometry and host_target, not Face3D and not host_face. Never pass arguments null or {}.",
         tags={
             "honeybee-core",
             "garden-mode",
@@ -40,15 +40,11 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         geometry: Annotated[
-            dict[str, Any] | None,
+            dict[str, Any],
             Field(
                 description="Required Ladybug Geometry Face3D dict, for example {'type':'Face3D','boundary':[[x,y,z],...]}; boundary points may also be {'x':0,'y':0,'z':0} Point3D dicts. Omit plane unless using exact Ladybug Plane keys n, o, and x. Pass this inline geometry dict directly; no separate Point3D tool and no separate Face3D tool are needed. Parameter name is geometry, not Face3D; not Rhino geometry."
             ),
-        ] = None,
-        plane: Annotated[
-            list[list[float]] | dict[str, Any] | None,
-            Field(description="Agent alias for simple planar shade boundary vertices. Converted to geometry Face3D."),
-        ] = None,
+        ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
@@ -58,7 +54,7 @@ def register(mcp: FastMCP) -> None:
         host_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee room/face/aperture/door typed target dict from nested target search_honeybee_model_objects matches[i].target or a prior create result target; parameter name is host_target, not host_face. A unique full tool response can be auto-unwrapped; omit for orphaned shade."
+                description="Optional Honeybee room/face/aperture/door typed target dict from nested target search_honeybee_model_objects matches[i].target or a prior create result target; parameter name is host_target, not host_face. Full responses are rejected; omit for orphaned shade."
             ),
         ] = None,
         attach_side: Annotated[
@@ -72,10 +68,6 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create a Honeybee Shade."""
-        if geometry is None and plane is not None:
-            geometry = {"type": "Face3D", "boundary": plane}
-        if geometry is None:
-            raise ValueError("Provide geometry or plane for create_honeybee_shade.")
         return service(
             garden_root=garden_root,
             identifier=identifier,

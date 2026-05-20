@@ -10,8 +10,8 @@
 
 当前自然语言验证里，稳定出现的主链是：
 
-1. 先 `search_tools(...)`
-2. 再 `call_tool(search_honeybee_model_objects)`
+1. 先 `search(...)`
+2. 再 `await call_tool(search_honeybee_model_objects)`
 3. 从返回结果里读取 typed target
 4. 把 target 继续传给后续 `create / remove / edit` 或用于二次确认
 
@@ -37,22 +37,14 @@
 - face 搜索结果带有 `normal` dict 和 `normal_vector` list。低智能 Agent 如果要
   用索引方式判断朝向，应读 `normal_vector[1]`，不要把 `normal` dict 当 list。
 - To recover from partial writes, pass `children_scope` with a room, face, aperture, or door typed target. This returns only child objects under that host and avoids hand-filtering parent identifiers in Agent code.
-- `children_scope` 优先传 typed target；服务也能接受 `{ "room": "open_office" }`
-  或只有 `object_identifier` 的低保真引用，以减少真实 Agent 重试。2026-04-26
-  B-stage MiniMax 又观察到裸字符串 `children_scope="open_office"`；服务现在会把它按
-  parent identifier shorthand 处理。推荐路径仍是 typed target 或 `{ "room": "..." }`。
-- 2026-04-28 forum-fuzzy Test-Garden probe verified two more recovery shorthands:
-  boolean `children_scope=true` is treated as a harmless hint, and `host_target`
-  is accepted as a parent-scope alias when searching faces/apertures/shades under
-  a room, face, aperture, or door. Recommended planned calls should still use
-  `children_scope=<typed target>`.
-- Code Mode 里如果无意传入 `detail` 或 `return_object_dict`，服务会保持紧凑搜索结果，不会返回完整对象正文；推荐调用仍应只传需要的 `garden_root/object_type/identifier/query/children_scope`。
-- 如果模型误写 `matches_limit`，服务会按 `limit` 处理；如果误写 `search_pattern`，
-  服务会按 `query` 处理。推荐调用仍写 `limit` 和 `query`。
+- `children_scope` 传 typed target。不要传裸字符串、boolean、`host_target`
+  或旧的 shorthand 字段；这些不属于当前公开 contract。
+- Code Mode 调用只传需要的 `garden_root/object_type/identifier/query/children_scope/limit`
+  等正式字段；搜索结果保持紧凑，不返回完整对象正文。
 - room 搜索结果会包含 compact `energy_properties`。做 Stage C / 能耗属性确认时，
   先读 `matches[i].energy_properties`，不要发明 `get_honeybee_room`，也不要要求
   搜索返回完整 room object body。
-- 服务层可以在只有一个有效 target 时自动 unwrap 常见完整 response，但推荐路径仍是显式传 `matches[i].target`。
+- 下游工具只接收显式 typed target。搜索后传 `matches[i].target`，不要传完整 response。
 - 如果完整搜索结果里有多个 target，会失败并要求选择一个嵌套 target。
 
 这个搜索收敛链已经在以下场景中被验证使用：
@@ -83,7 +75,7 @@
 
 ## 已验证成功判据
 
-- 工具调用里出现 `search_tools`
+- 工具调用里出现 `search`
 - 后续调用里出现 `search_honeybee_model_objects`
 - 搜索 query 或最终说明能反映出对象层级收敛，而不是一直停留在泛化的 `model`
 - 搜索出来的 target 能继续传给写工具或用于说明当前缺口

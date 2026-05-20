@@ -12,7 +12,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="start_energy_run",
-        description="Start an annual energy simulation / Honeybee Energy annual-energy-use recipe for a Garden Honeybee model and return immediately with target, energy_run_target, run_target, and summary_view.poll_next.arguments. Use this Agent path for energy use intensity, EUI, annual loads, and EnergyPlus/OpenStudio simulation runs. Also use start_energy_run with reload_old=true to reload a completed annual energy simulation run. Agent weather data is Garden-managed: pass weather_target from download_epw/search_weather_files, then poll get_energy_run with garden_root and run_target instead of holding a blocking run_energy call open. Advanced users can pass Garden-local additional_idf_path, inline additional_idf_text, or measures_path for recipe additional-idf / OpenStudio measures.",
+        description="Start an annual energy simulation / Honeybee Energy annual-energy-use recipe for a Garden Honeybee model and return immediately with target, energy_run_target, run_target, and summary_view.poll_next.arguments. Use this Agent path for energy use intensity, EUI, annual loads, and EnergyPlus/OpenStudio simulation runs. Also use start_energy_run with reload_old=true to reload a completed annual energy simulation run. Agent weather data is Garden-managed: pass weather_target from download_epw/search_weather_files, then poll get_energy_run with garden_root and run_target instead of holding a blocking run_energy call open. The optional run naming parameter is run_id; do not pass identifier, name, or target_identifier. For side-by-side HVAC comparisons, reuse the same weather_target for both runs and give each run a distinct run_id. Advanced users can pass Garden-local additional_idf_path, inline additional_idf_text, or measures_path for recipe additional-idf / OpenStudio measures.",
         tags={
             "run-energy",
             "energy",
@@ -35,18 +35,6 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str, Field(description="Garden root containing garden.json.")
         ],
-        epw_path: Annotated[
-            str | None,
-            Field(
-                description="Garden-relative EPW path fallback for controlled tests. Agents should pass the Garden weather_file target instead."
-            ),
-        ] = None,
-        ddy_path: Annotated[
-            str | None,
-            Field(
-                description="Garden-relative DDY path fallback for controlled tests. Agents should pass the Garden weather_file target instead."
-            ),
-        ] = None,
         weather_target: Annotated[
             dict[str, Any] | None,
             Field(
@@ -118,8 +106,6 @@ def register(mcp: FastMCP) -> None:
         """Start annual energy-use simulation and return an energy_run target."""
         return service(
             garden_root=garden_root,
-            epw_path=epw_path,
-            ddy_path=ddy_path,
             weather_target=weather_target,
             model_target=model_target,
             sim_par=sim_par,

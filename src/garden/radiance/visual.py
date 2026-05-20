@@ -42,12 +42,6 @@ def _garden_root(value: str | Path) -> Path:
     return Path(value).expanduser().resolve()
 
 
-def _unwrap_target(target: dict[str, Any] | None) -> dict[str, Any] | None:
-    if isinstance(target, dict) and isinstance(target.get("target"), dict):
-        return target["target"]
-    return target
-
-
 def _run_record(
     garden_root: Path,
     *,
@@ -55,7 +49,7 @@ def _run_record(
     run_id: str | None = None,
 ) -> dict[str, Any]:
     resolved_run_id = _run_id_from_target_or_value(
-        run_target=_unwrap_target(run_target),
+        run_target=run_target,
         run_id=run_id,
     )
     for record in _read_index(garden_root):
@@ -93,7 +87,7 @@ def _validate_run_target_garden(record: dict[str, Any], manifest: GardenManifest
     if target.get("domain") != RADIANCE_RUN_DOMAIN:
         raise ValueError("Radiance run record has an invalid domain.")
     garden_id = target.get("garden_id")
-    if garden_id and garden_id != manifest.garden_id:
+    if garden_id != manifest.garden_id:
         raise ValueError("Radiance run belongs to a different Garden.")
 
 
@@ -372,7 +366,7 @@ def radiance_hdr_to_falsecolor(
     manifest = GardenManifest.read(garden_root_path)
     input_path, record = _resolve_hdr_input(
         garden_root_path,
-        run_target=_unwrap_target(run_target),
+        run_target=run_target,
         run_id=run_id,
         image_path=image_path,
         image_name=image_name,
@@ -469,7 +463,7 @@ def radiance_hdr_to_gif(
     manifest = GardenManifest.read(garden_root_path)
     input_path, record = _resolve_hdr_input(
         garden_root_path,
-        run_target=_unwrap_target(run_target),
+        run_target=run_target,
         run_id=run_id,
         image_path=image_path,
         image_name=image_name,
@@ -665,7 +659,7 @@ def radiance_grid_result_to_visualization_set(
     if run_target is not None or run_id is not None:
         record = _run_record(
             garden_root_path,
-            run_target=_unwrap_target(run_target),
+            run_target=run_target,
             run_id=run_id,
         )
         _validate_run_target_garden(record, manifest)
@@ -688,7 +682,7 @@ def radiance_grid_result_to_visualization_set(
             f"Allowed values: {allowed}."
         )
 
-    resolved_model_target = _unwrap_target(model_target) or (
+    resolved_model_target = model_target or (
         record.get("model_target") if record else None
     )
     if not resolved_model_target:

@@ -58,7 +58,7 @@ def register(mcp: FastMCP) -> None:
         data_type: Annotated[
             str,
             Field(
-                description="EPW data field or alias. Examples: dry_bulb_temperature, dry_bulb, relative_humidity, wind_speed, wind_direction, direct_normal_radiation, diffuse_horizontal_radiation, global_horizontal_radiation, dew_point_temperature, atmospheric_station_pressure."
+                description="EPW data field. Examples: dry_bulb_temperature, relative_humidity, wind_speed, wind_direction, direct_normal_radiation, diffuse_horizontal_radiation, global_horizontal_radiation, dew_point_temperature, atmospheric_station_pressure."
             ),
         ] = "dry_bulb_temperature",
         analysis_period: Annotated[

@@ -9,7 +9,7 @@ from pydantic import Field
 
 from garden.radiance.sky import create_climate_based_sky as service
 from ladybug_tools_mcp.tools.radiance.create_cie_standard_sky import (
-    _normalize_time_zone_alias,
+    _normalize_time_zone,
 )
 
 
@@ -56,10 +56,6 @@ def register(mcp: FastMCP) -> None:
             str | float | None,
             Field(description="Time for date/time mode, for example 12:00 or 12.0."),
         ] = None,
-        hour: Annotated[
-            str | float | None,
-            Field(description="Optional Agent alias for time."),
-        ] = None,
         time_zone: Annotated[
             str | int | float | None,
             Field(description="Optional Radiance time zone token such as MST or EST. Numeric offsets like -7 are accepted and normalized to common Radiance tokens."),
@@ -98,7 +94,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         sky_part: Annotated[
             str | None,
-            Field(description="Optional sky part hint: visible/luminance or solar/radiance."),
+            Field(description="Optional sky part value: visible/luminance or solar/radiance."),
         ] = None,
         latitude: Annotated[
             float | None,
@@ -124,29 +120,13 @@ def register(mcp: FastMCP) -> None:
         """Create a climate-based Radiance sky file."""
         if identifier is None:
             identifier = "climate_based_sky"
-        if time is None and hour is not None:
-            time = hour
-        if month is None:
-            month = 6
-        if day is None:
-            day = 21
-        if time is None:
-            time = "12:00"
-        if (
-            direct_normal_irradiance is None
-            and diffuse_horizontal_irradiance is None
-            and direct_normal_illuminance is None
-            and diffuse_horizontal_illuminance is None
-        ):
-            direct_normal_irradiance = 800
-            diffuse_horizontal_irradiance = 120
         return service(
             garden_root=garden_root,
             identifier=identifier,
             month=month,
             day=day,
             time=time,
-            time_zone=_normalize_time_zone_alias(time_zone),
+            time_zone=_normalize_time_zone(time_zone),
             solar_time=solar_time,
             solar_altitude=solar_altitude,
             solar_azimuth=solar_azimuth,

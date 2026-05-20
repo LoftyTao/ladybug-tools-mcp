@@ -54,21 +54,9 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Stable SensorGrid identifier. Defaults to object_sensor_grid."),
         ] = None,
-        shade_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent alias for object_target when the source object is a Shade."),
-        ] = None,
-        surface_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Agent alias for object_target for face/aperture/door/shade surfaces."),
-        ] = None,
         grid_spacing: Annotated[
             float | None,
             Field(description="Optional approximate spacing in model units used to derive x_count/y_count."),
-        ] = None,
-        spacing: Annotated[
-            float | None,
-            Field(description="Alias for grid_spacing accepted for Agent compatibility."),
         ] = None,
         x_count: Annotated[
             int | None,
@@ -114,12 +102,6 @@ def register(mcp: FastMCP) -> None:
         """Create a Honeybee Radiance SensorGrid from an object surface."""
         if identifier is None:
             identifier = "object_sensor_grid"
-        if shade_target is not None:
-            object_target = shade_target
-        if surface_target is not None:
-            object_target = surface_target
-        if grid_spacing is None and spacing is not None:
-            grid_spacing = spacing
         return service(
             identifier=identifier,
             object_target=object_target,

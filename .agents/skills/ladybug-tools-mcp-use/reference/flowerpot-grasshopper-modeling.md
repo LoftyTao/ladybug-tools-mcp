@@ -89,7 +89,6 @@ validation = await call_tool(
 - 不要让 Agent 手动拆 `payload_context.garden_root`；这会破坏 Flowerpot 的 opaque handoff 目标。
 - `get_flowerpot(..., include_body=True)` 仍不会返回模型正文；建模链路应继续使用 Garden root 和 typed targets。
 - Repeated `create_flowerpot` calls now default to reuse for the same source, target, and platform context. Only use `force_new=true` when the user explicitly needs a separate handoff record.
-- `get_active_flowerpot_context` may return `summary_view.source="registry_fallback"` if the GH worker has not written `flowerpots/active_context/<platform>.json` yet. Treat that as useful current-Garden context, but not as proof that the live GH component has refreshed.
 - 当前打开的 GH 文档如果还运行的是旧脚本，需要让组件至少解算一次以加载新版 runtime；之后 `follow_=True` 的 refresh poll 才会持续存在。
 - Rhino/GH UI 运行时仍需要单独平台 smoke；本路径验证的是 Flowerpot worker 到 MCP Agent 建模的服务侧链路。
 

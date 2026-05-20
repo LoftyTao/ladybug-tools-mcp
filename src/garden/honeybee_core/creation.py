@@ -145,16 +145,13 @@ def create_honeybee_model(
             change_details=add_summary,
         )
     else:
-        object_dict = (
-            model.to_dict()
-            if include_body
-            else {"domain": "honeybee", "model_identifier": identifier}
-        )
+        model_target = None
+        object_dict = model.to_dict() if include_body else None
 
     return {
         "object_dict": object_dict,
-        "target": object_dict,
-        "model_target": object_dict,
+        "target": model_target,
+        "model_target": model_target,
         "summary_view": {
             "model_identifier": identifier,
             "units": units,
@@ -195,155 +192,10 @@ def _save_changed_model(
     )
 
 
-def _natural_identifier_matches(actual: str, requested: str) -> bool:
-    actual_value = str(actual)
-    requested_value = str(requested)
-    return actual_value == requested_value or actual_value.endswith(
-        f"_{requested_value}"
-    )
-
-
-def _natural_target_type(value: Any) -> str:
-    return str(value or "").replace("_", "").lower()
-
-
-def _target_from_unique_identifier(
-    identifier: str,
-    *,
-    object_type: str | None,
-    model: Model,
-    manifest: GardenManifest,
-    model_target: dict[str, Any],
-) -> dict[str, Any] | None:
-    matches: list[dict[str, Any]] = []
-    allowed_type = _natural_target_type(object_type)
-    room_face_ids: set[str] = set()
-    for room in model.rooms:
-        if allowed_type in {"", "room", "honeybeeroom", "honeybeeobject"}:
-            if _natural_identifier_matches(room.identifier, identifier):
-                matches.append(
-                    make_honeybee_object_target(
-                        garden_id=manifest.garden_id,
-                        model_identifier=str(model_target["model_identifier"]),
-                        object_type="room",
-                        object_identifier=room.identifier,
-                    )
-                )
-        for face in room.faces:
-            if allowed_type in {"", "face", "honeybeeface", "honeybeeobject"}:
-                if _natural_identifier_matches(face.identifier, identifier):
-                    room_face_ids.add(face.identifier)
-                    matches.append(
-                        make_honeybee_object_target(
-                            garden_id=manifest.garden_id,
-                            model_identifier=str(model_target["model_identifier"]),
-                            object_type="face",
-                            object_identifier=face.identifier,
-                            parent={"room_identifier": room.identifier},
-                        )
-                    )
-    if allowed_type in {"", "face", "honeybeeface", "honeybeeobject"}:
-        for face in getattr(model, "faces", []) or []:
-            if face.identifier in room_face_ids:
-                continue
-            if _natural_identifier_matches(face.identifier, identifier):
-                matches.append(
-                    make_honeybee_object_target(
-                        garden_id=manifest.garden_id,
-                        model_identifier=str(model_target["model_identifier"]),
-                        object_type="face",
-                        object_identifier=face.identifier,
-                    )
-                )
-    return matches[0] if len(matches) == 1 else None
-
-
-def _target_from_natural_reference(
-    value: Any,
-    *,
-    model: Model,
-    manifest: GardenManifest,
-    model_target: dict[str, Any],
-) -> dict[str, Any] | None:
-    if not isinstance(value, dict):
-        return None
-    object_type = _natural_target_type(value.get("object_type") or value.get("type"))
-    identifier = value.get("object_identifier") or value.get("identifier")
-    if not isinstance(identifier, str) or not identifier:
-        return None
-    host = value.get("host") or value.get("parent") or {}
-    host_type = _natural_target_type(host.get("object_type") or host.get("type"))
-    host_identifier = host.get("object_identifier") or host.get("identifier")
-
-    if object_type == "room":
-        for room in model.rooms:
-            if _natural_identifier_matches(room.identifier, identifier):
-                return make_honeybee_object_target(
-                    garden_id=manifest.garden_id,
-                    model_identifier=str(model_target["model_identifier"]),
-                    object_type="room",
-                    object_identifier=room.identifier,
-                )
-        return None
-
-    if object_type in {"", "honeybeeobject"}:
-        return _target_from_unique_identifier(
-            identifier,
-            object_type=object_type,
-            model=model,
-            manifest=manifest,
-            model_target=model_target,
-        )
-
-    if object_type != "face":
-        return None
-
-    if host_type in {"room", "honeybeeroom"} and isinstance(host_identifier, str):
-        rooms = [
-            room
-            for room in model.rooms
-            if _natural_identifier_matches(room.identifier, host_identifier)
-        ]
-    else:
-        rooms = list(model.rooms)
-
-    matches: list[tuple[Room, Face]] = []
-    for room in rooms:
-        for face in room.faces:
-            if _natural_identifier_matches(face.identifier, identifier):
-                matches.append((room, face))
-    if len(matches) != 1:
-        return None
-
-    room, face = matches[0]
-    return make_honeybee_object_target(
-        garden_id=manifest.garden_id,
-        model_identifier=str(model_target["model_identifier"]),
-        object_type="face",
-        object_identifier=face.identifier,
-        parent={"room_identifier": room.identifier},
-    )
-
-
 def _resolve_object_target_for_model(
     value: Any,
-    *,
-    model: Model,
-    manifest: GardenManifest,
-    model_target: dict[str, Any],
 ) -> dict[str, Any]:
-    try:
-        return normalize_honeybee_object_target(value)
-    except ValueError as exc:
-        natural_target = _target_from_natural_reference(
-            value,
-            model=model,
-            manifest=manifest,
-            model_target=model_target,
-        )
-        if natural_target is not None:
-            return natural_target
-        raise exc
+    return normalize_honeybee_object_target(value)
 
 
 @with_honeybee_model_write_lock
@@ -494,12 +346,7 @@ def create_honeybee_aperture(
         model_target,
     )
     _ensure_unique_object_identifier(model, identifier)
-    host_target = _resolve_object_target_for_model(
-        host_target,
-        model=model,
-        manifest=manifest,
-        model_target=model_target,
-    )
+    host_target = _resolve_object_target_for_model(host_target)
     host = ensure_face_host(find_object(model, host_target))
     aperture = Aperture(
         identifier,
@@ -561,25 +408,11 @@ def create_honeybee_apertures_by_parameters(
     postprocess_strategy: str | None = None,
 ) -> dict[str, Any]:
     """Create Honeybee Apertures on a host Face with SDK parameter methods."""
-    generation_mode = {
-        "ratio": "by_ratio",
-        "window_ratio": "by_ratio",
-        "by_window_ratio": "by_ratio",
-        "count_and_ratio": "by_ratio",
-        "by_count_and_ratio": "by_ratio",
-        "width_height": "by_width_height",
-        "width_and_height": "by_width_height",
-    }.get(generation_mode, generation_mode)
     garden_root, manifest, model_target, model = _load_target_model(
         garden_root,
         model_target,
     )
-    host_target = _resolve_object_target_for_model(
-        host_target,
-        model=model,
-        manifest=manifest,
-        model_target=model_target,
-    )
+    host_target = _resolve_object_target_for_model(host_target)
     host = ensure_face_host(find_object(model, host_target))
     before_ids = {aperture.identifier for aperture in host.apertures}
 
@@ -775,32 +608,11 @@ def create_honeybee_shades_by_parameters(
     postprocess_strategy: str | None = None,
 ) -> dict[str, Any]:
     """Create Honeybee Shades on a Face or Aperture with SDK parameter methods."""
-    original_generation_mode = generation_mode
-    generation_mode = {
-        "louvers": "louver_by_count",
-        "louver": "louver_by_count",
-        "count": "louver_by_count",
-        "by_count": "louver_by_count",
-        "overhang": "louver_by_count",
-        "single_overhang": "louver_by_count",
-        "horizontal_overhang": "louver_by_count",
-        "sunshade": "louver_by_count",
-        "window_overhang": "louver_by_count",
-        "distance": "louver_by_distance_between",
-        "by_distance": "louver_by_distance_between",
-        "border": "extruded_border",
-        "extrude_border": "extruded_border",
-    }.get(generation_mode, generation_mode)
     garden_root, manifest, model_target, model = _load_target_model(
         garden_root,
         model_target,
     )
-    host_target = _resolve_object_target_for_model(
-        host_target,
-        model=model,
-        manifest=manifest,
-        model_target=model_target,
-    )
+    host_target = _resolve_object_target_for_model(host_target)
     host = find_object(model, host_target)
     if not isinstance(host, (Face, Aperture)):
         raise ValueError("host_target must identify a Honeybee Face or Aperture.")
@@ -818,25 +630,6 @@ def create_honeybee_shades_by_parameters(
     if not isinstance(parameters, dict):
         raise ValueError("parameters must be a dictionary.")
     parameters = dict(parameters)
-    if (
-        generation_mode == "louver_by_count"
-        and "louver_count" not in parameters
-        and parameters.get("count") is not None
-    ):
-        parameters["louver_count"] = parameters["count"]
-    if (
-        original_generation_mode
-        in {
-            "overhang",
-            "single_overhang",
-            "horizontal_overhang",
-            "sunshade",
-            "window_overhang",
-        }
-        and "louver_count" not in parameters
-    ):
-        parameters["louver_count"] = 1
-
     depth = parameters.get("depth")
     if depth is None or depth <= 0:
         raise ValueError("parameters.depth must be a positive number.")
@@ -1002,12 +795,7 @@ def create_honeybee_door(
         model_target,
     )
     _ensure_unique_object_identifier(model, identifier)
-    host_target = _resolve_object_target_for_model(
-        host_target,
-        model=model,
-        manifest=manifest,
-        model_target=model_target,
-    )
+    host_target = _resolve_object_target_for_model(host_target)
     host = ensure_face_host(find_object(model, host_target))
     if geometry is None:
         geometry = _rectangular_door_geometry_from_host(
@@ -1370,7 +1158,7 @@ def _created_object_response(
     message: str,
     postprocess: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    object_type = str(target.get("object_type") or target.get("type") or "").lower()
+    object_type = str(target.get("object_type") or "").lower()
     response = {
         "object_dict": object_dict,
         "target": target,

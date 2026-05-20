@@ -15,8 +15,8 @@ The MCP service remains the source of Flowerpot, Garden, and Honeybee behavior.
 
 Grasshopper outputs use a lightweight `FlowerpotHandle`. It is intentionally
 not a `dict` subclass, so Grasshopper should not expand it into dictionary keys
-in panels. It displays as `Flowerpot : <name>` while exposing `to_dict()`,
-`get()`, and `[]` access for downstream FP components.
+in panels. It displays as `Flowerpot : <name>` while exposing `to_payload()`
+for downstream FP components.
 
 ## Flowerpot Worker
 
@@ -54,14 +54,8 @@ can appear in Grasshopper without manually toggling the component. A currently
 open Grasshopper document must solve the component once with the updated script
 loaded before the automatic polling loop exists.
 
-Each component script bootstraps `sys.path` before importing helpers. By default it points at this repository root:
-
-```text
-D:\Desktop\Codex\rec-ladybug-tools-mcp
-```
-
-If the repository moves, set the `LADYBUG_TOOLS_MCP_ROOT` environment variable
-or edit `_DEVELOPMENT_SRC_ROOT` at the top of each component script. The
-bootstrap adds:
+Each component script bootstraps `sys.path` before importing helpers. It first
+uses `LADYBUG_TOOLS_MCP_SRC` when set, then falls back to the `src` folder next
+to this component folder. The bootstrap adds:
 
 - `src`

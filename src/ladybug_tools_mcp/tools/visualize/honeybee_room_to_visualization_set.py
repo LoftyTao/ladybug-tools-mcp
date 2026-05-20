@@ -14,7 +14,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="honeybee_room_to_visualization_set",
-        description="Visualize one Honeybee Room typed target as a Ladybug Display VisualizationSet. Use this read-only preview after object search finds the room target.",
+        description="Visualize one Honeybee Room typed target as a Ladybug Display VisualizationSet. color_by accepts only type, boundary_condition, or none; use type for simple room previews. Use this read-only preview after object search finds the room target. For Agent HTML/SVG/vtk.js export paths, set return_visualization_set=false so the tool saves a compact visualization_set_target for exporters instead of moving the full VisualizationSet dict.",
         tags={"visualize", "honeybee-core", "garden-mode", "room", "read", "safe"},
         annotations={"readOnlyHint": True},
         timeout=30,
@@ -58,6 +58,12 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional VisualizationSet identifier and display name."),
         ] = None,
+        return_visualization_set: Annotated[
+            bool,
+            Field(
+                description="Return the full VisualizationSet dict. Set false to save and return a compact visualization_set_target."
+            ),
+        ] = True,
     ) -> dict[str, Any]:
         """Build a VisualizationSet from a Garden Honeybee Room typed target."""
         return service(
@@ -70,4 +76,5 @@ def register(mcp: FastMCP) -> None:
             include_sub_faces=include_sub_faces,
             include_shades=include_shades,
             name=name,
+            return_visualization_set=return_visualization_set,
         )

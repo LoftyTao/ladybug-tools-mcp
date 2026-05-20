@@ -12,7 +12,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="create_honeybee_aperture",
-        description="Create a Honeybee Aperture in a Garden Honeybee model on a host Honeybee Face typed target from explicit Face3D geometry. This is not the default window, window-to-wall ratio, WWR, glazing ratio, or rectangular window tool; for natural parametric window requests use create_honeybee_apertures_by_parameters instead. Requires garden_root, identifier, geometry, and host_target from search_honeybee_model_objects matches[i].target or a prior create_honeybee_face target; the parameter names are exactly geometry and host_target, not Face3D and not host_face. Unique full tool/search responses can be auto-unwrapped, but never pass arguments null or {}.",
+        description="Create a Honeybee Aperture in a Garden Honeybee model on a host Honeybee Face typed target from explicit Face3D geometry. This is not the default window, window-to-wall ratio, WWR, glazing ratio, or rectangular window tool; for natural parametric window requests use create_honeybee_apertures_by_parameters instead. Requires garden_root, identifier, geometry, and host_target from search_honeybee_model_objects matches[i].target or a prior create_honeybee_face target; the parameter names are exactly geometry and host_target, not Face3D and not host_face. Never pass arguments null or {}.",
         tags={
             "honeybee-core",
             "garden-mode",
@@ -47,7 +47,7 @@ def register(mcp: FastMCP) -> None:
         host_target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee face typed target dict from nested target search_honeybee_model_objects matches[i].target or a prior create_honeybee_face result target; parameter name is host_target, not host_face. A unique full tool response can be auto-unwrapped, but ambiguous responses, room targets, and identifier strings are rejected."
+                description="Required Honeybee face typed target dict from nested target search_honeybee_model_objects matches[i].target or a prior create_honeybee_face result target; parameter name is host_target, not host_face. Full responses, room targets, and identifier strings are rejected."
             ),
         ],
         model_target: Annotated[

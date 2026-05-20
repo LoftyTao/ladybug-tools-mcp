@@ -46,7 +46,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         epw_path: Annotated[
             str | None,
-            Field(description="Optional Garden-relative EPW path fallback. Use instead of weather_target."),
+            Field(description="Optional Garden-relative EPW path. Use instead of weather_target."),
         ] = None,
         timestep: Annotated[
             int,

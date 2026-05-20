@@ -84,20 +84,6 @@ _FAMILIES = (
     ),
 )
 _FAMILIES_BY_KEY = {family.key: family for family in _FAMILIES}
-_FAMILY_GROUPS = {
-    "construction": (
-        "opaque_construction",
-        "window_construction",
-        "shade_construction",
-    ),
-}
-_FAMILY_ALIASES = {
-    "all": "all",
-    **{family.key: family.key for family in _FAMILIES},
-    **{family.key.replace("_", ""): family.key for family in _FAMILIES},
-    **{family.key.replace("_", " "): family.key for family in _FAMILIES},
-    **{family.label.lower(): family.key for family in _FAMILIES},
-}
 
 
 def _query_tokens(query: str) -> tuple[str, ...]:
@@ -124,16 +110,18 @@ def _selected_families(object_family: str | None) -> tuple[_LibraryFamily, ...]:
     normalized = None
     if object_family is not None:
         normalized = object_family.strip().replace("-", "_").lower()
-        normalized = _FAMILY_ALIASES.get(normalized, normalized)
     if normalized is None or normalized == "" or normalized == "all":
         return _FAMILIES
-    group = _FAMILY_GROUPS.get(normalized)
-    if group is not None:
-        return tuple(_FAMILIES_BY_KEY[key] for key in group)
     family = _FAMILIES_BY_KEY.get(normalized)
     if family is None:
-        allowed = ", ".join(["all", *_FAMILY_GROUPS, *_FAMILIES_BY_KEY])
-        raise ValueError(f"object_family must be one of: {allowed}.")
+        allowed = ", ".join(["all", *_FAMILIES_BY_KEY])
+        guidance = ""
+        if normalized == "setpoint":
+            guidance = (
+                " Setpoints are created, not searched in the standards library; "
+                "call create_setpoint with heating_setpoint and cooling_setpoint."
+            )
+        raise ValueError(f"object_family must be one of: {allowed}.{guidance}")
     return (family,)
 
 
@@ -141,14 +129,11 @@ def search_energy_library_objects(
     *,
     query: str,
     object_family: str | None = None,
-    object_type: str | None = None,
     limit: int = 10,
 ) -> dict[str, Any]:
     """Search Honeybee Energy standards library identifiers."""
     if limit < 1:
         raise ValueError("limit must be greater than zero.")
-    if object_family is None:
-        object_family = object_type
     tokens = _query_tokens(query)
     matches: list[dict[str, Any]] = []
     for family in _selected_families(object_family):
