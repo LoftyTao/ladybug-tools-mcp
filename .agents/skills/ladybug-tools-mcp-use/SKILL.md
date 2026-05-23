@@ -1,6 +1,6 @@
 ---
 name: ladybug-tools-mcp-use
-description: Use when operating Ladybug Tools MCP through FastMCP Code Mode, including the exact trigger phrase `Ladybug Tools MCP，测试开始` for user-led subagent testing, verified Garden-mode paths, base-model confirmation, or failure-diagnosis guidance.
+description: Use when operating Ladybug Tools MCP through FastMCP Code Mode, including verified Garden-mode paths, base-model confirmation, or failure-diagnosis guidance.
 ---
 
 # Ladybug Tools MCP Use
@@ -12,7 +12,7 @@ Use Garden mode and do not request full large payloads by default.
 
 ## Onboarding and Intent Triggers
 
-- If the user says the exact trigger phrase `Ladybug Tools MCP，测试开始`, enter user-led subagent testing mode. Spawn the project-scoped `ladybug_mcp_tester` custom agent, which uses `gpt-5.4-mini`, and pass it the user's testing task. Do not spawn this testing subagent for any other wording or by Agent initiative.
+- Do not spawn a project-scoped dedicated Ladybug Tools MCP tester agent. The former `ladybug_mcp_tester` custom agent has been retired; use the normal active MCP connection, deterministic tests, or explicit external Agent SDK harnesses when validation is needed.
 - If the user greets Ladybug Tools MCP with `你好！Ladybug Tools!`, `Hi, Ladybug Tools!`, or a similarly broad start, answer with the friendly fixed-structure `Bug Flyzzzzzzzzz!` welcome in the onboarding reference and ask for one of the three numbered top-level directions.
 - Match the user's trigger language for onboarding replies. A mixed-language greeting like `Hi，Ladybug Tools！` counts as English. Do not default to Chinese unless the user used Chinese or the language is unclear.
 - Keep `direction_label` values internal. Do not show `direction_label:` lines in the user-facing welcome; save the chosen label internally and continue into the Garden gate.
