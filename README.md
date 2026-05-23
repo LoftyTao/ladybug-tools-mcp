@@ -106,48 +106,6 @@ Using Codex as an example, you only need to:
 Help me install and configure the MCP from this project into this workspace.
 ```
 
-#### Codex Plugin Installation
-
-This repository also ships a local Codex plugin package. Codex does not install the plugin by reading `.codex-plugin/plugin.json` alone. It discovers plugins through a marketplace file, and this repository already includes both pieces:
-
-- `.agents/plugins/marketplace.json`
-- `plugins/ladybug-tools-mcp/.codex-plugin/plugin.json`
-
-To install this plugin into Codex:
-
-1. Clone this repository locally.
-2. Register the repository root as a local Codex marketplace:
-
-```bash
-codex plugin marketplace add <absolute-repo-path>
-```
-
-3. In the Codex app, open the Plugins sidebar, find `Ladybug Tools MCP`, and install or enable it.
-4. Restart Codex after installation or after later plugin edits so Codex reloads the installed copy.
-
-Codex installs the local plugin into `~/.codex/plugins/cache/<marketplace-name>/<plugin-name>/local/` and stores the enabled or disabled state in `~/.codex/config.toml`. See the official [Codex plugin build and install guide](https://developers.openai.com/codex/plugins/build) for the current plugin packaging details.
-
-#### Use the Codex Plugin
-
-After installation, start a new thread in Codex. You can then use the plugin in either of these ways:
-
-1. Type `@` in the composer and select `Ladybug Tools MCP`, then describe the task.
-2. Describe the task directly and let Codex choose the right installed plugin automatically.
-
-Use `@Ladybug Tools MCP` when you want to force Codex to use this plugin explicitly. For example:
-
-```text
-@Ladybug Tools MCP Create a new Garden for this project and build a simple Honeybee room with south-facing windows.
-```
-
-```text
-@Ladybug Tools MCP Search EPW data for Shanghai, download the weather file into my Garden, and start an energy simulation.
-```
-
-According to the official Codex plugin docs, after installation you should start a new thread and then either ask Codex for the outcome directly or type `@` to invoke a specific plugin explicitly. See [Plugins – Codex](https://developers.openai.com/codex/plugins).
-
-The following part is intended for agent applications:
-
 #### Local Installation Commands
 
 Run the following commands in the target workspace. Replace `<repo-url>` with the repository URL of this project and `<repo-dir>` with the cloned folder name.
@@ -352,25 +310,9 @@ The beta intentionally uses an explicit local port. If the requested port is alr
 
 ## First Use
 
-If you installed the `Ladybug Tools MCP` Codex plugin, the easiest first step is to use the plugin explicitly with `@`.
+After the MCP server is configured in your agent application, start a new thread and ask it to use Ladybug Tools MCP. In Codex, the most direct path is to configure the server in `~/.codex/config.toml` with the TOML example above, restart Codex, then describe the Garden or modeling task directly.
 
-### Use `@Ladybug Tools MCP` in Codex
-
-- Start a new thread in Codex.
-- Type `@` and select `Ladybug Tools MCP`.
-- Describe the task directly, or ask it to help you create or continue a Garden.
-
-For example:
-
-```text
-@Ladybug Tools MCP Create a new Garden for this project and build a simple Honeybee room with south-facing windows.
-```
-
-```text
-@Ladybug Tools MCP Continue my existing Garden and search EPW data for Shanghai, then download the weather file.
-```
-
-If you do not use the Codex plugin path, you can still invoke the `ladybug-tools-mcp-use` skill with `/`, then input `HI , Ladybug Tools !` to activate the onboarding flow for the three main usage intents that we provide. After the onboarding is complete, you can start building according to your intent.
+If your host supports skills, invoke the `ladybug-tools-mcp-use` skill with `/`, then input `HI , Ladybug Tools !` to activate the onboarding flow for the three main usage intents that we provide. After the onboarding is complete, you can start building according to your intent.
 
 ![Welcome Flow](resources/remotion/snapshots/videos/opencode-onboarding-flows/welcome-fixed-3-options-en-latest.gif)
 
@@ -551,7 +493,7 @@ These are the main directions for later development. Before there is a broad use
 - [ ] Dragonfly Model creation and editing tools
 - [ ] Add UrbanOpt support
 - [ ] More Visualization Set pre-processing and post-processing support
-- [ ] Redesign custom HVAC / Ironbug support for real custom HVAC system authoring
+- [ ] Design a standalone Ironbug Python API with Pydantic validation for real custom HVAC authoring
 - [ ] Web View and Model Editor tools for direct agent collaboration
 - [ ] A demo mode that can visualize all processes and steps
 - [ ] Cloud service support

@@ -1,7 +1,0 @@
-interface:
-  display_name: "Ladybug Tools MCP Use"
-  short_description: "Route Ladybug Tools MCP onboarding and FastMCP Code Mode workflows."
-  default_prompt: "Use $ladybug-tools-mcp-use to route Ladybug Tools MCP onboarding, Garden setup, and FastMCP Code Mode workflows."
-
-policy:
-  allow_implicit_invocation: true
