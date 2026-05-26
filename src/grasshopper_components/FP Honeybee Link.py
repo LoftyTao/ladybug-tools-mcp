@@ -62,7 +62,7 @@ except NameError:
 try:
     ghenv.Component.Name = "FP Honeybee Link"
     ghenv.Component.NickName = "HoneybeeLink"
-    ghenv.Component.Message = "0.1.0"
+    ghenv.Component.Message = "1.0.0"
     ghenv.Component.Category = "Flowerpot"
     ghenv.Component.SubCategory = "1 :: Honeybee"
     ghenv.Component.AdditionalHelpFromDocStrings = "1"

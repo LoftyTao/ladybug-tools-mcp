@@ -59,7 +59,7 @@ except NameError:
 try:
     ghenv.Component.Name = "FP Create Garden"
     ghenv.Component.NickName = "CreateGarden"
-    ghenv.Component.Message = "0.1.0"
+    ghenv.Component.Message = "1.0.0"
     ghenv.Component.Category = "Flowerpot"
     ghenv.Component.SubCategory = "0 :: Garden"
     ghenv.Component.AdditionalHelpFromDocStrings = "1"
