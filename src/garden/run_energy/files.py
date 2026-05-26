@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
-import io
 import json
 from pathlib import Path
 import shutil
@@ -16,6 +14,7 @@ from ladybug_tools_mcp.contracts.report import make_report
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import to_posix_relative
 from garden.run_energy.annual import (
+    _capture_recipe_stdio,
     _normalize_run_id,
     _output_record,
     _outputs_map,
@@ -247,7 +246,7 @@ def run_osm_file(
     osm_result: str | None = None
     idf_result: str | None = None
     try:
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        with _capture_recipe_stdio(run_dir):
             osm_result, idf_result = run_osw(
                 str(workflow_path),
                 measures_only=False,
@@ -345,7 +344,7 @@ def run_idf_file(
     result_paths: tuple[str | None, str | None, str | None, str | None, str | None]
     result_paths = (None, None, None, None, None)
     try:
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+        with _capture_recipe_stdio(run_dir):
             result_paths = run_idf(
                 str(run_input),
                 str(resolved_epw) if resolved_epw is not None else None,

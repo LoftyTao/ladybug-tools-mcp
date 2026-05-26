@@ -13,40 +13,34 @@ from garden.run_energy.results import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the energy_result_hourly_plot_to_html tool."""
+    'Register the energyplus_result_hourly_plot_to_html tool.'
 
     @mcp.tool(
-        name="energy_result_hourly_plot_to_html",
-        description="Create a ready-to-open Garden HTML artifact directly from one hourly EnergyPlus SQL DataCollection using Ladybug HourlyPlot. Use this only when the requested result is an HTML file.",
+        name="result_hourly_plot_to_html",
+        description="Create a ready-to-open Garden HTML artifact from one hourly EnergyPlus SQL DataCollection using Ladybug HourlyPlot. Use only when the requested result is an HTML file, not for EUI summaries or raw SQL DataCollection targets. Returns artifact_receipt, summary_view.artifact, summary_view.data_collection, and report; pass artifact_receipt.artifact_path or summary_view.artifact.path to preview/export flows.",
         tags={
-            "run-energy",
             "energy",
-            "simulation",
             "result",
+            "sql",
             "visualize",
             "hourly-plot",
-            "data-collection",
-            "sql",
-            "html",
             "artifact",
-            "write",
-            "safe",
         },
         timeout=90,
     )
     def energy_result_hourly_plot_to_html(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         output_name: Annotated[
             str,
-            Field(description="Exact EnergyPlus SQL output name to plot."),
+            Field(description="Exact EnergyPlus SQL output name to plot; choose it from energyplus_list_run_outputs or energyplus_read_result_data inventory."),
         ],
         run_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional energy_run target returned by start_energy_run or run_energy."
+                description='Energy run target returned by energyplus_start_simulation; pass run_target for polling unless you provide run_id.'
             ),
         ] = None,
         run_id: Annotated[

@@ -8,43 +8,44 @@ from garden.run_energy.annual import start_energy_run as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the start_energy_run tool."""
+    'Register the energyplus_start_simulation tool.'
 
     @mcp.tool(
-        name="start_energy_run",
-        description="Start an annual energy simulation / Honeybee Energy annual-energy-use recipe for a Garden Honeybee model and return immediately with target, energy_run_target, run_target, and summary_view.poll_next.arguments. Use this Agent path for energy use intensity, EUI, annual loads, and EnergyPlus/OpenStudio simulation runs. Also use start_energy_run with reload_old=true to reload a completed annual energy simulation run. Agent weather data is Garden-managed: pass weather_target from download_epw/search_weather_files, then poll get_energy_run with garden_root and run_target instead of holding a blocking run_energy call open. The optional run naming parameter is run_id; do not pass identifier, name, or target_identifier. For side-by-side HVAC comparisons, reuse the same weather_target for both runs and give each run a distinct run_id. Advanced users can pass Garden-local additional_idf_path, inline additional_idf_text, or measures_path for recipe additional-idf / OpenStudio measures.",
+        name="start_simulation",
+        description=(
+            "Start a nonblocking annual Honeybee Energy annual-energy-use "
+            "simulation for a Garden Honeybee model with Garden-managed "
+            "EPW/DDY weather. Pass weather_target from energyplus_download_epw "
+            "or energyplus_search_weather_files plus an optional Honeybee "
+            "model target. Returns run_target, energy_run_target, "
+            "runtime_status through summary_view.status, poll_next, and "
+            "report. Poll with energyplus_poll_simulation before reading "
+            "result artifacts. Treat failed runtime_status as requiring "
+            "report review."
+        ),
         tags={
-            "run-energy",
             "energy",
-            "simulation",
-            "annual-energy-use",
-            "annual-energy-simulation",
-            "energy-use-intensity",
-            "eui",
+            "simulate",
             "epw",
-            "ddy",
-            "recipe",
-            "background",
-            "agent",
-            "write",
-            "safe",
+            "poll",
+            "start",
         },
         timeout=60,
     )
     def start_energy_run(
         garden_root: Annotated[
-            str, Field(description="Garden root containing garden.json.")
+            str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")
         ],
         weather_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Garden-managed weather_file target returned by download_epw or search_weather_files."
+                description='Garden weather file target returned by energyplus_download_epw or a Garden-relative EPW path. Keep the full target with epw_path and ddy_path when possible; registered identifier/path-only targets can be rehydrated from garden.json.'
             ),
         ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target. Defaults to the Garden base model."
+                description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model."
             ),
         ] = None,
         sim_par: Annotated[
@@ -56,7 +57,7 @@ def register(mcp: FastMCP) -> None:
         output_request_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional parameter named exactly output_request_target. Pass the energy_output_request target returned by create_energy_output_request. It is merged into the SimulationParameter output section and recorded in the run ledger."
+                description='Optional parameter named exactly output_request_target. Pass the energy_output_request target returned by energyplus_create_output_request. It is merged into the SimulationParameter output section and recorded in the run ledger.'
             ),
         ] = None,
         additional_idf_path: Annotated[
@@ -82,7 +83,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional stable run identifier. Omit to generate one."),
         ] = None,
         units: Annotated[
-            str, Field(description="EUI units for result summaries: si or ip.")
+            str, Field(description="EUI units for EnergyPlus result summaries: si or ip.")
         ] = "si",
         workers: Annotated[
             int | None, Field(description="Optional recipe worker count.")
@@ -90,7 +91,7 @@ def register(mcp: FastMCP) -> None:
         reload_old: Annotated[
             bool,
             Field(
-                description="Reload existing recipe results for the run folder when available. With a completed Garden run ledger and matching run_id, return the completed energy_run target without starting a new background run."
+                description="Reload existing recipe results for the run folder when available. With a finished Garden run ledger and matching run_id, return the existing energy_run target without starting a new background run."
             ),
         ] = False,
         silent: Annotated[

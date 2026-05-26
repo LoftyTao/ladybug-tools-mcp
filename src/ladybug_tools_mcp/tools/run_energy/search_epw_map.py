@@ -8,22 +8,24 @@ from garden.run_energy.epw_map import search_epw_map as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_epw_map tool."""
+    'Register the energyplus_search_epw_map tool.'
 
     @mcp.tool(
-        name="search_epw_map",
-        description="Search the Ladybug Tools EPW map for remote weather candidates by station/location text, station id, source such as TMYx/TMY3, host such as onebuilding/doe, and optional coordinates. Returns a small epw_map_weather target for download_epw; accepts human text like 'Boston Logan TMY3'; never returns the full EPW map.",
+        name='search_epw_map',
+        description=(
+            "Search the Ladybug Tools EPW map for remote weather candidates "
+            "by station or location text, station id, source such as TMYx or "
+            "TMY3, host such as onebuilding or doe, and optional coordinates. "
+            "Returns small epw_map_weather targets for energyplus_download_epw "
+            "and accepts text like 'Boston Logan TMY3'. It does not register "
+            "weather files in a Garden; call energyplus_download_epw next."
+        ),
         tags={
-            "run-energy",
             "energy",
             "weather",
             "epw",
-            "epw-map",
-            "download",
             "search",
-            "target",
-            "read-only",
-            "safe",
+            "map",
         },
         annotations={"readOnlyHint": True},
         timeout=60,
@@ -53,7 +55,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional longitude for nearest-first sorting."),
         ] = None,
         max_results: Annotated[
-            int, Field(description="Maximum number of candidate records to return.")
+            int, Field(description="Maximum number of EPW map candidate records to return.")
         ] = 10,
     ) -> dict[str, Any]:
         """Search EPW map records."""

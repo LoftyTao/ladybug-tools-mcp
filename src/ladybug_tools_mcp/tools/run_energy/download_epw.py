@@ -8,22 +8,29 @@ from garden.run_energy.epw_map import download_epw as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the download_epw tool."""
+    'Register the energyplus_download_epw tool.'
 
     @mcp.tool(
-        name="download_epw",
-        description='Download a selected Ladybug Tools EPW map weather archive into the Garden imports/weather area, register it in garden.json, and return a reusable weather_file target for start_energy_run. Required natural path: search_epw_map(query="Boston Logan TMY3", max_results=1), then download_epw(garden_root="<Garden>", epw_map_target=matches[0].target). This tool has no global/default weather folder mode.',
+        name='download_epw',
+        description=(
+            "Download a selected Ladybug Tools EPW map weather archive into "
+            "the Garden imports/weather area, register it in garden.json, and "
+            "return a reusable weather_file target for "
+            "energyplus_start_simulation. Normal path: "
+            "energyplus_search_epw_map(query='Boston Logan TMY3', "
+            "max_results=1), then energyplus_download_epw with the returned "
+            "epw_map_target and the same garden_root. This tool has no "
+            "global weather folder mode and does not start EnergyPlus, UWG, "
+            "or Radiance workflows. If the remote weather website fails, the "
+            "tool returns report.status='blocked' with recovery download "
+            "fields."
+        ),
         tags={
-            "run-energy",
             "energy",
             "weather",
             "epw",
-            "epw-map",
-            "download",
-            "weather-file",
-            "target",
-            "write",
-            "safe",
+            "author",
+            "ddy",
         },
         timeout=300,
     )
@@ -31,13 +38,13 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path. Downloaded EPW/DDY files are always stored under this Garden's imports/weather folder."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ],
         epw_map_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional epw_map_weather target returned by search_epw_map matches[i].target."
+                description='Optional EPW map target returned by energyplus_search_epw_map; pass the target dict, not a weather URL. If omitted, provide query.'
             ),
         ] = None,
         query: Annotated[
@@ -48,7 +55,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         source: Annotated[
             str | None,
-            Field(description="Optional source filter, for example TMYx or TMY3."),
+            Field(description="Optional EPW source filter, for example TMYx or TMY3."),
         ] = None,
         host: Annotated[
             str | None, Field(description="Optional host filter: onebuilding or doe.")

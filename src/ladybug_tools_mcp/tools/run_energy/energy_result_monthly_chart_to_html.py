@@ -13,36 +13,25 @@ from garden.run_energy.results import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the energy_result_monthly_chart_to_html tool."""
+    'Register the energyplus_result_monthly_chart_to_html tool.'
 
     @mcp.tool(
-        name="energy_result_monthly_chart_to_html",
-        description="Create a ready-to-open Garden HTML artifact directly from one or more EnergyPlus SQL DataCollections using Ladybug MonthlyChart / monthly chart. Use this only when the requested result is an HTML file. Each series item uses output_name, optional collection_index, and optional label; the label is written into the DataCollection header metadata for the chart legend.",
+        name="result_monthly_chart_to_html",
+        description="Create a ready-to-open Garden HTML artifact from one or more EnergyPlus SQL DataCollections using Ladybug MonthlyChart. Each series item uses output_name plus optional collection_index, run_period_index, and label metadata. Returns artifact_receipt, summary_view.artifact, summary_view.series, and report; pass artifact_receipt.artifact_path or summary_view.artifact.path to preview/export flows.",
         tags={
-            "run-energy",
             "energy",
-            "simulation",
             "result",
+            "sql",
             "visualize",
             "monthly-chart",
-            "line-chart",
-            "daily-chart",
-            "monthly-per-hour",
-            "data-collection",
-            "sql",
-            "html",
             "artifact",
-            "legend",
-            "metadata",
-            "write",
-            "safe",
         },
         timeout=90,
     )
     def energy_result_monthly_chart_to_html(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         series: Annotated[
             list[dict[str, Any]],
@@ -53,7 +42,7 @@ def register(mcp: FastMCP) -> None:
         run_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional energy_run target returned by start_energy_run or run_energy."
+                description='Energy run target returned by energyplus_start_simulation; pass run_target for polling unless you provide run_id.'
             ),
         ] = None,
         run_id: Annotated[

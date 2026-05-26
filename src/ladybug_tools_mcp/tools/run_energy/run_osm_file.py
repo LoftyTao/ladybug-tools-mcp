@@ -11,35 +11,31 @@ from garden.run_energy.files import run_osm_file as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the run_osm_file tool."""
+    'Register the energyplus_run_osm_file tool.'
 
     @mcp.tool(
-        name="run_osm_file",
+        name='run_osm_file',
         description=(
-            "Run a user-edited OpenStudio .osm file inside a Garden. The tool "
-            "deterministically creates or updates a persistent workflow.osw beside "
-            "the OSM file, then runs OpenStudio with measures_only=false so "
-            "OpenStudio/EnergyPlus outputs stay in the OSM folder's run directory. "
-            "Use this after an Agent or user modifies an OSM for HVAC or other "
-            "OpenStudio-level edits."
+            "Run a user-edited OpenStudio OSM file inside a Garden by creating "
+            "or updating workflow.osw beside the OSM file. Use this after "
+            "OpenStudio-level HVAC or measure edits. This is a blocking file "
+            "run and does not author a Honeybee model. Returns run_target, "
+            "energy_run_target, runtime_status through summary_view.status, "
+            "and report."
         ),
         tags={
-            "run-energy",
             "energy",
+            "simulate",
             "openstudio",
             "osm",
-            "osw",
-            "energyplus",
-            "file-run",
-            "write",
-            "safe",
+            "blocking",
         },
         timeout=3600,
     )
     def run_osm_file(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         osm_path: Annotated[
             str,
@@ -54,8 +50,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Garden weather_file target returned by download_epw "
-                    "or search_weather_files. Use instead of epw_path."
+                    'Optional Garden weather_file target returned by energyplus_download_epw '
+                    'or energyplus_search_weather_files. Use instead of epw_path.'
                 )
             ),
         ] = None,
@@ -69,7 +65,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         run_id: Annotated[
             str | None,
-            Field(description="Optional stable run identifier. Omit to generate one."),
+            Field(description="Optional stable OpenStudio OSM run identifier. Omit to generate one."),
         ] = None,
         silent: Annotated[
             bool,

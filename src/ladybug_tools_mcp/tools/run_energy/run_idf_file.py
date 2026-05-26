@@ -11,33 +11,31 @@ from garden.run_energy.files import run_idf_file as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the run_idf_file tool."""
+    'Register the energyplus_run_idf_file tool.'
 
     @mcp.tool(
-        name="run_idf_file",
+        name='run_idf_file',
         description=(
-            "Run a user-edited EnergyPlus .idf file inside a Garden. This follows "
-            "Ladybug Tools Grasshopper behavior: if the input is already named "
-            "in.idf it runs in that folder; otherwise the file is copied to a "
-            "sibling run/in.idf folder and EnergyPlus runs there. Use this after "
-            "an Agent or user modifies IDF algorithms, EMS, HVAC templates, or "
-            "other EnergyPlus-level objects."
+            "Run a user-edited EnergyPlus IDF file inside a Garden with the "
+            "Ladybug Tools Grasshopper file-run pattern. Use this after a user "
+            "edits IDF algorithms, EMS, HVAC templates, or other EnergyPlus "
+            "objects. This is a blocking file run and does not author a "
+            "Honeybee model. Returns run_target, energy_run_target, "
+            "runtime_status through summary_view.status, and report."
         ),
         tags={
-            "run-energy",
             "energy",
-            "energyplus",
+            "simulate",
             "idf",
-            "file-run",
-            "write",
-            "safe",
+            "file",
+            "blocking",
         },
         timeout=3600,
     )
     def run_idf_file(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         idf_path: Annotated[
             str,
@@ -52,8 +50,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Garden weather_file target returned by download_epw "
-                    "or search_weather_files. Use instead of epw_path."
+                    'Optional Garden weather_file target returned by energyplus_download_epw '
+                    'or energyplus_search_weather_files. Use instead of epw_path.'
                 )
             ),
         ] = None,
@@ -76,7 +74,7 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         run_id: Annotated[
             str | None,
-            Field(description="Optional stable run identifier. Omit to generate one."),
+            Field(description="Optional stable EnergyPlus IDF run identifier. Omit to generate one."),
         ] = None,
         silent: Annotated[
             bool,

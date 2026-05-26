@@ -8,21 +8,24 @@ from garden.run_energy.config import search_weather_files as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_weather_files tool."""
+    'Register the energyplus_search_weather_files tool.'
 
     @mcp.tool(
-        name="search_weather_files",
-        description="Search weather_file targets already managed by a Garden under imports/weather and registered in garden.json. This tool does not search global SDK weather folders. For a new weather file, use search_epw_map then download_epw with the same garden_root, and pass the returned weather_target to start_energy_run.",
+        name='search_weather_files',
+        description=(
+            "Search weather_file targets already managed by a Garden under "
+            "imports/weather and registered in garden.json. This tool does "
+            "not search global SDK weather folders, remote EPW map records, or "
+            "UWG parameter files. For a new weather file, use "
+            "energyplus_search_epw_map then energyplus_download_epw with the "
+            "same garden_root."
+        ),
         tags={
-            "run-energy",
             "energy",
             "weather",
             "epw",
-            "ddy",
             "search",
-            "target",
-            "read-only",
-            "safe",
+            "garden",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
@@ -30,7 +33,7 @@ def register(mcp: FastMCP) -> None:
     def search_weather_files(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         query: Annotated[
             str | None,
@@ -39,7 +42,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         max_results: Annotated[
-            int, Field(description="Maximum number of EPW matches to return.")
+            int, Field(description="Maximum number of Garden EPW matches to return.")
         ] = 10,
         require_ddy: Annotated[
             bool,

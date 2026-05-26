@@ -8,32 +8,33 @@ from garden.run_energy.annual import list_energy_run_outputs as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the list_energy_run_outputs tool."""
+    'Register the energyplus_list_run_outputs tool.'
 
     @mcp.tool(
-        name="list_energy_run_outputs",
-        description="List indexed output files for one Garden energy_run, including EUI JSON, ERR, SQL, HTML reports, and ZSZ when present.",
+        name="list_run_outputs",
+        description=(
+            "List indexed output files for one Garden energy_run, including EUI "
+            "JSON, ERR, SQL, HTML reports, and ZSZ when present. The same list "
+            "is returned as matches, outputs, and files for easy result scanning. "
+            "Use matches[i].name/path/exists to choose energyplus_read_eui, "
+            "energyplus_read_errors, energyplus_read_result_data, or chart export."
+        ),
         tags={
-            "run-energy",
             "energy",
-            "simulation",
+            "result",
             "outputs",
-            "sql",
-            "err",
-            "eui",
-            "read-only",
-            "safe",
+            "search",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def list_energy_run_outputs(
         garden_root: Annotated[
-            str, Field(description="Garden root containing garden.json.")
+            str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")
         ],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional energy_run target returned by run_energy."),
+            Field(description='Energy run target returned by energyplus_start_simulation; pass run_target unless you provide run_id.'),
         ] = None,
         run_id: Annotated[
             str | None,

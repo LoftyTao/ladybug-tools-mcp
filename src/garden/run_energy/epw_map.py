@@ -279,6 +279,85 @@ def _download_zip(url: str, zip_path: Path) -> None:
     download_file(url, str(zip_path), mkdir=True)
 
 
+def _garden_relative_path(garden_root: Path, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(garden_root.resolve()).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
+
+
+def _download_blocked_response(
+    *,
+    garden_root: Path,
+    candidate: dict[str, Any],
+    zip_path: Path,
+    error: Exception,
+) -> dict[str, Any]:
+    if zip_path.exists():
+        zip_path.unlink()
+    download_url = str(candidate.get("download_url", ""))
+    host = str(candidate.get("host", urlparse(download_url).netloc or ""))
+    station = str(candidate.get("station") or candidate.get("station_id") or "selected station")
+    message = (
+        "Weather archive download failed before the EPW file could be saved. "
+        "This is an external weather-source HTTPS/TLS or network failure, not a "
+        "Garden, model, Energy simulation, user-input, or MCP contract problem."
+    )
+    garden_relative_zip_path = _garden_relative_path(garden_root, zip_path)
+    retry_arguments = {
+        "garden_root": str(garden_root),
+        "epw_map_target": _candidate_target(candidate),
+        "overwrite": False,
+    }
+    recovery = {
+        "reason": "external_weather_download_failed",
+        "host": host,
+        "station_id": candidate.get("station_id"),
+        "station": candidate.get("station"),
+        "source": candidate.get("source"),
+        "download_url": download_url,
+        "zip_path": str(zip_path),
+        "garden_relative_zip_path": garden_relative_zip_path,
+        "error_type": type(error).__name__,
+        "error_message": str(error),
+        "manual_recovery": (
+            "Download the weather archive from download_url using a browser, curl, "
+            "PowerShell, or another network environment, save it exactly to zip_path, "
+            "then call download_epw again with the same epw_map_target and "
+            "overwrite=false. If the zip file is already present, download_epw will "
+            "skip the remote request and continue with unzip and Garden weather "
+            "registration."
+        ),
+        "agent_guidance": (
+            "Tell the user the remote weather website failed during HTTPS/TLS "
+            "download. Do not blame the Garden, Honeybee Model, Energy simulation, "
+            "or user input. Ask for the archive to be downloaded from download_url "
+            "to zip_path, or choose another explicit EPW Map candidate only if the "
+            "user accepts a different weather source."
+        ),
+        "retry_arguments": retry_arguments,
+    }
+    return {
+        "summary_view": {
+            "status": "blocked",
+            "blocker": "external_weather_download_failed",
+            "station": station,
+            "source": candidate.get("source"),
+            "host": host,
+            "download_url": download_url,
+            "zip_path": str(zip_path),
+            "garden_relative_zip_path": garden_relative_zip_path,
+            "recommended_next_step": recovery["manual_recovery"],
+        },
+        "download_recovery": recovery,
+        "report": make_report(
+            status="blocked",
+            message=message,
+            details=recovery,
+        ),
+    }
+
+
 def _weather_identifier(candidate: dict[str, Any]) -> str:
     identifier = slugify_name(
         f"{candidate.get('station')}_{candidate.get('station_id')}_{candidate.get('source')}"
@@ -328,7 +407,15 @@ def download_epw(
         raise ValueError("EPW map download URL does not include a file name.")
     zip_path = output_folder / zip_name
     if overwrite or not zip_path.is_file():
-        _download_zip(str(candidate["download_url"]), zip_path)
+        try:
+            _download_zip(str(candidate["download_url"]), zip_path)
+        except Exception as error:
+            return _download_blocked_response(
+                garden_root=garden_root_path,
+                candidate=candidate,
+                zip_path=zip_path,
+                error=error,
+            )
     unzip_file(str(zip_path), str(output_folder), mkdir=True)
     epw_path, ddy_path, stat_path = _find_extracted_weather_files(output_folder)
     identifier = _weather_identifier(candidate)
@@ -358,6 +445,7 @@ def download_epw(
     return {
         "target": target,
         "weather_target": target,
+        "weather_file_target": target,
         "weather_file": target,
         "summary_view": {
             "garden_target": manifest.target(),

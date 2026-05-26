@@ -11,42 +11,38 @@ from garden.run_energy.weather_data import read_weather_file_data as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the read_weather_file_data tool."""
+    'Register the energyplus_read_weather_file_data tool.'
 
     @mcp.tool(
-        name="read_weather_file_data",
-        description="Read a Garden-managed EPW weather_file, including UWG morphed EPW outputs, into a Ladybug DataCollection target using the Ladybug SDK EPW interface. Use this before data_collection_monthly_chart_to_visualization_set or data_collection_hourly_plot_to_visualization_set for weather comparisons such as dry bulb temperature, relative humidity, wind speed, wind direction, direct normal radiation, diffuse horizontal radiation, and global horizontal radiation. Provide exactly one of weather_target or epw_path; epw_path must stay inside the Garden. Optional analysis_period accepts a Ladybug AnalysisPeriod dict or string such as '7/1 to 7/31 between 0 and 23 @1' or '7/21 to 7/21 between 0 and 23 @1'.",
+        name='read_weather_file_data',
+        description=(
+            "Read a Garden-managed EPW weather_file, including UWG morphed "
+            "EPW outputs, into a Ladybug DataCollection target with the "
+            "Ladybug SDK EPW interface. Use this for weather comparisons such "
+            "as dry bulb temperature, relative humidity, wind speed, wind "
+            "direction, direct normal radiation, diffuse horizontal radiation, "
+            "and global horizontal radiation. This reads weather data, not "
+            "EnergyPlus SQL or simulation result data. Provide exactly one of "
+            "weather_target or epw_path; epw_path must stay inside the Garden."
+        ),
         tags={
-            "run-energy",
+            "energy",
             "weather",
             "epw",
-            "uwg",
-            "alternative-weather",
+            "result",
             "data-collection",
-            "data-collection-target",
-            "monthly-chart",
-            "hourly-plot",
-            "visualize",
-            "timeseries",
-            "dry-bulb-temperature",
-            "relative-humidity",
-            "wind-speed",
-            "radiation",
-            "target",
-            "garden",
-            "safe",
         },
         timeout=60,
     )
     def read_weather_file_data(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         weather_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Garden weather_file target returned by download_epw, search_weather_files, run_uwg, or get_uwg_run. Provide exactly one of weather_target or epw_path."
+                description='Optional Garden weather_file target returned by energyplus_download_epw, energyplus_search_weather_files, uwg_run_simulation_wait, or uwg_poll_simulation. Provide exactly one of weather_target or epw_path.'
             ),
         ] = None,
         epw_path: Annotated[
@@ -81,7 +77,7 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         max_values: Annotated[
             int,
-            Field(description="Maximum values returned in summary when include_values is true."),
+            Field(description="Maximum weather DataCollection values returned in summary when include_values is true."),
         ] = 24,
         return_data_collection: Annotated[
             bool,

@@ -37,6 +37,7 @@ ENERGY_RUNS_DIR = Path("runs") / "energy"
 ENERGY_RUN_INDEX = ENERGY_RUNS_DIR / "index.json"
 OUTPUT_NAMES = ("err", "eui", "html", "result-report", "sql", "visual-report", "zsz")
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+GARDEN_VERSION_NEXT_TOOL = "garden_create_version"
 
 
 class _DaemonBackgroundExecutor:
@@ -226,6 +227,42 @@ def _resolve_garden_path(
     return path
 
 
+def _matches_registered_weather_target(
+    requested: dict[str, Any], registered: dict[str, Any]
+) -> bool:
+    if registered.get("target_type") != "weather_file":
+        return False
+    for key in ("identifier", "path", "epw_path", "ddy_path", "stat_path"):
+        requested_value = requested.get(key)
+        registered_value = registered.get(key)
+        if requested_value and registered_value and requested_value == registered_value:
+            return True
+    return False
+
+
+def _complete_weather_target_from_manifest(
+    *,
+    weather_target: dict[str, Any] | None,
+    manifest: GardenManifest,
+) -> dict[str, Any] | None:
+    if weather_target is None:
+        return None
+    if weather_target.get("target_type") != "weather_file":
+        return dict(weather_target)
+    if weather_target.get("garden_id") != manifest.garden_id:
+        return dict(weather_target)
+    if weather_target.get("epw_path") and weather_target.get("ddy_path"):
+        return dict(weather_target)
+    for registered in manifest.weather_files:
+        if _matches_registered_weather_target(weather_target, registered):
+            completed = dict(registered)
+            completed.update(
+                {key: value for key, value in weather_target.items() if value is not None}
+            )
+            return completed
+    return dict(weather_target)
+
+
 def _weather_paths_from_inputs(
     *,
     garden_root: Path,
@@ -244,7 +281,10 @@ def _weather_paths_from_inputs(
         ddy_path = str(weather_target.get("ddy_path") or ddy_path or "")
     if not epw_path or not ddy_path:
         raise ValueError(
-            "Provide epw_path and ddy_path, or provide weather_target with both paths."
+            "Provide epw_path and ddy_path, or provide a complete weather_target "
+            "with both epw_path and ddy_path. If you only have an identifier/path "
+                "for a registered Garden weather file, call energyplus_search_weather_files with "
+            "require_ddy=true and pass matches[i].target."
         )
     epw = Path(epw_path).expanduser()
     ddy = Path(ddy_path).expanduser()
@@ -534,6 +574,163 @@ def _absolute_output_path(
     return path
 
 
+def _output_exists(record: dict[str, Any], output_name: str) -> bool:
+    output = _outputs_map(record).get(output_name)
+    return bool(output and output.get("exists") and output.get("path"))
+
+
+def _err_summary(
+    *,
+    garden_root: Path,
+    record: dict[str, Any],
+    max_chars: int = 12000,
+) -> dict[str, Any]:
+    err_path = _absolute_output_path(garden_root, record, "err")
+    text = err_path.read_text(encoding="utf-8", errors="replace")
+    truncated = len(text) > max_chars
+    visible_text = text[:max_chars]
+    lines = text.splitlines()
+    lower_lines = [line.lower() for line in lines]
+    normalized_lines = [" ".join(line.split()) for line in lower_lines]
+    warning_count = sum("** warning **" in line for line in normalized_lines)
+    severe_count = sum("** severe" in line for line in normalized_lines)
+    fatal_count = sum("** fatal" in line for line in normalized_lines)
+    severe_errors = [
+        lines[index].strip()
+        for index, line in enumerate(normalized_lines)
+        if "** severe" in line
+    ]
+    fatal_errors = [
+        lines[index].strip()
+        for index, line in enumerate(normalized_lines)
+        if "** fatal" in line
+    ]
+    last_severe_error = next(
+        (
+            lines[index].partition("Last severe error=")[2].strip()
+            for index, line in enumerate(lower_lines)
+            if "last severe error=" in line
+        ),
+        None,
+    )
+    return {
+        "text": visible_text,
+        "path": to_posix_relative(err_path, garden_root),
+        "truncated": truncated,
+        "warning_count": warning_count,
+        "severe_count": severe_count,
+        "fatal_count": fatal_count,
+        "last_severe_error": last_severe_error,
+        "severe_errors": severe_errors,
+        "fatal_errors": fatal_errors,
+    }
+
+
+def _err_repair_hints(text: str) -> list[dict[str, str]]:
+    normalized = " ".join(text.lower().split())
+    if (
+        "autosizing of heating coil ua failed" in normalized
+        or ("coil:heating:water" in normalized and " ua " in f" {normalized} ")
+    ):
+        return [
+            {
+                "code": "ironbug_heating_water_coil_ua_or_flow_not_numeric",
+                "message": (
+                    "For Ironbug IB_CoilHeatingWater, set numeric "
+                    "u_factor_times_area_value and numeric maximum_water_flow_rate, "
+                    "then rebuild the owning FCU, unit-heater, reheat terminal, or "
+                    "HVAC graph before applying DetailedHVAC again."
+                ),
+                "recommended_tool": "detailed_hvac_coil_heating_water",
+            }
+        ]
+    return []
+
+
+def _energy_run_result_evidence(
+    *,
+    garden_root: Path,
+    run_id: str,
+    record: dict[str, Any],
+) -> dict[str, Any]:
+    status = str(record.get("status") or "unknown")
+    output_names = [
+        str(output.get("name"))
+        for output in list(record.get("outputs", []))
+        if output.get("name") and output.get("exists")
+    ]
+    eui_exists = _output_exists(record, "eui")
+    err_exists = _output_exists(record, "err")
+    sql_exists = _output_exists(record, "sql")
+    err_summary: dict[str, Any] | None = None
+    if err_exists:
+        err_summary = {
+            key: value
+            for key, value in _err_summary(garden_root=garden_root, record=record).items()
+            if key != "text"
+        }
+    severe_count = int((err_summary or {}).get("severe_count") or 0)
+    fatal_count = int((err_summary or {}).get("fatal_count") or 0)
+    completed_with_diagnostics = bool(
+        status == "completed" and eui_exists and err_exists and sql_exists
+    )
+    final_answer_ready = bool(
+        completed_with_diagnostics and not severe_count and not fatal_count
+    )
+    if status in {"queued", "running"}:
+        recommended_next_tools = ["energyplus_poll_simulation"]
+        final_answer_guidance = (
+            "This Energy run is already in progress. Poll this run_target with "
+            "energyplus_poll_simulation; do not start another Energy run with the same run_id."
+        )
+    elif final_answer_ready:
+        recommended_next_tools = ["energyplus_read_eui", GARDEN_VERSION_NEXT_TOOL]
+        final_answer_guidance = (
+            "The Energy run is completed and EUI, SQL, and clean ERR evidence "
+            "are present. Call energyplus_read_eui, report the result, create a "
+            "Garden version checkpoint if this is the final accepted scenario, "
+            "and do not start another Energy run unless the user asks for a new scenario."
+        )
+    elif completed_with_diagnostics:
+        recommended_next_tools = ["energyplus_read_eui", "energyplus_read_errors"]
+        final_answer_guidance = (
+            "The Energy run is completed and EUI, SQL, and ERR evidence are "
+            "present, but ERR diagnostics contain severe or fatal entries. "
+            "Report the EUI together with the ERR status or precise blocker; "
+            "do not start another Energy run unless the user explicitly asks "
+            "to repair and rerun."
+        )
+    elif status == "completed":
+        recommended_next_tools = ["energyplus_list_run_outputs", "energyplus_read_errors"]
+        final_answer_guidance = (
+            "The Energy run is completed but complete EUI/SQL/ERR evidence is "
+            "not present. Inspect outputs and diagnostics for a precise blocker; "
+            "do not start another Energy run unless repairing a known issue."
+        )
+    else:
+        recommended_next_tools = ["energyplus_list_run_outputs", "energyplus_read_errors"]
+        final_answer_guidance = (
+            "The Energy run is not completed successfully. Read outputs and ERR "
+            "diagnostics to report the blocker before considering a rerun."
+        )
+    return {
+        "run_id": run_id,
+        "run_status": status,
+        "eui_exists": eui_exists,
+        "err_exists": err_exists,
+        "sql_exists": sql_exists,
+        "completed_with_diagnostics": completed_with_diagnostics,
+        "available_output_names": output_names,
+        "err_summary": err_summary,
+        "severe_count": severe_count,
+        "fatal_count": fatal_count,
+        "final_answer_ready": final_answer_ready,
+        "should_start_another_run": False,
+        "final_answer_guidance": final_answer_guidance,
+        "recommended_next_tools": recommended_next_tools,
+    }
+
+
 def _public_run(record: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "run_id",
@@ -588,14 +785,71 @@ def _completed_reload_response(
             "outputs": _outputs_map(record),
             "preflight": record.get("preflight"),
             "reloaded": True,
+            "result_evidence": _energy_run_result_evidence(
+                garden_root=garden_root,
+                run_id=run_id,
+                record=record,
+            ),
             "poll_next": {
-                "tool": "get_energy_run",
+                "tool": "energyplus_poll_simulation",
+                "arguments": poll_arguments,
+            },
+        },
+        "result_evidence": _energy_run_result_evidence(
+            garden_root=garden_root,
+            run_id=run_id,
+            record=record,
+        ),
+        "report": make_report(
+            status="ok",
+            message="Existing completed annual energy-use simulation returned.",
+        ),
+    }
+
+
+def _existing_run_response(
+    *,
+    garden_root: Path,
+    manifest: GardenManifest,
+    record: dict[str, Any],
+) -> dict[str, Any]:
+    run_id = str(record["run_id"])
+    target = record.get("target") or _run_target(manifest.garden_id, run_id)
+    status = str(record.get("status") or "unknown")
+    evidence = _energy_run_result_evidence(
+        garden_root=garden_root,
+        run_id=run_id,
+        record=record,
+    )
+    poll_arguments = {"garden_root": str(garden_root), "run_target": target}
+    return {
+        "target": target,
+        "energy_run_target": target,
+        "run_target": target,
+        "status": status,
+        "run_id": run_id,
+        "result_evidence": evidence,
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "target": target,
+            "run_id": run_id,
+            "status": status,
+            "recipe": record.get("recipe", ENERGY_RUN_RECIPE),
+            "run_folder": record.get("run_folder"),
+            "outputs": _outputs_map(record),
+            "preflight": record.get("preflight"),
+            "result_evidence": evidence,
+            "poll_next": {
+                "tool": "energyplus_poll_simulation",
                 "arguments": poll_arguments,
             },
         },
         "report": make_report(
             status="ok",
-            message="Existing completed annual energy-use simulation returned.",
+            message=(
+                f"Existing Energy run returned: {run_id}. "
+                "Poll or read outputs instead of starting another run with the same run_id."
+            ),
         ),
     }
 
@@ -654,6 +908,10 @@ def run_energy(
         sim_par=sim_par,
     )
     model_path = _model_path_from_target(garden_root_path, resolved_model_target)
+    weather_target = _complete_weather_target_from_manifest(
+        weather_target=weather_target,
+        manifest=manifest,
+    )
     epw_path, ddy_path = _weather_paths_from_inputs(
         garden_root=garden_root_path,
         garden_id=manifest.garden_id,
@@ -880,14 +1138,19 @@ def start_energy_run(
     """Start an annual-energy-use recipe in the background and return a run target."""
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
-    if reload_old and run_id:
+    if run_id:
         normalized_run_id = _normalize_run_id(run_id)
         for record in _read_index(garden_root_path):
-            if (
-                record.get("run_id") == normalized_run_id
-                and record.get("status") == "completed"
-            ):
+            if record.get("run_id") != normalized_run_id:
+                continue
+            if record.get("status") == "completed":
                 return _completed_reload_response(
+                    garden_root=garden_root_path,
+                    manifest=manifest,
+                    record=record,
+                )
+            if record.get("status") == "running":
+                return _existing_run_response(
                     garden_root=garden_root_path,
                     manifest=manifest,
                     record=record,
@@ -902,6 +1165,10 @@ def start_energy_run(
         sim_par=sim_par,
     )
     model_path = _model_path_from_target(garden_root_path, resolved_model_target)
+    weather_target = _complete_weather_target_from_manifest(
+        weather_target=weather_target,
+        manifest=manifest,
+    )
     epw_path, ddy_path = _weather_paths_from_inputs(
         garden_root=garden_root_path,
         garden_id=manifest.garden_id,
@@ -925,7 +1192,11 @@ def start_energy_run(
     existing_records = _read_index(garden_root_path)
     for record in existing_records:
         if record.get("run_id") == run_id and record.get("status") == "running":
-            raise ValueError(f"Energy run is already running: {run_id}")
+            return _existing_run_response(
+                garden_root=garden_root_path,
+                manifest=manifest,
+                record=record,
+            )
 
     run_dir = (garden_root_path / ENERGY_RUNS_DIR / run_id).resolve()
     run_dir.relative_to(garden_root_path)
@@ -1029,7 +1300,7 @@ def start_energy_run(
             "outputs": _outputs_map(record),
             "preflight": preflight,
             "poll_next": {
-                "tool": "get_energy_run",
+                "tool": "energyplus_poll_simulation",
                 "arguments": poll_arguments,
             },
         },
@@ -1074,15 +1345,28 @@ def get_energy_run(
     record = _public_run(_run_record_by_id(garden_root_path, resolved_run_id))
     outputs = list(record.get("outputs", []))
     status = record.get("status")
+    evidence = _energy_run_result_evidence(
+        garden_root=garden_root_path,
+        run_id=resolved_run_id,
+        record=record,
+    )
     return {
         "status": status,
         "run_id": resolved_run_id,
+        "outputs": outputs,
+        "result_evidence": evidence,
+        "final_answer_ready": evidence["final_answer_ready"],
         "summary_view": {
             "garden_target": manifest.target(),
             "run": record,
             "run_id": resolved_run_id,
             "status": status,
             "outputs": outputs,
+            "result_evidence": evidence,
+            "final_answer_ready": evidence["final_answer_ready"],
+            "should_start_another_run": False,
+            "final_answer_guidance": evidence["final_answer_guidance"],
+            "recommended_next_tools": evidence["recommended_next_tools"],
         },
         "report": make_report(
             status="ok", message=f"Energy run returned: {resolved_run_id}"
@@ -1104,6 +1388,8 @@ def list_energy_run_outputs(
     outputs = list(record.get("outputs", []))
     return {
         "matches": outputs,
+        "outputs": outputs,
+        "files": outputs,
         "summary_view": {
             "garden_target": manifest.target(),
             "run_id": resolved_run_id,
@@ -1127,14 +1413,148 @@ def read_energy_eui(
     manifest = GardenManifest.read(garden_root_path)
     resolved_run_id = _run_id_from_target_or_value(run_target=run_target, run_id=run_id)
     record = _run_record_by_id(garden_root_path, resolved_run_id)
-    eui_path = _absolute_output_path(garden_root_path, record, "eui")
+    outputs = list(record.get("outputs", []))
+    output_map = _outputs_map(record)
+    eui_output = output_map.get("eui")
+    eui_path: Path | None = None
+    if eui_output and eui_output.get("path"):
+        candidate = (garden_root_path / str(eui_output["path"])).resolve()
+        candidate.relative_to(garden_root_path)
+        if candidate.is_file():
+            eui_path = candidate
+    if eui_path is None:
+        existing_output_names = [
+            str(output.get("name"))
+            for output in outputs
+            if output.get("name") and output.get("exists")
+        ]
+        missing_path = str(eui_output.get("path")) if eui_output else None
+        details = {
+            "run_id": resolved_run_id,
+            "run_status": record.get("status"),
+            "missing_output": "eui",
+            "missing_path": missing_path,
+            "available_output_names": existing_output_names,
+            "recommended_next_tools": [
+                "energyplus_list_run_outputs",
+                "energyplus_read_errors",
+            ],
+        }
+        message = (
+            f"Energy run {resolved_run_id} has no EUI output. "
+            "Read ERR diagnostics for the precise EnergyPlus blocker."
+        )
+        return {
+            "eui": None,
+            "path": None,
+            "energy_blocker": {
+                "status": "missing_eui_output",
+                "message": message,
+                **details,
+            },
+            "summary_view": {
+                "garden_target": manifest.target(),
+                "run_id": resolved_run_id,
+                "run_status": record.get("status"),
+                "eui": None,
+                "path": None,
+                "available_outputs": outputs,
+                "available_output_names": existing_output_names,
+                "recommended_next_tools": details["recommended_next_tools"],
+            },
+            "report": make_report(status="blocked", message=message, details=details),
+        }
     eui = json.loads(eui_path.read_text(encoding="utf-8"))
+    output_names = [
+        str(output.get("name"))
+        for output in outputs
+        if output.get("name") and output.get("exists")
+    ]
+    err_exists = _output_exists(record, "err")
+    sql_exists = _output_exists(record, "sql")
+    err_summary: dict[str, Any] | None = None
+    if err_exists:
+        err_summary = {
+            key: value
+            for key, value in _err_summary(garden_root=garden_root_path, record=record).items()
+            if key != "text"
+        }
+    severe_count = int((err_summary or {}).get("severe_count") or 0)
+    fatal_count = int((err_summary or {}).get("fatal_count") or 0)
+    completed_with_diagnostics = bool(eui and err_exists and sql_exists)
+    final_answer_ready = bool(
+        completed_with_diagnostics and not severe_count and not fatal_count
+    )
+    recommended_next_tools = [GARDEN_VERSION_NEXT_TOOL] if final_answer_ready else [
+        "energyplus_list_run_outputs",
+        "energyplus_read_errors",
+    ]
+    if final_answer_ready:
+        final_answer_guidance = (
+            "EUI, SQL, and clean ERR evidence are present. Report the result; "
+            "create a Garden version checkpoint if this is the final accepted "
+            "scenario; do not start another Energy run unless the user asks for "
+            "a new scenario."
+        )
+    elif completed_with_diagnostics:
+        final_answer_guidance = (
+            "EUI, SQL, and ERR evidence are present, but ERR diagnostics contain "
+            "severe or fatal entries. Report the EUI together with the ERR status "
+            "or precise blocker; do not start another Energy run unless the user "
+            "explicitly asks to repair and rerun."
+        )
+    else:
+        final_answer_guidance = (
+            "EUI exists, but SQL or ERR evidence is missing. Inspect the available "
+            "outputs before reporting final Energy evidence."
+        )
+    result_evidence = {
+        "run_id": resolved_run_id,
+        "run_status": record.get("status"),
+        "eui_exists": True,
+        "err_exists": err_exists,
+        "sql_exists": sql_exists,
+        "completed_with_diagnostics": completed_with_diagnostics,
+        "available_output_names": output_names,
+        "err_summary": err_summary,
+        "severe_count": severe_count,
+        "fatal_count": fatal_count,
+        "final_answer_ready": final_answer_ready,
+        "should_start_another_run": False,
+        "final_answer_guidance": final_answer_guidance,
+        "recommended_next_tools": recommended_next_tools,
+    }
     return {
+        "eui": eui,
+        "path": to_posix_relative(eui_path, garden_root_path),
+        "result_evidence": result_evidence,
+        "outputs": outputs,
+        "files": outputs,
+        "err_exists": err_exists,
+        "sql_exists": sql_exists,
+        "warning_count": int((err_summary or {}).get("warning_count") or 0),
+        "severe_count": severe_count,
+        "fatal_count": fatal_count,
+        "final_answer_ready": final_answer_ready,
         "summary_view": {
             "garden_target": manifest.target(),
             "run_id": resolved_run_id,
+            "run_status": record.get("status"),
             "eui": eui,
             "path": to_posix_relative(eui_path, garden_root_path),
+            "err_exists": err_exists,
+            "sql_exists": sql_exists,
+            "warning_count": int((err_summary or {}).get("warning_count") or 0),
+            "severe_count": severe_count,
+            "fatal_count": fatal_count,
+            "err_summary": err_summary,
+            "completed_with_diagnostics": completed_with_diagnostics,
+            "available_outputs": outputs,
+            "available_output_names": output_names,
+            "final_answer_ready": final_answer_ready,
+            "should_start_another_run": False,
+            "final_answer_guidance": final_answer_guidance,
+            "recommended_next_tools": recommended_next_tools,
         },
         "report": make_report(
             status="ok", message=f"Energy EUI returned for run {resolved_run_id}."
@@ -1154,16 +1574,114 @@ def read_energy_errors(
     manifest = GardenManifest.read(garden_root_path)
     resolved_run_id = _run_id_from_target_or_value(run_target=run_target, run_id=run_id)
     record = _run_record_by_id(garden_root_path, resolved_run_id)
-    err_path = _absolute_output_path(garden_root_path, record, "err")
-    text = err_path.read_text(encoding="utf-8", errors="replace")
-    truncated = len(text) > max_chars
-    visible_text = text[:max_chars]
-    lower_lines = [line.lower() for line in text.splitlines()]
-    warning_count = sum("** warning **" in line for line in lower_lines)
-    severe_count = sum("** severe" in line for line in lower_lines)
-    fatal_count = sum("** fatal" in line for line in lower_lines)
+    try:
+        err_summary = _err_summary(
+            garden_root=garden_root_path,
+            record=record,
+            max_chars=max_chars,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "err output" not in message:
+            raise
+        output_names = [
+            name
+            for name, output in _outputs_map(record).items()
+            if output and output.get("exists")
+        ]
+        energy_blocker = {
+            "status": "missing_err_output",
+            "message": (
+                f"Energy ERR output is missing for run {resolved_run_id}. "
+                "Check the run status and available outputs before retrying."
+            ),
+            "run_id": resolved_run_id,
+            "run_status": record.get("status"),
+            "available_output_names": output_names,
+            "recommended_next_tools": ["energyplus_poll_simulation", "energyplus_list_run_outputs"],
+        }
+        return {
+            "text": "",
+            "path": None,
+            "truncated": False,
+            "warning_count": 0,
+            "severe_count": 0,
+            "fatal_count": 0,
+            "last_severe_error": None,
+            "severe_errors": [],
+            "fatal_errors": [],
+            "energy_blocker": energy_blocker,
+            "summary_view": {
+                "garden_target": manifest.target(),
+                "run_id": resolved_run_id,
+                "run_status": record.get("status"),
+                "path": None,
+                "truncated": False,
+                "warning_count": 0,
+                "severe_count": 0,
+                "fatal_count": 0,
+                "last_severe_error": None,
+                "severe_errors": [],
+                "fatal_errors": [],
+                "available_output_names": output_names,
+                "energy_blocker": energy_blocker,
+                "recommended_next_tools": ["energyplus_poll_simulation", "energyplus_list_run_outputs"],
+            },
+            "report": make_report(
+                status="blocked",
+                message=energy_blocker["message"],
+                details=energy_blocker,
+            ),
+        }
+    visible_text = str(err_summary["text"])
+    truncated = bool(err_summary["truncated"])
+    warning_count = int(err_summary["warning_count"])
+    severe_count = int(err_summary["severe_count"])
+    fatal_count = int(err_summary["fatal_count"])
+    last_severe_error = err_summary["last_severe_error"]
+    severe_errors = list(err_summary["severe_errors"])
+    fatal_errors = list(err_summary["fatal_errors"])
+    repair_hints = _err_repair_hints(visible_text)
+    err_path = garden_root_path / str(err_summary["path"])
+    report_status = "blocked" if severe_count or fatal_count else "ok"
+    message = f"Energy ERR returned for run {resolved_run_id}."
+    energy_blocker: dict[str, Any] | None = None
+    if report_status == "blocked":
+        blocker_status = "energyplus_fatal" if fatal_count else "energyplus_severe"
+        blocker_message = (
+            f"EnergyPlus ERR for run {resolved_run_id} contains "
+            f"{fatal_count} fatal and {severe_count} severe error(s)."
+        )
+        if last_severe_error:
+            blocker_message = f"{blocker_message} Last severe error: {last_severe_error}"
+        energy_blocker = {
+            "status": blocker_status,
+            "message": blocker_message,
+            "run_id": resolved_run_id,
+            "fatal_count": fatal_count,
+            "severe_count": severe_count,
+            "warning_count": warning_count,
+            "last_severe_error": last_severe_error,
+            "fatal_errors": fatal_errors,
+            "severe_errors": severe_errors,
+            "path": to_posix_relative(err_path, garden_root_path),
+            "repair_hints": repair_hints,
+        }
+        message = blocker_message
+        if repair_hints:
+            energy_blocker["repair_hints"] = repair_hints
     return {
         "text": visible_text,
+        "path": to_posix_relative(err_path, garden_root_path),
+        "truncated": truncated,
+        "warning_count": warning_count,
+        "severe_count": severe_count,
+        "fatal_count": fatal_count,
+        "last_severe_error": last_severe_error,
+        "severe_errors": severe_errors,
+        "fatal_errors": fatal_errors,
+        "repair_hints": repair_hints,
+        "energy_blocker": energy_blocker,
         "summary_view": {
             "garden_target": manifest.target(),
             "run_id": resolved_run_id,
@@ -1172,10 +1690,16 @@ def read_energy_errors(
             "warning_count": warning_count,
             "severe_count": severe_count,
             "fatal_count": fatal_count,
+            "last_severe_error": last_severe_error,
+            "severe_errors": severe_errors,
+            "fatal_errors": fatal_errors,
+            "repair_hints": repair_hints,
+            "energy_blocker": energy_blocker,
         },
         "report": make_report(
-            status="ok",
-            message=f"Energy ERR returned for run {resolved_run_id}.",
+            status=report_status,
+            message=message,
             warnings=["ERR output was truncated."] if truncated else [],
+            details=energy_blocker or {},
         ),
     }

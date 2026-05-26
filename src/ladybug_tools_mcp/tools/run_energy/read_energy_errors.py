@@ -8,31 +8,35 @@ from garden.run_energy.annual import read_energy_errors as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the read_energy_errors tool."""
+    'Register the energyplus_read_errors tool.'
 
     @mcp.tool(
-        name="read_energy_errors",
-        description="Read a bounded EnergyPlus ERR text output for one Garden energy_run target and summarize warning/severe/fatal counts.",
+        name="read_errors",
+        description=(
+            "Read a bounded EnergyPlus ERR text output for one Garden energy_run "
+            "target and summarize warning/severe/fatal counts. If the ERR "
+            "contains Severe or Fatal errors, the response returns report.status "
+            "blocked with energy_blocker, last_severe_error, severe_errors, and "
+            "fatal_errors so the caller can report a precise EnergyPlus blocker. "
+            "If the ERR file is missing, this returns a missing_err_output blocker "
+            "instead of raising, with recommended_next_tools for run/status checks."
+        ),
         tags={
-            "run-energy",
             "energy",
-            "simulation",
+            "result",
             "err",
-            "errors",
-            "warnings",
-            "read-only",
-            "safe",
+            "diagnostics",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def read_energy_errors(
         garden_root: Annotated[
-            str, Field(description="Garden root containing garden.json.")
+            str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")
         ],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional energy_run target returned by run_energy."),
+            Field(description='Energy run target returned by energyplus_start_simulation; pass run_target unless you provide run_id.'),
         ] = None,
         run_id: Annotated[
             str | None,

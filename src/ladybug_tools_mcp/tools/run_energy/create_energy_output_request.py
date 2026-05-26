@@ -13,34 +13,37 @@ from garden.run_energy.output_requests import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_energy_output_request tool."""
+    'Register the energyplus_create_output_request tool.'
 
     @mcp.tool(
-        name="create_energy_output_request",
-        description="Create a Garden energy_output_request target for EnergyPlus SQL/DataCollection results before an energy run. Use it when the user asks for hourly zone loads, HVAC energy use, unmet hours, surface temperatures, custom Output:Variable names, summary reports, or later result visualization. Pass the returned target to start_energy_run or run_energy as output_request_target instead of copying a large SimulationParameter dict.",
+        name="create_output_request",
+        description=(
+            "Create a Garden energy_output_request target for EnergyPlus "
+            "outputs before an energy run. Use it for hourly zone loads, HVAC "
+            "energy use, unmet hours, surface temperatures, custom "
+            "Output:Variable names, summary reports, or later result "
+            "visualization. Pass the returned target to "
+            "energyplus_start_simulation or energyplus_run_simulation_wait as "
+            "output_request_target. This tool prepares requests; it does not "
+            "read SQL, ERR, HTML, or DataCollection results."
+        ),
         tags={
-            "run-energy",
             "energy",
-            "simulation",
-            "output-request",
-            "simulation-output",
-            "data-collection",
+            "result",
             "sql",
-            "custom-output",
-            "target",
-            "write",
-            "safe",
+            "author",
+            "report",
         },
         timeout=20,
     )
     def create_energy_output_request(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str,
-            Field(description="Stable identifier for this output request target."),
+            Field(description="Stable identifier for this energy_output_request target."),
         ],
         presets: Annotated[
             list[str] | None,

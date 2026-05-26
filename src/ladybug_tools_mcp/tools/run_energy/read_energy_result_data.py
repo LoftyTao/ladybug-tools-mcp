@@ -11,51 +11,28 @@ from garden.run_energy.results import read_energy_result_data as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the read_energy_result_data tool."""
+    'Register the energyplus_read_result_data tool.'
 
     @mcp.tool(
-        name="read_energy_result_data",
-        description="Read EnergyPlus SQL results from a completed Garden energy_run as compact Ladybug DataCollection summaries with result_context provenance from the run ledger and create_energy_output_request when available. Use this for user result terms such as heating energy, cooling energy, HVAC power, zone load, unmet hours, surface temperature, humidity, hourly, daily, monthly, timestep, and custom output variables. If output_name, output_names, and filters are omitted, returns the available SQL output inventory. Query path: use output_query and filter by unit, data_type, or object_type to select outputs without copying SQL metadata. Agent chart path: set output_name for one result or output_names/output_query for multi-series result charts, save_data_collections=true, and include_values=false to persist returned collections as ladybug_data_collection targets for generic visualize tools such as data_collection_monthly_chart_to_visualization_set and data_collection_hourly_plot_to_visualization_set.",
+        name="read_result_data",
+        description='Read EnergyPlus SQL results from a completed Garden energy_run as compact Ladybug DataCollection summaries with result_context provenance. Use output names from energyplus_list_run_outputs or SQL output inventory filters. Without output_name/output_names/filters, returns available_outputs only. With save_data_collections=true, returns data_collection_targets and summary_view.first_data_collection_target for visualization tools; there is no top-level target or single data_collection_target.',
         tags={
-            "run-energy",
             "energy",
-            "simulation",
             "result",
-            "results",
             "sql",
             "data-collection",
-            "data-collection-target",
-            "visualize",
-            "timeseries",
-            "hourly",
-            "daily",
-            "monthly",
-            "heating-energy",
-            "cooling-energy",
-            "hvac-power",
-            "temperature",
-            "chart",
-            "custom-output",
-            "output-query",
-            "provenance",
-            "metadata",
-            "unit",
-            "data-type",
-            "read",
-            "write",
-            "safe",
         },
         timeout=60,
     )
     def read_energy_result_data(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         run_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional energy_run target returned by start_energy_run or run_energy."
+                description='Energy run target returned by energyplus_start_simulation; pass run_target unless you provide run_id.'
             ),
         ] = None,
         run_id: Annotated[
@@ -65,7 +42,7 @@ def register(mcp: FastMCP) -> None:
         output_name: Annotated[
             str | None,
             Field(
-                description="Optional exact EnergyPlus SQL output name to read as DataCollections. Omit to list available outputs."
+                description="Optional exact EnergyPlus SQL output name to read as DataCollections. Omit to list or filter available SQL outputs."
             ),
         ] = None,
         output_names: Annotated[

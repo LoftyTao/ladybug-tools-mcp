@@ -278,11 +278,25 @@ def _collection_summary(
     analysis_period = (
         getattr(header, "analysis_period", None) if header is not None else None
     )
+    time_interval = _collection_time_interval(collection)
+    summary["time_interval"] = time_interval
+    summary["time_interval_guidance"] = _time_interval_guidance(
+        time_interval,
+        data_type=summary.get("data_type"),
+    )
     if analysis_period is not None:
+        timestep = getattr(analysis_period, "timestep", None)
         summary["analysis_period"] = {
-            "timestep": getattr(analysis_period, "timestep", None),
+            "timestep": timestep,
             "is_annual": getattr(analysis_period, "is_annual", None),
         }
+        if isinstance(timestep, (int, float)) and timestep > 0:
+            summary["analysis_period"]["effective_interval_minutes"] = 60 / timestep
+        if isinstance(timestep, (int, float)) and timestep > 1:
+            summary["time_interval_guidance"] = (
+                f"{summary['time_interval_guidance']} analysis_period.timestep="
+                f"{timestep} means sub-hourly timestep values."
+            )
     if include_values:
         visible_values = values[:max_values]
         summary["values"] = visible_values
@@ -320,6 +334,41 @@ def _collection_time_interval(collection: Any) -> str:
     if "hourly" in name:
         return "hourly"
     return name or "unknown"
+
+
+def _time_interval_guidance(time_interval: str, *, data_type: str | None = None) -> str:
+    interval = str(time_interval or "").strip().lower()
+    is_energy = str(data_type or "").strip().lower() == "energy"
+    if interval == "monthly":
+        if is_energy:
+            return (
+                "monthly means a monthly average for this Energy DataCollection; "
+                "use total_monthly when the user asks for monthly total energy or load."
+            )
+        return "monthly means a monthly average; use total_monthly for monthly totals."
+    if interval == "total_monthly":
+        return "total_monthly means a monthly total for each series."
+    if interval == "hourly":
+        return (
+            "hourly reflects the DataCollection interval; check analysis_period.timestep "
+            "to distinguish one value per hour from sub-hourly timestep values."
+        )
+    return f"{interval or 'unknown'} DataCollection interval."
+
+
+def _result_data_next_step_guidance(
+    collections_by_output: list[dict[str, Any]],
+) -> str | None:
+    truncated = [item for item in collections_by_output if item["collections_truncated"]]
+    if not truncated:
+        return None
+    outputs = ", ".join(str(item["output_name"]) for item in truncated[:5])
+    return (
+        "collections_truncated=true for one or more outputs. Reuse the existing "
+        "collection_count, returned_collection_count, and collections_truncated "
+        "fields; increase max_collections or narrow filters before charting all "
+        f"zones. Truncated outputs include: {outputs}."
+    )
 
 
 def _transform_collection(collection: Any, time_interval: str) -> Any:
@@ -561,6 +610,9 @@ def read_energy_result_data(
                 item["collections_truncated"] for item in collections_by_output
             ),
             "collections_by_output": collections_by_output,
+            "next_step_guidance": _result_data_next_step_guidance(
+                collections_by_output
+            ),
             "saved_data_collection_count": len(data_collection_targets),
             "first_data_collection_target": (
                 data_collection_targets[0] if data_collection_targets else None
@@ -782,6 +834,10 @@ def _monthly_chart_series(
                 "label": label,
                 "collection_index": collection_index,
                 "time_interval": interval,
+                "time_interval_guidance": _time_interval_guidance(
+                    interval,
+                    data_type=summary.get("data_type"),
+                ),
             }
         )
         collections.append(collection)
@@ -895,6 +951,12 @@ def energy_result_monthly_chart_to_html(
             "run_id": resolved_run_id,
             "sql_path": to_posix_relative(sql_path, garden_root_path),
             "time_interval": time_interval,
+            "time_interval_guidance": _time_interval_guidance(
+                time_interval,
+                data_type=(
+                    series_summaries[0].get("data_type") if series_summaries else None
+                ),
+            ),
             "chart_title": chart_title,
             "series": series_summaries,
         },
