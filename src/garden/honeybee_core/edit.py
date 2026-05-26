@@ -66,6 +66,7 @@ from garden.honeybee_core.postprocess import (
 )
 from garden.honeybee_core.relate import _project_subface_to_face
 from garden.honeybee_core.targets import (
+    make_honeybee_object_target,
     normalize_honeybee_model_target,
     normalize_honeybee_object_target,
     object_summary,
@@ -1027,7 +1028,7 @@ def edit_honeybee_face(
 def edit_honeybee_room(
     *,
     garden_root: str,
-    target: dict[str, Any],
+    target: dict[str, Any] | str,
     model_target: dict[str, Any] | None = None,
     display_name: str | None = None,
     user_data: dict[str, Any] | None = None,
@@ -1045,9 +1046,7 @@ def edit_honeybee_room(
     postprocess_strategy: str | None = None,
 ) -> dict[str, Any]:
     """Edit one Honeybee Room by typed target."""
-    target = normalize_honeybee_object_target(target)
-    if target.get("object_type") != "room":
-        raise ValueError("edit_honeybee_room requires a room target.")
+    target_input = target
 
     updated_fields: list[str] = []
     if display_name is not None:
@@ -1081,6 +1080,21 @@ def edit_honeybee_room(
     garden_root = Path(garden_root).expanduser().resolve()
     manifest, model_target = resolve_model_target(garden_root, model_target)
     model = load_honeybee_model(garden_root, model_target)
+
+    if isinstance(target_input, str):
+        room_identifier = target_input
+        if not any(room.identifier == room_identifier for room in model.rooms):
+            raise ValueError(f"Honeybee Room not found: {room_identifier}")
+        target = make_honeybee_object_target(
+            garden_id=manifest.garden_id,
+            model_identifier=str(model_target["model_identifier"]),
+            object_type="room",
+            object_identifier=room_identifier,
+        )
+    else:
+        target = normalize_honeybee_object_target(target_input)
+        if target.get("object_type") != "room":
+            raise ValueError("edit_honeybee_room requires a room target.")
 
     room = find_object(model, target)
     if not isinstance(room, Room):

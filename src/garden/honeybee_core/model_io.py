@@ -119,7 +119,8 @@ def with_honeybee_model_write_lock(func):
             model_identifier=kwargs.get("identifier")
             if func.__name__ == "create_honeybee_model"
             else None,
-            model_target=kwargs.get("model_target"),
+            model_target=kwargs.get("model_target")
+            or kwargs.get("honeybee_model_target"),
             target=kwargs.get("target"),
             host_target=kwargs.get("host_target"),
         ):

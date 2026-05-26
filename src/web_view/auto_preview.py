@@ -11,6 +11,7 @@ from garden.dragonfly_core.display import dragonfly_model_to_visualization_set
 from garden.paths import slugify_name
 from garden.visualize.honeybee import honeybee_model_to_visualization_set
 from garden.visualize.artifacts import load_visualization_set
+from ladybug_tools_mcp.tool_namespaces import public_tool_name
 from web_view.session import (
     read_web_view_session,
     record_preview_failure,
@@ -18,130 +19,124 @@ from web_view.session import (
 )
 
 
-SIGNIFICANT_TOOL_NAMES = {
-    "create_honeybee_model",
-    "create_honeybee_room",
-    "create_honeybee_face",
-    "create_honeybee_aperture",
-    "create_honeybee_apertures_by_parameters",
-    "create_honeybee_door",
-    "create_honeybee_shade",
-    "create_honeybee_shades_by_parameters",
-    "edit_honeybee_model",
-    "edit_honeybee_room",
-    "edit_honeybee_face",
-    "edit_honeybee_aperture",
-    "edit_honeybee_door",
-    "edit_honeybee_shade",
-    "remove_honeybee_room",
-    "remove_honeybee_face",
-    "remove_honeybee_aperture",
-    "remove_honeybee_door",
-    "remove_honeybee_shade",
-    "move_object",
-    "rotate_object",
-    "scale_object",
-    "mirror_object",
-    "relate_honeybee_model",
-    "set_base_honeybee_model",
-    "save_base_honeybee_model",
-    "create_dragonfly_model",
-    "create_dragonfly_room2d",
-    "create_dragonfly_story",
-    "create_dragonfly_building",
-    "create_dragonfly_context_shade",
-    "edit_dragonfly_model",
-    "edit_dragonfly_room2d",
-    "edit_dragonfly_story",
-    "edit_dragonfly_building",
-    "add_dragonfly_stories_to_building",
-    "remove_dragonfly_stories_from_building",
-    "solve_dragonfly_story_adjacency",
-    "reset_dragonfly_story_adjacency",
-    "clean_dragonfly_room2d_geometry",
-    "apply_dragonfly_window_parameter",
-    "apply_dragonfly_shading_parameter",
-    "apply_dragonfly_energy_properties",
-    "apply_dragonfly_radiance_properties",
-    "apply_dragonfly_uwg_properties",
-    "honeybee_model_to_dragonfly",
-    "set_base_dragonfly_model",
-    "save_base_dragonfly_model",
-    "dragonfly_model_to_honeybee",
-}
-FAIRYFLY_AUTHORING_TOOL_NAMES = {
-    "add_fairyfly_shape_to_model",
-    "add_fairyfly_boundary_to_model",
-    "set_base_fairyfly_model",
-}
-VISUALIZATION_SET_RESULT_TOOL_NAMES = {
-    "dragonfly_model_to_visualization_set",
-    "dragonfly_model_envelope_edges_to_visualization_set",
-    "dragonfly_models_to_comparison_visualization_set",
-    "fairyfly_model_to_visualization_set",
-    "fairyfly_therm_result_to_visualization_set",
-}
-VISUALIZATION_EXPORT_TOOL_NAMES = {
-    "visualization_set_to_vtkjs",
-}
-DRAGONFLY_MODEL_PREVIEW_TOOL_NAMES = {
-    "create_dragonfly_model",
-    "create_dragonfly_room2d",
-    "create_dragonfly_story",
-    "create_dragonfly_building",
-    "create_dragonfly_context_shade",
-    "edit_dragonfly_model",
-    "edit_dragonfly_room2d",
-    "edit_dragonfly_story",
-    "edit_dragonfly_building",
-    "add_dragonfly_stories_to_building",
-    "remove_dragonfly_stories_from_building",
-    "solve_dragonfly_story_adjacency",
-    "reset_dragonfly_story_adjacency",
-    "clean_dragonfly_room2d_geometry",
-    "apply_dragonfly_window_parameter",
-    "apply_dragonfly_shading_parameter",
-    "apply_dragonfly_energy_properties",
-    "apply_dragonfly_radiance_properties",
-    "apply_dragonfly_uwg_properties",
-    "honeybee_model_to_dragonfly",
-    "set_base_dragonfly_model",
-    "save_base_dragonfly_model",
-}
-HONEYBEE_MODEL_PREVIEW_TOOL_NAMES = {
-    "create_honeybee_model",
-    "create_honeybee_room",
-    "create_honeybee_face",
-    "create_honeybee_aperture",
-    "create_honeybee_apertures_by_parameters",
-    "create_honeybee_door",
-    "create_honeybee_shade",
-    "create_honeybee_shades_by_parameters",
-    "edit_honeybee_model",
-    "edit_honeybee_room",
-    "edit_honeybee_face",
-    "edit_honeybee_aperture",
-    "edit_honeybee_door",
-    "edit_honeybee_shade",
-    "remove_honeybee_room",
-    "remove_honeybee_face",
-    "remove_honeybee_aperture",
-    "remove_honeybee_door",
-    "remove_honeybee_shade",
-    "move_object",
-    "rotate_object",
-    "scale_object",
-    "mirror_object",
-    "relate_honeybee_model",
-    "set_base_honeybee_model",
-    "save_base_honeybee_model",
-    "dragonfly_model_to_honeybee",
-}
-SKIPPED_TOOL_NAMES = {
-    "start_web_view_mode",
-    "stop_web_view_mode",
-}
+def _tool_names(family: str, names: set[str]) -> set[str]:
+    return {public_tool_name(name, family=family) for name in names}
 
+
+HONEYBEE_AUTHORING_TOOL_NAMES = _tool_names(
+    "honeybee_core",
+    {
+        "create_honeybee_model",
+        "create_honeybee_room",
+        "create_honeybee_face",
+        "create_honeybee_aperture",
+        "create_honeybee_apertures_by_parameters",
+        "create_honeybee_door",
+        "create_honeybee_shade",
+        "create_honeybee_shades_by_parameters",
+        "edit_honeybee_model",
+        "edit_honeybee_room",
+        "edit_honeybee_face",
+        "edit_honeybee_aperture",
+        "edit_honeybee_door",
+        "edit_honeybee_shade",
+        "remove_honeybee_room",
+        "remove_honeybee_face",
+        "remove_honeybee_aperture",
+        "remove_honeybee_door",
+        "remove_honeybee_shade",
+        "move_object",
+        "rotate_object",
+        "scale_object",
+        "mirror_object",
+        "relate_honeybee_model",
+    },
+)
+DRAGONFLY_AUTHORING_TOOL_NAMES = _tool_names(
+    "dragonfly_core",
+    {
+        "create_dragonfly_model",
+        "create_dragonfly_room2d",
+        "create_dragonfly_story",
+        "create_dragonfly_building",
+        "create_dragonfly_context_shade",
+        "edit_dragonfly_model",
+        "edit_dragonfly_room2d",
+        "edit_dragonfly_story",
+        "edit_dragonfly_building",
+        "add_dragonfly_stories_to_building",
+        "remove_dragonfly_stories_from_building",
+        "solve_dragonfly_story_adjacency",
+        "reset_dragonfly_story_adjacency",
+        "clean_dragonfly_room2d_geometry",
+        "apply_dragonfly_window_parameter",
+        "apply_dragonfly_shading_parameter",
+        "apply_dragonfly_energy_properties",
+        "apply_dragonfly_radiance_properties",
+    },
+)
+BASE_HONEYBEE_MODEL_TOOL_NAMES = _tool_names(
+    "garden",
+    {"set_base_honeybee_model", "save_base_honeybee_model"},
+) | {public_tool_name("create_honeybee_model", family="honeybee_core")}
+BASE_DRAGONFLY_MODEL_TOOL_NAMES = _tool_names(
+    "garden",
+    {"set_base_dragonfly_model", "save_base_dragonfly_model"},
+) | {public_tool_name("create_dragonfly_model", family="dragonfly_core")}
+SIGNIFICANT_TOOL_NAMES = (
+    HONEYBEE_AUTHORING_TOOL_NAMES
+    | DRAGONFLY_AUTHORING_TOOL_NAMES
+    | BASE_HONEYBEE_MODEL_TOOL_NAMES
+    | BASE_DRAGONFLY_MODEL_TOOL_NAMES
+    | {
+        public_tool_name("apply_dragonfly_uwg_properties", family="run_uwg"),
+        public_tool_name("honeybee_model_to_dragonfly", family="dragonfly_core"),
+        public_tool_name("dragonfly_model_to_honeybee", family="dragonfly_core"),
+    }
+)
+FAIRYFLY_AUTHORING_TOOL_NAMES = _tool_names(
+    "fairyfly",
+    {
+        "add_fairyfly_shape_to_model",
+        "add_fairyfly_boundary_to_model",
+        "set_base_fairyfly_model",
+    },
+)
+VISUALIZATION_SET_RESULT_TOOL_NAMES = _tool_names(
+    "dragonfly_core",
+    {
+        "dragonfly_model_to_visualization_set",
+        "dragonfly_model_envelope_edges_to_visualization_set",
+        "dragonfly_models_to_comparison_visualization_set",
+    },
+) | _tool_names(
+    "fairyfly",
+    {
+        "fairyfly_model_to_visualization_set",
+        "fairyfly_therm_result_to_visualization_set",
+    },
+)
+VISUALIZATION_EXPORT_TOOL_NAMES = _tool_names(
+    "visualize",
+    {"visualization_set_to_vtkjs"},
+)
+DRAGONFLY_MODEL_PREVIEW_TOOL_NAMES = (
+    DRAGONFLY_AUTHORING_TOOL_NAMES
+    | BASE_DRAGONFLY_MODEL_TOOL_NAMES
+    | {
+        public_tool_name("apply_dragonfly_uwg_properties", family="run_uwg"),
+        public_tool_name("honeybee_model_to_dragonfly", family="dragonfly_core"),
+    }
+)
+HONEYBEE_MODEL_PREVIEW_TOOL_NAMES = (
+    HONEYBEE_AUTHORING_TOOL_NAMES
+    | BASE_HONEYBEE_MODEL_TOOL_NAMES
+    | {public_tool_name("dragonfly_model_to_honeybee", family="dragonfly_core")}
+)
+SKIPPED_TOOL_NAMES = _tool_names(
+    "web_view",
+    {"start_web_view_mode", "stop_web_view_mode"},
+)
 
 def _find_garden_root(value: Any) -> str | None:
     if isinstance(value, dict):
@@ -162,25 +157,23 @@ def _find_garden_root(value: Any) -> str | None:
 
 
 def _preview_kind(tool_name: str) -> str:
-    if tool_name in {
-        "create_honeybee_model",
-        "set_base_honeybee_model",
-        "save_base_honeybee_model",
-    }:
+    if tool_name in BASE_HONEYBEE_MODEL_TOOL_NAMES:
         return "base_honeybee_model"
-    if tool_name in {
-        "create_dragonfly_model",
-        "set_base_dragonfly_model",
-        "save_base_dragonfly_model",
-    }:
+    if tool_name in BASE_DRAGONFLY_MODEL_TOOL_NAMES:
         return "base_dragonfly_model"
     if tool_name in VISUALIZATION_EXPORT_TOOL_NAMES:
         return "analysis_overlay"
     if tool_name in VISUALIZATION_SET_RESULT_TOOL_NAMES:
         return "analysis_overlay"
-    if tool_name == "dragonfly_model_to_honeybee":
+    if tool_name == public_tool_name(
+        "dragonfly_model_to_honeybee",
+        family="dragonfly_core",
+    ):
         return "base_honeybee_model"
-    if tool_name == "honeybee_model_to_dragonfly":
+    if tool_name == public_tool_name(
+        "honeybee_model_to_dragonfly",
+        family="dragonfly_core",
+    ):
         return "base_dragonfly_model"
     return "object_edit"
 

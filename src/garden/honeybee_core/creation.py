@@ -415,6 +415,7 @@ def create_honeybee_apertures_by_parameters(
     host_target = _resolve_object_target_for_model(host_target)
     host = ensure_face_host(find_object(model, host_target))
     before_ids = {aperture.identifier for aperture in host.apertures}
+    before_model_ids = _model_object_identifiers(model)
 
     if generation_mode == "by_ratio":
         if ratio is None:
@@ -514,9 +515,7 @@ def create_honeybee_apertures_by_parameters(
             ),
         }
     if identifier_prefix:
-        existing_ids = {
-            aperture.identifier for aperture in host.apertures if aperture not in created_apertures
-        }
+        existing_ids = set(before_model_ids)
         for index, aperture in enumerate(created_apertures, start=1):
             candidate = (
                 identifier_prefix
