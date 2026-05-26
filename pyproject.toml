@@ -16,12 +16,12 @@ classifiers = [
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/deterministic", "tests/openai_agent"]
 cache_dir = "tests/.artifacts/pytest_cache"
 pythonpath = ["src"]
 addopts = "-ra"
 markers = [
-  "agent_integration: agent-driven MCP integration tests that require model credentials",
+  "openai_agent_sdk: OpenAI Agents SDK tests that require model credentials",
   "agent_radiance_cross: slow natural-language Agent Radiance cross workflows with real Radiance runs",
   "slow: tests that are intentionally long-running and excluded from fast local checks",
   "radiance_binary: tests that require local Radiance runtime commands",

@@ -81,7 +81,7 @@ Because we want users to keep as much attention as possible on the interaction w
 Before using Ladybug Tools MCP, some system prerequisites usually need to be configured. At minimum, that often includes:
 
 - Python 3.12
-- Ladybug Tools 1.10*
+- Ladybug Tools runtime matching the current `[DEV]` matrix below
 - Git
 - uv
 - Node.js 20+ if you want to try the experimental Web View Mode beta
@@ -89,7 +89,13 @@ Before using Ladybug Tools MCP, some system prerequisites usually need to be con
 
 If you are not familiar with agent applications, I am very happy to recommend [Codex](https://chatgpt.com/codex).
 
-Please note that Ladybug Tools is a complete ecosystem and is still being actively and continuously updated, so these prerequisites can move over time. For the actual situation, you should refer to the [Ladybug Tools compatibility matrix](https://github.com/ladybug-tools/lbt-grasshopper/wiki/1.4-Compatibility-Matrix).
+Please note that Ladybug Tools is a complete ecosystem and is still being actively and continuously updated, so these prerequisites can move over time. The table below records the current Ladybug Tools MCP `[DEV]` runtime expectation as of 2026-05-25. It follows the style of the upstream [Ladybug Tools compatibility matrix](https://github.com/ladybug-tools/lbt-grasshopper/wiki/1.4-Compatibility-Matrix), removes Rhino, and adds the THERM and Ironbug.Console runtimes that this project can report through `get_ladybug_tools_config`.
+
+| Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM | Ironbug.Console |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `[DEV]` | 3.12 | 5.4 (2023-11-05) | 3.10.0 | 25.1.0 | 1.10.0 | 1.2.0 | 8.1.30 beta | v1.22.0.0 |
+
+This project does not install these external runtimes for you. Choose the workflows you need, install the corresponding runtimes manually, and use `get_ladybug_tools_config` to inspect what the local SDK configuration can read. When a runtime cannot be found, the Config tool returns documentation links and install hints instead of trying to download or configure it.
 
 ### Installation Guide
 
@@ -134,6 +140,8 @@ uv pip install -r requirements.txt
 uv pip install -e .
 uv run python -c "import ladybug_tools_mcp; print(ladybug_tools_mcp.__version__)"
 ```
+
+`requirements.txt` is pinned for a reproducible user install. Maintainers who intentionally want the floating development dependency set can install `requirements-dev.txt` instead.
 
 For the experimental Web View Mode beta, also install its frontend dependencies:
 

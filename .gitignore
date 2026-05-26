@@ -41,6 +41,9 @@ remotion/public/storyboard-artifacts/
 
 # Local Remotion reference caches and generated visual snapshots.
 resources/remotion/references/
+resources/ironbug-source/
+resources/energyplus-source/
+resources/energyplus-idd/
 resources/remotion/snapshots/stills/**/*.png
 resources/remotion/snapshots/videos/**/*.gif
 resources/remotion/snapshots/videos/**/*.mp4
