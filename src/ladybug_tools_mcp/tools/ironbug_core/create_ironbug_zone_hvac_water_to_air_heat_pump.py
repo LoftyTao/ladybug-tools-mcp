@@ -1,0 +1,291 @@
+'MCP tool for detailed_hvac_zone_equipment_water_to_air_heat_pump.'
+
+from typing import Annotated, Any, Literal
+
+from fastmcp import FastMCP
+from pydantic import Field
+
+from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+from garden.ironbug_core.relationships import (
+    add_ironbug_thermal_zone_equipment,
+)
+
+
+
+def register(mcp: FastMCP) -> None:
+    'Register the detailed_hvac_zone_equipment_water_to_air_heat_pump tool.'
+
+    @mcp.tool(
+        name='zone_equipment_water_to_air_heat_pump',
+        description=(
+            'Create IB_ZoneHVACWaterToAirHeatPump, the Ironbug and EnergyPlus ZoneHVAC:WaterToAirHeatPump object for room or thermal-zone equipment. Use it with a supply fan, water-to-air heating and cooling coils, optional outdoor air mixer behavior, and a supplemental heating coil; it is zone equipment with water-side coils, not a plant-loop object, water-to-water heat pump, or Energy HVAC template. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
+            'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
+        ),
+        tags={
+            'ironbug',
+            'detailed-hvac',
+            'zone-equipment',
+            'thermal-zone',
+            'water-to-air',
+            'heat-pump',
+            'fan',
+            'coil',
+            'supplemental-heat',
+            'heating',
+            'cooling',
+            'author',
+        },
+        timeout=20,
+    )
+    def create_ironbug_zone_hvac_water_to_air_heat_pump(
+        garden_root: Annotated[
+            str,
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+        ],
+        ironbug_model_target: Annotated[
+            dict[str, Any],
+            Field(
+                description=(
+                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    "pass result['target'], not the .ibjson file path."
+                )
+            ),
+        ],
+        identifier: Annotated[
+            str,
+            Field(description="Stable identifier for the new IB_ZoneHVACWaterToAirHeatPump object."),
+        ],
+        display_name: Annotated[
+            str | None,
+            Field(description="Optional user-facing Ironbug DisplayName."),
+        ] = None,
+        availability_schedule_target: Annotated[
+            dict[str, Any] | str | None,
+            Field(description='Optional Ironbug object target for AvailabilitySchedule; pass a target dict from a compatible create_ironbug_* tool or a same-model identifier. Maps to Ironbug IB_ZoneHVACWaterToAirHeatPump field AvailabilitySchedule (IB_Schedule).'),
+        ] = None,
+        supply_air_flow_rate_during_cooling_operation: Annotated[
+            float | str | None,
+            Field(description='Optional cooling supply air flow rate in m3/s, or EnergyPlus Autosize text; maps to SupplyAirFlowRateDuringCoolingOperation.'),
+        ] = None,
+        supply_air_flow_rate_during_heating_operation: Annotated[
+            float | str | None,
+            Field(description='Optional heating supply air flow rate in m3/s, or EnergyPlus Autosize text; maps to SupplyAirFlowRateDuringHeatingOperation.'),
+        ] = None,
+        supply_air_flow_rate_when_no_coolingor_heatingis_needed: Annotated[
+            float | str | None,
+            Field(description='Optional no-load supply air flow rate in m3/s for continuous-fan operation; maps to SupplyAirFlowRateWhenNoCoolingorHeatingisNeeded.'),
+        ] = None,
+        no_load_supply_air_flow_rate_control_set_to_low_speed: Annotated[
+            bool | str | None,
+            Field(description='Optional NoLoadSupplyAirFlowRateControlSetToLowSpeed value; maps to Ironbug IB_ZoneHVACWaterToAirHeatPump field NoLoadSupplyAirFlowRateControlSetToLowSpeed.'),
+        ] = None,
+        outdoor_air_flow_rate_during_cooling_operation: Annotated[
+            float | str | None,
+            Field(description='Optional cooling outdoor air flow rate in m3/s for the zone heat pump outdoor-air path; maps to OutdoorAirFlowRateDuringCoolingOperation.'),
+        ] = None,
+        outdoor_air_flow_rate_during_heating_operation: Annotated[
+            float | str | None,
+            Field(description='Optional heating outdoor air flow rate in m3/s for the zone heat pump outdoor-air path; maps to OutdoorAirFlowRateDuringHeatingOperation.'),
+        ] = None,
+        outdoor_air_flow_rate_when_no_coolingor_heatingis_needed: Annotated[
+            float | str | None,
+            Field(description='Optional OutdoorAirFlowRateWhenNoCoolingorHeatingisNeeded value; maps to Ironbug IB_ZoneHVACWaterToAirHeatPump field OutdoorAirFlowRateWhenNoCoolingorHeatingisNeeded.'),
+        ] = None,
+        maximum_cycling_rate: Annotated[
+            str | float | int | bool | None,
+            Field(description='Optional MaximumCyclingRate value; maps to Ironbug IB_ZoneHVACWaterToAirHeatPump field MaximumCyclingRate.'),
+        ] = None,
+        fractionof_on_cycle_power_use: Annotated[
+            str | float | int | bool | None,
+            Field(description='Optional FractionofOnCyclePowerUse value; maps to Ironbug IB_ZoneHVACWaterToAirHeatPump field FractionofOnCyclePowerUse.'),
+        ] = None,
+        maximum_supply_air_temperaturefrom_supplemental_heater: Annotated[
+            float | str | None,
+            Field(description='Optional maximum supply air temperature from the supplemental heater in C, or EnergyPlus Autosize text; maps to MaximumSupplyAirTemperaturefromSupplementalHeater.'),
+        ] = None,
+        maximum_outdoor_dry_bulb_temperaturefor_supplemental_heater_operation: Annotated[
+            float | None,
+            Field(description='Optional MaximumOutdoorDryBulbTemperatureforSupplementalHeaterOperation value; maps to Ironbug IB_ZoneHVACWaterToAirHeatPump field MaximumOutdoorDryBulbTemperatureforSupplementalHeaterOperation.'),
+        ] = None,
+        fan_placement: Annotated[
+            str | None,
+            Field(description='Optional FanPlacement value; maps to Ironbug IB_ZoneHVACWaterToAirHeatPump field FanPlacement.'),
+        ] = None,
+        heat_pump_coil_water_flow_mode: Annotated[
+            str | None,
+            Field(description='Optional EnergyPlus HeatPumpCoilWaterFlowMode for water-to-air equation-fit coils; maps to HeatPumpCoilWaterFlowMode.'),
+        ] = None,
+        supply_air_fan_operating_mode_schedule_target: Annotated[
+            dict[str, Any] | str | None,
+            Field(description='Optional Ironbug object target for SupplyAirFanOperatingModeSchedule; pass a target dict from a compatible create_ironbug_* tool or a same-model identifier. Maps to Ironbug IB_ZoneHVACWaterToAirHeatPump field SupplyAirFanOperatingModeSchedule (IB_Schedule).'),
+        ] = None,
+        heat_pump_time_constant: Annotated[
+            str | float | int | bool | None,
+            Field(description='Optional HeatPumpTimeConstant value; maps to Ironbug IB_ZoneHVACWaterToAirHeatPump field HeatPumpTimeConstant.'),
+        ] = None,
+        heat_pump_fan_delay_time: Annotated[
+            str | float | int | bool | None,
+            Field(description='Optional HeatPumpFanDelayTime value; maps to Ironbug IB_ZoneHVACWaterToAirHeatPump field HeatPumpFanDelayTime.'),
+        ] = None,
+        thermal_zone_target: Annotated[
+            dict[str, Any] | str | None,
+            Field(
+                description=(
+                    "Optional IB_ThermalZone target or same-model identifier. When provided, the "
+                    "created zone equipment is added to that ThermalZone's ZoneEquipments."
+                )
+            ),
+        ] = None,
+        name: Annotated[
+            str | None,
+            Field(description='Optional Name value; maps to Ironbug IB_ZoneHVACWaterToAirHeatPump field Name.'),
+        ] = None,
+        output_variable_names: Annotated[
+            list[str] | None,
+            Field(
+                description="Optional explicit Ironbug output variable names for this object."
+            ),
+        ] = None,
+        output_reporting_frequency: Annotated[
+            Literal["Detail", "Hourly", "Daily", "Monthly", "RunPeriod"],
+            Field(description="Reporting frequency used for output_variable_names."),
+        ] = "Hourly",
+        ems_sensor_targets: Annotated[
+            list[dict[str, Any] | str] | None,
+            Field(description="Optional IB_EnergyManagementSystemSensor targets for CustomSensors."),
+        ] = None,
+        ems_actuator_targets: Annotated[
+            list[dict[str, Any] | str] | None,
+            Field(description="Optional IB_EnergyManagementSystemActuator targets for CustomActuators."),
+        ] = None,
+        ems_internal_variable_targets: Annotated[
+            list[dict[str, Any] | str] | None,
+            Field(
+                description="Optional IB_EnergyManagementSystemInternalVariable targets for CustomInternalVariables."
+            ),
+        ] = None,
+        heating_coil_target: Annotated[
+            dict[str, Any] | str | None,
+            Field(
+                description=(
+                    "Optional Ironbug target for the water-to-air heating coil child "
+                    "Parameter 'HeatingCoil' on IB_ZoneHVACWaterToAirHeatPump."
+                )
+            ),
+        ] = None,
+        cooling_coil_target: Annotated[
+            dict[str, Any] | str | None,
+            Field(
+                description=(
+                    "Optional Ironbug target for the water-to-air cooling coil child "
+                    "Parameter 'CoolingCoil' on IB_ZoneHVACWaterToAirHeatPump."
+                )
+            ),
+        ] = None,
+        fan_target: Annotated[
+            dict[str, Any] | str | None,
+            Field(
+                description=(
+                    "Optional target for Ironbug component Parameter 'Fan' "
+                    "on IB_ZoneHVACWaterToAirHeatPump."
+                )
+            ),
+        ] = None,
+        supplemental_heating_coil_target: Annotated[
+            dict[str, Any] | str | None,
+            Field(
+                description=(
+                    "Optional target for Ironbug component Parameter 'SupplementalHeatingCoil' "
+                    "on IB_ZoneHVACWaterToAirHeatPump."
+                )
+            ),
+        ] = None,
+        overwrite: Annotated[
+            bool,
+            Field(description="Replace an existing object with the same identifier."),
+        ] = False,
+    ) -> dict[str, Any]:
+        """Create IB_ZoneHVACWaterToAirHeatPump as a reviewed Ironbug ZoneEquipments authoring object."""
+
+        child_targets = [
+            cooling_coil_target,
+            heating_coil_target,
+            fan_target,
+            supplemental_heating_coil_target,
+        ]
+        source_fields: dict[str, Any] = {}
+        source_field_targets: dict[str, Any] = {}
+        source_properties: dict[str, Any] = {}
+        if name is not None:
+            source_fields['Name'] = name
+        if heat_pump_time_constant is not None:
+            source_fields['HeatPumpTimeConstant'] = heat_pump_time_constant
+        if heat_pump_fan_delay_time is not None:
+            source_fields['HeatPumpFanDelayTime'] = heat_pump_fan_delay_time
+        if availability_schedule_target is not None:
+            source_field_targets['AvailabilitySchedule'] = availability_schedule_target
+        if supply_air_flow_rate_during_cooling_operation is not None:
+            source_fields['SupplyAirFlowRateDuringCoolingOperation'] = supply_air_flow_rate_during_cooling_operation
+        if supply_air_flow_rate_during_heating_operation is not None:
+            source_fields['SupplyAirFlowRateDuringHeatingOperation'] = supply_air_flow_rate_during_heating_operation
+        if supply_air_flow_rate_when_no_coolingor_heatingis_needed is not None:
+            source_fields['SupplyAirFlowRateWhenNoCoolingorHeatingisNeeded'] = supply_air_flow_rate_when_no_coolingor_heatingis_needed
+        if no_load_supply_air_flow_rate_control_set_to_low_speed is not None:
+            source_fields['NoLoadSupplyAirFlowRateControlSetToLowSpeed'] = no_load_supply_air_flow_rate_control_set_to_low_speed
+        if outdoor_air_flow_rate_during_cooling_operation is not None:
+            source_fields['OutdoorAirFlowRateDuringCoolingOperation'] = outdoor_air_flow_rate_during_cooling_operation
+        if outdoor_air_flow_rate_during_heating_operation is not None:
+            source_fields['OutdoorAirFlowRateDuringHeatingOperation'] = outdoor_air_flow_rate_during_heating_operation
+        if outdoor_air_flow_rate_when_no_coolingor_heatingis_needed is not None:
+            source_fields['OutdoorAirFlowRateWhenNoCoolingorHeatingisNeeded'] = outdoor_air_flow_rate_when_no_coolingor_heatingis_needed
+        if maximum_cycling_rate is not None:
+            source_fields['MaximumCyclingRate'] = maximum_cycling_rate
+        if fractionof_on_cycle_power_use is not None:
+            source_fields['FractionofOnCyclePowerUse'] = fractionof_on_cycle_power_use
+        if maximum_supply_air_temperaturefrom_supplemental_heater is not None:
+            source_fields['MaximumSupplyAirTemperaturefromSupplementalHeater'] = maximum_supply_air_temperaturefrom_supplemental_heater
+        if maximum_outdoor_dry_bulb_temperaturefor_supplemental_heater_operation is not None:
+            source_fields['MaximumOutdoorDryBulbTemperatureforSupplementalHeaterOperation'] = maximum_outdoor_dry_bulb_temperaturefor_supplemental_heater_operation
+        if fan_placement is not None:
+            source_fields['FanPlacement'] = fan_placement
+        if heat_pump_coil_water_flow_mode is not None:
+            source_fields['HeatPumpCoilWaterFlowMode'] = heat_pump_coil_water_flow_mode
+        if supply_air_fan_operating_mode_schedule_target is not None:
+            source_field_targets['SupplyAirFanOperatingModeSchedule'] = supply_air_fan_operating_mode_schedule_target
+        created = create_source_backed_ironbug_object(
+            garden_root=garden_root,
+            ironbug_model_target=ironbug_model_target,
+            source_class='IB_ZoneHVACWaterToAirHeatPump',
+            identifier=identifier,
+            display_name=display_name,
+            source_fields=source_fields or None,
+            source_field_targets=source_field_targets or None,
+            source_properties=source_properties or None,
+            child_targets=child_targets if any(item is not None for item in child_targets) else None,
+            output_variable_names=output_variable_names,
+            output_reporting_frequency=output_reporting_frequency,
+            ems_sensor_targets=ems_sensor_targets,
+            ems_actuator_targets=ems_actuator_targets,
+            ems_internal_variable_targets=ems_internal_variable_targets,
+            overwrite=overwrite,
+        )
+        latest_model_target = created["updated_model_target"]
+        binding_summary: dict[str, Any] = {}
+        if thermal_zone_target is not None:
+            zone = add_ironbug_thermal_zone_equipment(
+                garden_root=garden_root,
+                ironbug_model_target=latest_model_target,
+                thermal_zone_target=thermal_zone_target,
+                zone_equipment_target=created["target"],
+            )
+            latest_model_target = zone["updated_model_target"]
+            created["target"]["model_target"] = latest_model_target
+            binding_summary["thermal_zone_bound"] = True
+            binding_summary["thermal_zone_identifier"] = zone["summary_view"][
+                "thermal_zone_identifier"
+            ]
+        else:
+            binding_summary["thermal_zone_bound"] = False
+        created["updated_model_target"] = latest_model_target
+        created["summary_view"] = {**created["summary_view"], **binding_summary}
+        return created

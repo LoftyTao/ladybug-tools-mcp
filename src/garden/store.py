@@ -31,6 +31,7 @@ FIRST_STAGE_DIRS = [
     "models/honeybee",
     "models/dragonfly",
     "models/fairyfly",
+    "models/ironbug",
     "libraries/honeybee_energy",
     "libraries/honeybee_radiance",
     "imports/weather",
