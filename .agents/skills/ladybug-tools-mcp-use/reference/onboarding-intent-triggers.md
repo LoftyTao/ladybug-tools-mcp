@@ -4,13 +4,13 @@
 
 Use this reference when the user greets Ladybug Tools MCP, asks to start with broad guidance, or gives a top-level intent before a stable Garden context is known.
 
-This is an Agent-facing routing layer. It does not add a new MCP launch tool and does not replace the formal Code Mode `search / get_schema / execute` path. Its job is to keep first contact stable: choose a top-level direction, then enter the Garden gate before downstream modeling, reusable-resource, or collaboration workflows.
+This is an Agent-facing routing layer. It does not add a new MCP launch tool and does not replace the formal FastMCP Code Mode MCP path. Its job is to keep first contact stable: choose a top-level direction, then enter the Garden gate before downstream modeling, reusable-resource, or collaboration workflows.
 
 ## Vocabulary
 
 - `workspace_id` in older upstream onboarding notes maps to the current Garden context in this MCP.
 - Garden is the primary product concept for persistent project context. The stable context value is usually `garden_root`, a Garden target, or a known current Flowerpot context that can resolve to a Garden.
-- The current public tools are `list_gardens`, `create_garden`, and `get_garden`, not `workspace_list`, `workspace_create`, or `workspace_get`.
+- The current public tools are `garden_list`, `garden_create`, and `garden_get`, not `workspace_list`, `workspace_create`, or `workspace_get`.
 
 ## Entry Signals
 
@@ -47,14 +47,14 @@ Store one of these labels in the conversation state before handing off to the Ga
 When the host exposes old FastMCP tools, first confirm that Garden discovery is available through Tool Search:
 
 ```text
-search query="list_gardens create_garden get_garden create choose existing recent Garden"
+search query="garden_list garden_create garden_get create choose existing recent Garden"
 ```
 
 The expected MCP tools are:
 
-- `list_gardens`
-- `create_garden`
-- `get_garden`
+- `garden_list`
+- `garden_create`
+- `garden_get`
 
 If using Code Mode, do the same check through the outer `search` tool only when the tool names are unknown. Do not call `search` or `get_schema` inside `execute`.
 
@@ -110,11 +110,11 @@ Do not start modeling, resource creation, or Grasshopper collaboration immediate
 
 The first Garden-gate reply should be a short binary choice: create a new Garden or continue an existing one. Do not jump straight into asking for a Garden name before the user has picked one of those two directions.
 
-When the user chooses the existing-Garden path, call `list_gardens` without `root_dir` when no stable Garden root has already been established, so discovery uses the system's default Gardens root. If the user has named a specific parent folder, pass that folder as `root_dir`. Show the five most recent Gardens from `matches[:5]`. The service sorts `matches` by recent `created_at` / `updated_at` values and includes `summary_view.count`. In onboarding, only read from the default Gardens root or the user-specified query root; do not search test folders or cache folders as reusable Garden sources.
+When the user chooses the existing-Garden path, call `garden_list` without `root_dir` when no stable Garden root has already been established, so discovery uses the system's default Gardens root. If the user has named a specific parent folder, pass that folder as `root_dir`. Show the five most recent Gardens from `matches[:5]`. The service sorts `matches` by recent `created_at` / `updated_at` values and includes `summary_view.count`. In onboarding, only read from the default Gardens root or the user-specified query root; do not search test folders or cache folders as reusable Garden sources.
 
-When the user chooses the new-Garden path, ask for the new Garden name and then call `create_garden`.
+When the user chooses the new-Garden path, ask for the new Garden name and then call `garden_create`.
 
-If more than ten Gardens exist, suggest cleanup and offer to help. Do not delete or clean anything without explicit user confirmation. For cleanup, first clarify whether the user wants to inspect old Gardens, archive them outside MCP, or run `cleanup_garden_workspace` on selected non-authoring scopes. Do not make the user type a path when recent Garden matches are available.
+If more than ten Gardens exist, suggest cleanup and offer to help. Do not delete or clean anything without explicit user confirmation. For cleanup, first clarify whether the user wants to inspect old Gardens, archive them outside MCP, or run `garden_cleanup_workspace` on selected non-authoring scopes. Do not make the user type a path when recent Garden matches are available.
 
 Chinese trigger example:
 
@@ -154,7 +154,7 @@ By default, the Garden will be stored under `D:\Desktop\Codex\rec-ladybug-tools-
 
 ## Existing-Garden Branch Response
 
-When the user chooses the existing-Garden path, respond with a short fixed template in the user's trigger language, then call `list_gardens` and show the five most recent Gardens from `matches[:5]`. Read only from the default save location or the user-specified save location; do not read reusable Gardens from test folders or cache folders. If none fits, offer to switch to the new-Garden path.
+When the user chooses the existing-Garden path, respond with a short fixed template in the user's trigger language, then call `garden_list` and show the five most recent Gardens from `matches[:5]`. Read only from the default save location or the user-specified save location; do not read reusable Gardens from test folders or cache folders. If none fits, offer to switch to the new-Garden path.
 
 Chinese trigger example:
 
