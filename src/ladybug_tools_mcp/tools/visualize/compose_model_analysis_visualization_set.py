@@ -11,19 +11,30 @@ from garden.visualize.honeybee import compose_model_analysis_visualization_set a
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the compose_model_analysis_visualization_set tool."""
+    'Register the visualization_compose_model_analysis_visualization_set tool.'
 
     @mcp.tool(
-        name="compose_model_analysis_visualization_set",
-        description="Compose a Garden-backed model-context VisualizationSet target with an analysis-result VisualizationSet target, typically for overlays like model wireframe plus Radiance mesh results.",
-        tags={"visualize", "visualization-set", "overlay", "compose", "write", "safe"},
+        name='compose_model_analysis_visualization_set',
+        description=(
+            "Compose a Garden-backed model-context VisualizationSet target "
+            "with an analysis-result VisualizationSet target for overlays such "
+            "as Honeybee wireframe plus Radiance mesh results. This combines "
+            "existing VisualizationSet targets; it does not read simulation "
+            "folders, query EnergyPlus SQL, or rerun analysis."
+        ),
+        tags={
+            "visualization-set",
+            "visualize",
+            "edit",
+            "overlay",
+        },
         timeout=30,
     )
     def compose_model_analysis_visualization_set(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         model_context_target: Annotated[
             dict[str, Any],
-            Field(description="VisualizationSet target for model context geometry."),
+            Field(description="VisualizationSet target for model context geometry such as Honeybee model wireframe."),
         ],
         analysis_visualization_set_target: Annotated[
             dict[str, Any],

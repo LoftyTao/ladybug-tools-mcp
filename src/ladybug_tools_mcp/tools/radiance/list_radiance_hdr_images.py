@@ -11,35 +11,35 @@ from garden.radiance.visual import list_radiance_hdr_images as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the list_radiance_hdr_images tool."""
+    'Register the radiance_list_hdr_images tool.'
 
     @mcp.tool(
-        name="list_radiance_hdr_images",
-        description="List .hdr image files from a completed point-in-time-view Radiance run. This MCP visual postprocess path intentionally supports only .hdr inputs; .pic and .unf are not supported. Use before radiance_hdr_to_falsecolor or radiance_hdr_to_gif.",
+        name="list_hdr_images",
+        description=(
+            "List HDR image artifacts from completed Radiance view runs. Use "
+            "this before falsecolor, GIF, or image search workflows. This "
+            "returns image artifact metadata and paths only; it does not "
+            "render views, convert images, or embed binary image data. Returns "
+            "matches, artifact_paths, summary_view, and report."
+        ),
         tags={
-            "honeybee-radiance",
+            "artifact",
             "radiance",
-            "run-radiance",
-            "postprocess",
-            "view",
             "image",
-            "hdr",
-            "list",
-            "read-only",
-            "safe",
+            "result",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def list_radiance_hdr_images(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional radiance_run target returned by start_radiance_view_run."),
+            Field(description='Optional completed view radiance_run target returned by radiance_start_view_simulation. Poll the run before listing HDR images.'),
         ] = None,
         run_id: Annotated[
             str | None,
-            Field(description="Optional run identifier when run_target is omitted."),
+            Field(description="Optional run identifier for a completed view run when run_target is not supplied."),
         ] = None,
     ) -> dict[str, Any]:
         """List .hdr images for a Radiance view run."""

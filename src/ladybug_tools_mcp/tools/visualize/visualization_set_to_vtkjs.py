@@ -11,40 +11,41 @@ from garden.visualize.artifacts import visualization_set_to_vtkjs as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the visualization_set_to_vtkjs tool."""
+    'Register the visualization_set_to_vtkjs tool.'
 
     @mcp.tool(
-        name="visualization_set_to_vtkjs",
-        description="Export a Ladybug Display VisualizationSet to a persistent .vtkjs artifact inside a Garden and record it in garden.json artifacts. When start_web_view_mode is active, Dragonfly/Honeybee visualization tools already auto-refresh the local demo panel and usually do not need this exporter; use this only when the user explicitly asks for a saved vtk.js/Web 3D asset. This is the SDK-native Web 3D geometry package for downstream React, vtk.js, WebGL, Remotion, and reusable geometry asset workflows; it does not export GLB/VTP and has no file_format parameter. Preferred Agent path is visualization_set_target from an upstream visualize tool; the parameter name is exactly visualization_set_target, not visualization_target. Direct visualization_set dict input remains available for payload/debug workflows.",
+        name="set_to_vtkjs",
+        description=(
+            "Export a Ladybug Display VisualizationSet to a persistent .vtkjs "
+            "artifact inside a Garden and record it in garden.json artifacts. "
+            "Use this when the user asks for a saved vtk.js or Web 3D asset "
+            "for React, vtk.js, WebGL, Remotion, or reusable geometry "
+            "workflows. It does not export GLB/VTP and has no file_format "
+            "parameter. Preferred Agent path is visualization_set_target from "
+            "an upstream visualize tool; the parameter name is exactly "
+            "visualization_set_target. This exporter does not create or "
+            "modify the VisualizationSet source data."
+        ),
         tags={
-            "visualize",
-            "garden-mode",
-            "artifact",
-            "export",
-            "web-3d",
-            "webgl",
-            "geometry-asset",
-            "model-asset",
-            "react-viewer",
-            "remotion",
-            "write",
-            "safe",
+            "visualization-set",
             "vtkjs",
+            "export",
+            "artifact",
         },
         timeout=60,
     )
     def visualization_set_to_vtkjs(
-        garden_root: Annotated[str, Field(description="Garden root directory.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         visualization_set: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional VisualizationSet dictionary from a visualize tool. Use visualization_set_target instead for Agent token-saving Garden workflows."
+                description="Optional direct VisualizationSet dictionary from a visualize tool. Prefer visualization_set_target for compact Garden workflows."
             ),
         ] = None,
         visualization_set_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional visualization_set target returned by an upstream visualize tool with garden_root and return_visualization_set=false."
+                description="Optional visualization_set target returned by an upstream visualize tool with return_visualization_set=false."
             ),
         ] = None,
         name: Annotated[

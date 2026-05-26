@@ -8,18 +8,18 @@ from garden.energy.schedules import create_schedule_rule as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_schedule_rule tool."""
+    'Register the energy_create_schedule_rule tool.'
 
     @mcp.tool(
-        name="create_schedule_rule",
-        description="Create a Honeybee Energy ScheduleRule that applies a ScheduleDay over selected weekdays and date bounds. This is an intermediate object for create_schedule_ruleset.",
+        name='create_schedule_rule',
+        description='Create a Honeybee Energy ScheduleRule that applies one ScheduleDay to selected weekdays and optional Ladybug Date bounds. Use this for weekday/weekend, seasonal, or exception rules before assembling a ScheduleRuleset. Returns object_dict and summary_view for energy_create_schedule_ruleset.schedule_rules; this rule is not saved as its own Garden target.',
         tags={
-            "honeybee-energy",
             "energy",
             "schedule",
             "schedule-rule",
-            "create",
-            "safe",
+            "weekday",
+            "weekend",
+            "author",
         },
         timeout=20,
     )
@@ -27,7 +27,7 @@ def register(mcp: FastMCP) -> None:
         schedule_day: Annotated[
             dict[str, Any],
             Field(
-                description="ScheduleDay dictionary, usually create_schedule_day.object_dict."
+                description='ScheduleDay object_dict, usually returned by energy_create_schedule_day; ScheduleRule cannot consume a saved target because ScheduleDay is not persisted separately.'
             ),
         ],
         apply_sunday: Annotated[
@@ -54,13 +54,13 @@ def register(mcp: FastMCP) -> None:
         start_date: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Ladybug Date dict or string for rule start date."
+                description="Optional Ladybug Date dict or string for the first date when this rule can apply."
             ),
         ] = None,
         end_date: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Ladybug Date dict or string for rule end date."
+                description="Optional Ladybug Date dict or string for the last date when this rule can apply."
             ),
         ] = None,
     ) -> dict[str, Any]:

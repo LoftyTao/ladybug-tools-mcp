@@ -13,32 +13,25 @@ from garden.visualize.datacollection import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the data_collection_monthly_chart_to_visualization_set tool."""
+    'Register the visualization_data_collection_monthly_chart_to_visualization_set tool.'
 
     @mcp.tool(
-        name="data_collection_monthly_chart_to_visualization_set",
-        description="Generic visualize path: create a Ladybug Display VisualizationSet from one or more Ladybug DataCollections using Ladybug MonthlyChart. Use this for energy result charts, schedule charts, EPW/weather charts, UWG-vs-original weather comparisons, daily lines, monthly average lines, monthly per hour heatmaps/lines, total monthly summaries, and multi-series comparisons. Preferred Agent path is garden_root plus series items with data_collection_target from read_energy_result_data, read_weather_file_data, create_schedule_ruleset, or another upstream tool and return_visualization_set=false, returning a compact visualization_set_target for visualization_set_to_html/svg instead of moving a large VisualizationSet dict. Each series item uses exactly one of data_collection or data_collection_target, not both, and may include label; the label is written into DataCollection header metadata as legend metadata for the chart legend. Use x_dim and y_dim to pass Ladybug SDK MonthlyChart geometry dimensions through; monthly_per_hour defaults to a wider x_dim so filtered one-month/day charts stay readable.",
+        name='data_collection_monthly_chart_to_visualization_set',
+        description=(
+            "Create a Ladybug Display VisualizationSet monthly chart from one "
+            "or more Ladybug DataCollection targets such as EnergyPlus result "
+            "or EPW weather data already saved in the Garden. Each series uses "
+            "data_collection_target or direct data_collection plus optional "
+            "label metadata. This charts existing DataCollections; it does not "
+            "read SQL, EPW, or Radiance folders. Returns target, "
+            "visualization_set_target, summary_view, persistence_receipt, and "
+            "report for vtkjs/html export."
+        ),
         tags={
-            "visualize",
-            "generic-visualize",
             "data-collection",
-            "data-collection-target",
+            "chart",
+            "visualize",
             "monthly-chart",
-            "line-chart",
-            "daily-chart",
-            "monthly-average",
-            "monthly-per-hour",
-            "total-monthly",
-            "timeseries",
-            "schedule-data",
-            "weather-data",
-            "energy-result-data",
-            "energy-result-visualization",
-            "visualization-set",
-            "target",
-            "legend",
-            "metadata",
-            "safe",
         },
         timeout=60,
     )
@@ -52,7 +45,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root required when any series item uses data_collection_target."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         time_interval: Annotated[
@@ -97,7 +90,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         name: Annotated[
             str,
-            Field(description="VisualizationSet identifier and display name."),
+            Field(description="MonthlyChart VisualizationSet identifier and display name."),
         ] = "data_collection_monthly_chart",
         return_visualization_set: Annotated[
             bool,

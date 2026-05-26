@@ -10,29 +10,28 @@ from garden.energy.ventilation import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the setup_simple_ventilation_properties tool."""
+    'Register the energy_setup_simple_ventilation_properties tool.'
 
     @mcp.tool(
-        name="setup_simple_ventilation_properties",
-        description="Apply simple operable-window natural ventilation properties to Honeybee Rooms in a Garden model. Use this for natural ventilation, operable windows, window opening area, cross ventilation, and ventilative cooling control. This is the simple path: it sets room window_vent_control and aperture/door vent_opening properties, but does not generate AirflowNetwork cracks and does not create zone ventilation fans. Select rooms with room_identifiers or room_targets; not room_target, not opening_area, and not opening_fraction.",
+        name='setup_simple_ventilation_properties',
+        description="Apply simple operable-window natural ventilation properties to Honeybee Rooms in a Garden model. Use this for VentilationOpening, window_vent_control, operable windows, cross ventilation, and ventilative cooling controls; it does not generate AirflowNetwork cracks and does not create VentilationFan objects. Returns the updated Honeybee model target in target and summary_view.target plus persistence_receipt and report.",
         tags={
-            "honeybee-energy",
-            "garden-mode",
+            "cross-ventilation",
+            "edit",
+            "energy",
             "natural-ventilation",
-            "simple-ventilation",
             "operable-window",
-            "window-vent-control",
+            "room",
+            "ventilation",
             "ventilation-opening",
             "ventilative-cooling",
-            "write",
-            "safe",
         },
         timeout=30,
     )
     def setup_simple_ventilation_properties(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path string containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
@@ -44,7 +43,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         room_targets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="Optional room_targets list of Honeybee Room typed targets from search_honeybee_model_objects. Use this or room_identifiers; not room_target."),
+            Field(description='Optional room_targets list of Honeybee Room typed targets from honeybee_search_model_objects. Use this or room_identifiers; not room_target.'),
         ] = None,
         fraction_area_operable: Annotated[
             float,
@@ -64,15 +63,15 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         flow_coefficient_closed: Annotated[
             float,
-            Field(description="Closed-opening AFN leakage coefficient. Keep 0 for simple non-AFN ventilation."),
+            Field(description="Closed-opening AirflowNetwork leakage coefficient. Keep 0 for the simple non-AFN ventilation path."),
         ] = 0,
         flow_exponent_closed: Annotated[
             float,
-            Field(description="Closed-opening AFN leakage exponent."),
+            Field(description="Closed-opening AirflowNetwork leakage exponent used only if the opening later participates in AFN."),
         ] = 0.65,
         two_way_threshold: Annotated[
             float,
-            Field(description="AFN two-way flow density threshold for openings."),
+            Field(description="AirflowNetwork two-way flow density threshold for openings, used only when AFN is enabled."),
         ] = 0.0001,
         min_indoor_temperature: Annotated[
             float,

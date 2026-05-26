@@ -11,27 +11,29 @@ from garden.radiance.modifiers import create_radiance_glass_modifier as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_radiance_glass_modifier tool."""
+    'Register the radiance_create_glass_modifier tool.'
 
     @mcp.tool(
-        name="create_radiance_glass_modifier",
-        description="Create a Honeybee Radiance Glass modifier. The SDK glass interface uses transmittance or transmissivity, not reflectance. Supports simple rgb_transmittance/rgb_transmissivity numbers, [r, g, b] lists, or full r/g/b transmission inputs. Use garden_root and return_object_dict=false to save a reusable Garden Properties Library modifier target.",
+        name="create_glass_modifier",
+        description=(
+            "Create a Honeybee Radiance Glass modifier for daylight and view "
+            "workflows. The SDK glass interface uses transmittance or "
+            "transmissivity values, not reflectance. Use garden_root and "
+            "return_object_dict=false to save a reusable Garden Properties "
+            "Library modifier target. This is a Radiance optical modifier, not "
+            "a Honeybee Energy glazing material or thermal construction."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
             "modifier",
             "material",
+            "author",
             "glass",
-            "rgb-transmittance",
-            "rgb-transmissivity",
-            "radiance-modifiers",
-            "create",
-            "safe",
         },
         timeout=20,
     )
     def create_radiance_glass_modifier(
-        identifier: Annotated[str, Field(description="Radiance modifier identifier.")],
+        identifier: Annotated[str, Field(description="Radiance Glass modifier identifier.")],
         rgb_transmittance: Annotated[
             float | list[float] | None,
             Field(description="Simple visible transmittance for all channels, or [r, g, b] transmittance values."),
@@ -78,7 +80,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Optional Garden root for saving this modifier."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,

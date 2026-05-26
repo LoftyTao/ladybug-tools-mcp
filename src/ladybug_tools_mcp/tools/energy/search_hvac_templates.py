@@ -8,27 +8,26 @@ from garden.energy.hvac import search_hvac_templates as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_hvac_templates tool."""
+    'Register the energy_search_hvac_templates tool.'
 
     @mcp.tool(
-        name="search_hvac_templates",
+        name='search_hvac_templates',
         description=(
             "Search Honeybee Energy SDK HVAC templates and, when identifier is "
             "provided with a unique template selection, return a ready-to-use "
             "HVAC object_dict or Garden Properties Library target for "
-            "edit_honeybee_room hvac. Supports all-air, DOAS, and heat-cool "
-            "template HVAC systems. This is the current public HVAC authoring "
-            "surface; custom non-template HVAC remains outside the active MCP "
-            "tool contract until a new API is designed."
+            'honeybee_edit_room hvac. Supports all-air, DOAS, and heat-cool '
+            "template HVAC systems. This Honeybee Energy template search does "
+            "not build Ironbug DetailedHVAC component graphs; use the "
+            "ironbug_core or detailed_hvac tools for custom EnergyPlus HVAC "
+            "component authoring."
         ),
         tags={
-            "honeybee-energy",
             "energy",
+            "hvac-template",
             "hvac",
-            "template-hvac",
             "search",
-            "create",
-            "safe",
+            "standards",
         },
         timeout=20,
     )
@@ -59,7 +58,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         vintage: Annotated[
             str | None,
-            Field(description="Optional template vintage, such as ASHRAE_2019."),
+            Field(description="Optional Honeybee HVAC template vintage, such as ASHRAE_2019."),
         ] = None,
         equipment_type: Annotated[
             str | None,
@@ -118,7 +117,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root. When provided, save the created HVAC as a reusable Garden Properties Library hvac object."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

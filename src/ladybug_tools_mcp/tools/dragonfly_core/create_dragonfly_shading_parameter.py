@@ -13,24 +13,25 @@ from garden.dragonfly_core.envelope_parameters import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_dragonfly_shading_parameter tool."""
+    'Register the dragonfly_create_shading_parameter tool.'
 
     @mcp.tool(
-        name="create_dragonfly_shading_parameter",
+        name="create_shading_parameter",
         description=(
             "Create a compact SDK-backed Dragonfly ShadingParameter artifact for "
             "outdoor wall application. Supports parameter_type overhang and "
-            "extruded_border only; this is a Dragonfly envelope parameter, not a Honeybee Shade. Returns "
+            "extruded_border only; this is a Dragonfly envelope parameter, not a Honeybee "
+            "Shade or Radiance modifier. Returns "
             "the compact artifact as parameter, shading_parameter, target, and "
             "object_dict."
         ),
-        tags={"dragonfly-core", "garden-mode", "shading", "parameter", "create", "safe"},
+        tags={"dragonfly", "shading", "parameter", "author", "overhang", "extruded-border"},
         timeout=20,
     )
     def create_dragonfly_shading_parameter(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         parameter_type: Annotated[
             str,
@@ -38,7 +39,7 @@ def register(mcp: FastMCP) -> None:
         ],
         depth: Annotated[
             float,
-            Field(description="Depth for the Dragonfly shading parameter."),
+            Field(description="Depth for the Dragonfly overhang or extruded-border shading parameter."),
         ],
         angle: Annotated[
             float,

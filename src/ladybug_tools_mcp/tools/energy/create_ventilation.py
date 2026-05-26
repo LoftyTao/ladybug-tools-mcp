@@ -8,19 +8,18 @@ from garden.energy.programtypes import create_ventilation as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_ventilation tool."""
+    'Register the energy_create_ventilation tool.'
 
     @mcp.tool(
-        name="create_ventilation",
-        description="Create a Honeybee Energy Ventilation load object using SDK-native flow_per_person, flow_per_area, flow_per_zone, ACH, schedule, and Sum/Max method fields. Use garden_root and return_object_dict=false to save the load and pass its target to create_program_type.",
+        name='create_ventilation',
+        description='Create a Honeybee Energy Ventilation load for purposeful design outdoor air using flow_per_person, flow_per_area, flow_per_zone, ACH, fractional schedule, and Sum/Max reconciliation. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to energy_create_program_type.ventilation or honeybee_edit_room.ventilation; set return_object_dict=false only when you want a low-token target/summary/receipt response. This is not infiltration, a VentilationFan, operable-window natural ventilation, or AirflowNetwork setup.',
         tags={
-            "honeybee-energy",
+            "author",
             "energy",
-            "program",
+            "outdoor-air",
+            "program-type",
             "load",
             "ventilation",
-            "create",
-            "safe",
         },
         timeout=20,
     )
@@ -41,16 +40,16 @@ def register(mcp: FastMCP) -> None:
         schedule: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional ventilation schedule dict or schedule library identifier."
+                description="Optional fractional ventilation schedule as a Honeybee Energy schedule object_dict, Garden schedule target, or standards-library identifier; use an occupancy schedule to mimic demand-controlled ventilation."
             ),
         ] = None,
         method: Annotated[
-            str, Field(description="Ventilation reconciliation method: Sum or Max.")
+            str, Field(description="Ventilation reconciliation method for the four design criteria: Sum adds them; Max uses the largest.")
         ] = "Sum",
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for saving this load to the Garden Properties Library."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

@@ -8,18 +8,29 @@ from garden.visualize.legend import create_2d_legend_parameter as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_2d_legend_parameter tool."""
+    'Register the visualization_create_2d_legend_parameter tool.'
 
     @mcp.tool(
-        name="create_2d_legend_parameter",
-        description="Create a reusable Ladybug LegendParameters dict for 2D SVG legends, attribute-colored VisualizationSets, and analysis result displays.",
-        tags={"visualize", "legend", "payload-mode", "read", "safe"},
+        name='create_2d_legend_parameter',
+        description=(
+            "Create a Ladybug Display 2D legend parameter payload for "
+            "VisualizationSet chart and model exports. Use the returned "
+            "object_dict in visualization or chart tools when a custom legend "
+            "is needed. This is a display settings object, not a saved Garden "
+            "target or analysis result. Returns object_dict and summary_view."
+        ),
+        tags={
+            "visualization-set",
+            "visualize",
+            "author",
+            "legend",
+        },
         annotations={"readOnlyHint": True},
         timeout=30,
     )
     def create_2d_legend_parameter(
         title: Annotated[
-            str | None, Field(description="Optional legend title.")
+            str | None, Field(description="Optional 2D legend title.")
         ] = None,
         segment_count: Annotated[
             int | None, Field(description="Optional legend segment count.")

@@ -25,28 +25,29 @@ def _target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_radiance_views tool."""
+    'Register the radiance_search_views tool.'
 
     @mcp.tool(
-        name="search_radiance_views",
-        description="Search Garden Radiance View artifacts and return compact radiance_view targets for point-in-time view runs.",
+        name="search_views",
+        description=(
+            "Search Garden Radiance View artifacts and return compact "
+            "radiance_view targets for point-in-time view runs. This searches "
+            "saved .vf inputs; it does not create views, attach views to "
+            "models, or render HDR images."
+        ),
         tags={
-            "honeybee-radiance",
+            "artifact",
             "radiance",
             "view",
-            "artifact",
+            "author",
             "search",
-            "target",
-            "garden-mode",
-            "read-only",
-            "safe",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def search_radiance_views(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        query: Annotated[str | None, Field(description="Optional identifier or path substring filter.")] = None,
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        query: Annotated[str | None, Field(description="Optional View identifier or Garden-relative .vf path substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance View artifacts."""

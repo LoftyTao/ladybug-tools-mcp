@@ -12,31 +12,33 @@ from garden.radiance.run import get_radiance_run as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the get_radiance_run tool."""
+    'Register the radiance_poll_simulation tool.'
 
     @mcp.tool(
-        name="get_radiance_run",
-        description="Get one Garden radiance_run record by target or run_id without returning large Radiance result files. Use after start_radiance_grid_run, start_radiance_view_run, or start_radiance_matrix_run. When the user asks to wait or poll until completion, pass wait_seconds instead of making many tight repeated status calls.",
+        name="poll_simulation",
+        description=(
+            "Get one Garden radiance_run record by target or run_id without "
+            "returning large Radiance result files. Use after "
+            "radiance_start_grid_simulation, radiance_start_view_simulation, "
+            "or radiance_start_matrix_simulation. When the user asks to wait, "
+            "pass wait_seconds to throttle polling. Returns runtime_status "
+            "through summary_view.status, poll_next, and report. Treat failed "
+            "runtime_status as requiring report review."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
-            "run-radiance",
-            "daylight",
-            "simulation",
-            "run",
-            "ledger",
-            "get",
-            "read-only",
-            "safe",
+            "simulate",
+            "poll",
+            "run-ledger",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def get_radiance_run(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional radiance_run target returned by a start_radiance_*_run tool."),
+            Field(description="Optional Garden radiance_run target returned by a start_radiance_*_run tool."),
         ] = None,
         run_id: Annotated[
             str | None,

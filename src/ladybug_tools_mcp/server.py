@@ -226,39 +226,45 @@ def create_mcp() -> FastMCP:
             sandbox_provider=QuietMontySandboxProvider(),
             discovery_tools=[LenientCodeModeSearch(), GetSchemas()],
             execute_description=(
-                "The only way to run Ladybug Tools domain tools in Code Mode. "
-                "Call domain tools inside this Python block with "
+                "FastMCP Code Mode is still an MCP interface: use the active "
+                "Agent MCP connection and the host application's MCP tool calls. "
+                "Do not bypass the active Agent MCP connection with a shell CLI, "
+                "local `Client(create_mcp())`, direct Python service imports, "
+                "or a repo-launched server unless you are writing/running "
+                "deterministic MCP server tests. "
+                "Run Ladybug Tools domain tools inside this Python block with "
                 "`await call_tool(tool_name: str, arguments: dict)`. "
                 "Tool names returned by search/get_schema are strings for "
-                "call_tool only; never call them as outer MCP tools. "
+                "call_tool only; never call them as standalone MCP tools outside "
+                "the Code Mode surface. "
                 "Each execute call is isolated; variables do not persist "
                 "between execute calls. Do not import modules or use asyncio; "
                 "call tools sequentially. Do not call `call_tool('search', ...)` "
                 "or `call_tool('get_schema', ...)` inside execute; search and "
-                "get_schema are outer Code Mode tools. "
+                "get_schema are MCP tools exposed by the Code Mode surface. "
                 "execute code is Python, so use True, False, and None instead "
                 "of JSON true, false, and null. "
-                "For blank-project workflows, call `create_garden` before "
+                'For blank-project workflows, call `garden_create` before '
                 "any tool that takes `garden_root`; a "
                 "directory alone is not a Garden until `garden.json` exists. "
                 "For energy simulation in Agent workflows, call "
-                "`search_epw_map` without `garden_root`, then `download_epw` "
+                '`energyplus_search_epw_map` without `garden_root`, then `energyplus_download_epw` '
                 "with the selected `epw_map_target` and the same `garden_root`; "
                 "weather files are managed by the Garden, not a separate folder. "
-                "Then call `start_energy_run` and poll `get_energy_run`; avoid blocking "
-                "`run_energy` unless the user explicitly asks to wait. "
+                'Then call `energyplus_start_simulation` and poll `energyplus_poll_simulation`; avoid blocking '
+                '`energyplus_run_simulation_wait` unless the user explicitly asks to wait. '
                 "For UWG Alternative Weather workflows, create or select a Dragonfly "
                 "model, create or select a Garden-managed `weather_file` target or "
-                "Garden-relative EPW, call `create_uwg_simulation_parameter` when "
-                "custom UWG settings are needed, then call `start_uwg_run` and poll "
-                "`get_uwg_run`; use the returned morphed `weather_target` with "
-                "`start_energy_run` only when downstream Energy simulation is requested. "
+                'Garden-relative EPW, call `uwg_create_simulation_parameter` when '
+                'custom UWG settings are needed, then call `uwg_start_simulation` and poll '
+                '`uwg_poll_simulation`; use the returned morphed `weather_target` with '
+                '`energyplus_start_simulation` only when downstream Energy simulation is requested. '
                 "For Radiance simulation, first attach SensorGrids or Views to the "
                 "Honeybee model, create a `radiance_sky_file` for point-in-time "
                 "grid/view recipes or a `wea_file` for annual/matrix recipes, create "
-                "Radiance parameters when needed, then call `start_radiance_grid_run`, "
-                "`start_radiance_view_run`, or `start_radiance_matrix_run` and poll "
-                "`get_radiance_run`. "
+                'Radiance parameters when needed, then call `radiance_start_grid_simulation`, '
+                '`radiance_start_view_simulation`, or `radiance_start_matrix_simulation` and poll '
+                '`radiance_poll_simulation`. '
                 "Chain dependent create/edit/simulate calls in one block and "
                 "`await call_tool` returns the tool result dict directly; use "
                 "`result['target']` or `result['garden_root']`, not `result['value']`. "

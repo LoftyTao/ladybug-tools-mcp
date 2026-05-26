@@ -11,33 +11,35 @@ from garden.run_uwg.parameters import create_uwg_simulation_parameter as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_uwg_simulation_parameter tool."""
+    'Register the uwg_create_simulation_parameter tool.'
 
     @mcp.tool(
-        name="create_uwg_simulation_parameter",
+        name='create_simulation_parameter',
         description=(
             "Create and optionally save a Dragonfly UWGSimulationParameter for "
-            "Alternative Weather workflows. Supports run period, timestep, "
-            "vegetation, reference EPW site, and boundary layer settings."
+            "Alternative Weather workflows. Use this before uwg_dragonfly_model_to_uwg, "
+            "uwg_start_simulation, or uwg_run_simulation_wait when custom run period, "
+            "timestep, vegetation, reference EPW site, or boundary layer settings are "
+            "needed. Returns target, summary_view, persistence_receipt, and report when "
+            "saved; it does not run UWG."
         ),
         tags={
-            "run-uwg",
+            "dragonfly",
             "uwg",
-            "alternative-weather",
-            "simulation-parameter",
-            "write",
-            "safe",
+            "weather",
+            "author",
+            "parameter",
         },
         timeout=20,
     )
     def create_uwg_simulation_parameter(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str | None,
-            Field(description="Optional stable identifier for the saved UWG parameter JSON."),
+            Field(description="Optional stable identifier for the saved UWGSimulationParameter JSON target."),
         ] = None,
         climate_zone: Annotated[
             str | None,
@@ -69,7 +71,7 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         include_body: Annotated[
             bool,
-            Field(description="Return the full parameter dict. Keep False for Agent workflows."),
+            Field(description="Return the full UWGSimulationParameter dict. Keep False for compact target handoff."),
         ] = False,
     ) -> dict[str, Any]:
         """Create a UWG simulation parameter."""

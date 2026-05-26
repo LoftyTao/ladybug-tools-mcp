@@ -87,31 +87,31 @@ def _positions_from_rectangular_grid(
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_radiance_sensor_grid tool."""
+    'Register the radiance_create_sensor_grid tool.'
 
     @mcp.tool(
-        name="create_radiance_sensor_grid",
-        description="Create a Honeybee Radiance SensorGrid from explicit positions or from rectangular workplane dimensions x_dim/y_dim/x_count/y_count. With garden_root, writes a Garden .pts artifact and returns a compact radiance_sensor_grid target. Set attach_to_model=true to add the SensorGrid to the Honeybee model Radiance properties for later daylight/radiance recipes.",
+        name="create_sensor_grid",
+        description=(
+            "Create a Honeybee Radiance SensorGrid from explicit sensor "
+            "positions or rectangular workplane dimensions. With garden_root, "
+            "the tool writes a Garden .pts artifact and returns a compact "
+            "radiance_sensor_grid target. Set attach_to_model=true to add the "
+            "SensorGrid to the Honeybee model Radiance properties for later "
+            "daylight recipes. This creates sensor points, not room geometry "
+            "or EnergyPlus result data."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
             "sensor-grid",
-            "sensors",
+            "author",
             "pts",
-            "daylight",
-            "garden-mode",
-            "model",
-            "target",
-            "artifact",
-            "write",
-            "safe",
         },
         timeout=60,
     )
     def create_radiance_sensor_grid(
         identifier: Annotated[
             str | None,
-            Field(description="Stable SensorGrid identifier. Defaults to sensor_grid when omitted."),
+            Field(description="Stable Radiance SensorGrid identifier. Defaults to sensor_grid when omitted."),
         ] = None,
         positions: Annotated[
             list[list[float]] | None,
@@ -171,7 +171,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Optional Garden root path. When provided, writes a .pts artifact and target."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         model_target: Annotated[
             dict[str, Any] | None,

@@ -8,36 +8,40 @@ from garden.visualize.artifacts import visualization_set_to_html as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the visualization_set_to_html tool."""
+    'Register the visualization_set_to_html tool.'
 
     @mcp.tool(
-        name="visualization_set_to_html",
-        description="Export a Ladybug Display VisualizationSet to a standalone interactive HTML page artifact inside a Garden and record it in garden.json artifacts. Use this when the user asks for an HTML page, report page, or browser-openable preview file. Preferred Agent path is visualization_set_target from an upstream visualize tool; direct visualization_set dict input remains available for payload/debug workflows. For Web 3D geometry packages, vtk.js assets, React viewer assets, Remotion assets, or reusable geometry assets, use visualization_set_to_vtkjs instead, not this HTML exporter.",
+        name="set_to_html",
+        description=(
+            "Export a Ladybug Display VisualizationSet to a standalone "
+            "interactive HTML page artifact inside a Garden and record it in "
+            "garden.json artifacts. Use this when the user asks for an HTML "
+            "page, report page, or browser-openable preview file. Preferred "
+            "Agent path is visualization_set_target from an upstream visualize "
+            "tool. For Web 3D geometry packages, vtk.js assets, React viewer "
+            "assets, Remotion assets, or reusable geometry assets, use "
+            "visualization_set_to_vtkjs. This exporter does not create or "
+            "modify the VisualizationSet source data."
+        ),
         tags={
-            "visualize",
-            "garden-mode",
-            "artifact",
+            "visualization-set",
             "export",
-            "html-page",
-            "browser-preview",
-            "not-vtkjs",
-            "write",
-            "safe",
+            "artifact",
         },
         timeout=60,
     )
     def visualization_set_to_html(
-        garden_root: Annotated[str, Field(description="Garden root directory.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         visualization_set: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional VisualizationSet dictionary from a visualize tool. Use visualization_set_target instead for Agent token-saving Garden workflows."
+                description="Optional direct VisualizationSet dictionary from a visualize tool. Prefer visualization_set_target for compact Garden workflows."
             ),
         ] = None,
         visualization_set_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional visualization_set target returned by an upstream visualize tool with garden_root and return_visualization_set=false."
+                description="Optional visualization_set target returned by an upstream visualize tool with return_visualization_set=false."
             ),
         ] = None,
         name: Annotated[

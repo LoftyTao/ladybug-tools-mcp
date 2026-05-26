@@ -11,41 +11,37 @@ from garden.radiance.run import list_radiance_run_outputs as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the list_radiance_run_outputs tool."""
+    'Register the radiance_list_run_outputs tool.'
 
     @mcp.tool(
-        name="list_radiance_run_outputs",
-        description="List known output names and paths for one Garden radiance_run without reading large result files after start Radiance daylight grid, view, or matrix runs with radiance parameters. Use before later Radiance postprocess tools.",
+        name="list_run_outputs",
+        description=(
+            "List indexed outputs for one Garden Radiance run, including grid "
+            "results, HDR images, matrices, parameters, and reports when "
+            "present. Use after radiance_poll_simulation reports a finished "
+            "runtime_status. This is an output inventory; it does not read "
+            "result payloads or convert artifacts. Returns matches, "
+            "summary_view, and report."
+        ),
         tags={
-            "honeybee-radiance",
-            "radiance",
-            "run-radiance",
-            "daylight",
-            "simulation",
+            "artifact",
             "outputs",
-            "postprocess",
-            "grid",
-            "view",
-            "matrix",
-            "parameters",
-            "run",
-            "ledger",
-            "list",
-            "read-only",
-            "safe",
+            "radiance",
+            "result",
+            "search",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def list_radiance_run_outputs(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional radiance_run target returned by a start_radiance_*_run tool."),
+            Field(description="Optional radiance_run target returned by a start_radiance_*_run tool. Poll the run before listing outputs."),
         ] = None,
         run_id: Annotated[
             str | None,
-            Field(description="Optional run identifier when run_target is omitted."),
+            Field(description="Optional run identifier when run_target is not supplied."),
         ] = None,
     ) -> dict[str, Any]:
         """List outputs for one Radiance simulation run."""

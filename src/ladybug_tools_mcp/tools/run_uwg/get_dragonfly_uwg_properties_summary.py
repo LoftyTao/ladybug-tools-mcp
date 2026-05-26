@@ -13,35 +13,33 @@ from garden.dragonfly_core.uwg_properties import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the get_dragonfly_uwg_properties_summary tool."""
+    'Register the uwg_get_dragonfly_properties_summary tool.'
 
     @mcp.tool(
-        name="get_dragonfly_uwg_properties_summary",
+        name='get_dragonfly_properties_summary',
         description=(
-            "Read compact Dragonfly Urban Weather Generator (UWG) extension "
-            "properties for the model, buildings, and context shades. This is "
-            "for Alternative Weather/UWG setup, not full URBANopt Energy, "
-            "Electric Grid, or District Thermal."
+            "Read compact Dragonfly Urban Weather Generator extension properties for "
+            "the model, Buildings, and ContextShades. Use this to inspect UWG setup "
+            "before weather morphing; this is adjacent to URBANopt concepts but not a "
+            "URBANopt Scenario. Returns summary_view and report without changing the model."
         ),
         tags={
-            "run-uwg",
-            "uwg",
-            "alternative-weather",
             "dragonfly",
-            "properties",
-            "read",
-            "safe",
+            "uwg",
+            "weather",
+            "summary",
+            "inventory",
         },
         timeout=20,
     )
     def get_dragonfly_uwg_properties_summary(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly model target. Defaults to base Dragonfly model."),
+            Field(description="Optional Dragonfly model target with target_type=dragonfly_model. Defaults to the Garden base Dragonfly model."),
         ] = None,
     ) -> dict[str, Any]:
         """Read Dragonfly UWG properties."""

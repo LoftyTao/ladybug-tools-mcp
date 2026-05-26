@@ -11,40 +11,34 @@ from garden.fairyfly.results import read_fairyfly_u_factor_result as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the read_fairyfly_u_factor_result tool."""
+    'Register the therm_read_u_factor tool.'
 
     @mcp.tool(
-        name="read_fairyfly_u_factor_result",
+        name="read_u_factor",
         description=(
-            "Read U-Factor summaries from a completed Fairyfly THERM THMZ file. "
-            "Use this after assigning U-Factor tags and running THERM. If results "
-            "are missing, returns no_results with a tag/runtime diagnostic."
+            "Read U-Factor summaries from a Fairyfly THERM THMZ file. Use this "
+            "after assigning U-Factor tags, running THERM, and polling "
+            "therm_poll_simulation before reading from a run_target. If results "
+            "are missing, returns no_results with a tag/runtime diagnostic. Returns "
+            "u_factor_result_target, summary_view, and report when values exist; use "
+            "therm_read_result for temperature or heat-flux statistics."
         ),
-        tags={
-            "fairyfly",
-            "therm",
-            "result",
-            "u-factor",
-            "2d-heat-transfer",
-            "garden-mode",
-            "read-only",
-            "safe",
-        },
+        tags={"fairyfly", "therm", "u-factor", "result", "summary"},
         annotations={"readOnlyHint": True},
         timeout=30,
     )
     def read_fairyfly_u_factor_result(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         thmz_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional fairyfly_thmz target returned by write_fairyfly_model_to_thmz."),
+            Field(description='Optional fairyfly_thmz target returned by therm_write_model_to_thmz.'),
         ] = None,
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional fairyfly_therm_run target returned by start_fairyfly_therm_run."),
+            Field(description='Optional completed fairyfly_therm_run target returned by therm_start_simulation. Poll before reading U-factor results.'),
         ] = None,
         run_id: Annotated[
             str | None,

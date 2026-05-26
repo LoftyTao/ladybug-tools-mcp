@@ -10,25 +10,28 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_window_gas_material tool."""
+    'Register the energy_create_window_gas_material tool.'
 
     @mcp.tool(
-        name="create_window_gas_material",
-        description="Create a Honeybee Energy EnergyWindowMaterialGas gap layer for WindowConstruction assemblies. Returns object_dict plus summary_view. Use return_detail='summary' for key gas values or 'full' for a matrix of material property values.",
+        name='create_window_gas_material',
+        description=(
+            "Create a Honeybee Energy EnergyWindowMaterialGas gap layer for "
+            "WindowConstruction assemblies. This is a reusable gas layer, not "
+            "a full glazing construction. Returns object_dict plus "
+            "summary_view; return_detail='full' also includes a material "
+            "property matrix."
+        ),
         tags={
-            "honeybee-energy",
             "energy",
-            "construction-set",
+            "construction",
             "material",
-            "window",
-            "gas",
-            "create",
-            "safe",
+            "author",
+            "window-layer",
         },
         timeout=20,
     )
     def create_window_gas_material(
-        identifier: Annotated[str, Field(description="Gas material identifier.")],
+        identifier: Annotated[str, Field(description="Honeybee EnergyWindowMaterialGas identifier for a window gas gap layer.")],
         thickness: Annotated[
             float, Field(description="Gas gap thickness in meters.")
         ] = 0.0125,
@@ -44,7 +47,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for saving this material to the Garden Properties Library."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

@@ -11,18 +11,23 @@ from garden.dragonfly_core.conversion import honeybee_model_to_dragonfly as serv
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the honeybee_model_to_dragonfly tool."""
+    'Register the dragonfly_convert_honeybee_model_to_dragonfly tool.'
 
     @mcp.tool(
-        name="honeybee_model_to_dragonfly",
-        description="Convert a Garden Honeybee model to a Dragonfly Model using Dragonfly Model.from_honeybee, save DFJSON, and optionally set base_dragonfly_model.",
-        tags={"dragonfly-core", "honeybee-core", "garden-mode", "model", "convert", "write", "safe"},
+        name="convert_honeybee_model_to_dragonfly",
+        description=(
+            "Convert a Garden Honeybee model to a Dragonfly Model using Dragonfly "
+            "Model.from_honeybee, save DFJSON, and optionally set base_dragonfly_model. "
+            "Returns target, model_target, and report for downstream Dragonfly tools; "
+            "the source Honeybee model remains unchanged."
+        ),
+        tags={"dragonfly", "honeybee", "model", "convert", "import"},
         timeout=60,
     )
     def honeybee_model_to_dragonfly(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         identifier: Annotated[
             str | None,
@@ -35,7 +40,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         honeybee_model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Honeybee model target. Defaults to base Honeybee model."),
+            Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base Honeybee model."),
         ] = None,
         conversion_method: Annotated[
             str,
@@ -43,7 +48,7 @@ def register(mcp: FastMCP) -> None:
         ] = "AllRoom2D",
         set_base: Annotated[
             bool,
-            Field(description="Whether to set this as Garden base_dragonfly_model."),
+            Field(description="Whether to save the converted Dragonfly Model as the Garden base_dragonfly_model."),
         ] = True,
     ) -> dict[str, Any]:
         """Convert a Honeybee model to Dragonfly."""

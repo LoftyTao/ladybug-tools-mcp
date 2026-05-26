@@ -25,29 +25,29 @@ def _target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_radiance_sensor_grids tool."""
+    'Register the radiance_search_sensor_grids tool.'
 
     @mcp.tool(
-        name="search_radiance_sensor_grids",
-        description="Search Garden Radiance SensorGrid .pts artifacts and return compact radiance_sensor_grid targets for grid recipe handoff.",
+        name="search_sensor_grids",
+        description=(
+            "Search Garden Radiance SensorGrid .pts artifacts and return "
+            "compact radiance_sensor_grid targets for grid recipe handoff. "
+            "This searches saved sensor-grid artifacts; it does not create "
+            "sensor points, attach grids to models, or read grid results."
+        ),
         tags={
-            "honeybee-radiance",
+            "artifact",
             "radiance",
             "sensor-grid",
-            "pts",
-            "artifact",
+            "author",
             "search",
-            "target",
-            "garden-mode",
-            "read",
-            "safe",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def search_radiance_sensor_grids(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        query: Annotated[str | None, Field(description="Optional identifier or path substring filter.")] = None,
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        query: Annotated[str | None, Field(description="Optional SensorGrid identifier or Garden-relative .pts path substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance SensorGrid artifacts."""

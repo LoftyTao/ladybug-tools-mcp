@@ -15,34 +15,33 @@ def _requires_radiance_sky_file(calculation_type: str) -> bool:
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the start_radiance_grid_run tool."""
+    'Register the radiance_start_grid_simulation tool.'
 
     @mcp.tool(
-        name="start_radiance_grid_run",
-        description="Start a background Radiance daylight grid recipe for a Honeybee model with attached SensorGrids and return immediately with target, radiance_run_target, run_target, and summary_view.poll_next.arguments. Use for point-in-time-grid, daylight-factor, rtrace daylight calculations; poll get_radiance_run instead of waiting for the recipe.",
+        name="start_grid_simulation",
+        description=(
+            "Start a background Radiance daylight grid recipe for a Honeybee "
+            "model with attached SensorGrids. Use for point-in-time-grid, "
+            "daylight-factor, and rtrace calculations. Provide a sky_file "
+            "target for point-in-time runs and poll with "
+            "radiance_poll_simulation before reading artifacts. Returns "
+            "run_target, radiance_run_target, runtime_status through "
+            "summary_view.status, poll_next, and report. Treat failed "
+            "runtime_status as requiring report review."
+        ),
         tags={
-            "honeybee-radiance",
+            "start",
             "radiance",
-            "run-radiance",
-            "daylight",
-            "grid",
-            "sensor-grid",
-            "point-in-time-grid",
-            "daylight-factor",
-            "rtrace",
-            "recipe",
-            "background",
-            "agent",
-            "write",
-            "safe",
+            "simulate",
+            "poll",
         },
         timeout=60,
     )
     def start_radiance_grid_run(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Honeybee model target. Defaults to the Garden base model and should already have SensorGrids attached."),
+            Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model and should already have SensorGrids attached."),
         ] = None,
         calculation_type: Annotated[
             str,
@@ -50,11 +49,11 @@ def register(mcp: FastMCP) -> None:
         ] = "point_in_time",
         radiance_sky_file: Annotated[
             dict[str, Any] | None,
-            Field(description="Radiance sky file target from create_cie_standard_sky, create_climate_based_sky, create_radiance_sky, or create_radiance_sky_file. Required for point_in_time runs."),
+            Field(description='Radiance sky file target from radiance_create_cie_standard_sky, radiance_create_climate_based_sky, radiance_create_sky, or radiance_create_sky_file. Required for point_in_time runs.'),
         ] = None,
         grid_filter: Annotated[
             str,
-            Field(description="Honeybee Radiance grid-filter input. Use '*' for all attached SensorGrids."),
+            Field(description="Honeybee Radiance grid-filter input. Use '*' for all attached SensorGrids or pass one SensorGrid identifier."),
         ] = "*",
         sensor_grid_target: Annotated[
             dict[str, Any] | None,
@@ -74,7 +73,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         radiance_parameters: Annotated[
             str | dict[str, Any] | None,
-            Field(description="Optional Radiance parameters string or a dictionary with radiance_parameters."),
+            Field(description="Optional Radiance parameters string or dictionary returned by radiance_create_parameters."),
         ] = None,
         run_id: Annotated[
             str | None,

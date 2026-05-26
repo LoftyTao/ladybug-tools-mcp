@@ -11,40 +11,34 @@ from garden.radiance.metrics import summarize_radiance_glare_metrics as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the summarize_radiance_glare_metrics tool."""
+    'Register the radiance_summarize_glare_metrics tool.'
 
     @mcp.tool(
-        name="summarize_radiance_glare_metrics",
+        name="summarize_glare_metrics",
         description=(
-            "Summarize DGP / glare metrics from completed supported Radiance glare "
-            "outputs. Use this for visual discomfort, annual glare, too-bright "
-            "view, and DGP result summaries. This tool does not convert HDR, GIF, "
-            "or falsecolor brightness into DGP; if only images exist it returns a "
-            "blocked diagnostic."
+            "Summarize annual Radiance glare metrics from a completed glare or "
+            "view run into compact DGP and visual-discomfort statistics. Use "
+            "after radiance_poll_simulation and output listing confirm results "
+            "exist. This reads glare metric artifacts; it does not run view "
+            "recipes or convert HDR images. Returns target, summary_view, "
+            "metrics, and report."
         ),
         tags={
-            "honeybee-radiance",
             "radiance",
             "glare",
-            "dgp",
-            "annual-glare",
-            "visual-discomfort",
-            "too-bright",
-            "postprocess",
             "metrics",
-            "compact",
-            "safe",
+            "result",
         },
         timeout=60,
     )
     def summarize_radiance_glare_metrics(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional completed radiance_run target with DGP/glare result outputs."),
+            Field(description="Optional completed radiance_run target with DGP/glare result outputs. Poll the run before summarizing metrics."),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -66,7 +60,7 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         include_values: Annotated[
             bool,
-            Field(description="Return raw DGP values. Keep false for compact Agent use."),
+            Field(description="Return raw DGP values. Keep false for compact report handoff."),
         ] = False,
     ) -> dict[str, Any]:
         """Summarize DGP/glare metrics."""

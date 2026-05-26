@@ -14,35 +14,35 @@ from ladybug_tools_mcp.tools.radiance.create_cie_standard_sky import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_climate_based_sky tool."""
+    'Register the radiance_create_climate_based_sky tool.'
 
     @mcp.tool(
-        name="create_climate_based_sky",
-        description="Create a Garden radiance_sky_file target backed by a Radiance gendaylit command. Use this for a single-timestep climate-based sky from direct normal plus diffuse horizontal irradiance or illuminance. The persisted .sky file starts with !gendaylit and is meant as a compact Radiance scene include, not a full daylight recipe or annual sky matrix.",
+        name='create_climate_based_sky',
+        description=(
+            "Create a Garden radiance_sky_file target backed by a Radiance "
+            "gendaylit command. Use this for a single-timestep climate-based "
+            "sky from direct normal plus diffuse horizontal irradiance or "
+            "illuminance. The persisted .sky file starts with !gendaylit and "
+            "serves as a compact Radiance scene include. It does not create an "
+            "annual sky matrix or start a daylight recipe."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
             "sky",
+            "weather",
+            "point-in-time",
             "climate-based",
-            "gendaylit",
-            "irradiance",
-            "illuminance",
-            "garden-mode",
-            "target",
-            "artifact",
-            "write",
-            "safe",
         },
         timeout=60,
     )
     def create_climate_based_sky(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str | None,
-            Field(description="Stable identifier for the Radiance .sky artifact and target."),
+            Field(description="Stable identifier for the point-in-time climate-based Radiance .sky artifact and target."),
         ] = None,
         month: Annotated[
             int | None,

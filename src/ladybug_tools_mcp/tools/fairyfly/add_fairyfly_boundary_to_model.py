@@ -11,22 +11,27 @@ from garden.fairyfly.model import add_fairyfly_boundary_to_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the add_fairyfly_boundary_to_model tool."""
+    'Register the therm_add_boundary_to_model tool.'
 
     @mcp.tool(
-        name="add_fairyfly_boundary_to_model",
-        description="Add a Fairyfly Boundary to a Garden-backed Fairyfly Model from Ladybug Geometry 2D line segment input. The boundary is saved into the model, not as a separate target.",
-        tags={"fairyfly", "therm", "model", "geometry", "boundary", "write", "safe", "garden-mode"},
+        name="add_boundary_to_model",
+        description=(
+            "Add a Fairyfly Boundary to a Garden-backed Fairyfly Model from Ladybug "
+            "Geometry 2D line segment input. The boundary is saved into the model, "
+            "not as a separate target. Use THERM run/result tools after exporting or "
+            "running the two-dimensional section."
+        ),
+        tags={"fairyfly", "therm", "model", "geometry", "boundary", "2d"},
         timeout=20,
     )
     def add_fairyfly_boundary_to_model(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         line_segments_2d: Annotated[
             list[list[list[float]]],
-            Field(description="Boundary line segments as [[[x1, y1], [x2, y2]], ...]."),
+            Field(description="Fairyfly Boundary line segments as [[[x1, y1], [x2, y2]], ...] in model units."),
         ],
         temperature: Annotated[
             float,
@@ -38,7 +43,12 @@ def register(mcp: FastMCP) -> None:
         ],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Fairyfly model target. Defaults to base Fairyfly model."),
+            Field(
+                description=(
+                    "Optional Fairyfly Model target dict, usually therm_create_model['target']; "
+                    "defaults to the Garden base Fairyfly Model."
+                )
+            ),
         ] = None,
         name: Annotated[
             str | None,

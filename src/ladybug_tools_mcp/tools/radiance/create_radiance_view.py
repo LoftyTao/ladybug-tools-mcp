@@ -47,25 +47,24 @@ def _normalize_view_type(value: str) -> str:
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_radiance_view tool."""
+    'Register the radiance_create_view tool.'
 
     @mcp.tool(
-        name="create_radiance_view",
-        description="Create Radiance view / Honeybee Radiance View for rpict daylight rendering from position, direction or look-at target point, up vector, view type, and view size. With garden_root, writes a Garden .vf artifact and returns a compact radiance_view target. Set attach_to_model=true to add the View to the Honeybee model Radiance properties for later rpict/glare/daylight workflows.",
+        name="create_view",
+        description=(
+            "Create a Radiance View / Honeybee Radiance View for rpict "
+            "daylight rendering from position, direction or look-at point, up "
+            "vector, view type, and view size. With garden_root, the tool "
+            "writes a Garden .vf artifact and returns a compact radiance_view "
+            "target. Set attach_to_model=true to add the View to the Honeybee "
+            "model Radiance properties for later view or glare recipes. This "
+            "creates view input data and does not render HDR images."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
             "view",
-            "vf",
-            "rpict",
-            "glare",
-            "daylight",
-            "garden-mode",
-            "model",
-            "target",
-            "artifact",
-            "write",
-            "safe",
+            "author",
+            "camera",
         },
         timeout=60,
     )
@@ -124,11 +123,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Optional Garden root path. When provided, writes a .vf artifact and target."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Honeybee model target. Used when attach_to_model is true; omitted means Garden base model."),
+            Field(description="Optional Honeybee model target with target_type=honeybee_model. Used when attach_to_model is true; omitted means Garden base model."),
         ] = None,
         attach_to_model: Annotated[
             bool,

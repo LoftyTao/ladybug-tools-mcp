@@ -11,42 +11,40 @@ from garden.run_uwg.run import start_uwg_run as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the start_uwg_run tool."""
+    'Register the uwg_start_simulation tool.'
 
     @mcp.tool(
-        name="start_uwg_run",
+        name="start_simulation",
         description=(
-            "Start a UWG Alternative Weather weather-morphing run and poll "
-            "get_uwg_run. Use a Dragonfly model plus an exact Garden "
-            "weather_file target. The completed run returns a morphed urban "
-            "weather_target that can be passed to "
-            "start_energy_run only when downstream Energy simulation is "
-            "requested."
+            "Start a Dragonfly UWG Alternative Weather morphing run from a Dragonfly "
+            "model and Garden EPW weather target. A finished run registers a morphed "
+            "urban weather_target for optional downstream Energy simulation. Returns "
+            "run_target, uwg_run_target, runtime_status through summary_view.status, "
+            "poll_next, and report; poll with uwg_poll_simulation before using the "
+            "morphed weather. Treat a failed runtime_status as requiring report review."
         ),
         tags={
-            "run-uwg",
-            "uwg",
-            "alternative-weather",
-            "weather-morphing",
             "dragonfly",
-            "write",
-            "safe",
+            "uwg",
+            "weather",
+            "simulate",
+            "start",
         },
         timeout=120,
     )
     def start_uwg_run(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly model target. Defaults to base Dragonfly model."),
+            Field(description="Optional Dragonfly model target with target_type=dragonfly_model. Defaults to the Garden base Dragonfly model."),
         ] = None,
         weather_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Garden weather_file target with epw_path to morph."),
+            Field(description='Garden weather file target returned by energyplus_download_epw or a Garden-relative EPW path to morph with UWG.'),
         ] = None,
         simulation_parameter_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional uwg_simulation_parameter target."),
+            Field(description="Optional uwg_simulation_parameter target returned by uwg_create_simulation_parameter."),
         ] = None,
         simulation_parameter: Annotated[
             dict[str, Any] | None,
@@ -58,7 +56,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         reload_old: Annotated[
             bool,
-            Field(description="Return a completed existing UWG run with the same run_id when available."),
+            Field(description="Return an existing finished UWG run with the same run_id when available."),
         ] = False,
         silent: Annotated[
             bool,

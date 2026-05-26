@@ -20,30 +20,30 @@ def _view_filter_from_target(view_target: dict[str, Any] | None) -> str | None:
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the start_radiance_view_run tool."""
+    'Register the radiance_start_view_simulation tool.'
 
     @mcp.tool(
-        name="start_radiance_view_run",
-        description="Start a background Radiance daylight view recipe for a Honeybee model with attached Views and return immediately with target, radiance_run_target, run_target, and summary_view.poll_next.arguments. Use for point-in-time-view, rpict image calculations; poll get_radiance_run instead of waiting for the recipe. You may pass view_filter or a radiance_view target from create_radiance_view as view_target. You may pass radiance_parameters or the radiance_parameters target/result from create_radiance_parameters.",
+        name="start_view_simulation",
+        description=(
+            "Start a background Radiance daylight view recipe for a Honeybee "
+            "model with attached Views. Use for point-in-time-view and rpict "
+            "image calculations with view_filter or view_target from "
+            "radiance_create_view. Poll with radiance_poll_simulation before "
+            "reading HDR or image artifacts. Returns run_target, "
+            "radiance_run_target, runtime_status through summary_view.status, "
+            "poll_next, and report. Treat failed runtime_status as requiring "
+            "report review."
+        ),
         tags={
-            "honeybee-radiance",
+            "start",
             "radiance",
-            "run-radiance",
-            "daylight",
-            "view",
-            "image",
-            "point-in-time-view",
-            "rpict",
-            "recipe",
-            "background",
-            "agent",
-            "write",
-            "safe",
+            "simulate",
+            "poll",
         },
         timeout=60,
     )
     def start_radiance_view_run(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model and should already have Views attached."),
@@ -54,7 +54,7 @@ def register(mcp: FastMCP) -> None:
         ] = "point_in_time",
         radiance_sky_file: Annotated[
             dict[str, Any] | None,
-            Field(description="Radiance sky file target from create_cie_standard_sky, create_climate_based_sky, create_radiance_sky, or create_radiance_sky_file."),
+            Field(description='Radiance sky file target from radiance_create_cie_standard_sky, radiance_create_climate_based_sky, radiance_create_sky, or radiance_create_sky_file. Required for point_in_time view runs.'),
         ] = None,
         view_filter: Annotated[
             str,
@@ -78,7 +78,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         radiance_parameters: Annotated[
             str | dict[str, Any] | None,
-            Field(description="Optional Radiance parameters string or a dictionary with radiance_parameters."),
+            Field(description="Optional Radiance parameters string or dictionary returned by radiance_create_parameters."),
         ] = None,
         run_id: Annotated[
             str | None,

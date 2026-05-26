@@ -8,21 +8,17 @@ from garden.honeybee_core.creation import create_honeybee_shade as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_honeybee_shade tool."""
+    'Register the honeybee_create_shade tool.'
 
     @mcp.tool(
-        name="create_honeybee_shade",
-        description="Create an orphaned Honeybee Shade or attach it to a Room, Face, Aperture, or Door typed target from explicit Face3D geometry. This is not the default louver, overhang, sunshade, or window shade tool; for natural parametric shade requests use create_honeybee_shades_by_parameters instead. Requires garden_root, unique identifier, and geometry; hosted shades also need host_target from search_honeybee_model_objects matches[i].target or a prior result target. If the identifier already exists, search and reuse the existing shade target, remove it first, or choose a new identifier. The parameter names are exactly geometry and host_target, not Face3D and not host_face. Never pass arguments null or {}.",
+        name="create_shade",
+        description='Create an orphaned Honeybee Shade or attach it to a Room, Face, Aperture, or Door typed target from explicit Face3D geometry. This is the low-level explicit-geometry route for context shades, hosted shades, custom sunshades, or overhangs that already have Face3D geometry. For parametric louvers or aperture extruded borders, use honeybee_create_shades_by_parameters instead. Requires garden_root, unique identifier, and geometry; hosted shades also need host_target from honeybee_search_model_objects matches[i].target or a prior result target. The parameter names are geometry and host_target, not Face3D and not host_face. Returns target, object_target, model_target, shade_target, summary_view, persistence_receipt, and report.',
         tags={
-            "honeybee-core",
-            "garden-mode",
-            "shade",
+            "author",
             "geometry",
-            "explicit-geometry",
-            "face3d",
-            "custom-shade-geometry",
-            "write",
-            "safe",
+            "honeybee",
+            "hosted",
+            "shade",
         },
         timeout=20,
     )
@@ -30,13 +26,13 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         identifier: Annotated[
             str,
             Field(
-                description="Required unique Honeybee shade identifier. If it already exists, use search_honeybee_model_objects to reuse/remove it or choose a new identifier."
+                description='Required unique Honeybee shade identifier. If it already exists, use honeybee_search_model_objects to reuse/remove it or choose a new identifier.'
             ),
         ],
         geometry: Annotated[
@@ -48,13 +44,13 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         host_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee room/face/aperture/door typed target dict from nested target search_honeybee_model_objects matches[i].target or a prior create result target; parameter name is host_target, not host_face. Full responses are rejected; omit for orphaned shade."
+                description='Optional Honeybee room/face/aperture/door typed target dict from nested target honeybee_search_model_objects matches[i].target or a prior create result target; parameter name is host_target, not host_face. Full responses are rejected; omit for orphaned shade.'
             ),
         ] = None,
         attach_side: Annotated[

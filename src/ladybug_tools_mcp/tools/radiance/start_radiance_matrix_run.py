@@ -11,36 +11,32 @@ from garden.radiance.run import start_radiance_matrix_run as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the start_radiance_matrix_run tool."""
+    'Register the radiance_start_matrix_simulation tool.'
 
     @mcp.tool(
-        name="start_radiance_matrix_run",
-        description="Start a background Radiance annual/matrix daylight recipe for a Honeybee model with attached SensorGrids and a WEA target. Use for annual-daylight, annual-irradiance, cumulative-radiation, rfluxmtx calculations; returns immediately and should be polled with get_radiance_run.",
+        name="start_matrix_simulation",
+        description=(
+            "Start a background Radiance annual or matrix daylight recipe for "
+            "a Honeybee model with attached SensorGrids and a WEA target. Use "
+            "for annual-daylight, annual-irradiance, cumulative-radiation, and "
+            "rfluxmtx calculations. Poll with radiance_poll_simulation before "
+            "reading artifacts. Returns run_target, radiance_run_target, "
+            "runtime_status through summary_view.status, poll_next, and "
+            "report. Treat failed runtime_status as requiring report review."
+        ),
         tags={
-            "honeybee-radiance",
+            "start",
             "radiance",
-            "run-radiance",
-            "daylight",
-            "matrix",
-            "annual",
-            "annual-daylight",
-            "annual-irradiance",
-            "cumulative-radiation",
-            "rfluxmtx",
-            "wea",
-            "recipe",
-            "background",
-            "agent",
-            "write",
-            "safe",
+            "simulate",
+            "poll",
         },
         timeout=60,
     )
     def start_radiance_matrix_run(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Honeybee model target. Defaults to the Garden base model and should already have SensorGrids attached."),
+            Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model and should already have SensorGrids attached."),
         ] = None,
         calculation_type: Annotated[
             str,
@@ -48,7 +44,7 @@ def register(mcp: FastMCP) -> None:
         ] = "annual_daylight",
         wea_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Garden WEA target returned by create_wea_from_weather_file or create_ashrae_clear_sky_wea."),
+            Field(description='Garden WEA target returned by radiance_create_wea_from_weather_file or radiance_create_ashrae_clear_sky_wea.'),
         ] = None,
         wea_path: Annotated[
             str | None,
@@ -56,7 +52,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         grid_filter: Annotated[
             str,
-            Field(description="Honeybee Radiance grid-filter input. Use '*' for all attached SensorGrids."),
+            Field(description="Honeybee Radiance grid-filter input. Use '*' for all attached SensorGrids or pass one SensorGrid identifier."),
         ] = "*",
         north: Annotated[float | None, Field(description="Optional north angle in degrees.")] = None,
         timestep: Annotated[int | None, Field(description="Optional recipe timestep.")] = None,
@@ -86,7 +82,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         radiance_parameters: Annotated[
             str | dict[str, Any] | None,
-            Field(description="Optional Radiance parameters string or full create_radiance_parameters result."),
+            Field(description='Optional Radiance parameters string or dictionary returned by radiance_create_parameters.'),
         ] = None,
         run_id: Annotated[
             str | None,

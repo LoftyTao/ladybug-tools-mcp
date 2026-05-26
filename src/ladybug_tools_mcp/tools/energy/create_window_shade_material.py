@@ -10,26 +10,29 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_window_shade_material tool."""
+    'Register the energy_create_window_shade_material tool.'
 
     @mcp.tool(
-        name="create_window_shade_material",
-        description="Create a Honeybee Energy EnergyWindowMaterialShade layer for window constructions with shades. Returns object_dict plus summary_view. Use return_detail='summary' for key optical and thermal values or 'full' for a matrix of material property values.",
+        name='create_window_shade_material',
+        description=(
+            "Create a Honeybee Energy EnergyWindowMaterialShade layer for "
+            "window constructions with interior or exterior shades. This "
+            "returns a construction layer for later assembly; it does not "
+            "create shade geometry. Returns object_dict plus summary_view; "
+            "return_detail='full' also includes a material property matrix."
+        ),
         tags={
-            "honeybee-energy",
             "energy",
-            "construction-set",
+            "construction",
             "material",
-            "window",
+            "author",
             "shade",
-            "create",
-            "safe",
         },
         timeout=20,
     )
     def create_window_shade_material(
         identifier: Annotated[
-            str, Field(description="Window shade material identifier.")
+            str, Field(description="Honeybee EnergyWindowMaterialShade identifier for a window shade layer.")
         ],
         thickness: Annotated[
             float, Field(description="Shade thickness in meters.")
@@ -55,7 +58,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for saving this material to the Garden Properties Library."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

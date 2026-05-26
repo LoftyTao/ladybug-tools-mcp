@@ -8,31 +8,39 @@ from garden.honeybee_core.removal import remove_honeybee_face as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the remove_honeybee_face tool."""
+    'Register the honeybee_remove_face tool.'
 
     @mcp.tool(
-        name="remove_honeybee_face",
-        description="Remove one orphaned Honeybee Face from a Garden model using a face typed target from search_honeybee_model_objects and persist the updated model. Requires garden_root and target; do not pass arguments null or {}.",
-        tags={"honeybee-core", "garden-mode", "face", "write", "destructive"},
+        name="remove_face",
+        description='Remove one orphaned Honeybee Face from a Garden model using a face typed target from honeybee_search_model_objects and persist the updated model. Room-hosted Faces are rejected because deleting one would break the Room closed solid; this is not a remove wall from room shortcut. Requires garden_root and target; do not pass an identifier string. Returns summary_view.model_target, persistence_receipt.model_target, and report so the updated model can be searched or validated again.',
+        tags={
+            "edit",
+            "face",
+            "geometry",
+            "honeybee",
+            "orphaned-face",
+            "remove",
+            "target",
+        },
         timeout=20,
     )
     def remove_honeybee_face(
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee face typed target from search_honeybee_model_objects; not a face identifier string. Room-hosted faces cannot be removed by this tool."
+                description='Required Honeybee face typed target from honeybee_search_model_objects; not a face identifier string. Room-hosted faces cannot be removed by this tool.'
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
     ) -> dict[str, Any]:

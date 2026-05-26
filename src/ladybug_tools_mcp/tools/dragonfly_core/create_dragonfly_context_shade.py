@@ -11,36 +11,29 @@ from garden.dragonfly_core.creation import create_dragonfly_context_shade as ser
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_dragonfly_context_shade tool."""
+    'Register the dragonfly_create_context_shade tool.'
 
     @mcp.tool(
-        name="create_dragonfly_context_shade",
+        name="create_context_shade",
         description=(
             "Create a Dragonfly ContextShade in a Garden from one or more 3D "
             "shade faces, save it into the Dragonfly model, and return a "
             "context_shade target for search, UWG vegetation properties, and "
             "model summaries. Use this for surrounding buildings, tree canopy, "
-            "or other detached urban context geometry."
+            "or other detached urban context geometry. This does not create Honeybee "
+            "Shade geometry or Radiance modifiers."
         ),
-        tags={
-            "dragonfly-core",
-            "garden-mode",
-            "context-shade",
-            "urban-context",
-            "create",
-            "write",
-            "safe",
-        },
+        tags={"dragonfly", "context-shade", "context", "shade", "author"},
         timeout=20,
     )
     def create_dragonfly_context_shade(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         identifier: Annotated[
             str,
-            Field(description="Required Dragonfly ContextShade identifier."),
+            Field(description="Required Dragonfly ContextShade identifier for the saved context object."),
         ],
         geometry: Annotated[
             Any,
@@ -67,7 +60,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
                 )
             ),
         ] = None,

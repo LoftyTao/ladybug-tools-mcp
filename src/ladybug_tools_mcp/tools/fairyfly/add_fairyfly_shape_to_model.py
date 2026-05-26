@@ -11,30 +11,40 @@ from garden.fairyfly.model import add_fairyfly_shape_to_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the add_fairyfly_shape_to_model tool."""
+    'Register the therm_add_shape_to_model tool.'
 
     @mcp.tool(
-        name="add_fairyfly_shape_to_model",
-        description="Add a Fairyfly Shape to a Garden-backed Fairyfly Model from Ladybug Geometry 2D polygon input. The shape is saved into the model, not as a separate target.",
-        tags={"fairyfly", "therm", "model", "geometry", "shape", "write", "safe", "garden-mode"},
+        name="add_shape_to_model",
+        description=(
+            "Add a Fairyfly Shape to a Garden-backed Fairyfly Model from Ladybug "
+            "Geometry 2D polygon input and a THERM material object_dict. The shape is "
+            "saved into the model, not as a separate target. This edits the 2D section "
+            "and does not run THERM."
+        ),
+        tags={"fairyfly", "therm", "model", "geometry", "shape", "2d"},
         timeout=20,
     )
     def add_fairyfly_shape_to_model(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         vertices_2d: Annotated[
             list[list[float]],
-            Field(description="Shape polygon vertices as [[x, y], ...] in model units."),
+            Field(description="Fairyfly Shape polygon vertices as [[x, y], ...] in two-dimensional model units."),
         ],
         material: Annotated[
             dict[str, Any],
-            Field(description="Fairyfly THERM material object_dict, such as create_fairyfly_solid_material.object_dict."),
+            Field(description='Fairyfly THERM material object_dict, such as therm_create_solid_material.object_dict.'),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Fairyfly model target. Defaults to base Fairyfly model."),
+            Field(
+                description=(
+                    "Optional Fairyfly Model target dict, usually therm_create_model['target']; "
+                    "defaults to the Garden base Fairyfly Model."
+                )
+            ),
         ] = None,
         name: Annotated[
             str | None,

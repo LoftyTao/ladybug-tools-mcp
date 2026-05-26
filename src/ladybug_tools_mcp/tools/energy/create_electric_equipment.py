@@ -8,19 +8,19 @@ from garden.energy.programtypes import create_electric_equipment as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_electric_equipment tool."""
+    'Register the energy_create_electric_equipment tool.'
 
     @mcp.tool(
-        name="create_electric_equipment",
-        description="Create a Honeybee Energy ElectricEquipment load object from watts_per_area and an optional schedule. Use garden_root and return_object_dict=false to save the load and pass its target to create_program_type.",
+        name='create_electric_equipment',
+        description='Create a Honeybee Energy ElectricEquipment internal-gains load from equipment power density and an optional fractional schedule. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to energy_create_program_type.electric_equipment; set return_object_dict=false only when you want a low-token target/summary/receipt response. This is plug/process equipment energy, not a Radiance luminaire or electric load center.',
         tags={
-            "honeybee-energy",
+            "author",
             "energy",
-            "program",
-            "load",
             "electric-equipment",
-            "create",
-            "safe",
+            "electric",
+            "internal-gains",
+            "program-type",
+            "load",
         },
         timeout=20,
     )
@@ -34,27 +34,27 @@ def register(mcp: FastMCP) -> None:
         schedule: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional equipment schedule dict or schedule library identifier."
+                description="Optional fractional equipment schedule as a Honeybee Energy schedule object_dict, Garden schedule target, or standards-library identifier."
             ),
         ] = None,
         radiant_fraction: Annotated[
             float | None,
-            Field(description="Optional radiant fraction of equipment load."),
+            Field(description="Optional 0-1 radiant fraction of equipment heat gain."),
         ] = None,
         latent_fraction: Annotated[
             float | None,
-            Field(description="Optional latent fraction of equipment load."),
+            Field(description="Optional 0-1 latent fraction of equipment heat gain."),
         ] = None,
         lost_fraction: Annotated[
             float | None,
             Field(
-                description="Optional fraction of equipment load lost outside the zone/HVAC system."
+                description="Optional 0-1 fraction of equipment load lost outside the zone and HVAC system, such as directly exhausted heat."
             ),
         ] = None,
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for saving this load to the Garden Properties Library."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

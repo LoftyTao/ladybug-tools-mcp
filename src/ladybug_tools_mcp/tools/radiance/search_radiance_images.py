@@ -31,36 +31,39 @@ def _run_id_from_target(value: Any) -> str | None:
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_radiance_images tool."""
+    'Register the radiance_search_images tool.'
 
     @mcp.tool(
-        name="search_radiance_images",
-        description="Search Radiance image outputs. Returns raw HDR images from completed point-in-time view runs plus Garden-managed image artifacts such as falsecolor HDRs and GIFs.",
+        name="search_images",
+        description=(
+            "Search Garden-managed Radiance image artifacts such as HDR, "
+            "falsecolor, and GIF outputs. Use this before image conversion or "
+            "preview tools. This searches registered image metadata and paths; "
+            "it does not render, convert, or embed image payloads. Returns "
+            "matches, image_targets, summary_view, and report."
+        ),
         tags={
-            "honeybee-radiance",
+            "artifact",
             "radiance",
             "image",
-            "hdr",
-            "gif",
+            "result",
             "search",
-            "read-only",
-            "safe",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def search_radiance_images(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        run_id: Annotated[str | None, Field(description="Optional Radiance view run identifier.")] = None,
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        run_id: Annotated[str | None, Field(description="Optional completed Radiance view run identifier for narrowing image results.")] = None,
         run_target: Annotated[
             dict[str, Any] | str | None,
-            Field(description="Optional radiance_run target used to identify a view run."),
+            Field(description="Optional completed radiance_run target used to identify a view run."),
         ] = None,
         file_type: Annotated[
             str | None,
             Field(description="Optional formal image artifact type such as radiance_hdr_image or radiance_gif_image."),
         ] = None,
-        query: Annotated[str | None, Field(description="Optional name/path substring filter.")] = None,
+        query: Annotated[str | None, Field(description="Optional image artifact name or Garden-relative path substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance images."""
@@ -127,6 +130,6 @@ def register(mcp: FastMCP) -> None:
                 "count": len(matches),
                 "query": query,
                 "file_type": file_type,
-                "recommended_hdr_tool": "list_radiance_hdr_images",
+                "recommended_hdr_tool": 'radiance_list_hdr_images',
             },
         }

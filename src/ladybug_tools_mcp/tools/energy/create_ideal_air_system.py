@@ -8,21 +8,17 @@ from garden.energy.hvac import create_ideal_air_system as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_ideal_air_system tool."""
+    'Register the energy_create_ideal_air_system tool.'
 
     @mcp.tool(
-        name="create_ideal_air_system",
-        description="Create a Honeybee Energy IdealAirSystem HVAC object for a simple HVAC choice, compact office conditioning, early-stage room energy properties, or program/setpoint assignment workflows. Returns a full object_dict, or saves to Garden Properties Library and returns a target when garden_root is provided. For a simple HVAC, omit heating_air_temperature_ and cooling_air_temperature_; they are supply air temperatures, not room setpoints.",
+        name='create_ideal_air_system',
+        description="Create a Honeybee Energy IdealAirSystem HVAC object for simple ideal-loads conditioning and early-stage room energy properties. This is an HVAC-template/simple HVAC resource, not an Ironbug DetailedHVAC loop or component graph. Returns a full object_dict, or saves to Garden Properties Library and returns a target plus persistence_receipt when garden_root is provided and return_object_dict=false. For simple HVAC, omit heating_air_temperature and cooling_air_temperature; they are supply air temperatures, not room setpoints.",
         tags={
-            "honeybee-energy",
             "energy",
+            "hvac-template",
             "hvac",
-            "simple-hvac",
-            "office-hvac",
             "ideal-air",
-            "room-conditioning",
-            "create",
-            "safe",
+            "author",
         },
         timeout=20,
     )
@@ -89,7 +85,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root. When provided, save the HVAC as a reusable Garden Properties Library hvac object."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

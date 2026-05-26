@@ -11,35 +11,36 @@ from garden.radiance.sky import create_ashrae_clear_sky_wea as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_ashrae_clear_sky_wea tool."""
+    'Register the radiance_create_ashrae_clear_sky_wea tool.'
 
     @mcp.tool(
-        name="create_ashrae_clear_sky_wea",
-        description="Create a Radiance/DAYSIM WEA file artifact from a Ladybug Location using the ASHRAE clear sky model. Use this when no EPW is needed and the user asks for a theoretical clear-sky WEA or sky matrix source.",
+        name='create_ashrae_clear_sky_wea',
+        description=(
+            "Create a Radiance WEA file from ASHRAE Clear Sky conditions for "
+            "a Garden location. Use this for clear-sky daylight or irradiance "
+            "setup when the workflow needs synthetic WEA weather for "
+            "radiance_create_sky_matrix. This writes WEA data for Radiance "
+            "sky workflows; it does not download EPW files or run EnergyPlus. "
+            "Returns target, wea_target, summary_view, persistence_receipt, "
+            "and report."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
             "sky",
+            "weather",
             "wea",
-            "clear-sky",
-            "ashrae",
-            "location",
-            "garden-mode",
-            "target",
-            "artifact",
-            "write",
-            "safe",
+            "ashrae-clear-sky",
         },
         timeout=60,
     )
     def create_ashrae_clear_sky_wea(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str | None,
-            Field(description="Stable identifier for the WEA artifact and target."),
+            Field(description="Stable identifier for the ASHRAE clear-sky WEA artifact and target."),
         ] = None,
         location: Annotated[
             dict[str, Any] | None,

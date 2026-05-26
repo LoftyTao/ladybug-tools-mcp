@@ -13,37 +13,34 @@ from garden.visualize.sky import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the sky_matrix_to_radiation_dome_visualization_set tool."""
+    'Register the visualization_sky_matrix_to_radiation_dome_visualization_set tool.'
 
     @mcp.tool(
-        name="sky_matrix_to_radiation_dome_visualization_set",
+        name='sky_matrix_to_radiation_dome_visualization_set',
         description=(
-            "Create a cumulative Ladybug Radiance Radiation Dome VisualizationSet "
-            "from a Garden sky_matrix target. This tool intentionally supports "
-            "only cumulative sky matrix mode, not benefit sky matrix mode."
+            "Create a cumulative Ladybug Radiance Radiation Dome "
+            "VisualizationSet from a Garden sky_matrix target. This visualizes "
+            "existing sky-matrix values as a dome for display/export; it does "
+            "not create the sky matrix, run Radiance recipes, or support "
+            "benefit sky matrix mode."
         ),
         tags={
+            "radiation",
+            "radiance",
+            "sky",
             "visualize",
             "visualization-set",
-            "sky-matrix",
-            "radiation-dome",
-            "cumulative",
-            "radiance",
-            "ladybug-radiance",
-            "solar",
-            "target",
-            "safe",
         },
         timeout=120,
     )
     def sky_matrix_to_radiation_dome_visualization_set(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         sky_matrix_target: Annotated[
             dict[str, Any],
-            Field(description="Garden sky_matrix target returned by create_sky_matrix."),
+            Field(description='Existing Garden sky_matrix target returned by radiance_create_sky_matrix.'),
         ],
         azimuth_count: Annotated[
             int,
@@ -59,7 +56,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         plot_irradiance: Annotated[
             bool,
-            Field(description="Plot irradiance instead of radiation."),
+            Field(description="When true, plot irradiance values; when false, plot radiation values."),
         ] = False,
         radius: Annotated[
             float,

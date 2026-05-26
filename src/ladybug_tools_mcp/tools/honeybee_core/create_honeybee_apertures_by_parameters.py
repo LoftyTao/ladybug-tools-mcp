@@ -10,29 +10,19 @@ from garden.honeybee_core.creation import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_honeybee_apertures_by_parameters tool."""
+    'Register the honeybee_create_apertures_by_parameters tool.'
 
     @mcp.tool(
-        name="create_honeybee_apertures_by_parameters",
-        description="Create Honeybee Apertures, windows, rectangular windows, glazed openings, glazing ratio, window-to-wall ratio, or WWR openings on a host exterior wall Face typed target by ratio or by width and height parameters. This is the preferred tool for natural requests like add windows by WWR, set window-to-wall ratio to 0.3, add rectangular windows, or apply glazing percentage; use low-level create_honeybee_aperture only when the user provides explicit Face3D geometry. Prefer a search_honeybee_model_objects face match where face_type is Wall and boundary_condition is Outdoors. Requires a full arguments object with garden_root, host_target, and mode-specific parameters; do not pass arguments null or {}. Use create_honeybee_apertures_by_parameters for parametric window/WWR workflows.",
+        name="create_apertures_by_parameters",
+        description='Create Honeybee Apertures, windows, rectangular windows, glazed openings, glazing ratio, window-to-wall ratio, or WWR openings on a host exterior wall Face typed target by ratio or by width and height. This is the preferred tool for requests like add windows by WWR, set window-to-wall ratio to 0.3, add rectangular windows, or apply glazing percentage; use honeybee_create_aperture only for explicit Face3D geometry. Prefer a face match where face_type is Wall and boundary_condition is Outdoors. If the host already has apertures, it returns existing aperture targets with created_count=0 instead of duplicating windows. Requires garden_root, host_target, and mode-specific parameters. Returns target, aperture_target, targets, summary_view, persistence_receipt, and report.',
         tags={
-            "honeybee-core",
-            "garden-mode",
             "aperture",
-            "window",
-            "rectangular-window",
-            "glazed-opening",
-            "glazing-ratio",
-            "window-to-wall-ratio",
-            "wwr",
-            "wall",
+            "author",
             "face",
-            "parameters",
-            "ratio",
-            "width-height",
-            "create",
-            "write",
-            "safe",
+            "geometry",
+            "honeybee",
+            "window",
+            "wwr",
         },
         timeout=20,
     )
@@ -40,25 +30,25 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         host_target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee face typed target dict from nested target search_honeybee_model_objects matches[i].target or a prior create result target; choose a Wall/Outdoors face for exterior windows. Full responses, room targets, floor/ground faces, and identifier strings are rejected."
+                description='Required Honeybee face typed target dict from nested target honeybee_search_model_objects matches[i].target or a prior create result target; choose a Wall/Outdoors face for exterior windows. Full responses, room targets, floor/ground faces, and identifier strings are rejected.'
             ),
         ],
         generation_mode: Annotated[
             str | None,
             Field(
-                description="Generation mode: by_ratio or by_width_height. The short values ratio, window_ratio, and by_count_and_ratio are normalized to by_ratio. by_ratio requires ratio; by_width_height requires aperture_width and aperture_height."
+                description="Generation mode: by_ratio or by_width_height. by_ratio requires ratio; by_width_height requires aperture_width and aperture_height."
             ),
         ] = "by_ratio",
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         ratio: Annotated[

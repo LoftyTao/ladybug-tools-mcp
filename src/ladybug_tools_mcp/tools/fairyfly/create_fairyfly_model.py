@@ -11,35 +11,28 @@ from garden.fairyfly.model import create_fairyfly_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_fairyfly_model tool."""
+    'Register the therm_create_model tool.'
 
     @mcp.tool(
-        name="create_fairyfly_model",
+        name="create_model",
         description=(
             "Create an empty Fairyfly two-dimensional heat-transfer model in a "
             "Garden and optionally set it as the base Fairyfly model. Fairyfly "
             "SDK model identifiers are UUIDs; this tool's identifier is the stable "
             "Garden model identifier and FFJSON file name. Use this for a create "
             "Fairyfly two dimensional heat transfer model request before adding "
-            "Shapes, Boundaries, writing THMZ, or running THERM."
+            "Shapes, Boundaries, writing THMZ, or running THERM. Returns target "
+            "and model_target for downstream Fairyfly tools. This is not a Honeybee "
+            "or EnergyPlus model."
         ),
-        tags={
-            "fairyfly",
-            "therm",
-            "garden-mode",
-            "model",
-            "base-fairyfly-model",
-            "create",
-            "write",
-            "safe",
-        },
+        tags={"fairyfly", "therm", "model", "author", "2d"},
         timeout=20,
     )
     def create_fairyfly_model(
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         identifier: Annotated[
@@ -66,7 +59,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         save_back: Annotated[
             bool,
-            Field(description="Whether to save the model into Garden."),
+            Field(description="Whether to save the Fairyfly Model into the Garden and return a Fairyfly model target."),
         ] = True,
         set_base: Annotated[
             bool,

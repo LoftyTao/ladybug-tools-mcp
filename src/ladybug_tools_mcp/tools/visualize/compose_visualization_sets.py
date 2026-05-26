@@ -8,23 +8,39 @@ from garden.visualize.honeybee import compose_visualization_sets as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the compose_visualization_sets tool."""
+    'Register the visualization_compose_visualization_sets tool.'
 
     @mcp.tool(
-        name="compose_visualization_sets",
-        description="Compose multiple Ladybug Display VisualizationSets into one scene from either visualization_set dictionaries or Garden-backed visualization_set_targets. Preferred Agent path is garden_root plus exact visualization_set_targets from upstream tools and return_visualization_set=false, returning a compact visualization_set_target for visualization_set_to_html/svg/vtkjs without expanding large geometry dicts. Do not invent a type field; target dicts use target_type=visualization_set. For model + room preview overlays, set conflict_strategy=rename on the first compose attempt because wireframe identifiers often repeat. If some input VisualizationSets omit units, the first explicit unit is used; pass units only when intentionally converting between explicit unit systems.",
-        tags={"visualize", "dual-mode", "payload-mode", "target-mode", "garden-mode", "read", "safe"},
+        name='compose_visualization_sets',
+        description=(
+            "Compose multiple Ladybug Display VisualizationSets into one scene "
+            "from visualization_set dictionaries or Garden-backed "
+            "visualization_set_targets. Preferred Agent path is garden_root "
+            "plus upstream targets and return_visualization_set=false, which "
+            "returns a compact visualization_set_target for "
+            "visualization_set_to_html/svg/vtkjs. Target dicts use "
+            "target_type=visualization_set. For model and room preview "
+            "overlays, set conflict_strategy=rename because wireframe "
+            "identifiers often repeat. This tool composes display geometry; it "
+            "does not run analysis or convert source result files."
+        ),
+        tags={
+            "visualization-set",
+            "visualize",
+            "edit",
+            "compose",
+        },
         annotations={"readOnlyHint": True},
         timeout=30,
     )
     def compose_visualization_sets(
         visualization_sets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="VisualizationSet dictionaries to combine. Prefer visualization_set_targets for Agent Garden workflows."),
+            Field(description="VisualizationSet dictionaries to combine into one VisualizationSet. Prefer visualization_set_targets for Agent Garden workflows."),
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root directory. Required when using visualization_set_targets or return_visualization_set=false."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         visualization_set_targets: Annotated[
             list[dict[str, Any]] | None,

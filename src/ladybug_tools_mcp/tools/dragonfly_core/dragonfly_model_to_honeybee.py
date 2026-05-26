@@ -14,31 +14,34 @@ def register(mcp: FastMCP) -> None:
     """Register the dragonfly_model_to_honeybee tool."""
 
     @mcp.tool(
-        name="dragonfly_model_to_honeybee",
-        description="Convert a Garden Dragonfly model into one or more Honeybee HBJSON models using Dragonfly SDK Model.to_honeybee. Saves Honeybee models into the Garden without changing the base Dragonfly model.",
-        tags={
-            "dragonfly-core",
-            "honeybee-core",
-            "garden-mode",
-            "model",
-            "convert",
-            "write",
-            "safe",
-        },
+        name="model_to_honeybee",
+        description=(
+            "Convert a Garden Dragonfly model into one or more Honeybee HBJSON models "
+            "using Dragonfly SDK Model.to_honeybee. Saves Honeybee models into the "
+            "Garden without changing the base Dragonfly model. Returns model_target "
+            "entries and report for downstream Honeybee Energy or Radiance tools; "
+            "EnergyPlus simulation is a later Energy workflow."
+        ),
+        tags={"dragonfly", "honeybee", "model", "convert", "export"},
         timeout=60,
     )
     def dragonfly_model_to_honeybee(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly model target. Defaults to base Dragonfly model."),
+            Field(
+                description=(
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
+                )
+            ),
         ] = None,
         object_per_model: Annotated[
             str,
-            Field(description="Dragonfly to_honeybee object_per_model: Building, Story, or District."),
+            Field(description="Dragonfly to_honeybee object_per_model option: Building, Story, or District."),
         ] = "Building",
         shade_distance: Annotated[
             float | None,

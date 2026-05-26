@@ -10,25 +10,28 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_window_frame_material tool."""
+    'Register the energy_create_window_frame_material tool.'
 
     @mcp.tool(
-        name="create_window_frame_material",
-        description="Create a Honeybee Energy EnergyWindowFrame that can be attached to a WindowConstruction. Returns object_dict plus summary_view. Use return_detail='summary' for key frame values or 'full' for a matrix of material property values.",
+        name='create_window_frame_material',
+        description=(
+            "Create a Honeybee Energy EnergyWindowFrame that can be attached "
+            "to a WindowConstruction. This is frame metadata for a glazing "
+            "construction, not aperture geometry. Returns object_dict plus "
+            "summary_view; return_detail='full' also includes a material "
+            "property matrix."
+        ),
         tags={
-            "honeybee-energy",
             "energy",
-            "construction-set",
+            "construction",
             "material",
-            "window",
+            "author",
             "frame",
-            "create",
-            "safe",
         },
         timeout=20,
     )
     def create_window_frame_material(
-        identifier: Annotated[str, Field(description="Window frame identifier.")],
+        identifier: Annotated[str, Field(description="Honeybee EnergyWindowFrame identifier for frame and divider properties.")],
         width: Annotated[float, Field(description="Frame width in meters.")],
         conductance: Annotated[
             float, Field(description="Frame conductance in W/m2-K.")
@@ -60,7 +63,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for saving this material to the Garden Properties Library."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

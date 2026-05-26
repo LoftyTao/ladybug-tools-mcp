@@ -10,19 +10,32 @@ from garden.visualize.honeybee import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the honeybee_face_to_visualization_set tool."""
+    'Register the visualization_honeybee_face_to_visualization_set tool.'
 
     @mcp.tool(
-        name="honeybee_face_to_visualization_set",
-        description="Visualize one Honeybee Face typed target as a Ladybug Display VisualizationSet. Use this read-only preview after object search finds the face target. For Agent HTML/SVG/vtk.js export paths, set return_visualization_set=false so the tool saves a compact visualization_set_target for exporters instead of moving the full VisualizationSet dict.",
-        tags={"visualize", "honeybee-core", "garden-mode", "face", "read", "safe"},
+        name='honeybee_face_to_visualization_set',
+        description=(
+            "Visualize one Honeybee Face target as a Ladybug Display "
+            "VisualizationSet. Use this read-only preview after object search "
+            "finds the face target. For HTML/SVG/vtk.js export paths, set "
+            "return_visualization_set=false so the tool saves a compact "
+            "visualization_set_target for exporters. This previews existing "
+            "Honeybee geometry; it does not edit the model or run Radiance."
+        ),
+        tags={
+            "honeybee",
+            "face",
+            "visualize",
+            "visualization-set",
+            "preview",
+        },
         annotations={"readOnlyHint": True},
         timeout=30,
     )
     def honeybee_face_to_visualization_set(
-        garden_root: Annotated[str, Field(description="Garden root directory.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         target: Annotated[
-            dict[str, Any], Field(description="Honeybee face typed target.")
+            dict[str, Any], Field(description="Honeybee Face typed target to convert into a VisualizationSet preview.")
         ],
         model_target: Annotated[
             dict[str, Any] | None,

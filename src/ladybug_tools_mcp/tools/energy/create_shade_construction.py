@@ -10,24 +10,28 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_shade_construction tool."""
+    'Register the energy_create_shade_construction tool.'
 
     @mcp.tool(
-        name="create_shade_construction",
-        description="Create a Honeybee Energy ShadeConstruction for outdoor shades. Returns object_dict plus summary_view with reflectance and specular property values.",
+        name='create_shade_construction',
+        description=(
+            "Create a Honeybee Energy ShadeConstruction for outdoor Honeybee "
+            "Shade energy properties. This sets reflectance and specular "
+            "behavior for an energy construction; it does not create Honeybee "
+            "shade geometry or Radiance materials. Returns object_dict plus "
+            "summary_view with the scalar property values."
+        ),
         tags={
-            "honeybee-energy",
             "energy",
-            "construction-set",
             "construction",
+            "material",
+            "author",
             "shade",
-            "create",
-            "safe",
         },
         timeout=20,
     )
     def create_shade_construction(
-        identifier: Annotated[str, Field(description="ShadeConstruction identifier.")],
+        identifier: Annotated[str, Field(description="Honeybee ShadeConstruction identifier for an Energy shade surface.")],
         solar_reflectance: Annotated[
             float, Field(description="Solar reflectance.")
         ] = 0.2,
@@ -46,7 +50,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for saving this construction to the Garden Properties Library."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

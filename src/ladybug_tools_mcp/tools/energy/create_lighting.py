@@ -8,19 +8,17 @@ from garden.energy.programtypes import create_lighting as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_lighting tool."""
+    'Register the energy_create_lighting tool.'
 
     @mcp.tool(
-        name="create_lighting",
-        description="Create a Honeybee Energy Lighting load object from watts_per_area and an optional schedule. Use garden_root and return_object_dict=false to save the load and pass its target to create_program_type.",
+        name='create_lighting',
+        description='Create a Honeybee Energy Lighting load object from lighting power density in watts_per_area and an optional schedule. This is an internal gains load for a ProgramType, not a Radiance luminaire or daylight electric-lighting control. Use garden_root and return_object_dict=false to save a load target for energy_create_program_type.',
         tags={
-            "honeybee-energy",
             "energy",
-            "program",
+            "program-type",
             "load",
             "lighting",
-            "create",
-            "safe",
+            "author",
         },
         timeout=20,
     )
@@ -50,7 +48,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for saving this load to the Garden Properties Library."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

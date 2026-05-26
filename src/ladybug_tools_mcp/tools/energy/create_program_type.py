@@ -8,19 +8,18 @@ from garden.energy.programtypes import create_program_type as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_program_type tool."""
+    'Register the energy_create_program_type tool.'
 
     @mcp.tool(
-        name="create_program_type",
-        description="Create a Honeybee Energy ProgramType from an optional base ProgramType and explicit People, Lighting, ElectricEquipment, GasEquipment, ServiceHotWater, Infiltration, Ventilation, and Setpoint overrides. Prefer Garden Properties Library targets from load creation tools with garden_root and return_object_dict=false. Unspecified overrides are inherited from the base or left empty.",
+        name='create_program_type',
+        description="Create a Honeybee Energy ProgramType, the room program bundle for occupancy, lighting, equipment, service hot water, infiltration, ventilation, and setpoints. ProgramType is an upstream Honeybee Energy abstraction that later expands to multiple EnergyPlus loads and schedules; it is not one EnergyPlus object. Prefer Garden Properties Library targets from load creation tools with garden_root and return_object_dict=false. Returns object_dict, or target plus persistence_receipt when saved.",
         tags={
-            "honeybee-energy",
             "energy",
-            "program",
             "program-type",
             "load",
-            "create",
-            "safe",
+            "occupancy",
+            "schedule",
+            "author",
         },
         timeout=20,
     )
@@ -83,7 +82,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root. When provided, Garden Properties Library targets can be consumed and the ProgramType can be saved."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

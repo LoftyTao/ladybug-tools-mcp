@@ -8,12 +8,24 @@ from garden.visualize.legend import edit_2d_legend_parameter as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the edit_2d_legend_parameter tool."""
+    'Register the visualization_edit_2d_legend_parameter tool.'
 
     @mcp.tool(
-        name="edit_2d_legend_parameter",
-        description="Edit a reusable Ladybug LegendParameters dict for 2D SVG legends, attribute-colored VisualizationSets, and analysis result displays.",
-        tags={"visualize", "legend", "payload-mode", "read", "safe"},
+        name='edit_2d_legend_parameter',
+        description=(
+            "Edit a Ladybug Display 2D legend parameter payload for "
+            "VisualizationSet chart and model exports. Pass object_dict from "
+            "visualization_create_2d_legend_parameter or an existing legend "
+            "dict. This edits display settings only; it does not save a Garden "
+            "target, update a VisualizationSet, or rerun analysis. Returns "
+            "object_dict and summary_view."
+        ),
+        tags={
+            "visualization-set",
+            "visualize",
+            "author",
+            "legend",
+        },
         annotations={"readOnlyHint": True},
         timeout=30,
     )
@@ -21,7 +33,7 @@ def register(mcp: FastMCP) -> None:
         legend_parameter: Annotated[
             dict[str, Any],
             Field(
-                description="LegendParameters dictionary returned by create_2d_legend_parameter."
+                description='2D LegendParameters dictionary returned by visualization_create_2d_legend_parameter.'
             ),
         ],
         title: Annotated[

@@ -13,26 +13,26 @@ from garden.visualize.datacollection import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the data_collection_hourly_plot_to_visualization_set tool."""
+    'Register the visualization_data_collection_hourly_plot_to_visualization_set tool.'
 
     @mcp.tool(
-        name="data_collection_hourly_plot_to_visualization_set",
-        description="Generic visualize path: create a Ladybug Display VisualizationSet hourly plot from one hourly Ladybug DataCollection using Ladybug HourlyPlot. Use this for hourly energy result data, schedules, weather, comfort, or other time-series data after an upstream tool returns a ladybug_data_collection target. Preferred Agent path is garden_root plus data_collection_target from read_energy_result_data or another upstream tool and return_visualization_set=false, returning a compact visualization_set_target for visualization_set_to_html/svg instead of moving a large VisualizationSet dict. Direct data_collection dict input remains available for payload/debug workflows. Use x_dim and y_dim to pass Ladybug SDK HourlyPlot cell dimensions through without post-scaling exported SVG/HTML.",
+        name='data_collection_hourly_plot_to_visualization_set',
+        description=(
+            "Create a Ladybug Display VisualizationSet hourly plot from one "
+            "hourly Ladybug DataCollection using Ladybug HourlyPlot. Use this "
+            "for hourly energy result data, schedules, weather, comfort, or "
+            "other time-series data after an upstream tool returns a "
+            "ladybug_data_collection target. Preferred Agent path is "
+            "garden_root plus data_collection_target and "
+            "return_visualization_set=false, returning a compact "
+            "visualization_set_target for exporters. This charts an existing "
+            "DataCollection; it does not query SQL, EPW, or Radiance folders."
+        ),
         tags={
-            "visualize",
-            "generic-visualize",
             "data-collection",
-            "data-collection-target",
+            "chart",
+            "visualize",
             "hourly-plot",
-            "hourly-energy-result",
-            "timeseries",
-            "schedule-data",
-            "weather-data",
-            "energy-result-data",
-            "energy-result-visualization",
-            "visualization-set",
-            "target",
-            "safe",
         },
         timeout=60,
     )
@@ -46,18 +46,18 @@ def register(mcp: FastMCP) -> None:
         data_collection_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional ladybug_data_collection target returned by an upstream tool such as create_schedule_ruleset with garden_root and return_data=false."
+                description='Optional ladybug_data_collection target returned by an upstream tool such as energy_create_schedule_ruleset with garden_root and return_data=false.'
             ),
         ] = None,
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root required when data_collection_target is provided."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         name: Annotated[
             str,
-            Field(description="VisualizationSet identifier and display name."),
+            Field(description="HourlyPlot VisualizationSet identifier and display name."),
         ] = "data_collection_hourly_plot",
         x_dim: Annotated[
             float | None,

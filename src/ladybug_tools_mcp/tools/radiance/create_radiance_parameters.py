@@ -53,23 +53,24 @@ def _raw_radiance_options(values: dict[str, Any]) -> str | None:
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_radiance_parameters tool."""
+    'Register the radiance_create_parameters tool.'
 
     @mcp.tool(
-        name="create_radiance_parameters",
-        description="Create recommended Radiance parameters for rtrace grid, rpict view, or rfluxmtx annual/matrix daylight recipes. Pass the returned radiance_parameters string or full result into start_radiance_grid_run, start_radiance_view_run, or start_radiance_matrix_run.",
+        name="create_parameters",
+        description=(
+            "Create recommended Radiance command parameters for rtrace grid, "
+            "rpict view, or rfluxmtx annual/matrix daylight recipes. Pass the "
+            "returned radiance_parameters string or target to "
+            "radiance_start_grid_simulation, radiance_start_view_simulation, "
+            "or radiance_start_matrix_simulation. This stores recipe "
+            "parameters only; it does not create sensors, skies, views, or "
+            "runs. Returns target, summary_view, and report."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
-            "radiance-parameters",
-            "rtrace",
-            "rpict",
-            "rfluxmtx",
-            "daylight",
-            "recipe",
+            "simulate",
+            "author",
             "parameters",
-            "safe",
-            "read-only",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
@@ -78,7 +79,7 @@ def register(mcp: FastMCP) -> None:
         recipe_type: Annotated[
             str,
             Field(
-                description="Recipe family or command: point-in-time-grid, daylight-factor, point-in-time-view, annual-daylight, annual-irradiance, cumulative-radiation, rtrace, rpict, or rfluxmtx.",
+                description="Radiance recipe family or command: point-in-time-grid, daylight-factor, point-in-time-view, annual-daylight, annual-irradiance, cumulative-radiation, rtrace, rpict, or rfluxmtx.",
             ),
         ],
         detail_level: Annotated[

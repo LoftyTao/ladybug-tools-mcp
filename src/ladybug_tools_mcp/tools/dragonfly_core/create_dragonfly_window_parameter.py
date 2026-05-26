@@ -13,24 +13,25 @@ from garden.dragonfly_core.envelope_parameters import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_dragonfly_window_parameter tool."""
+    'Register the dragonfly_create_window_parameter tool.'
 
     @mcp.tool(
-        name="create_dragonfly_window_parameter",
+        name="create_window_parameter",
         description=(
             "Create a compact SDK-backed Dragonfly WindowParameter artifact for "
             "Room2D, Story, Building, or Model outdoor wall application. Supports "
             "parameter_type simple_window_ratio and repeating_window_ratio only; "
-            "this is a Dragonfly envelope parameter, not a Honeybee Aperture. Returns the compact artifact "
+            "this is a Dragonfly envelope parameter, not a Honeybee Aperture or Radiance "
+            "aperture modifier. Returns the compact artifact "
             "as parameter, window_parameter, target, and object_dict."
         ),
-        tags={"dragonfly-core", "garden-mode", "window", "parameter", "create", "safe"},
+        tags={"dragonfly", "window", "parameter", "author", "aperture-ratio", "wwr"},
         timeout=20,
     )
     def create_dragonfly_window_parameter(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         parameter_type: Annotated[
             str,
@@ -40,7 +41,7 @@ def register(mcp: FastMCP) -> None:
         ],
         window_ratio: Annotated[
             float | None,
-            Field(description="Window-to-wall ratio used by the Dragonfly parameter."),
+            Field(description="Window-to-wall ratio used by the Dragonfly WindowParameter."),
         ] = None,
         rect_split: Annotated[
             bool,
@@ -48,15 +49,15 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         window_height: Annotated[
             float | None,
-            Field(description="Required for repeating_window_ratio."),
+            Field(description="Required horizontal window width for repeating_window_ratio."),
         ] = None,
         sill_height: Annotated[
             float | None,
-            Field(description="Required for repeating_window_ratio."),
+            Field(description="Required window height for repeating_window_ratio."),
         ] = None,
         horizontal_separation: Annotated[
             float | None,
-            Field(description="Required for repeating_window_ratio."),
+            Field(description="Required horizontal separation for repeating_window_ratio."),
         ] = None,
         vertical_separation: Annotated[
             float,
@@ -65,7 +66,7 @@ def register(mcp: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Create a Dragonfly WindowParameter artifact."""
         if window_ratio is None:
-            raise ValueError("create_dragonfly_window_parameter requires window_ratio.")
+            raise ValueError('dragonfly_create_window_parameter requires window_ratio.')
         return service(
             garden_root=garden_root,
             parameter_type=parameter_type,

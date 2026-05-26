@@ -44,34 +44,35 @@ def _normalize_time_zone(time_zone: str | int | float | None) -> str | None:
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_cie_standard_sky tool."""
+    'Register the radiance_create_cie_standard_sky tool.'
 
     @mcp.tool(
-        name="create_cie_standard_sky",
-        description="Create a Garden radiance_sky_file target backed by a Radiance gensky command. Use this for a single-timestep CIE standard sky such as sunny, cloudy, uniform cloudy, or intermediate. The persisted .sky file starts with !gensky and is meant as a compact Radiance scene include, not a full daylight recipe or annual sky matrix.",
+        name='create_cie_standard_sky',
+        description=(
+            "Create a Garden radiance_sky_file target backed by a Radiance "
+            "gensky command. Use this for a single-timestep CIE standard sky "
+            "such as sunny, cloudy, uniform cloudy, or intermediate. The "
+            "persisted .sky file starts with !gensky and serves as a compact "
+            "Radiance scene include. It does not create an annual sky matrix "
+            "or start a daylight recipe."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
             "sky",
+            "weather",
+            "point-in-time",
             "cie",
-            "standard-sky",
-            "gensky",
-            "garden-mode",
-            "target",
-            "artifact",
-            "write",
-            "safe",
         },
         timeout=60,
     )
     def create_cie_standard_sky(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str | None,
-            Field(description="Stable identifier for the Radiance .sky artifact and target."),
+            Field(description="Stable identifier for the point-in-time CIE Radiance .sky artifact and target."),
         ] = None,
         month: Annotated[
             int | None,

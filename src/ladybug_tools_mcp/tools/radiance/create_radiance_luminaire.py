@@ -11,21 +11,24 @@ from garden.radiance.luminaires import create_radiance_luminaire as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_radiance_luminaire tool."""
+    'Register the radiance_create_luminaire tool.'
 
     @mcp.tool(
-        name="create_radiance_luminaire",
-        description="Create a Honeybee Radiance Luminaire from IES LM-63 text or an IES file path. Supports optional LuminaireZone placement instances with point plus spin/tilt/rotation or aiming_point, optional SDK CustomLamp settings, and direct Garden Properties Library saving with garden_root and return_object_dict=false. Use the returned target as a reusable luminaire / IES resource; do not pass arguments null or {}.",
+        name="create_luminaire",
+        description=(
+            "Create a Honeybee Radiance Luminaire from IES LM-63 text or a "
+            "Garden-contained IES file path. Supports LuminaireZone placement "
+            "instances, CustomLamp settings, and Garden Properties Library "
+            "saving with garden_root and return_object_dict=false. Use the "
+            "returned target as a reusable luminaire or IES resource for "
+            "Radiance workflows. This is not a Honeybee Energy lighting load."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
+            "model",
+            "edit",
             "luminaire",
-            "ies",
-            "lighting",
-            "custom-lamp",
-            "garden-properties-library",
-            "create",
-            "safe",
+            "electric-lighting",
         },
         timeout=20,
     )
@@ -36,7 +39,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         ies_path: Annotated[
             str | None,
-            Field(description="Path to an existing IES file. Provide exactly one of ies_path or ies_content."),
+            Field(description="Path to an existing IES LM-63 file. Provide exactly one of ies_path or ies_content."),
         ] = None,
         identifier: Annotated[
             str | None,
@@ -60,7 +63,7 @@ def register(mcp: FastMCP) -> None:
         ] = 1.0,
         garden_root: Annotated[
             str | None,
-            Field(description="Optional existing Garden root. Pass garden_root with return_object_dict=false to save and return a reusable luminaire target."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,

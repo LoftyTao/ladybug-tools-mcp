@@ -1,30 +1,28 @@
 """Relate Honeybee Model MCP tool."""
 
 from __future__ import annotations
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 from garden.honeybee_core.relate import relate_honeybee_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the relate_honeybee_model tool."""
+    'Register the honeybee_relate_model tool.'
 
     @mcp.tool(
-        name="relate_honeybee_model",
-        description="Run SDK-backed Honeybee model relationship processing. Supports the standard solve_adjacency path and explicit_relate_full for high-risk overwrite, cleanup, mismatched sub-face deletion, and clone_missing Aperture/Door repair. Requires garden_root; use explicit_relate_full only when the user asks for repair/overwrite/delete mismatch cleanup.",
+        name="relate_model",
+        description="Run SDK-backed Honeybee model relationship processing for solve_adjacency, Surface boundary relationships, optional room-face intersection, coplanar merge, AirBoundary/adiabatic settings, and explicit high-risk cleanup or missing sub-face repair. explicit_relate_full enables overwrite, relationship_cleanup, mismatched sub-face deletion, and clone_missing Aperture/Door repair, so use it only when the user asks for repair/overwrite/delete mismatch cleanup. Returns summary_view.model_target, persistence_receipt, and report for validation or export calls; there is no top-level target.",
         tags={
-            "honeybee-core",
-            "garden-mode",
-            "model",
-            "relate",
             "adjacency",
-            "intersect",
-            "solve",
-            "repair",
+            "boundary",
             "cleanup",
-            "destructive",
-            "write",
+            "edit",
+            "geometry",
+            "honeybee",
+            "model",
+            "repair",
+            "validate",
         },
         timeout=30,
     )
@@ -32,19 +30,19 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         relation_mode: Annotated[
             str,
             Field(
-                description="Relation mode: solve_adjacency or explicit_relate_full. explicit_relate_full enables high-risk overwrite, cleanup, remove_mismatched_subfaces, and clone_missing repair defaults."
+                description="Relation mode: solve_adjacency or explicit_relate_full. explicit_relate_full enables high-risk overwrite, cleanup, remove_mismatched_subfaces, and clone_missing Aperture/Door repair defaults."
             ),
         ] = "solve_adjacency",
         solve_adjacency: Annotated[
@@ -78,9 +76,9 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = False,
         subface_mismatch_policy: Annotated[
-            str,
+            Literal["none", "clone_single", "clone_missing"],
             Field(
-                description="How to handle one-sided sub-face mismatches before solving adjacency: clone_single, clone_missing, or none."
+                description="How to handle one-sided Aperture/Door sub-face mismatches before solving adjacency: clone_single, clone_missing, or none."
             ),
         ] = "clone_single",
         air_boundary: Annotated[

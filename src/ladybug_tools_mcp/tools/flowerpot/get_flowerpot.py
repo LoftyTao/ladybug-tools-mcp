@@ -11,22 +11,25 @@ from flowerpot.registry import get_flowerpot as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the get_flowerpot tool."""
+    'Register the flowerpot_get tool.'
 
     @mcp.tool(
-        name="get_flowerpot",
-        description="Get a registered Garden-local Flowerpot, list registered Flowerpots for a Garden, or summarize a passed opaque Flowerpot. This is a read-only context tool, not an unpack payload tool; it returns target and summary by default and does not return full model bodies. Use garden_root alone to list registered Flowerpots. Do not pass arguments null.",
+        name='get',
+        description=(
+            "Read, list, or summarize Garden-local Flowerpot handoff context while "
+            "keeping Flowerpot dictionaries opaque. Use garden_root alone to list "
+            "registered Flowerpots, garden_root plus flowerpot_id to read one "
+            "registered item, or flowerpot to summarize a passed handoff dict. "
+            "Returns flowerpot, target, matches, summary_view, and report. It does "
+            "not unpack payload internals or return full Honeybee/Dragonfly model "
+            "bodies; include_body currently only adds a warning. Do not pass "
+            "arguments null."
+        ),
         tags={
+            "context",
             "flowerpot",
-            "garden-mode",
-            "platform-handoff",
-            "registered-container",
-            "grasshopper",
-            "get",
-            "list",
-            "read",
-            "read-only",
-            "safe",
+            "handoff",
+            "target",
         },
         timeout=20,
         annotations={"readOnlyHint": True},
@@ -35,13 +38,13 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional exact Garden root path string. Required when reading by flowerpot_id or listing registered Flowerpots."
+                description="Optional Garden root path containing garden.json, usually garden_create['garden_root']; required when using flowerpot_id or listing registered Flowerpots."
             ),
         ] = None,
         flowerpot_id: Annotated[
             str | None,
             Field(
-                description="Optional registered Flowerpot id returned by create_flowerpot. Omit with garden_root to list registered Flowerpots."
+                description='Optional registered Flowerpot id returned by flowerpot_create. Omit with garden_root to list registered Flowerpots.'
             ),
         ] = None,
         flowerpot: Annotated[
@@ -53,7 +56,11 @@ def register(mcp: FastMCP) -> None:
         include_body: Annotated[
             bool,
             Field(
-                description="Whether to request full entity body. Defaults false; first batch returns only target/summary and warns when true."
+                description=(
+                    "Requesting full body is not supported in the current "
+                    "Flowerpot contract. Leave false for target/summary handoff; "
+                    "true returns the same lightweight context with a warning."
+                )
             ),
         ] = False,
     ) -> dict[str, Any]:

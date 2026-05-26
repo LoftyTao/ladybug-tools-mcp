@@ -11,19 +11,16 @@ from garden.dragonfly_core.summary import get_dragonfly_model_summary as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the get_dragonfly_model_summary tool."""
+    'Register the dragonfly_get_model_summary tool.'
 
     @mcp.tool(
-        name="get_dragonfly_model_summary",
-        description="Return compact counts and metadata for the Garden base Dragonfly model or an explicit Dragonfly model target. This does not return the full DFJSON body.",
-        tags={
-            "dragonfly-core",
-            "garden-mode",
-            "model",
-            "summary",
-            "read",
-            "safe",
-        },
+        name="get_model_summary",
+        description=(
+            "Return compact counts and metadata for the Garden base Dragonfly model "
+            "or an explicit Dragonfly model target. This does not return the full "
+            "DFJSON body or mutate the model."
+        ),
+        tags={"dragonfly", "model", "summary", "search", "inventory"},
         annotations={"readOnlyHint": True},
         timeout=20,
     )
@@ -31,13 +28,16 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Dragonfly model target dict. Defaults to the Garden base Dragonfly model."
+                description=(
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
+                )
             ),
         ] = None,
     ) -> dict[str, Any]:

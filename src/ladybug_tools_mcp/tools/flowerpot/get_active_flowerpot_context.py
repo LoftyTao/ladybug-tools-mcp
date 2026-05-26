@@ -24,19 +24,25 @@ def get_active_flowerpot_context(
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the get_active_flowerpot_context tool."""
+    'Register the flowerpot_get_active_context tool.'
 
     @mcp.tool(
-        name="get_active_flowerpot_context",
-        description="Read the Garden-local active Flowerpot context for prompts about grasshopper, current model, active Grasshopper model, 当前模型, or 正在编辑的模型. This read-only tool returns lightweight context, Flowerpot, and model target references only; it does not return full HBJSON or full model bodies.",
+        name="get_active_context",
+        description=(
+            "Read the Garden-local active Flowerpot context file for prompts about "
+            "Grasshopper, current model, active model, 当前模型, or 正在编辑的模型. Use "
+            "garden_root for an exact Garden or root_folder to find the most "
+            "recent active-context file under a folder of Gardens. Returns exists, "
+            "active_context, flowerpot, model_target, summary_view, and report with "
+            "sanitized context only. It does not read full HBJSON/DFJSON bodies, "
+            "export the model, or fall back to the latest registry entry when no "
+            "active-context file exists."
+        ),
         tags={
+            "context",
             "flowerpot",
             "grasshopper",
-            "current-model",
-            "active-context",
-            "read",
-            "read-only",
-            "garden-mode",
+            "handoff",
         },
         timeout=20,
         annotations={"readOnlyHint": True},
@@ -44,18 +50,26 @@ def register(mcp: FastMCP) -> None:
     def _tool(
         garden_root: Annotated[
             str | None,
-            Field(description="Optional exact Garden root path string containing garden.json."),
+            Field(description="Optional Garden root path containing garden.json, usually garden_create['garden_root']."),
         ] = None,
         platform: Annotated[
             str,
             Field(
-                description="Platform active-context key. Defaults to grasshopper for the active Grasshopper model."
+                description=(
+                    "Platform active-context key. Defaults to grasshopper for the "
+                    "active Grasshopper model context file."
+                )
             ),
         ] = "grasshopper",
         root_folder: Annotated[
             str | None,
             Field(
-                description="Optional folder to search for the most recently updated active Grasshopper context when garden_root is not known."
+                description=(
+                    "Optional folder containing one or more Gardens. When "
+                    "garden_root is unknown, this searches for the most recently "
+                    "updated flowerpots/active_context/<platform>.json file and "
+                    "derives its Garden root from the file path."
+                )
             ),
         ] = None,
     ) -> dict[str, Any]:

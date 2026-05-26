@@ -8,24 +8,19 @@ from garden.honeybee_core.transform import mirror_object as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the mirror_object tool."""
+    'Register the honeybee_mirror_object tool.'
 
     @mcp.tool(
-        name="mirror_object",
-        description="Mirror a Honeybee Model, Room, Face, Aperture, Door, or Shade target by reflecting it across a Ladybug Geometry Plane. Requires a typed target and plane dict; do not pass arguments null or {}.",
+        name='mirror_object',
+        description="Mirror, or reflect, a Honeybee Model, Room, Face, Aperture, Door, or Shade target across a Ladybug Geometry Plane. This transform does not automatically repair adjacency, host containment, or dynamic state geometry. Requires a typed target and plane dict; do not pass an identifier string. Returns the original target, summary_view, persistence_receipt with updated model_target, and report; for whole-model transforms summary_view.target is the updated model target. Run search, relate_model, or validate_model after partial-object transforms when relationships matter.",
         tags={
-            "honeybee-core",
-            "garden-mode",
-            "model",
-            "room",
-            "face",
-            "aperture",
-            "door",
-            "shade",
-            "transform",
+            "edit",
+            "geometry",
+            "honeybee",
             "mirror",
-            "reflect",
-            "write",
+            "model",
+            "target",
+            "transform",
         },
         timeout=20,
     )
@@ -33,13 +28,13 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee model target or object typed target from search_honeybee_model_objects or a prior tool result."
+                description='Required Honeybee model target or object typed target from honeybee_search_model_objects or a prior tool result.'
             ),
         ],
         plane: Annotated[
@@ -51,7 +46,7 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to base model unless target is a model target."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model unless target is a model target."
             ),
         ] = None,
     ) -> dict[str, Any]:

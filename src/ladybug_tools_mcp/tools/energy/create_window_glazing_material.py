@@ -10,20 +10,18 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_window_glazing_material tool."""
+    'Register the energy_create_window_glazing_material tool.'
 
     @mcp.tool(
-        name="create_window_glazing_material",
-        description="Create a Honeybee Energy EnergyWindowMaterialGlazing layer for detailed WindowConstruction assemblies. Returns object_dict plus summary_view. Use return_detail='summary' for key optical and thermal values or 'full' for a matrix of material property values.",
+        name='create_window_glazing_material',
+        description="Create a Honeybee Energy EnergyWindowMaterialGlazing pane layer for detailed WindowConstruction assemblies. This is one glass layer, not a full SimpleGlazSys window. Returns object_dict plus summary_view, or a saved material target when garden_root is provided and return_object_dict=false. Use return_detail='summary' for key optical and thermal values or 'full' for a matrix of material property values.",
         tags={
-            "honeybee-energy",
             "energy",
-            "construction-set",
+            "construction",
             "material",
             "window",
             "glazing",
-            "create",
-            "safe",
+            "author",
         },
         timeout=20,
     )
@@ -65,7 +63,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for saving this material to the Garden Properties Library."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

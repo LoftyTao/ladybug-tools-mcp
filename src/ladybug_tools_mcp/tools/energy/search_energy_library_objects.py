@@ -8,19 +8,23 @@ from garden.energy.libraries import search_energy_library_objects as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_energy_library_objects tool."""
+    'Register the energy_search_energy_library_objects tool.'
 
     @mcp.tool(
-        name="search_energy_library_objects",
-        description="Search Honeybee Energy standards library identifiers for schedules, schedule type limits, program types, materials, constructions, and construction sets. Use returned identifiers in energy foundation tools. This searches built-in standards, not Garden files. This does not search room thermostat Setpoints; for heating_setpoint/cooling_setpoint values call create_setpoint. Required call shape: {\"query\":\"generic office lighting\",\"object_family\":\"schedule\",\"limit\":3}.",
+        name='search_energy_library_objects',
+        description=(
+            "Search Honeybee Energy standards library identifiers for "
+            "schedules, program types, materials, constructions, and "
+            "construction sets. Use returned identifiers in Energy authoring "
+            "tools. This searches built-in standards and does not search "
+            "Garden files, EnergyPlus result files, or Ironbug objects. For "
+            "thermostat setpoints use energy_create_setpoint."
+        ),
         tags={
-            "honeybee-energy",
             "energy",
             "library",
-            "standards",
             "search",
-            "read-only",
-            "safe",
+            "standards",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
@@ -29,13 +33,13 @@ def register(mcp: FastMCP) -> None:
         query: Annotated[
             str,
             Field(
-                description="Search text, such as 'generic office lighting' or 'fractional'."
+                description="Search text for Honeybee Energy standards identifiers, such as 'generic office lighting' or 'fractional'."
             ),
         ],
         object_family: Annotated[
             str | None,
             Field(
-                description="Optional family filter: schedule, schedule_type_limit, program_type, opaque_material, window_material, opaque_construction, window_construction, shade_construction, construction_set, or all. Not setpoint; use create_setpoint with heating_setpoint and cooling_setpoint for thermostat setpoints."
+                description='Optional family filter: schedule, schedule_type_limit, program_type, opaque_material, window_material, opaque_construction, window_construction, shade_construction, construction_set, or all. Not setpoint; use energy_create_setpoint with heating_setpoint and cooling_setpoint for thermostat setpoints.'
             ),
         ] = None,
         limit: Annotated[

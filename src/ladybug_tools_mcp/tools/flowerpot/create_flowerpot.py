@@ -11,19 +11,25 @@ from flowerpot.registry import create_flowerpot as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_flowerpot tool."""
+    'Register the flowerpot_create tool.'
 
     @mcp.tool(
-        name="create_flowerpot",
-        description="Create and register a Garden-local Flowerpot handoff container from existing Garden entity content such as a Garden target or base model. Flowerpot is for migrating Garden ecology, not arbitrary payload wrapping; do not pass full model bodies, SDK object_dict payloads, or arguments null. Preferred call shape: {\"name\":\"create_flowerpot\",\"arguments\":{\"garden_root\":\"tests/.artifacts/.../garden\",\"source\":\"garden\"}}.",
+        name='create',
+        description=(
+            "Create or reuse an opaque Garden-local Flowerpot handoff record from "
+            "existing Garden truth, a base Honeybee/Dragonfly model slot, or a "
+            "registered typed target. Use this for platform handoff, such as a "
+            "Grasshopper component context, while keeping the Flowerpot dictionary "
+            "opaque to the Agent. Returns flowerpot, flowerpot_id, target, "
+            "summary_view, persistence_receipt, and report. It is not a generic "
+            "payload wrapper and must not receive full model bodies, SDK object_dict "
+            "payloads, inline target bodies, or arguments null."
+        ),
         tags={
+            "context",
             "flowerpot",
-            "garden-mode",
-            "platform-handoff",
-            "registered-container",
-            "grasshopper",
-            "write",
-            "safe",
+            "handoff",
+            "target",
         },
         timeout=20,
     )
@@ -31,29 +37,43 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         source: Annotated[
             str,
             Field(
-                description="Flowerpot source entity. Supports garden, base_honeybee_model, base_dragonfly_model, or target."
+                description=(
+                    "Flowerpot source value: garden, base_honeybee_model, "
+                    "base_dragonfly_model, or target. Use garden for the whole "
+                    "Garden handoff and target when passing a registered typed "
+                    "target through the target parameter."
+                )
             ),
         ] = "garden",
         target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional registered typed target dict with target_type. Do not pass inline payload bodies, full model dictionaries, or SDK object_dict values."
+                description=(
+                    "Registered typed target dict with target_type, usually from a "
+                    "previous MCP tool result; required when source='target'. Do "
+                    "not pass inline payload bodies, full model dictionaries, or "
+                    "SDK object_dict values."
+                )
             ),
         ] = None,
         label: Annotated[
             str | None,
-            Field(description="Optional user-facing Flowerpot label."),
+            Field(description="Optional user-facing label for the Flowerpot summary_view."),
         ] = None,
         platform: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional compact platform context, for example Grasshopper document or component metadata. Do not include large payloads."
+                description=(
+                    "Optional compact platform context, for example Grasshopper "
+                    "document or component metadata. Keep this as small metadata; "
+                    "do not include model payloads or large files."
+                )
             ),
         ] = None,
         force_new: Annotated[

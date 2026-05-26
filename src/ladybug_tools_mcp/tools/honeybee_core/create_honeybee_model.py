@@ -8,19 +8,15 @@ from garden.honeybee_core.creation import create_honeybee_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_honeybee_model tool."""
+    'Register the honeybee_create_model tool.'
 
     @mcp.tool(
-        name="create_honeybee_model",
-        description="Create an empty Honeybee model in a Garden and optionally set it as the base Honeybee model with set_base; not set_as_base. Returns target and model_target for downstream calls; no return_object_dict parameter is available because this tool already returns compact targets unless include_body=true is requested, and no display_name parameter is available. Ordinary Agent workflows should create the model first, then call create_honeybee_room for rooms; do not use add_objects unless you already have complete Honeybee Room, Face, Aperture, Door, or Shade object dictionaries. Requires garden_root and identifier; do not pass arguments null or {}.",
+        name="create_model",
+        description='Create an empty Honeybee Model in a Garden and optionally set it as the base Honeybee model with set_base. A Honeybee Model is the upstream container for Rooms, Faces, Apertures, Doors, and Shades; this does not create an EnergyPlus IDF, OpenStudio OSM, epJSON file, or Radiance scene. Returns compact target/model_target fields for downstream calls; object_dict is a compact target when saved and a full model body only when save_back=false and include_body=true. Normal authoring workflows should create the model first, then call honeybee_create_room for rooms. Use add_objects only when you already have complete Honeybee object dictionaries. Requires garden_root and identifier; do not pass arguments null or {}.',
         tags={
-            "honeybee-core",
-            "garden-mode",
+            "author",
+            "honeybee",
             "model",
-            "base-model",
-            "create",
-            "write",
-            "safe",
         },
         timeout=20,
     )
@@ -28,7 +24,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         identifier: Annotated[
@@ -53,7 +49,10 @@ def register(mcp: FastMCP) -> None:
             float, Field(description="Model angle tolerance.")
         ] = 1.0,
         save_back: Annotated[
-            bool, Field(description="Whether to save the model into Garden.")
+            bool,
+            Field(
+                description="Whether to persist the Honeybee Model to the Garden and return Garden targets/receipt fields."
+            ),
         ] = True,
         set_base: Annotated[
             bool,
@@ -62,12 +61,15 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = True,
         include_body: Annotated[
-            bool, Field(description="Whether to return full model body if not saved.")
+            bool,
+            Field(
+                description="Whether to return the full Honeybee Model body when save_back is false; saved models return compact targets."
+            ),
         ] = False,
         add_objects: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description="Optional complete Honeybee object dictionaries to add while creating the model. Supports only full Room, Face, Aperture, Door, and Shade dictionaries; do not pass typed targets, program/load/construction dicts, or natural-language specs here. For normal modeling, omit add_objects and call create_honeybee_room next."
+                description='Optional complete Honeybee object dictionaries to add while creating the model. Supports only full Room, Face, Aperture, Door, and Shade dictionaries; do not pass typed targets, program/load/construction dicts, or natural-language specs here. For normal modeling, omit add_objects and call honeybee_create_room next.'
             ),
         ] = None,
     ) -> dict[str, Any]:

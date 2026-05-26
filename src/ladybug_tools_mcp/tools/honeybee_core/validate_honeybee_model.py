@@ -10,21 +10,19 @@ from garden.honeybee_core.validation import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the validate_honeybee_model tool."""
+    'Register the honeybee_validate_model tool.'
 
     @mcp.tool(
-        name="validate_honeybee_model",
-        description="Validate an existing Honeybee model already stored in a Garden base Honeybee model or explicit model target. Use this tool, not get_base_honeybee_model, when a user asks to validate, check model validity, return a validation flag, or inspect validation issues. Returns validation report data with top-level is_valid/valid helpers, report, summary_view.is_valid, and structured validation issues. Requires garden_root; this is read-only and does not repair, relate, or save the model. There is no raise_exception parameter; validation problems are returned in the report.",
+        name="validate_model",
+        description='Validate an existing Honeybee model already stored in a Garden base Honeybee model or explicit model target using Honeybee Model.check_all with detailed issues. Use this tool, not garden_get_base_honeybee_model or an EnergyPlus simulation run, when a user asks to validate, check model validity, or list issues. Returns validation_status through is_valid/valid, issues, summary_view, and report. Requires garden_root; this is read-only and does not repair, relate, save the model, or accept a raise_exception parameter.',
         tags={
-            "honeybee-core",
-            "garden-mode",
+            "check",
+            "honeybee",
+            "issues",
             "model",
+            "summary",
             "validate",
-            "validation",
-            "is-valid",
-            "validation-flag",
-            "read",
-            "safe",
+            "validation-report",
         },
         annotations={"readOnlyHint": True},
         timeout=30,
@@ -33,13 +31,13 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model; do not pass full model body."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model; do not pass full model body."
             ),
         ] = None,
     ) -> dict[str, Any]:

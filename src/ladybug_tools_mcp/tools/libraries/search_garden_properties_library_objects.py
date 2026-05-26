@@ -10,52 +10,65 @@ from garden.libraries.properties import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_garden_properties_library_objects tool."""
+    'Register the library_search_garden_properties_objects tool.'
 
     @mcp.tool(
-        name="search_garden_properties_library_objects",
-        description="Search saved Garden properties and reusable object targets in the Garden Properties Library, including Honeybee Energy schedules, program types, constructions, construction sets, HVAC, and Honeybee Radiance modifiers, modifier sets, or luminaires. Use this for Garden-saved targets, not built-in standards libraries. Returns targets for later get, edit, or assignment workflows. Use query, domain, and object_family to narrow results.",
+        name="search_garden_properties_objects",
+        description=(
+            "Search saved Garden Properties Library indexes for reusable Honeybee "
+            "Energy and Honeybee Radiance object targets, including schedules, "
+            "program types, loads, HVAC systems, materials, constructions, "
+            "construction sets, modifiers, modifier sets, and luminaires. Use this "
+            "for Garden-saved reusable resources, not built-in standards-library "
+            "search. Returns matches with domain, object_family, identifier, "
+            "object_type, path, target, plus summary_view and report; pass "
+            "matches[*].target to library_get_garden_properties_object or downstream "
+            "assignment workflows."
+        ),
         tags={
-            "garden",
-            "properties",
-            "library",
-            "search",
-            "read-only",
             "energy",
+            "library",
+            "properties",
             "radiance",
-            "saved-garden-properties",
-            "reusable-object-targets",
-            "construction-set",
-            "program-type",
-            "schedule",
-            "modifier",
-            "luminaire",
-            "safe",
+            "search",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def search_garden_properties_library_objects(
         garden_root: Annotated[
-            str, Field(description="Garden root directory containing garden.json.")
+            str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root'].")
         ],
         query: Annotated[
-            str, Field(description="Search text for identifier or object type.")
+            str,
+            Field(
+                description=(
+                    "Search text matched against saved object identifiers and SDK "
+                    "object_type values. Use an empty string to list recent objects "
+                    "within the selected domain/object_family."
+                )
+            ),
         ] = "",
         domain: Annotated[
             str | None,
             Field(
-                description="Optional domain filter: honeybee_energy, honeybee_radiance, or all."
+                description=(
+                    "Optional Garden Properties Library domain filter: "
+                    "honeybee_energy, honeybee_radiance, or all."
+                )
             ),
         ] = None,
         object_family: Annotated[
             str | None,
             Field(
-                description="Optional object family filter, such as schedule, program_type, modifier, or luminaire."
+                description=(
+                    "Optional saved object family filter, such as schedule, "
+                    "program_type, construction_set, modifier, or luminaire."
+                )
             ),
         ] = None,
         limit: Annotated[
-            int, Field(description="Maximum number of matches to return.")
+            int, Field(description="Maximum number of Garden-saved matches to return.")
         ] = 10,
     ) -> dict[str, Any]:
         """Search Garden Properties Library object indexes."""

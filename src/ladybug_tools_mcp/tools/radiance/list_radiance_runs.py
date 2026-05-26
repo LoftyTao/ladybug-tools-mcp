@@ -11,31 +11,31 @@ from garden.radiance.run import list_radiance_runs as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the list_radiance_runs tool."""
+    'Register the radiance_list_runs tool.'
 
     @mcp.tool(
-        name="list_radiance_runs",
-        description="List Garden radiance_run records for Radiance daylight grid, view, and annual/matrix simulations, optionally filtered by status.",
+        name="list_runs",
+        description=(
+            "List Radiance simulation runs recorded in a Garden run ledger. "
+            "Use this to find run_id, run_target, status, or run folder "
+            "metadata before polling or reading results. This reads the run "
+            "ledger only; it does not open grid, HDR, matrix, or report "
+            "artifacts. Returns matches, summary_view, and report."
+        ),
         tags={
-            "honeybee-radiance",
-            "radiance",
-            "run-radiance",
-            "daylight",
-            "simulation",
-            "run",
             "ledger",
-            "list",
-            "read-only",
-            "safe",
+            "radiance",
+            "simulate",
+            "poll",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def list_radiance_runs(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         status: Annotated[
             str | None,
-            Field(description="Optional status filter, for example running, completed, or failed."),
+            Field(description="Optional runtime_status filter for Garden run ledger records, such as running, completed, failed, or cancelled."),
         ] = None,
     ) -> dict[str, Any]:
         """List Radiance simulation runs."""

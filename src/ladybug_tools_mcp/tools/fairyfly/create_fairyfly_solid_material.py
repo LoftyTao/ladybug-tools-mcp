@@ -11,18 +11,22 @@ from garden.fairyfly.materials import create_fairyfly_solid_material as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_fairyfly_solid_material tool."""
+    'Register the therm_create_solid_material tool.'
 
     @mcp.tool(
-        name="create_fairyfly_solid_material",
-        description="Create a Fairyfly THERM SolidMaterial payload for use with add_fairyfly_shape_to_model. This returns an inline object_dict, not a Garden target.",
-        tags={"fairyfly", "therm", "material", "create", "safe"},
+        name="create_solid_material",
+        description=(
+            "Create a Fairyfly THERM SolidMaterial payload for use with "
+            "therm_add_shape_to_model. This returns an inline object_dict, not a "
+            "Garden target, and it does not attach the material to a model by itself."
+        ),
+        tags={"fairyfly", "therm", "material", "author", "thermal"},
         timeout=20,
     )
     def create_fairyfly_solid_material(
         name: Annotated[
             str,
-            Field(description="Required display name for the material."),
+            Field(description="Required display name for the Fairyfly/THERM solid material object_dict."),
         ],
         conductivity: Annotated[
             float,

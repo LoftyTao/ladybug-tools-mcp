@@ -10,26 +10,30 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_opaque_no_mass_material tool."""
+    'Register the energy_create_opaque_no_mass_material tool.'
 
     @mcp.tool(
-        name="create_opaque_no_mass_material",
-        description="Create a Honeybee Energy EnergyMaterialNoMass opaque material from an R-value. Returns object_dict plus summary_view. Use return_detail='summary' for key thermal values or 'full' for a matrix of material property values.",
+        name='create_opaque_no_mass_material',
+        description=(
+            "Create a Honeybee Energy EnergyMaterialNoMass opaque material "
+            "from an R-value for walls, roofs, floors, or other opaque "
+            "construction layers. This returns a material layer for later use "
+            "in an opaque construction; it does not assign the layer to model "
+            "geometry. Returns object_dict plus summary_view; "
+            "return_detail='full' also includes a material property matrix."
+        ),
         tags={
-            "honeybee-energy",
             "energy",
-            "construction-set",
+            "construction",
             "material",
+            "author",
             "opaque",
-            "no-mass",
-            "create",
-            "safe",
         },
         timeout=20,
     )
     def create_opaque_no_mass_material(
         identifier: Annotated[
-            str, Field(description="EnergyMaterialNoMass identifier.")
+            str, Field(description="Honeybee EnergyMaterialNoMass identifier for an opaque no-mass layer.")
         ],
         r_value: Annotated[float, Field(description="Thermal resistance in m2-K/W.")],
         roughness: Annotated[
@@ -53,7 +57,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for saving this material to the Garden Properties Library."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

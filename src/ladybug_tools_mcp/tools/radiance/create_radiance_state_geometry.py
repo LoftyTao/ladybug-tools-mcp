@@ -11,26 +11,32 @@ from garden.radiance.dynamic import create_radiance_state_geometry as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_radiance_state_geometry tool."""
+    'Register the radiance_create_state_geometry tool.'
 
     @mcp.tool(
-        name="create_radiance_state_geometry",
-        description="Create a Honeybee Radiance StateGeometry dictionary for use inside dynamic shade/subface states. Provide either geometry as a Ladybug Face3D dict or vertices as [[x,y,z], ...]. Optional modifier may be a modifier dict, Garden Properties Library modifier target, or standards-library identifier.",
+        name="create_state_geometry",
+        description=(
+            "Create a Honeybee Radiance StateGeometry dictionary for dynamic "
+            "shade or subface states. Provide geometry as a Ladybug Face3D "
+            "dict or vertices as [[x, y, z], ...]. Optional modifier may be a "
+            "modifier dict, Garden Properties Library modifier target, or "
+            "standards-library identifier. This returns a state-geometry "
+            "object_dict for state tools; it does not save a Garden target or "
+            "edit the model by itself."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
-            "dynamic",
+            "model",
+            "edit",
             "state-geometry",
-            "face3d",
-            "create",
-            "safe",
+            "dynamic-state",
         },
         timeout=20,
     )
     def create_radiance_state_geometry(
         identifier: Annotated[
             str | None,
-            Field(description="Radiance StateGeometry identifier. Defaults to state_geometry when omitted by an Agent."),
+            Field(description="Honeybee Radiance StateGeometry identifier. Defaults to state_geometry when omitted by an Agent."),
         ] = None,
         geometry: Annotated[
             dict[str, Any] | None,
@@ -48,7 +54,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Optional Garden root required when modifier is a Garden target."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance StateGeometry."""

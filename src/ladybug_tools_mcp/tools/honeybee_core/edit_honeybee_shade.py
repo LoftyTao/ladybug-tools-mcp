@@ -8,31 +8,43 @@ from garden.honeybee_core.edit import edit_honeybee_shade as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the edit_honeybee_shade tool."""
+    'Register the honeybee_edit_shade tool.'
 
     @mcp.tool(
-        name="edit_honeybee_shade",
-        description="Edit a Honeybee Shade using a shade typed target from search_honeybee_model_objects. Requires garden_root and target; do not pass arguments null or {} and do not pass only an identifier string.",
-        tags={"honeybee-core", "garden-mode", "shade", "geometry", "write", "safe"},
+        name="edit_shade",
+        description='Edit a Honeybee Shade typed target for display name, user data, supported Face3D geometry, detached flag on orphaned shades, Honeybee Energy ShadeConstruction/transmittance schedule/PVProperties, and Honeybee Radiance modifier/dynamic states. Hosted shades keep their parent relationship and cannot be made detached by setting is_detached=true. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
+        tags={
+            "detached-shade",
+            "edit",
+            "energy",
+            "geometry",
+            "hosted",
+            "honeybee",
+            "pv",
+            "radiance",
+            "shade",
+            "shading",
+            "transmittance-schedule",
+        },
         timeout=20,
     )
     def edit_honeybee_shade(
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee shade typed target from search_honeybee_model_objects; not a shade identifier string."
+                description='Required Honeybee shade typed target from honeybee_search_model_objects; not a shade identifier string.'
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         display_name: Annotated[
@@ -50,7 +62,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         is_detached: Annotated[
             bool | None,
-            Field(description="Optional updated detached flag for orphaned shades."),
+            Field(description="Optional updated detached flag for orphaned shades only; hosted shades cannot be detached in place."),
         ] = None,
         construction: Annotated[
             dict[str, Any] | None,
@@ -67,19 +79,19 @@ def register(mcp: FastMCP) -> None:
         pv_properties: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee Energy PVProperties dictionary or Garden Properties Library pv_properties target from create_pv_properties to attach or replace."
+                description='Optional Honeybee Energy PVProperties dictionary or Garden Properties Library pv_properties target from energy_create_pv_properties to attach or replace.'
             ),
         ] = None,
         modifier: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from search_radiance_library_objects."
+                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
             ),
         ] = None,
         modifier_blk: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from search_radiance_library_objects."
+                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
             ),
         ] = None,
         dynamic_group_identifier: Annotated[

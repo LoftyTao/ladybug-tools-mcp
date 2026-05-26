@@ -8,31 +8,41 @@ from garden.honeybee_core.removal import remove_honeybee_door as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the remove_honeybee_door tool."""
+    'Register the honeybee_remove_door tool.'
 
     @mcp.tool(
-        name="remove_honeybee_door",
-        description="Remove one Honeybee Door from a Garden model using a door typed target from search_honeybee_model_objects and persist the updated model. Requires garden_root and target; do not pass arguments null or {}.",
-        tags={"honeybee-core", "garden-mode", "door", "write", "destructive"},
+        name="remove_door",
+        description='Remove one Honeybee Door from a Garden model using a door typed target from honeybee_search_model_objects and persist the updated model. Hosted Doors are supported; when the target is one side of a Surface-adjacent interior pair, the paired Door can be removed too and reported as paired_removed_identifier with removed_count=2. Returns summary_view.model_target, persistence_receipt.model_target, and report so the updated model can be searched or validated again.',
+        tags={
+            "door",
+            "edit",
+            "hosted",
+            "honeybee",
+            "interior-door",
+            "paired-door",
+            "remove",
+            "surface",
+            "target",
+        },
         timeout=20,
     )
     def remove_honeybee_door(
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee door typed target from search_honeybee_model_objects; not a door identifier string."
+                description='Required Honeybee door typed target from honeybee_search_model_objects; not a door identifier string.'
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
     ) -> dict[str, Any]:

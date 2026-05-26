@@ -11,19 +11,23 @@ from flowerpot.registry import cleanup_flowerpots as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the cleanup_flowerpots tool."""
+    'Register the flowerpot_cleanup_all tool.'
 
     @mcp.tool(
-        name="cleanup_flowerpots",
-        description="Clean Garden-local Flowerpot handoff registry entries and item files without touching Garden authoring truth in garden.json, models, or libraries. Supports dry_run for safe previews and cleanup_scope values orphaned, expired, or all. Do not pass arguments null or {}.",
+        name="cleanup_all",
+        description=(
+            "Clean only Garden-local Flowerpot handoff maintenance state: registry "
+            "entries and Flowerpot item files. Use orphaned for missing item files, "
+            "expired with older_than_days for stale handoff records, or all for a "
+            "full handoff reset. Returns removed, skipped, summary_view, "
+            "persistence_receipt, and report. It does not modify Garden authoring "
+            "truth in garden.json, models/, libraries/, or reusable object storage; "
+            "do not pass arguments null or {}."
+        ),
         tags={
-            "flowerpot",
-            "garden-mode",
-            "platform-handoff",
-            "registered-container",
             "cleanup",
-            "write",
-            "safe",
+            "flowerpot",
+            "handoff",
         },
         timeout=20,
     )
@@ -31,13 +35,17 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         cleanup_scope: Annotated[
             str,
             Field(
-                description="Cleanup scope. Use orphaned for registry entries missing item files, expired with older_than_days, or all for all Flowerpot handoff items."
+                description=(
+                    "Cleanup scope: orphaned for registry entries missing item "
+                    "files, expired with older_than_days for stale records, or all "
+                    "for every Flowerpot handoff item in this Garden."
+                )
             ),
         ] = "orphaned",
         dry_run: Annotated[

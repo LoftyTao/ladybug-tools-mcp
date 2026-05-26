@@ -10,19 +10,18 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_door_construction_set tool."""
+    'Register the energy_create_door_construction_set tool.'
 
     @mcp.tool(
-        name="create_door_construction_set",
-        description="Create a Honeybee Energy DoorConstructionSet intermediate object for a full ConstructionSet. Accepts opaque and glass door construction overrides and returns slot values in summary_view.",
+        name='create_door_construction_set',
+        description="Create a Honeybee Energy DoorConstructionSet intermediate object for ConstructionSet door slots: exterior/interior opaque doors, exterior/interior glass doors, and overhead doors. Pass OpaqueConstruction or WindowConstruction object_dict values, Garden targets, or standards identifiers as appropriate. Returns object_dict plus summary_view slot values; this subset is not saved as its own Garden target, so pass the returned object_dict into energy_create_construction_set.door_set.",
         tags={
-            "honeybee-energy",
             "energy",
             "construction-set",
+            "construction",
             "door",
-            "subset",
-            "create",
-            "safe",
+            "window",
+            "author",
         },
         timeout=20,
     )
@@ -30,37 +29,37 @@ def register(mcp: FastMCP) -> None:
         exterior_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Exterior opaque door OpaqueConstruction dict or identifier."
+                description="OpaqueConstruction dict, Garden target, or standards identifier for exterior opaque doors."
             ),
         ] = None,
         interior_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Interior opaque door OpaqueConstruction dict or identifier."
+                description="OpaqueConstruction dict, Garden target, or standards identifier for interior opaque doors."
             ),
         ] = None,
         exterior_glass_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Exterior glass door WindowConstruction dict or identifier."
+                description="WindowConstruction dict, Garden target, or standards identifier for exterior glass doors."
             ),
         ] = None,
         interior_glass_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Interior glass door WindowConstruction dict or identifier."
+                description="WindowConstruction dict, Garden target, or standards identifier for interior glass doors."
             ),
         ] = None,
         overhead_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Overhead opaque door OpaqueConstruction dict or identifier."
+                description="OpaqueConstruction dict, Garden target, or standards identifier for overhead opaque doors in roof/ceiling or floor parent faces."
             ),
         ] = None,
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for consuming Garden Properties Library construction targets."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; used only to resolve Garden construction targets in the slot inputs."
             ),
         ] = None,
     ) -> dict[str, Any]:

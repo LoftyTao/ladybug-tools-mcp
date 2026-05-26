@@ -14,28 +14,29 @@ def register(mcp: FastMCP) -> None:
     """Register the radiance_hdr_to_falsecolor tool."""
 
     @mcp.tool(
-        name="radiance_hdr_to_falsecolor",
-        description="Canonical Radiance HDR falsecolor postprocess tool. Create a falsecolor .hdr Garden artifact from a Radiance .hdr image using the SDK Falsecolor command wrapper. This tool only accepts .hdr input and writes .hdr output; .pic and .unf are intentionally unsupported. Use list_radiance_hdr_images to select an image from a completed view run.",
+        name="hdr_to_falsecolor",
+        description=(
+            "Convert a Radiance HDR image artifact to a falsecolor image "
+            "artifact for daylight or glare review. Pass image_target from "
+            "radiance_list_hdr_images or radiance_search_images. This converts "
+            "an existing HDR artifact; it does not render a new view or read "
+            "grid results. Returns target, image_target, artifact_path, "
+            "summary_view, and report."
+        ),
         tags={
-            "honeybee-radiance",
-            "radiance",
-            "run-radiance",
-            "postprocess",
-            "view",
-            "image",
-            "hdr",
-            "falsecolor",
             "artifact",
-            "write",
-            "safe",
+            "convert",
+            "radiance",
+            "image",
+            "result",
         },
         timeout=60,
     )
     def radiance_hdr_to_falsecolor(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional completed point-in-time-view radiance_run target."),
+            Field(description="Optional completed point-in-time view radiance_run target. Poll the run before converting HDR artifacts."),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -43,7 +44,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         image_path: Annotated[
             str | None,
-            Field(description="Optional Garden-relative .hdr image path. Use this instead of run_target/run_id."),
+            Field(description="Optional Garden-relative .hdr image path for direct artifact conversion."),
         ] = None,
         image_name: Annotated[
             str | None,

@@ -8,30 +8,26 @@ from garden.energy.ventilation import setup_airflow_network as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the setup_airflow_network tool."""
+    'Register the energy_setup_airflow_network tool.'
 
     @mcp.tool(
-        name="setup_airflow_network",
-        description="Generate EnergyPlus AirflowNetwork properties for Honeybee Rooms in a Garden model. Use this for AFN, AirflowNetwork, airflow network, multizone air flow, leakage, cracks, pressure-driven ventilation, and closed-window leakage. This top-level tool sets model ventilation_simulation_control and uses the Honeybee Energy SDK AFN generator to create face vent_crack and opening leakage properties. This is not the simple operable-window path; use setup_simple_ventilation_properties for simple natural ventilation controls.",
+        name='setup_airflow_network',
+        description="Generate EnergyPlus AirflowNetwork properties for selected Honeybee Rooms using the Honeybee Energy AFN generator. Use this for pressure-driven multizone airflow, Face vent_crack leakage, closed-opening leakage, and optional room-infiltration-derived exterior cracks; it is not the simple operable-window setup, not a VentilationFan, and not the ProgramType Ventilation load. Returns the updated Honeybee model target in target and summary_view.target plus persistence_receipt and report.",
         tags={
-            "honeybee-energy",
-            "garden-mode",
             "airflow-network",
-            "afn",
-            "multizone-airflow",
-            "leakage",
-            "vent-crack",
-            "ventilation-simulation-control",
-            "natural-ventilation",
-            "write",
-            "safe",
+            "energy",
+            "edit",
+            "infiltration",
+            "room",
+            "ventilation",
+            "ventilation-opening",
         },
         timeout=30,
     )
     def setup_airflow_network(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path string containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
@@ -43,7 +39,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         room_targets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="Optional Honeybee Room typed targets from search_honeybee_model_objects."),
+            Field(description='Optional Honeybee Room typed targets from honeybee_search_model_objects. Use this or room_identifiers; omit both to use all Rooms.'),
         ] = None,
         vent_control_type: Annotated[
             str,
@@ -51,11 +47,11 @@ def register(mcp: FastMCP) -> None:
         ] = "MultiZoneWithoutDistribution",
         leakage_type: Annotated[
             str,
-            Field(description="Leakiness template for generated cracks: Excellent, Medium, or VeryPoor."),
+            Field(description="AirflowNetwork leakiness template for generated cracks: Excellent, Medium, or VeryPoor."),
         ] = "Medium",
         use_room_infiltration: Annotated[
             bool,
-            Field(description="If true, exterior AFN leakage is derived from each room infiltration load when available."),
+            Field(description="If true, exterior AFN leakage is derived from each Room's Honeybee Energy Infiltration load when available."),
         ] = True,
         atmospheric_pressure: Annotated[
             float,

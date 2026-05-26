@@ -14,27 +14,30 @@ from garden.store import list_garden_artifacts as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the list_radiance_artifacts tool."""
+    'Register the radiance_list_artifacts tool.'
 
     @mcp.tool(
-        name="list_radiance_artifacts",
-        description="List Garden-managed Radiance artifact records and compact artifact_paths.",
+        name="list_artifacts",
+        description=(
+            "List Garden-managed Radiance artifact records and compact "
+            "artifact_paths. Use this to find saved Radiance files without "
+            "reading large image, matrix, or grid payloads. This is artifact "
+            "inventory only; it does not convert files or run recipes. Returns "
+            "matches, artifact_paths, summary_view, and report."
+        ),
         tags={
-            "honeybee-radiance",
-            "radiance",
-            "garden-mode",
             "artifact",
-            "list",
-            "read-only",
-            "safe",
+            "radiance",
+            "result",
+            "search",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def list_radiance_artifacts(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        artifact_type: Annotated[str | None, Field(description="Optional Radiance artifact type filter.")] = None,
-        query: Annotated[str | None, Field(description="Optional name/path substring filter.")] = None,
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        artifact_type: Annotated[str | None, Field(description="Optional formal Radiance artifact target_type filter. Omit to list every registered Radiance artifact.")] = None,
+        query: Annotated[str | None, Field(description="Optional artifact name or Garden-relative path substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """List Radiance artifacts."""

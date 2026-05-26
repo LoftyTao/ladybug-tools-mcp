@@ -11,19 +11,20 @@ from garden.dragonfly_core.search import search_dragonfly_model_objects as servi
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_dragonfly_model_objects tool."""
+    'Register the dragonfly_search_model_objects tool.'
 
     @mcp.tool(
-        name="search_dragonfly_model_objects",
-        description="Search Dragonfly Buildings, Stories, Room2Ds, and ContextShades in the Garden base Dragonfly model or an explicit Dragonfly model target. Also returns draft Room2D and Story objects saved in the Garden before they are assembled into a Building. Use object_type=building, object_type=story, object_type=room2d, object_type=context_shade, or object_type=all. For Dragonfly rooms, object_type is room2d; do not pass room. Returns compact matches with nested Dragonfly object targets for follow-up tools. Defaults to compact summaries without geometry; set include_geometry=true only when the Room2D floor geometry summary is needed.",
-        tags={
-            "dragonfly-core",
-            "garden-mode",
-            "model",
-            "search",
-            "read",
-            "safe",
-        },
+        name="search_model_objects",
+        description=(
+            "Search Dragonfly Buildings, Stories, Room2Ds, and ContextShades in the "
+            "Garden base Dragonfly model or an explicit Dragonfly model target. Also "
+            "returns draft Room2D and Story objects saved in the Garden before they are "
+            "assembled into a Building. Use object_type=building, story, room2d, "
+            "context_shade, or all; for Dragonfly rooms, use room2d. Returns compact "
+            "matches with nested Dragonfly object targets for follow-up tools. Set "
+            "include_geometry=true only when a Room2D floor geometry summary is needed."
+        ),
+        tags={"dragonfly", "model", "search", "summary", "inventory"},
         annotations={"readOnlyHint": True},
         timeout=20,
     )
@@ -31,13 +32,16 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Dragonfly model target dict. Defaults to the Garden base Dragonfly model."
+                description=(
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
+                )
             ),
         ] = None,
         object_type: Annotated[
@@ -54,7 +58,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         query: Annotated[
             str | None,
-            Field(description="Optional token query over identifier and display name."),
+            Field(description="Optional token query over Dragonfly object identifier and display name."),
         ] = None,
         building_identifier: Annotated[
             str | None,

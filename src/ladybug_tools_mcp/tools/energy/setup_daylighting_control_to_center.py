@@ -11,27 +11,26 @@ from garden.energy.daylighting import setup_daylighting_control_to_center as ser
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the setup_daylighting_control_to_center tool."""
+    'Register the energy_setup_daylighting_control_to_center tool.'
 
     @mcp.tool(
-        name="setup_daylighting_control_to_center",
-        description="Assign Honeybee Energy daylighting controls to selected Rooms by placing a sensor near each room center. Use this for EnergyPlus daylight dimming and lighting energy impact tests, not Radiance daylight quality, glare, sDA, or ASE. The model should already have apertures/windows and Lighting loads. Select rooms with room_identifiers or room_targets; not room_target.",
+        name='setup_daylighting_control_to_center',
+        description="Assign Honeybee Energy DaylightingControl objects to selected Rooms by placing an EnergyPlus daylight reference sensor near each room center. Use this for electric lighting dimming and lighting-energy impact tests with existing apertures/windows and Lighting loads; it is not a Radiance SensorGrid, glare, sDA, ASE, or daylight-quality simulation. Returns the updated Honeybee model target in target and summary_view.target plus persistence_receipt and report.",
         tags={
-            "honeybee-energy",
-            "garden-mode",
+            "daylight",
             "daylighting-control",
-            "daylight-dimming",
-            "lighting-energy",
-            "energyplus",
-            "write",
-            "safe",
+            "dimming",
+            "edit",
+            "energy",
+            "lighting",
+            "room",
         },
         timeout=30,
     )
     def setup_daylighting_control_to_center(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path string containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
@@ -43,7 +42,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         room_targets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="Optional room_targets list of Honeybee Room typed targets from search_honeybee_model_objects. Use this or room_identifiers; not room_target."),
+            Field(description='Optional room_targets list of Honeybee Room typed targets from honeybee_search_model_objects. Use this or room_identifiers; not room_target.'),
         ] = None,
         distance_from_floor: Annotated[
             float,

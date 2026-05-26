@@ -11,23 +11,24 @@ from garden.dragonfly_core.creation import create_dragonfly_story as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_dragonfly_story tool."""
+    'Register the dragonfly_create_story tool.'
 
     @mcp.tool(
-        name="create_dragonfly_story",
+        name="create_story",
         description=(
             "Create a Dragonfly Story draft object from Dragonfly Room2D targets. "
             "The parameter name is exactly room2d_targets, not room2ds and not room_2ds. "
             "Pass identifier or a natural display_name; the returned Story target "
-            "can be passed to create_dragonfly_building."
+            "can be passed to dragonfly_create_building. This does not attach the "
+            "Story to a Building until that Building tool is called."
         ),
-        tags={"dragonfly-core", "garden-mode", "story", "create", "write", "safe"},
+        tags={"dragonfly", "story", "room2d", "author", "assembly"},
         timeout=20,
     )
     def create_dragonfly_story(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         room2d_targets: Annotated[
             list[dict[str, Any]] | None,
@@ -35,7 +36,7 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Required list of Dragonfly Room2D targets. The parameter name "
                     "is exactly room2d_targets, not room2ds and not room_2ds. Use "
-                    "room2d_target values returned by create_dragonfly_room2d or "
+                    'room2d_target values returned by dragonfly_create_room2d or '
                     "target values from a Room2D search."
                 )
             ),
@@ -53,7 +54,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
                 )
             ),
         ] = None,
@@ -67,7 +69,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         multiplier: Annotated[
             int,
-            Field(description="Story multiplier."),
+            Field(description="Dragonfly Story multiplier for repeated floors."),
         ] = 1,
         story_type: Annotated[
             str,

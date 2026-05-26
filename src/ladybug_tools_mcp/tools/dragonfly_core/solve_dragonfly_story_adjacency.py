@@ -11,34 +11,50 @@ from garden.dragonfly_core.geometry import solve_dragonfly_story_adjacency as se
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the solve_dragonfly_story_adjacency tool."""
+    'Register the dragonfly_solve_story_adjacency tool.'
 
     @mcp.tool(
-        name="solve_dragonfly_story_adjacency",
-        description="Solve Room2D adjacencies on a Dragonfly Story using Story.solve_room_2d_adjacency, save the updated DFJSON, and return compact adjacency counts plus validation summary. Pass story_target from create_dragonfly_story/building workflow or story_identifier.",
-        tags={"dragonfly-core", "garden-mode", "story", "adjacency", "geometry", "write", "safe"},
+        name="solve_story_adjacency",
+        description=(
+            "Solve Room2D adjacencies on a Dragonfly Story using "
+            "Story.solve_room_2d_adjacency, save the updated DFJSON, and return compact "
+            "adjacency counts plus validation summary. Pass story_target from the "
+            "Dragonfly create Story/Building workflow or story_identifier; use reset "
+            "adjacency when the goal is to clear boundary conditions."
+        ),
+        tags={"dragonfly", "story", "geometry", "edit", "adjacency"},
         timeout=30,
     )
     def solve_dragonfly_story_adjacency(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         story_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly Story target. Preferred over story_identifier."),
+            Field(
+                description=(
+                    "Required Dragonfly Story target or story identifier in the selected Garden model. "
+                    "Prefer story_target when available."
+                )
+            ),
         ] = None,
         story_identifier: Annotated[
             str | None,
-            Field(description="Optional Story identifier when no story_target is available."),
+            Field(description="Optional Dragonfly Story identifier when no story_target is available."),
         ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly model target. Defaults to base Dragonfly model."),
+            Field(
+                description=(
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
+                )
+            ),
         ] = None,
         tolerance: Annotated[
             float,
-            Field(description="Tolerance passed to Story.solve_room_2d_adjacency."),
+            Field(description="Tolerance passed to Dragonfly Story.solve_room_2d_adjacency."),
         ] = 0.01,
         intersect: Annotated[
             bool,

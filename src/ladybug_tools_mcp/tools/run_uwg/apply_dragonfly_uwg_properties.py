@@ -11,10 +11,10 @@ from garden.dragonfly_core.uwg_properties import apply_dragonfly_uwg_properties 
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the apply_dragonfly_uwg_properties tool."""
+    'Register the uwg_apply_dragonfly_properties tool.'
 
     @mcp.tool(
-        name="apply_dragonfly_uwg_properties",
+        name='apply_dragonfly_properties',
         description=(
             "Apply SDK-backed Dragonfly UWG properties to a Dragonfly model, "
             "Building, or ContextShade target. Requires host_target; "
@@ -28,24 +28,21 @@ def register(mcp: FastMCP) -> None:
             "values are New, 1980_Present, or Pre1980; not ASHRAE_2019. "
             "ContextShade supports is_vegetation. "
             "These UWG properties are separate from Dragonfly Energy/OpenStudio "
-            "properties."
+            "properties and do not launch weather morphing."
         ),
         tags={
-            "run-uwg",
-            "uwg",
-            "alternative-weather",
             "dragonfly",
-            "properties",
+            "uwg",
+            "weather",
             "edit",
-            "write",
-            "safe",
+            "urban-weather",
         },
         timeout=20,
     )
     def apply_dragonfly_uwg_properties(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         host_target: Annotated[
             dict[str, Any],
@@ -58,7 +55,7 @@ def register(mcp: FastMCP) -> None:
         ],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly model target. Defaults to base Dragonfly model."),
+            Field(description="Optional Dragonfly model target with target_type=dragonfly_model. Defaults to the Garden base Dragonfly model."),
         ] = None,
         terrain: Annotated[
             dict[str, Any] | None,
@@ -72,7 +69,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         traffic: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional dragonfly_uwg TrafficParameter dictionary for model-level anthropogenic traffic heat."),
+            Field(description="Optional dragonfly_uwg TrafficParameter dictionary for model-level anthropogenic traffic heat in UWG weather morphing."),
         ] = None,
         tree_coverage_fraction: Annotated[
             float | None,

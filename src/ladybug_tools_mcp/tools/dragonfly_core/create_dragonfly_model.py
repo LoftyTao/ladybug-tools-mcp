@@ -11,27 +11,24 @@ from garden.dragonfly_core.creation import create_dragonfly_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_dragonfly_model tool."""
+    'Register the dragonfly_create_model tool.'
 
     @mcp.tool(
-        name="create_dragonfly_model",
-        description="Create an empty Dragonfly model in a Garden and optionally set it as the base Dragonfly model with set_base; not set_as_base. Returns target and model_target for downstream Dragonfly calls. Requires garden_root and identifier.",
-        tags={
-            "dragonfly-core",
-            "garden-mode",
-            "model",
-            "base-dragonfly-model",
-            "create",
-            "write",
-            "safe",
-        },
+        name="create_model",
+        description=(
+            "Create an empty Dragonfly model in a Garden and optionally set it as the "
+            "base Dragonfly model with set_base; not set_as_base. Returns target and "
+            "model_target for downstream Dragonfly calls. Add Room2D, Story, and "
+            "Building objects with the dedicated Dragonfly authoring tools."
+        ),
+        tags={"dragonfly", "model", "author", "garden", "dfjson"},
         timeout=20,
     )
     def create_dragonfly_model(
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         identifier: Annotated[
@@ -68,7 +65,7 @@ def register(mcp: FastMCP) -> None:
         ] = 1.0,
         save_back: Annotated[
             bool,
-            Field(description="Whether to save the model into Garden."),
+            Field(description="Whether to save the Dragonfly Model into the Garden and return a Dragonfly model target."),
         ] = True,
         set_base: Annotated[
             bool,

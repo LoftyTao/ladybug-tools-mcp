@@ -11,40 +11,33 @@ from garden.fairyfly.display import fairyfly_therm_result_to_visualization_set a
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the fairyfly_therm_result_to_visualization_set tool."""
+    'Register the therm_result_to_visualization_set tool.'
 
     @mcp.tool(
-        name="fairyfly_therm_result_to_visualization_set",
+        name="result_to_visualization_set",
         description=(
-            "Create a Ladybug Display VisualizationSet from completed Fairyfly "
-            "THERM temperature or heat-flux results. If the THMZ has not been "
-            "simulated yet, returns no_results instead of creating an empty view."
+            "Create a Ladybug Display VisualizationSet from Fairyfly THERM "
+            "temperature or heat-flux results. Poll therm_poll_simulation before "
+            "visualizing results from a run_target. If the THMZ has no result "
+            "arrays, returns no_results instead of creating an empty view. "
+            "Returns visualization_set_target when saved and does not start THERM."
         ),
-        tags={
-            "fairyfly",
-            "therm",
-            "visualize",
-            "result",
-            "2d-heat-transfer",
-            "garden-mode",
-            "read-only",
-            "safe",
-        },
+        tags={"fairyfly", "therm", "visualization-set", "result", "visualize", "preview"},
         annotations={"readOnlyHint": True},
         timeout=60,
     )
     def fairyfly_therm_result_to_visualization_set(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         thmz_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional fairyfly_thmz target returned by write_fairyfly_model_to_thmz."),
+            Field(description='Optional fairyfly_thmz target returned by therm_write_model_to_thmz.'),
         ] = None,
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional fairyfly_therm_run target returned by start_fairyfly_therm_run."),
+            Field(description='Optional completed fairyfly_therm_run target returned by therm_start_simulation. Poll before visualizing results.'),
         ] = None,
         run_id: Annotated[
             str | None,

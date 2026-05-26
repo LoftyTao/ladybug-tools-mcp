@@ -14,36 +14,37 @@ def register(mcp: FastMCP) -> None:
     """Register the radiance_grid_result_to_visualization_set tool."""
 
     @mcp.tool(
-        name="radiance_grid_result_to_visualization_set",
-        description="Create a Ladybug Display VisualizationSet target from Radiance SensorGrid result folders using honeybee_display.model_to_vis_set(grid_data_path=...). This stops at VisualizationSet output; use existing visualization_set_to_html or visualization_set_to_svg tools for file export.",
+        name="grid_result_to_visualization_set",
+        description=(
+            "Create a Ladybug Display VisualizationSet target from Radiance "
+            "SensorGrid result folders using "
+            "honeybee_display.model_to_vis_set(grid_data_path=...). This "
+            "converts existing grid results into a VisualizationSet; it does "
+            "not start a Radiance recipe or export HTML/SVG/vtk.js files."
+        ),
         tags={
-            "honeybee-radiance",
+            "artifact",
             "radiance",
-            "run-radiance",
-            "postprocess",
             "sensor-grid",
-            "grid",
-            "results",
-            "visualization-set",
+            "result",
             "visualize",
-            "write",
-            "safe",
+            "visualization-set",
         },
         timeout=60,
     )
     def radiance_grid_result_to_visualization_set(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional completed radiance_run target with SensorGrid result outputs."),
+            Field(description="Optional completed radiance_run target with SensorGrid result outputs. Poll the run before converting result data."),
         ] = None,
         run_id: Annotated[
             str | None,
-            Field(description="Optional run identifier when run_target is omitted."),
+            Field(description="Optional run identifier for a completed grid or matrix run when run_target is not supplied."),
         ] = None,
         grid_data_path: Annotated[
             str | None,
-            Field(description="Optional Garden-relative folder containing grids_info.json. Use instead of run_target/run_id."),
+            Field(description="Optional Garden-relative folder containing grids_info.json for direct result-folder conversion."),
         ] = None,
         output_name: Annotated[
             str | None,
@@ -87,7 +88,7 @@ def register(mcp: FastMCP) -> None:
         ] = "radiance_grid_result",
         return_visualization_set: Annotated[
             bool,
-            Field(description="Return the full VisualizationSet dict. Set false for compact Agent target handoff."),
+            Field(description="Return the full VisualizationSet dict. Set false to save a compact Garden visualization_set_target for export tools."),
         ] = True,
     ) -> dict[str, Any]:
         """Create a VisualizationSet from Radiance grid results."""

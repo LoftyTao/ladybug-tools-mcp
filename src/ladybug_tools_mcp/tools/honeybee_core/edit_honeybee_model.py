@@ -12,26 +12,20 @@ from garden.radiance.assets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the edit_honeybee_model tool."""
+    'Register the honeybee_edit_model tool.'
 
     @mcp.tool(
-        name="edit_honeybee_model",
-        description="Edit a Honeybee Model display name, user data, units, tolerance, angle tolerance, model-level electric load center, and append complete Honeybee Room, Face, Aperture, Door, or Shade object dictionaries while preserving its Garden persistence path. Requires garden_root and a Honeybee model target; create_honeybee_room already writes rooms to the model, so do not use edit_honeybee_model.add_objects to re-add rooms created by create_honeybee_room. Do not pass arguments null or {}.",
+        name="edit_model",
+        description='Edit a Honeybee Model display name, user data, units, tolerances, model-level Energy electric load center, complete object-dict additions/removals, and existing Radiance SensorGrid/View attachments while preserving its Garden persistence path. Requires garden_root and a Honeybee model target; honeybee_create_room already writes rooms to the model, so do not use add_objects to re-add room targets. Pass full Honeybee object dictionaries to add_objects, not typed targets. Returns target, model_target, summary_view, persistence_receipt, report, and optional radiance attachment summaries for downstream search, validation, visualization, Radiance, or EnergyPlus calls.',
         tags={
-            "honeybee-core",
-            "garden-mode",
+            "edit",
+            "energy",
+            "honeybee",
             "model",
-            "metadata",
-            "user-data",
-            "units",
-            "electric-load-center",
-            "pv",
-            "photovoltaic",
-            "add-objects",
-            "remove-objects",
-            "display-name",
-            "write",
-            "safe",
+            "radiance",
+            "remove",
+            "sensor-grid",
+            "view",
         },
         timeout=20,
     )
@@ -39,18 +33,20 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Required Honeybee model target dict from create_honeybee_model, get_base_honeybee_model, or list_garden_models; not full model body."
+                description='Required Honeybee model target dict from honeybee_create_model, garden_get_base_honeybee_model, or garden_list_models; not full model body.'
             ),
         ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Honeybee model target dict."),
+            Field(
+                description="Optional Honeybee model target dict; accepted as a compatibility input for target and not a full HBJSON body."
+            ),
         ] = None,
         display_name: Annotated[
             str | None, Field(description="Optional updated display name.")
@@ -71,37 +67,37 @@ def register(mcp: FastMCP) -> None:
         electric_load_center: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee Energy ElectricLoadCenter dict or Garden Properties Library electric_load_center target from create_electric_load_center, used for PV inverter/load-center settings."
+                description='Optional Honeybee Energy ElectricLoadCenter dict or Garden Properties Library electric_load_center target from energy_create_electric_load_center, used for PV inverter/load-center settings.'
             ),
         ] = None,
         add_objects: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description="Optional complete Honeybee object dictionaries to append to the model. Supports Room, Face, Aperture, Door, and Shade dicts; not typed targets, not create_honeybee_room.target, and not search_honeybee_model_objects matches[i].target. Do not use this to add rooms already created by create_honeybee_room."
+                description='Optional complete Honeybee object dictionaries to append to the model. Supports Room, Face, Aperture, Door, and Shade dicts; not typed targets, not honeybee_create_room.target, and not honeybee_search_model_objects matches[i].target. Do not use this to add rooms already created by honeybee_create_room.'
             ),
         ] = None,
         add_sensor_grids: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description="Attach existing radiance_sensor_grid targets to model Radiance properties. Prefer create_radiance_sensor_grid.attach_to_model=true when creating new grids."
+                description='Optional list of existing radiance_sensor_grid target dicts to attach to Honeybee Model Radiance properties. Prefer radiance_create_sensor_grid attach_to_model=true when creating new grids.'
             ),
         ] = None,
         radiance_sensor_grid_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Single radiance_sensor_grid target for add_sensor_grids."),
+            Field(description="Optional single radiance_sensor_grid target dict; converted into add_sensor_grids=[target]."),
         ] = None,
         add_radiance_views: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="Attach existing radiance_view targets to model Radiance properties. Prefer create_radiance_view.attach_to_model=true when creating new views."),
+            Field(description='Optional list of existing radiance_view target dicts to attach to Honeybee Model Radiance properties. Prefer radiance_create_view attach_to_model=true when creating new views.'),
         ] = None,
         radiance_view_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Single radiance_view target for add_radiance_views."),
+            Field(description="Optional single radiance_view target dict; converted into add_radiance_views=[target]."),
         ] = None,
         remove_targets: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description="Optional Honeybee typed targets from search_honeybee_model_objects to remove from the model. Only top-level Room and orphaned Face, Aperture, Door, and Shade targets are supported."
+                description='Optional Honeybee typed targets from honeybee_search_model_objects to remove from the model. Only top-level Room and orphaned Face, Aperture, Door, and Shade targets are supported.'
             ),
         ] = None,
     ) -> dict[str, Any]:

@@ -10,23 +10,24 @@ from garden.honeybee_core.search import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_honeybee_model_objects tool."""
+    'Register the honeybee_search_model_objects tool.'
 
     @mcp.tool(
-        name="search_honeybee_model_objects",
-        description="Search and find rooms, walls, windows, doors, shades, and other Honeybee Core geometry objects in the Garden base model or an explicit model target. search_honeybee_model_objects is the only Honeybee object search tool: use it with object_type=room, object_type=face, object_type=aperture, object_type=door, or object_type=shade; not search_honeybee_rooms, not search_honeybee_apertures, and not search_honeybee_doors. Do not use this for Energy program_type, construction_set, schedule, construction, material, or hvac. Radiance SensorGrids and Views are Garden artifacts; prefer search_radiance_sensor_grids. Use garden_root alone for the active Garden base model; do not pass model_identifier. Use identifier for an exact object id such as office_west; use room_identifier and face_identifier as parent filters. Use query for natural substring terms. Returns matches with nested target dicts for create/edit/remove/operate follow-up tools; pass only matches[i].target, or use the top-level target when exactly one match is found. children_scope is an optional typed parent target dict from a prior match; not true, not a boolean, and not parent_target. Room matches include compact energy_properties so Agents can confirm room program/load/setpoint/HVAC assignments and zone_ventilation_fans without inventing get_honeybee_room or full-body reads. Shade matches include compact energy_properties with pv_properties identifier strings so Agents can confirm shade PV assignments. There is no include_body parameter; use these compact summaries instead. Room, face, aperture, and door matches include compact child_counts so Agents can see existing faces/apertures/doors/shades without separate full-model searches. Face, aperture, door, and shade matches include compact Face3D geometry with boundary/vertices, area, and normal so Agents can position explicit sub-face geometry without inventing get_honeybee_face_geometry or visualization tools. Face matches include face_type and boundary_condition so Agents can choose exterior Wall faces for windows/shades instead of floors/roofs. For exterior wall windows, call object_type=face with face_type=Wall and boundary_condition=Outdoors. For natural language room/wall/window tasks, search room first, then search face or aperture; room results are not wall targets.",
+        name="search_model_objects",
+        description="Search Honeybee Room, Face, Aperture/window, Door, and Shade objects in the Garden base model or an explicit model_target. Use object_type plus identifier, query, room_identifier, face_identifier, face_type, boundary_condition, or children_scope to narrow results; for exterior wall/window workflows search faces with face_type=Wall and boundary_condition=Outdoors, then search children under the face. Returns matches with nested target dicts, compact child_counts, geometry summaries, limited room/shade energy_properties, summary_view, and a top-level target only when there is one match. Pass matches[i].target to create/edit/remove tools. This is not for Energy library resources or Radiance SensorGrids/Views.",
         tags={
-            "honeybee-core",
-            "garden-mode",
+            "aperture",
+            "children",
+            "door",
+            "face",
+            "honeybee",
             "model",
+            "room",
             "search",
-            "find-rooms",
-            "walls",
-            "windows",
-            "doors",
-            "shades",
-            "read",
-            "safe",
+            "shade",
+            "target",
+            "wall",
+            "window",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
@@ -35,13 +36,13 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model; do not pass model_identifier or a full model body."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model; do not pass model_identifier or a full model body."
             ),
         ] = None,
         object_type: Annotated[

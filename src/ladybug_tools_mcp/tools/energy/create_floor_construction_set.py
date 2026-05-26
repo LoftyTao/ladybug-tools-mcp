@@ -10,19 +10,17 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_floor_construction_set tool."""
+    'Register the energy_create_floor_construction_set tool.'
 
     @mcp.tool(
-        name="create_floor_construction_set",
-        description="Create a Honeybee Energy FloorConstructionSet intermediate object for a full ConstructionSet. Returns slot property values in summary_view.",
+        name='create_floor_construction_set',
+        description="Create a Honeybee Energy FloorConstructionSet intermediate object for ConstructionSet floor slots: exterior-exposed floors, interior floors, and ground-contact slabs. Pass OpaqueConstruction object_dict values, Garden targets, or standards identifiers. Returns object_dict plus summary_view slot values; this subset is not saved as its own Garden target, so pass the returned object_dict into energy_create_construction_set.floor_set.",
         tags={
-            "honeybee-energy",
             "energy",
             "construction-set",
+            "construction",
             "floor",
-            "subset",
-            "create",
-            "safe",
+            "author",
         },
         timeout=20,
     )
@@ -30,25 +28,25 @@ def register(mcp: FastMCP) -> None:
         exterior_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Exterior floor OpaqueConstruction dict or library identifier."
+                description="OpaqueConstruction dict, Garden target, or standards identifier for exterior-exposed floors."
             ),
         ] = None,
         interior_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Interior floor OpaqueConstruction dict or library identifier."
+                description="OpaqueConstruction dict, Garden target, or standards identifier for interior floors."
             ),
         ] = None,
         ground_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Ground floor OpaqueConstruction dict or library identifier."
+                description="OpaqueConstruction dict, Garden target, or standards identifier for ground-contact floor slabs."
             ),
         ] = None,
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for consuming Garden Properties Library construction targets."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; used only to resolve Garden construction targets in the slot inputs."
             ),
         ] = None,
     ) -> dict[str, Any]:

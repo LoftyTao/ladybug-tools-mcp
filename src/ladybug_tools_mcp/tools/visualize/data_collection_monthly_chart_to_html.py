@@ -13,35 +13,33 @@ from garden.visualize.datacollection import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the data_collection_monthly_chart_to_html tool."""
+    'Register the visualization_data_collection_monthly_chart_to_html tool.'
 
     @mcp.tool(
-        name="data_collection_monthly_chart_to_html",
-        description="Create a Garden HTML artifact from one or more Ladybug DataCollections using Ladybug MonthlyChart. Preferred Agent path is series items with data_collection_target from Garden-backed upstream tools; direct data_collection dict input remains available for payload/debug workflows. Use for schedule data, weather data, comfort data, energy result data, daily or monthly aggregation, monthly-per-hour patterns, and multi-series comparisons. Each series item uses data_collection or data_collection_target and optional label; the label is written into DataCollection header metadata for the chart legend. Use x_dim and y_dim to pass Ladybug SDK MonthlyChart geometry dimensions through.",
+        name='data_collection_monthly_chart_to_html',
+        description=(
+            "Create a Garden HTML artifact from one or more Ladybug "
+            "DataCollections using Ladybug MonthlyChart. Use series items with "
+            "data_collection_target from Garden-backed upstream tools for "
+            "schedule, weather, comfort, energy result, daily, monthly, or "
+            "monthly-per-hour comparisons. Each series item uses "
+            "data_collection or data_collection_target and optional label. "
+            "This exports a chart artifact; it does not read SQL, EPW, or "
+            "Radiance result folders."
+        ),
         tags={
-            "visualize",
             "data-collection",
-            "monthly-chart",
-            "line-chart",
-            "daily-chart",
-            "monthly-per-hour",
-            "timeseries",
-            "schedule-data",
-            "weather-data",
-            "energy-result-data",
-            "html",
+            "chart",
+            "visualize",
             "artifact",
-            "legend",
-            "metadata",
-            "write",
-            "safe",
+            "monthly-chart",
         },
         timeout=90,
     )
     def data_collection_monthly_chart_to_html(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         series: Annotated[
             list[dict[str, Any]],
@@ -91,7 +89,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         name: Annotated[
             str,
-            Field(description="HTML artifact file name without extension."),
+            Field(description="MonthlyChart HTML artifact file name without extension."),
         ] = "data_collection_monthly_chart",
         output_subdir: Annotated[
             str,

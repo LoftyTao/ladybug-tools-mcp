@@ -11,27 +11,29 @@ from garden.radiance.modifiers import create_radiance_opaque_modifier as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_radiance_opaque_modifier tool."""
+    'Register the radiance_create_opaque_modifier tool.'
 
     @mcp.tool(
-        name="create_radiance_opaque_modifier",
-        description="Create an opaque Honeybee Radiance modifier using the SDK Plastic material. Supports simple rgb_reflectance or full r/g/b reflectance inputs. Use garden_root and return_object_dict=false to save a reusable Garden Properties Library modifier target for edit_honeybee_face/aperture/door/shade modifier fields.",
+        name="create_opaque_modifier",
+        description=(
+            "Create an opaque Honeybee Radiance modifier using the SDK Plastic "
+            "material with RGB reflectance. Use garden_root and "
+            "return_object_dict=false to save a reusable Garden Properties "
+            "Library modifier target for Honeybee face, aperture, door, or "
+            "shade Radiance modifier fields. This does not create Energy "
+            "opaque materials or Radiance sensor geometry."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
             "modifier",
             "material",
+            "author",
             "opaque",
-            "plastic",
-            "rgb-reflectance",
-            "radiance-modifiers",
-            "create",
-            "safe",
         },
         timeout=20,
     )
     def create_radiance_opaque_modifier(
-        identifier: Annotated[str, Field(description="Radiance modifier identifier.")],
+        identifier: Annotated[str, Field(description="Radiance Plastic/Opaque modifier identifier.")],
         rgb_reflectance: Annotated[
             float | list[float] | None,
             Field(description="Simple reflectance for red, green, and blue channels."),
@@ -52,7 +54,7 @@ def register(mcp: FastMCP) -> None:
         roughness: Annotated[float, Field(description="Plastic roughness fraction.")] = 0.0,
         garden_root: Annotated[
             str | None,
-            Field(description="Optional Garden root for saving this modifier."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,

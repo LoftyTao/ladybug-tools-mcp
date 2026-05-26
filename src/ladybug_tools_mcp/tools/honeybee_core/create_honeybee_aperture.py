@@ -8,23 +8,17 @@ from garden.honeybee_core.creation import create_honeybee_aperture as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_honeybee_aperture tool."""
+    'Register the honeybee_create_aperture tool.'
 
     @mcp.tool(
-        name="create_honeybee_aperture",
-        description="Create a Honeybee Aperture in a Garden Honeybee model on a host Honeybee Face typed target from explicit Face3D geometry. This is not the default window, window-to-wall ratio, WWR, glazing ratio, or rectangular window tool; for natural parametric window requests use create_honeybee_apertures_by_parameters instead. Requires garden_root, identifier, geometry, and host_target from search_honeybee_model_objects matches[i].target or a prior create_honeybee_face target; the parameter names are exactly geometry and host_target, not Face3D and not host_face. Never pass arguments null or {}.",
+        name="create_aperture",
+        description='Create a Honeybee Aperture, commonly a window/opening sub-face, on a host Honeybee Face typed target from explicit Face3D geometry. This is the low-level explicit-geometry path, not the window-to-wall ratio, WWR, glazing ratio, or rectangular window generator; use honeybee_create_apertures_by_parameters for natural parametric window requests. Requires garden_root, identifier, geometry, and host_target from honeybee_search_model_objects matches[i].target or a prior honeybee_create_face target. The parameter names are exactly geometry and host_target, not Face3D and not host_face. Returns target, object_target, model_target, aperture_target, summary_view, persistence_receipt, and report.',
         tags={
-            "honeybee-core",
-            "garden-mode",
-            "model",
             "aperture",
-            "create-aperture",
+            "author",
             "geometry",
-            "explicit-geometry",
-            "face3d",
-            "custom-window-geometry",
-            "write",
-            "safe",
+            "honeybee",
+            "window",
         },
         timeout=20,
     )
@@ -32,7 +26,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         identifier: Annotated[
@@ -47,13 +41,13 @@ def register(mcp: FastMCP) -> None:
         host_target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee face typed target dict from nested target search_honeybee_model_objects matches[i].target or a prior create_honeybee_face result target; parameter name is host_target, not host_face. Full responses, room targets, and identifier strings are rejected."
+                description='Required Honeybee face typed target dict from nested target honeybee_search_model_objects matches[i].target or a prior honeybee_create_face result target; parameter name is host_target, not host_face. Full responses, room targets, and identifier strings are rejected.'
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         is_operable: Annotated[

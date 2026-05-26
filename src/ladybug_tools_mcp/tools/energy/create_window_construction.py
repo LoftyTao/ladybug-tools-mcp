@@ -10,26 +10,20 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_window_construction tool."""
+    'Register the energy_create_window_construction tool.'
 
     @mcp.tool(
-        name="create_window_construction",
-        description="Create a Honeybee Energy WindowConstruction from window material layers ordered from outside to inside, with an optional frame. For natural requests like a low-U window, low U-value glazing, U-factor, SHGC, visible transmittance, simple window construction, or simple glazing system, omit materials and pass u_factor, shgc, and vt to create a SDK SimpleGlazSys construction directly. In an existing Garden or Stage C Agent workflow, pass garden_root and set return_object_dict=false to save a reusable Garden target, then pass the returned target to create_construction_set.aperture_set for the exterior window slot. Do not use save_to_library, and do not handwrite a WindowConstruction dict. Returns object_dict plus summary_view with layer identifiers, U-factor, SHGC, visible transmittance, and other property values unless return_object_dict=false.",
+        name='create_window_construction',
+        description='Create a Honeybee Energy WindowConstruction from glazing/gas layers ordered from outside to inside, with an optional frame. For natural requests like a low-U window, low U-value glazing, U-factor, SHGC, visible transmittance, simple window construction, or simple glazing system, omit materials and pass u_factor, shgc, and vt to create a SDK SimpleGlazSys construction directly. In an existing Garden workflow, pass garden_root and set return_object_dict=false to save a reusable Garden target, then pass the returned target to energy_create_construction_set.aperture_set for the exterior window slot. Do not handwrite a WindowConstruction dict. Returns object_dict plus summary_view, or target plus persistence_receipt when saved.',
         tags={
-            "honeybee-energy",
             "energy",
-            "construction-set",
             "construction",
+            "material",
             "window",
-            "window-construction",
-            "low-u-window",
+            "glazing",
             "u-factor",
-            "u-value",
             "shgc",
-            "visible-transmittance",
-            "simple-glazing-system",
-            "create",
-            "safe",
+            "author",
         },
         timeout=20,
     )
@@ -74,7 +68,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root string for consuming material targets and saving this construction. In an existing Garden, pass garden_root to get a reusable Garden target for create_construction_set.aperture_set. If this follows create_garden, use create_garden.garden_root, not create_garden.target."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

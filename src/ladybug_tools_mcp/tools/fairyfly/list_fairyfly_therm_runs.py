@@ -11,37 +11,28 @@ from garden.fairyfly.therm import list_fairyfly_therm_runs as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the list_fairyfly_therm_runs tool."""
+    'Register the therm_list_runs tool.'
 
     @mcp.tool(
-        name="list_fairyfly_therm_runs",
+        name="list_runs",
         description=(
             "List Fairyfly THERM run records stored in a Garden. Returns compact "
-            "ledger entries for completed, failed, or blocked two-dimensional "
-            "heat-transfer runs."
+            "ledger entries, runtime_status values in summary_view, and report "
+            "for two-dimensional heat-transfer runs. Use therm_poll_simulation on a "
+            "specific run before result reads."
         ),
-        tags={
-            "fairyfly",
-            "therm",
-            "simulation",
-            "2d-heat-transfer",
-            "run",
-            "ledger",
-            "search",
-            "read-only",
-            "safe",
-        },
+        tags={"fairyfly", "therm", "runtime", "search", "ledger"},
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def list_fairyfly_therm_runs(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         status: Annotated[
             str | None,
-            Field(description="Optional status filter, for example completed, failed, or blocked."),
+            Field(description="Optional runtime_status or readiness_status filter for Garden THERM run ledger records, such as completed, failed, or blocked."),
         ] = None,
     ) -> dict[str, Any]:
         """List Fairyfly THERM runs."""

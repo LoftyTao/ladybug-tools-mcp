@@ -11,42 +11,34 @@ from garden.radiance.metrics import summarize_annual_daylight_metrics as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the summarize_annual_daylight_metrics tool."""
+    'Register the radiance_summarize_annual_daylight_metrics tool.'
 
     @mcp.tool(
-        name="summarize_annual_daylight_metrics",
+        name='summarize_annual_daylight_metrics',
         description=(
-            "Summarize completed Honeybee Radiance annual daylight metrics such as "
-            "sDA, ASE, DA, CDA, UDI, daylight autonomy, annual sunlight exposure, "
-            "and too-much-sun risk into a compact Garden-backed report. Use this "
-            "for Radiance daylight quality metrics, not EnergyPlus daylighting "
-            "control or lighting energy. Values are calculable, but pass/fail "
-            "interpretation requires user, project, or rating-system thresholds."
+            "Summarize completed Honeybee Radiance annual daylight metrics such "
+            "as sDA, ASE, DA, CDA, UDI, daylight autonomy, annual sunlight "
+            "exposure, and too-much-sun risk into a compact Garden-backed "
+            "report. Use after a completed annual daylight run. This reads "
+            "Radiance daylight metric artifacts; it does not run recipes or "
+            "evaluate EnergyPlus daylighting controls. Pass/fail "
+            "interpretation requires project or rating-system thresholds."
         ),
         tags={
-            "honeybee-radiance",
-            "radiance",
-            "annual-daylight",
-            "daylight-autonomy",
-            "sda",
-            "ase",
-            "udi",
-            "too-much-sun",
             "metrics",
-            "postprocess",
-            "compact",
-            "safe",
+            "radiance",
+            "result",
         },
         timeout=60,
     )
     def summarize_annual_daylight_metrics(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional completed annual daylight radiance_run target."),
+            Field(description="Optional completed annual-daylight radiance_run target. Poll the run before summarizing metrics."),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -70,7 +62,7 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         include_values: Annotated[
             bool,
-            Field(description="Return raw metric values. Keep false for compact Agent use."),
+            Field(description="Return raw metric values. Keep false for compact report handoff."),
         ] = False,
     ) -> dict[str, Any]:
         """Summarize annual daylight metrics."""

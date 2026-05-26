@@ -11,25 +11,31 @@ from garden.dragonfly_core.geometry import clean_dragonfly_room2d_geometry as se
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the clean_dragonfly_room2d_geometry tool."""
+    'Register the dragonfly_clean_room2d_geometry tool.'
 
     @mcp.tool(
-        name="clean_dragonfly_room2d_geometry",
-        description="Clean a model-embedded Dragonfly Room2D boundary using explicit SDK methods: remove_duplicate_vertices, remove_colinear_vertices, and optionally remove_short_segments. Saves the updated DFJSON and returns segment counts plus validation summary.",
-        tags={"dragonfly-core", "garden-mode", "room2d", "geometry", "clean", "write", "safe"},
+        name="clean_room2d_geometry",
+        description=(
+            "Clean a model-embedded Dragonfly Room2D boundary using explicit SDK "
+            "methods: remove_duplicate_vertices, remove_colinear_vertices, and "
+            "optionally remove_short_segments. Saves the updated DFJSON and returns "
+            "summary_view, report, and segment-count diagnostics; adjacency solving "
+            "and validation use separate Dragonfly tools."
+        ),
+        tags={"dragonfly", "room2d", "geometry", "cleanup", "repair"},
         timeout=30,
     )
     def clean_dragonfly_room2d_geometry(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         room2d_target: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Room2D target from a model or creation workflow. "
-                    "If omitted, pass room_identifier."
+                    "Required Dragonfly Room2D target or identifier in the selected Story. "
+                    "Prefer room2d_target when available."
                 )
             ),
         ] = None,
@@ -46,13 +52,14 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
                 )
             ),
         ] = None,
         remove_duplicate_vertices: Annotated[
             bool,
-            Field(description="Whether to call Room2D.remove_duplicate_vertices."),
+            Field(description="Whether to call Dragonfly Room2D.remove_duplicate_vertices on the selected Room2D."),
         ] = True,
         remove_colinear_vertices: Annotated[
             bool,

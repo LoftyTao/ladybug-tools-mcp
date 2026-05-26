@@ -10,20 +10,20 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_aperture_construction_set tool."""
+    'Register the energy_create_aperture_construction_set tool.'
 
     @mcp.tool(
-        name="create_aperture_construction_set",
-        description="Create a Honeybee Energy ApertureConstructionSet intermediate object for a full ConstructionSet. Accepts WindowConstruction overrides and returns slot property values in summary_view.",
+        name='create_aperture_construction_set',
+        description="Create a Honeybee Energy ApertureConstructionSet intermediate object for ConstructionSet aperture slots: fixed exterior windows, interior apertures, skylights, and operable windows. Pass WindowConstruction object_dict values, Garden Properties Library targets, or standards identifiers. Returns object_dict plus summary_view slot values; this subset is not saved as its own Garden target, so pass the returned object_dict into energy_create_construction_set.aperture_set.",
         tags={
-            "honeybee-energy",
             "energy",
             "construction-set",
+            "construction",
             "aperture",
             "window",
-            "subset",
-            "create",
-            "safe",
+            "skylight",
+            "operable-window",
+            "author",
         },
         timeout=20,
     )
@@ -31,31 +31,31 @@ def register(mcp: FastMCP) -> None:
         window_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Exterior window WindowConstruction dict or library identifier."
+                description="WindowConstruction dict, Garden target, or standards identifier for fixed exterior windows in wall apertures."
             ),
         ] = None,
         interior_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Interior aperture WindowConstruction dict or library identifier."
+                description="WindowConstruction dict, Garden target, or standards identifier for interior apertures with Surface boundary conditions."
             ),
         ] = None,
         skylight_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Skylight WindowConstruction dict or library identifier."
+                description="WindowConstruction dict, Garden target, or standards identifier for skylights in roof/ceiling or floor parent faces."
             ),
         ] = None,
         operable_construction: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Operable WindowConstruction dict or library identifier."
+                description="WindowConstruction dict, Garden target, or standards identifier for operable exterior windows."
             ),
         ] = None,
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for consuming Garden Properties Library construction targets."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; used only to resolve Garden construction targets in the slot inputs."
             ),
         ] = None,
     ) -> dict[str, Any]:

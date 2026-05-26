@@ -13,24 +13,31 @@ from garden.dragonfly_core.envelope_parameters import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the apply_dragonfly_window_parameter tool."""
+    'Register the dragonfly_apply_window_parameter tool.'
 
     @mcp.tool(
-        name="apply_dragonfly_window_parameter",
-        description="Apply a Dragonfly WindowParameter artifact using public Dragonfly SDK set methods. Supports Room2D all outdoor, Room2D segment, Story outdoor, Building outdoor, and Model outdoor application. Pass host_type explicitly as room2d, story, building, or model.",
-        tags={"dragonfly-core", "garden-mode", "window", "parameter", "apply", "write", "safe"},
+        name="apply_window_parameter",
+        description=(
+            "Apply a Dragonfly WindowParameter artifact using public Dragonfly SDK set "
+            "methods. Supports Room2D all outdoor, Room2D segment, Story outdoor, "
+            "Building outdoor, and Model outdoor application. Pass host_type explicitly "
+            "as room2d, story, building, or model. Returns target, report, and the "
+            "updated Dragonfly host context; Honeybee Apertures appear only after "
+            "Dragonfly-to-Honeybee conversion."
+        ),
+        tags={"dragonfly", "window", "parameter", "edit", "aperture-ratio"},
         timeout=20,
     )
     def apply_dragonfly_window_parameter(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         window_parameter: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Required parameter dict returned by create_dragonfly_window_parameter. "
+                    'Required parameter dict returned by dragonfly_create_window_parameter. '
                     "Use create result['parameter'] or result['window_parameter']; do not "
                     "look for value.window_parameter."
                 )
@@ -42,11 +49,16 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         host_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Required Dragonfly object target unless host_type is model."),
+            Field(description="Required Dragonfly Room2D, Story, or Building target unless host_type is model."),
         ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly model target. Defaults to base Dragonfly model."),
+            Field(
+                description=(
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
+                )
+            ),
         ] = None,
         application_scope: Annotated[
             str,
@@ -54,12 +66,12 @@ def register(mcp: FastMCP) -> None:
         ] = "all_outdoor",
         segment_index: Annotated[
             int | None,
-            Field(description="Required when application_scope is segment."),
+            Field(description="Required Room2D segment index when application_scope is segment."),
         ] = None,
     ) -> dict[str, Any]:
         """Apply a Dragonfly WindowParameter."""
         if window_parameter is None:
-            raise ValueError("apply_dragonfly_window_parameter requires window_parameter.")
+            raise ValueError('dragonfly_apply_window_parameter requires window_parameter.')
         return service(
             garden_root=garden_root,
             window_parameter=window_parameter,

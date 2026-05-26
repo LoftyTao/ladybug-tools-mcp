@@ -8,31 +8,43 @@ from garden.honeybee_core.edit import edit_honeybee_aperture as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the edit_honeybee_aperture tool."""
+    'Register the honeybee_edit_aperture tool.'
 
     @mcp.tool(
-        name="edit_honeybee_aperture",
-        description="Edit a Honeybee Aperture using an aperture typed target from search_honeybee_model_objects. Requires garden_root and target; do not pass arguments null or {} and do not pass only an identifier string.",
-        tags={"honeybee-core", "garden-mode", "aperture", "geometry", "write", "safe"},
+        name="edit_aperture",
+        description='Edit a Honeybee Aperture/window typed target for display name, user data, supported Face3D geometry, operable flag, Honeybee Energy window construction or VentilationOpening, and Honeybee Radiance modifier/dynamic states. Surface-adjacent interior Apertures do not support single-side geometry or operability edits. Requires garden_root and an aperture target, not an identifier string. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
+        tags={
+            "aperture",
+            "edit",
+            "energy",
+            "geometry",
+            "honeybee",
+            "modifier",
+            "operable-window",
+            "radiance",
+            "surface",
+            "ventilation-opening",
+            "window",
+        },
         timeout=20,
     )
     def edit_honeybee_aperture(
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee aperture typed target from search_honeybee_model_objects; not an aperture identifier string."
+                description='Required Honeybee aperture typed target from honeybee_search_model_objects; not an aperture identifier string.'
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         display_name: Annotated[
@@ -49,7 +61,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         is_operable: Annotated[
-            bool | None, Field(description="Optional updated is_operable flag.")
+            bool | None, Field(description="Optional updated is_operable flag for supported Apertures; Surface-adjacent interior Apertures cannot be edited one side at a time.")
         ] = None,
         construction: Annotated[
             dict[str, Any] | None,
@@ -66,21 +78,21 @@ def register(mcp: FastMCP) -> None:
         modifier: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from search_radiance_library_objects."
+                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
             ),
         ] = None,
         radiance_modifier_target: Annotated[
             dict[str, Any] | str | None,
-            Field(description="Optional Honeybee Radiance modifier target."),
+            Field(description="Optional Honeybee Radiance modifier target accepted as a bounded legacy input; prefer modifier for new calls."),
         ] = None,
         radiance_modifier: Annotated[
             dict[str, Any] | str | None,
-            Field(description="Optional Honeybee Radiance modifier input."),
+            Field(description="Optional Honeybee Radiance modifier input accepted as a bounded legacy input; prefer modifier for new calls."),
         ] = None,
         modifier_blk: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from search_radiance_library_objects."
+                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
             ),
         ] = None,
         dynamic_group_identifier: Annotated[

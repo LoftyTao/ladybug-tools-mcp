@@ -10,26 +10,24 @@ from garden.radiance.libraries import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_radiance_library_objects tool."""
+    'Register the radiance_search_library_objects tool.'
 
     @mcp.tool(
-        name="search_radiance_library_objects",
-        description='Search Honeybee Radiance standards library identifiers for radiance modifiers, radiance materials, modifier sets, plastic, glass, metal, and trans materials. Required call shape: {"query":"generic wall","object_family":"modifier","limit":3}. Use returned identifiers directly in edit_honeybee_aperture/door/shade modifier fields. Do not pass arguments null or {}.',
+        name="search_library_objects",
+        description=(
+            "Search Honeybee Radiance standards library identifiers for "
+            "modifiers, materials, and modifier sets. Use returned identifiers "
+            "in Radiance authoring tools or Honeybee Radiance properties. This "
+            "searches built-in Radiance libraries and does not search Garden "
+            "files, Energy materials, or Radiance result artifacts. Returns "
+            "matches, summary_view, and report."
+        ),
         tags={
-            "honeybee-radiance",
-            "radiance",
-            "library",
-            "standards",
             "search",
-            "radiance-modifiers",
-            "radiance-materials",
+            "radiance",
             "modifier",
-            "modifier-set",
-            "plastic",
-            "glass",
-            "metal",
-            "read-only",
-            "safe",
+            "material",
+            "author",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
@@ -44,7 +42,7 @@ def register(mcp: FastMCP) -> None:
         object_family: Annotated[
             str | None,
             Field(
-                description="Optional family filter: modifier, modifier_set, or all."
+                description="Optional library family filter: modifier, modifier_set, material, or all."
             ),
         ] = None,
         limit: Annotated[

@@ -11,35 +11,32 @@ from garden.data_collection import export_data_collection_file as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the data_collection_to_file tool."""
+    'Register the visualization_data_collection_to_file tool.'
 
     @mcp.tool(
-        name="data_collection_to_file",
-        description="Export one Ladybug DataCollection to a Garden artifact using Ladybug SDK native collections_to_json or collections_to_csv. Use this for user-friendly result dump/export workflows after read_energy_result_data or schedule/weather tools return a ladybug_data_collection target. Preferred Agent path is garden_root plus data_collection_target and file_format=json or csv, returning only a compact target, summary_view, artifact, and persistence_receipt instead of copying hourly values into the response.",
+        name='data_collection_to_file',
+        description=(
+            "Export one Ladybug DataCollection to a Garden artifact using "
+            "Ladybug SDK native collections_to_json or collections_to_csv. Use "
+            "this for result dump/export workflows after energyplus result, "
+            "schedule, or weather tools return a ladybug_data_collection "
+            "target. Preferred Agent path is garden_root plus "
+            "data_collection_target and file_format=json or csv. This writes "
+            "a data artifact and does not query source simulations."
+        ),
         tags={
-            "visualize",
             "data-collection",
-            "data-collection-target",
-            "json",
-            "csv",
-            "export",
-            "dump",
-            "file",
+            "chart",
+            "visualize",
             "artifact",
-            "timeseries",
-            "schedule-data",
-            "weather-data",
-            "energy-result-data",
-            "token-saving",
-            "write",
-            "safe",
+            "export",
         },
         timeout=60,
     )
     def data_collection_to_file(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         file_format: Annotated[
             str,
@@ -61,7 +58,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         name: Annotated[
             str,
-            Field(description="Artifact file name without extension."),
+            Field(description="DataCollection artifact file name without extension."),
         ] = "data_collection",
         output_subdir: Annotated[
             str,
@@ -76,5 +73,5 @@ def register(mcp: FastMCP) -> None:
             file_format=file_format,
             name=name,
             output_subdir=output_subdir,
-            source={"producer": "data_collection_to_file"},
+            source={"producer": 'visualization_data_collection_to_file'},
         )

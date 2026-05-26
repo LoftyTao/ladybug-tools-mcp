@@ -11,32 +11,43 @@ from garden.dragonfly_core.editing import edit_dragonfly_story as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the edit_dragonfly_story tool."""
+    'Register the dragonfly_edit_story tool.'
 
     @mcp.tool(
-        name="edit_dragonfly_story",
-        description="Edit a model-embedded Dragonfly Story using public Dragonfly SDK properties. Requires story_target or story_identifier; supports display_name, floor_height, floor_to_floor_height, and multiplier.",
-        tags={"dragonfly-core", "garden-mode", "story", "edit", "write", "safe"},
+        name="edit_story",
+        description=(
+            "Edit a model-embedded Dragonfly Story using public Dragonfly SDK "
+            "properties. Requires story_target or story_identifier; supports "
+            "display_name, floor_height, floor_to_floor_height, and multiplier. "
+            "Use solve/reset adjacency tools for Story boundary-condition changes."
+        ),
+        tags={"dragonfly", "story", "edit", "geometry", "metadata", "multiplier"},
         timeout=20,
     )
     def edit_dragonfly_story(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         story_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly Story target from creation or search."),
+            Field(
+                description=(
+                    "Required Dragonfly Story target or story identifier in the selected Garden model. "
+                    "Prefer story_target when available."
+                )
+            ),
         ] = None,
         story_identifier: Annotated[
             str | None,
-            Field(description="Optional Story identifier when story_target is not available."),
+            Field(description="Optional Dragonfly Story identifier when story_target is not available."),
         ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
                 )
             ),
         ] = None,
@@ -54,7 +65,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         multiplier: Annotated[
             int | None,
-            Field(description="Optional Story multiplier."),
+            Field(description="Optional Dragonfly Story multiplier for repeated floors."),
         ] = None,
     ) -> dict[str, Any]:
         """Edit a Dragonfly Story."""

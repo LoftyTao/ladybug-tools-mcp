@@ -10,27 +10,30 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_custom_window_gas_material tool."""
+    'Register the energy_create_custom_window_gas_material tool.'
 
     @mcp.tool(
-        name="create_custom_window_gas_material",
-        description="Create a Honeybee Energy EnergyWindowMaterialGasCustom gap layer with custom conductivity, viscosity, and specific heat coefficients. Returns object_dict plus summary_view. Use return_detail='summary' for key gas values or 'full' for a matrix of material property values.",
+        name='create_custom_window_gas_material',
+        description=(
+            "Create a Honeybee Energy EnergyWindowMaterialGasCustom gap layer "
+            "for window construction assemblies when built-in gas types are not "
+            "enough. This is a reusable material layer, not a full construction "
+            "or an EnergyPlus run input by itself. Returns object_dict plus "
+            "summary_view; return_detail='full' also includes a material "
+            "property matrix."
+        ),
         tags={
-            "honeybee-energy",
             "energy",
-            "construction-set",
+            "construction",
             "material",
-            "window",
-            "gas",
-            "custom",
-            "create",
-            "safe",
+            "author",
+            "window-layer",
         },
         timeout=20,
     )
     def create_custom_window_gas_material(
         identifier: Annotated[
-            str, Field(description="Custom gas material identifier.")
+            str, Field(description="Custom EnergyWindowMaterialGasCustom identifier for a window gas gap layer.")
         ],
         thickness: Annotated[float, Field(description="Gas gap thickness in meters.")],
         conductivity_coeff_a: Annotated[
@@ -51,7 +54,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for saving this material to the Garden Properties Library."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

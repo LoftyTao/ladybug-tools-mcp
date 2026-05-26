@@ -10,19 +10,18 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_opaque_construction tool."""
+    'Register the energy_create_opaque_construction tool.'
 
     @mcp.tool(
-        name="create_opaque_construction",
-        description="Create a Honeybee Energy OpaqueConstruction from opaque material layers ordered from outside to inside. Material inputs can be object_dict values, Garden Properties Library targets, or Energy standards library identifiers. Use garden_root and return_object_dict=false to save the construction and pass its target downstream. Returns object_dict plus summary_view with layer identifiers and derived thermal properties.",
+        name='create_opaque_construction',
+        description="Create a Honeybee Energy OpaqueConstruction, the complete layered assembly made from opaque thermal-mass or no-mass material layers ordered from outside to inside for walls, roofs, and floors. Material inputs can be object_dict values, Garden Properties Library targets, or Energy standards library identifiers. Use garden_root and return_object_dict=false to save a reusable construction target for ConstructionSet or Room energy assignments. Returns object_dict plus summary_view, or target plus persistence_receipt when saved.",
         tags={
-            "honeybee-energy",
             "energy",
-            "construction-set",
             "construction",
-            "opaque",
-            "create",
-            "safe",
+            "material",
+            "thermal-mass",
+            "wall",
+            "author",
         },
         timeout=20,
     )
@@ -43,7 +42,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for consuming material targets and saving this construction."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

@@ -11,29 +11,30 @@ from garden.radiance.sky import create_cie_standard_sky as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_radiance_sky tool."""
+    'Register the radiance_create_sky tool.'
 
     @mcp.tool(
-        name="create_radiance_sky",
-        description="Create a Garden radiance_sky_file target for a point-in-time Radiance CIE sky.",
+        name="create_sky",
+        description=(
+            "Create a Radiance sky definition artifact from standard sky "
+            "inputs for point-in-time daylight workflows. Use "
+            "radiance_create_sky_file when a recipe needs a persisted sky file "
+            "target. This creates sky input data only; it does not create WEA "
+            "weather, sky matrices, or simulation runs. Returns target, "
+            "sky_target, summary_view, persistence_receipt, and report."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
             "sky",
-            "cie",
-            "standard-sky",
-            "gensky",
-            "garden-mode",
-            "target",
-            "artifact",
-            "write",
-            "safe",
+            "weather",
+            "point-in-time",
+            "sky-file",
         },
         timeout=60,
     )
     def create_radiance_sky(
-        garden_root: Annotated[str, Field(description="Required exact Garden root path containing garden.json.")],
-        identifier: Annotated[str, Field(description="Stable identifier for the Radiance .sky artifact and target.")] = "radiance_sky",
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        identifier: Annotated[str, Field(description="Stable identifier for the point-in-time Radiance .sky artifact and target.")] = "radiance_sky",
         month: Annotated[int, Field(description="Month number for date/time mode.")] = 6,
         day: Annotated[int, Field(description="Day of month for date/time mode.")] = 21,
         time: Annotated[str | float, Field(description="Time for date/time mode, for example 12:00 or 12.0.")] = "12:00",

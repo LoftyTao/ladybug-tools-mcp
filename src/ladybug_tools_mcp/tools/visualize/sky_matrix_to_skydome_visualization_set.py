@@ -11,36 +11,34 @@ from garden.visualize.sky import sky_matrix_to_skydome_visualization_set as serv
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the sky_matrix_to_skydome_visualization_set tool."""
+    'Register the visualization_sky_matrix_to_skydome_visualization_set tool.'
 
     @mcp.tool(
-        name="sky_matrix_to_skydome_visualization_set",
+        name='sky_matrix_to_skydome_visualization_set',
         description=(
             "Create a Ladybug Display Sky Dome VisualizationSet from a Garden "
             "sky_matrix target. Use this to compose cumulative sky radiation "
-            "context with model, sunpath, or analysis Visualization Sets."
+            "context with model, sunpath, or analysis VisualizationSets. This "
+            "visualizes existing sky-matrix data; it does not create weather, "
+            "sky matrices, or Radiance runs."
         ),
         tags={
+            "radiation",
+            "radiance",
+            "sky",
             "visualize",
             "visualization-set",
-            "sky-matrix",
-            "sky-dome",
-            "radiance",
-            "ladybug-radiance",
-            "solar",
-            "target",
-            "safe",
         },
         timeout=120,
     )
     def sky_matrix_to_skydome_visualization_set(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         sky_matrix_target: Annotated[
             dict[str, Any],
-            Field(description="Garden sky_matrix target returned by create_sky_matrix."),
+            Field(description='Existing Garden sky_matrix target returned by radiance_create_sky_matrix.'),
         ],
         legend_parameter: Annotated[
             dict[str, Any] | None,
@@ -48,7 +46,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         plot_irradiance: Annotated[
             bool,
-            Field(description="Plot irradiance instead of radiation."),
+            Field(description="When true, plot irradiance values; when false, plot radiation values."),
         ] = False,
         radius: Annotated[
             float,

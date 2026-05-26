@@ -11,44 +11,48 @@ from garden.versions import restore_garden_version as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the restore_garden_version tool."""
+    'Register the garden_restore_version tool.'
 
     @mcp.tool(
-        name="restore_garden_version",
+        name='restore_version',
         description=(
-            "Safely restore, undo, go back, roll back, or return Garden authoring "
-            "truth to a previous version/checkpoint and record the restore as a "
-            "new version. This is the GUI-like undo path. Pass either the "
-            "version_id string from list_garden_versions matches/versions or a "
-            "garden version target as version_target. It refuses dirty authoring "
-            "truth, never rewrites Git history, and never returns diffs, patches, "
-            "HBJSON bodies, or full file contents."
+            "Restore, undo, go back, or roll back Garden authoring truth to a "
+            "previous Garden version checkpoint and record that restore as a new "
+            "history item. Pass either the version_id from garden_list_versions "
+            "matches/versions or the nested garden_version target as version_target. "
+            "Returns summary_view, restored_from_version, new_version, version_target, "
+            "and persistence_receipt metadata only. It refuses dirty authoring "
+            "truth, does not rewrite existing history, and never returns diffs, "
+            "patches, HBJSON bodies, DFJSON bodies, or full file contents."
         ),
         tags={
-            "garden",
-            "garden-mode",
-            "version",
-            "history",
             "checkpoint",
-            "undo",
-            "restore",
+            "garden",
+            "history",
             "rollback",
-            "write",
-            "safe",
+            "restore",
+            "version",
         },
         timeout=30,
     )
     def restore_garden_version(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(
+                description=(
+                    "Required Garden root path containing garden.json, usually "
+                    "garden_create['garden_root']; restore only this Garden's "
+                    "authoring truth paths."
+                )
+            ),
         ],
         version_id: Annotated[
             str | None,
             Field(
                 description=(
-                    "Garden version id string from list_garden_versions "
-                    "matches/versions. Required unless version_target is provided."
+                    "Garden version_id string from garden_list_versions "
+                    "matches/versions. Required unless version_target is provided; "
+                    "do not pass a raw Git hash from another repository."
                 )
             ),
         ] = None,
@@ -56,9 +60,11 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional garden_version target from list_garden_versions. "
-                    "Use when the version record target is easier to pass than "
-                    "the version_id string."
+                    "Optional nested garden_version target from garden_list_versions, "
+                    "garden_create_version, or garden_restore_version. Expected "
+                    "shape includes target_type='garden_version', garden_id, and "
+                    "version_id; use this instead of the version_id string when "
+                    "passing the target handoff is easier."
                 )
             ),
         ] = None,
@@ -66,8 +72,8 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(
                 description=(
-                    "Optional restore commit subject. Defaults to "
-                    "restore: garden version <short id>."
+                    "Optional short subject for the new Garden restore history "
+                    "record. Defaults to restore: garden version <short id>."
                 )
             ),
         ] = None,
@@ -75,8 +81,9 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional compact restore summary. Do not include full model "
-                    "bodies or diffs."
+                    "Optional compact restore summary. Do not include full "
+                    "HBJSON/DFJSON model bodies, exported file text, diffs, or "
+                    "patches."
                 )
             ),
         ] = None,
@@ -84,8 +91,8 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(
                 description=(
-                    "Optional source label such as agent, user, grasshopper, "
-                    "manual, or test."
+                    "Optional source label for the Garden restore history record, "
+                    "such as agent, user, grasshopper, manual, or test."
                 )
             ),
         ] = "agent",

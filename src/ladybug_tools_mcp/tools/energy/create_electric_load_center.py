@@ -8,29 +8,31 @@ from garden.energy.ventilation import create_electric_load_center as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_electric_load_center tool."""
+    'Register the energy_create_electric_load_center tool.'
 
     @mcp.tool(
-        name="create_electric_load_center",
-        description="Create Honeybee Energy ElectricLoadCenter model-level settings for photovoltaic inverter efficiency and DC-to-AC sizing. Use this with PVProperties on Shades when configuring PV electricity generation. In Garden mode, pass garden_root and return_object_dict=false to save directly as an electric_load_center target for edit_honeybee_model.electric_load_center.",
+        name='create_electric_load_center',
+        description=(
+            "Create Honeybee Energy ElectricLoadCenter model-level settings "
+            "for photovoltaic inverter efficiency and DC-to-AC sizing. Use this "
+            "with energy_create_pv_properties on Honeybee Shades, then assign "
+            "the saved electric_load_center target through "
+            "honeybee_edit_model.electric_load_center. This Honeybee Energy "
+            "object is separate from Ironbug electric load center objects and "
+            "does not start an EnergyPlus run."
+        ),
         tags={
-            "honeybee-energy",
-            "garden-mode",
-            "pv",
-            "photovoltaic",
-            "electric-load-center",
-            "inverter",
-            "electricity-generation",
-            "model-energy-properties",
-            "write",
-            "safe",
+            "energy",
+            "model",
+            "author",
+            "load-center",
         },
         timeout=20,
     )
     def create_electric_load_center(
         identifier: Annotated[
             str,
-            Field(description="Identifier used for the Garden Properties Library target. The SDK object itself is model-level and has no identifier."),
+            Field(description="Identifier used for the Garden Properties Library target. The Honeybee ElectricLoadCenter object itself is model-level and has no identifier."),
         ] = "electric_load_center",
         inverter_efficiency: Annotated[
             float,
@@ -42,7 +44,7 @@ def register(mcp: FastMCP) -> None:
         ] = 1.1,
         garden_root: Annotated[
             str | None,
-            Field(description="Optional Garden root. If provided, saves directly to Garden Properties Library."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,

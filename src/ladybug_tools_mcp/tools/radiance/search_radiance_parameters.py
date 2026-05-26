@@ -50,25 +50,30 @@ def _relative_run_parameter_match(
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_radiance_parameters tool."""
+    'Register the radiance_search_parameters tool.'
 
     @mcp.tool(
-        name="search_radiance_parameters",
-        description="Search Radiance parameter strings recorded on Garden Radiance runs and return compact radiance_parameters targets usable with start_radiance_*_run. If no stored parameters exist, call create_radiance_parameters or pass a Radiance parameter string directly.",
+        name="search_parameters",
+        description=(
+            "Search Radiance parameter strings recorded on Garden Radiance "
+            "runs and return compact radiance_parameters targets usable with "
+            "start_radiance_*_run tools. This searches saved parameter "
+            "records; it does not create parameters or inspect raw Radiance "
+            "result files. If no stored parameters exist, call "
+            "radiance_create_parameters or pass a Radiance parameter string."
+        ),
         tags={
-            "honeybee-radiance",
+            "parameters",
             "radiance",
-            "radiance-parameters",
+            "result",
             "search",
-            "read-only",
-            "safe",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def search_radiance_parameters(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        query: Annotated[str | None, Field(description="Optional run_id, identifier, path, or parameter substring filter.")] = None,
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        query: Annotated[str | None, Field(description="Optional run_id, identifier, Garden path, or Radiance parameter text substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search stored Radiance parameter inputs."""
@@ -106,7 +111,7 @@ def register(mcp: FastMCP) -> None:
                 "garden_target": manifest.target(),
                 "count": len(matches),
                 "query": query,
-                "recommended_tool": "create_radiance_parameters",
+                "recommended_tool": 'radiance_create_parameters',
             },
             "report": make_report(
                 status="ok",

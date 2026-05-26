@@ -11,26 +11,29 @@ from garden.radiance.modifiers import create_radiance_metal_modifier as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_radiance_metal_modifier tool."""
+    'Register the radiance_create_metal_modifier tool.'
 
     @mcp.tool(
-        name="create_radiance_metal_modifier",
-        description="Create a Honeybee Radiance Metal modifier. Supports simple rgb_reflectance or full r/g/b reflectance inputs, plus specularity and roughness. Use garden_root and return_object_dict=false to save a reusable Garden Properties Library modifier target.",
+        name="create_metal_modifier",
+        description=(
+            "Create a Honeybee Radiance Metal modifier with RGB reflectance, "
+            "specularity, and roughness. Use garden_root and "
+            "return_object_dict=false to save a reusable Garden Properties "
+            "Library modifier target. This controls Radiance optical "
+            "appearance; it does not create Honeybee Energy metal materials or "
+            "thermal properties."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
             "modifier",
             "material",
+            "author",
             "metal",
-            "rgb-reflectance",
-            "radiance-modifiers",
-            "create",
-            "safe",
         },
         timeout=20,
     )
     def create_radiance_metal_modifier(
-        identifier: Annotated[str, Field(description="Radiance modifier identifier.")],
+        identifier: Annotated[str, Field(description="Radiance Metal modifier identifier.")],
         rgb_reflectance: Annotated[
             float | None,
             Field(description="Simple reflectance for red, green, and blue channels."),
@@ -51,7 +54,7 @@ def register(mcp: FastMCP) -> None:
         roughness: Annotated[float, Field(description="Metal roughness fraction.")] = 0.0,
         garden_root: Annotated[
             str | None,
-            Field(description="Optional Garden root for saving this modifier."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,

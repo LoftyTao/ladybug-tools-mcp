@@ -8,18 +8,16 @@ from garden.energy.schedules import create_schedule_day as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_schedule_day tool."""
+    'Register the energy_create_schedule_day tool.'
 
     @mcp.tool(
-        name="create_schedule_day",
-        description="Create a Honeybee Energy ScheduleDay from values and optional Ladybug Time dictionaries. If times is omitted, values must contain exactly one all-day constant value. If times is provided, values and times must have the same length and each time is the start time at which the matching value begins. This lightweight object is not saved to Garden and has no target; pass its returned object_dict as create_schedule_ruleset.default_day_schedule.",
+        name='create_schedule_day',
+        description='Create a Honeybee Energy ScheduleDay, the single-day profile used inside ScheduleRule or ScheduleRuleset objects. If times is omitted, values must contain exactly one all-day constant value. If times is provided, values and times must have the same length and each time is the Ladybug value-begins-at time, not the EnergyPlus time-until convention. Returns object_dict plus summary_view only; this lightweight day schedule is not saved to Garden and has no target.',
         tags={
-            "honeybee-energy",
             "energy",
             "schedule",
             "schedule-day",
-            "create",
-            "safe",
+            "author",
         },
         timeout=20,
     )
@@ -28,13 +26,13 @@ def register(mcp: FastMCP) -> None:
         values: Annotated[
             list[float],
             Field(
-                description="Schedule values for one day. Use one value when times is omitted; otherwise provide exactly one value for each time in times."
+                description="Numeric values for one day. Use one value when times is omitted; otherwise provide exactly one value for each value-begins-at time."
             ),
         ],
         times: Annotated[
             list[dict[str, Any] | str] | None,
             Field(
-                description="Optional Ladybug Time dictionaries or strings for value start times. These are value-begins-at times, not EnergyPlus time-until values."
+                description="Optional Ladybug Time dictionaries or strings for value start times such as '09:00'. These are value-begins-at times, not EnergyPlus Schedule:Day time-until values."
             ),
         ] = None,
         interpolate: Annotated[

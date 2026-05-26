@@ -25,29 +25,29 @@ def _target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the search_radiance_sky_files tool."""
+    'Register the radiance_search_sky_files tool.'
 
     @mcp.tool(
-        name="search_radiance_sky_files",
-        description="Search Garden Radiance sky_file artifacts and return compact radiance_sky_file targets for point-in-time Radiance runs.",
+        name="search_sky_files",
+        description=(
+            "Search Garden Radiance sky_file artifacts and return compact "
+            "radiance_sky_file targets for point-in-time Radiance runs. This "
+            "searches saved .sky inputs; it does not create skies, WEA files, "
+            "or sky matrices."
+        ),
         tags={
-            "honeybee-radiance",
+            "artifact",
             "radiance",
             "sky",
-            "sky-file",
-            "artifact",
+            "weather",
             "search",
-            "target",
-            "garden-mode",
-            "read",
-            "safe",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def search_radiance_sky_files(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        query: Annotated[str | None, Field(description="Optional identifier or path substring filter.")] = None,
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        query: Annotated[str | None, Field(description="Optional sky identifier or Garden-relative .sky path substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance sky file artifacts."""

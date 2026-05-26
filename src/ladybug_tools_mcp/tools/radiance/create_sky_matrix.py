@@ -11,39 +11,39 @@ from garden.radiance.sky import create_sky_matrix as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_sky_matrix tool."""
+    'Register the radiance_create_sky_matrix tool.'
 
     @mcp.tool(
-        name="create_sky_matrix",
-        description="Create a Garden sky_matrix target for Ladybug Radiance studies from a wea_file target, Garden weather_file target, Garden-relative EPW path, or ASHRAE clear-sky Location. This is a Radiance sky foundation tool for gendaymtx/SkyMatrix setup; compute=false stores compact parameters, compute=true also stores direct/diffuse sky patch values.",
+        name='create_sky_matrix',
+        description=(
+            "Create a Garden sky_matrix target for Ladybug Radiance studies "
+            "from a wea_file target, Garden weather_file target, Garden-"
+            "relative EPW path, or ASHRAE clear-sky Location. This prepares "
+            "gendaymtx/SkyMatrix inputs for annual or matrix recipes; "
+            "compute=true also stores direct and diffuse sky patch values. It "
+            "does not start a Radiance recipe or download EPW files."
+        ),
         tags={
-            "honeybee-radiance",
-            "ladybug-radiance",
             "radiance",
             "sky",
+            "weather",
             "sky-matrix",
-            "gendaymtx",
             "wea",
-            "garden-mode",
-            "target",
-            "artifact",
-            "write",
-            "safe",
         },
         timeout=120,
     )
     def create_sky_matrix(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str | None,
-            Field(description="Stable identifier for the sky_matrix target. Defaults to sky_matrix when omitted by an Agent."),
+            Field(description="Stable identifier for the Radiance sky_matrix target. Defaults to sky_matrix when omitted by an Agent."),
         ] = None,
         wea_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional wea_file target from create_wea_from_weather_file or create_ashrae_clear_sky_wea."),
+            Field(description='Optional wea_file target from radiance_create_wea_from_weather_file or radiance_create_ashrae_clear_sky_wea.'),
         ] = None,
         weather_target: Annotated[
             dict[str, Any] | None,

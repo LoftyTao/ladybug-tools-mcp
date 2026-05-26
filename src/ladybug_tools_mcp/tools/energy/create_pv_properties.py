@@ -8,29 +8,34 @@ from garden.energy.ventilation import create_pv_properties as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_pv_properties tool."""
+    'Register the energy_create_pv_properties tool.'
 
     @mcp.tool(
-        name="create_pv_properties",
-        description="Create Honeybee Energy PVProperties for shade-attached photovoltaic electricity generation on Honeybee Shades. Use this for PV panels, solar photovoltaics, PVWatts, rated efficiency, active area fraction, mounting_type, and shade-attached electricity generation. mounting_type must be one of FixedOpenRack, FixedRoofMounted, OneAxis, OneAxisBacktracking, or TwoAxis; use FixedRoofMounted, not FixedRoofMount or FlushMount. In Garden mode, pass garden_root and return_object_dict=false to save directly as a pv_properties target for edit_honeybee_shade.pv_properties. Inverter and DC-to-AC sizing belong in create_electric_load_center; not pv_type and not dc_to_ac_size_ratio.",
+        name='create_pv_properties',
+        description=(
+            "Create Honeybee Energy PVProperties for shade-attached "
+            "photovoltaic electricity generation on Honeybee Shades. Use this "
+            "for rated efficiency, active area fraction, mounting_type, and "
+            "PVWatts-style shade generation; mounting_type must be "
+            "FixedOpenRack, FixedRoofMounted, OneAxis, OneAxisBacktracking, or "
+            "TwoAxis. Save the target for honeybee_edit_shade.pv_properties. "
+            "Inverter efficiency and DC-to-AC sizing belong in "
+            "energy_create_electric_load_center. Ironbug photovoltaic "
+            "generators use the ironbug_core tools."
+        ),
         tags={
-            "honeybee-energy",
-            "garden-mode",
+            "energy",
+            "model",
+            "author",
             "pv",
-            "photovoltaic",
-            "solar",
-            "electricity-generation",
-            "pvwatts",
-            "shade",
-            "write",
-            "safe",
+            "properties",
         },
         timeout=20,
     )
     def create_pv_properties(
         identifier: Annotated[
             str,
-            Field(description="Unique PVProperties identifier."),
+            Field(description="Unique Honeybee Energy PVProperties identifier for assigning photovoltaics to Shades."),
         ],
         rated_efficiency: Annotated[
             float,
@@ -58,7 +63,7 @@ def register(mcp: FastMCP) -> None:
         ] = 0.4,
         garden_root: Annotated[
             str | None,
-            Field(description="Optional Garden root. If provided, saves directly to Garden Properties Library."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,

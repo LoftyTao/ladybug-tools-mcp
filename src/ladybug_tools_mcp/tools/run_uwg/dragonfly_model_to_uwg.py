@@ -11,43 +11,41 @@ from garden.run_uwg.writer import dragonfly_model_to_uwg as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_model_to_uwg tool."""
+    'Register the uwg_dragonfly_model_to_uwg tool.'
 
     @mcp.tool(
-        name="dragonfly_model_to_uwg",
+        name='dragonfly_model_to_uwg',
         description=(
             "Write a UWG JSON artifact from a Dragonfly model, rural/airport "
             "Garden EPW weather target, and optional UWG simulation parameter. "
-            "Use this to inspect or archive UWG inputs without running the UWG."
+            "Use this to inspect or archive UWG inputs without running the UWG. "
+            "This is an Alternative Weather input export, not a URBANopt Scenario."
         ),
         tags={
-            "run-uwg",
-            "uwg",
-            "alternative-weather",
             "dragonfly",
-            "epw",
-            "artifact",
-            "write",
-            "safe",
+            "uwg",
+            "weather",
+            "export",
+            "urban-weather",
         },
         timeout=60,
     )
     def dragonfly_model_to_uwg(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly model target. Defaults to base Dragonfly model."),
+            Field(description="Optional Dragonfly model target with target_type=dragonfly_model. Defaults to the Garden base Dragonfly model."),
         ] = None,
         weather_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Garden weather_file target with epw_path to morph."),
+            Field(description='Garden weather file target returned by energyplus_download_epw or a Garden-relative EPW path to morph with UWG.'),
         ] = None,
         simulation_parameter_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional uwg_simulation_parameter target."),
+            Field(description="Optional uwg_simulation_parameter target returned by uwg_create_simulation_parameter."),
         ] = None,
         simulation_parameter: Annotated[
             dict[str, Any] | None,
@@ -59,7 +57,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         include_body: Annotated[
             bool,
-            Field(description="Return the full UWG JSON body. Keep False for Agent workflows."),
+            Field(description="Return the full UWG JSON body. Keep False for compact target handoff."),
         ] = False,
     ) -> dict[str, Any]:
         """Write a UWG JSON artifact."""

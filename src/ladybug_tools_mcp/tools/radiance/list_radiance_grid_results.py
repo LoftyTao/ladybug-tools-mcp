@@ -11,36 +11,37 @@ from garden.radiance.visual import list_radiance_grid_results as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the list_radiance_grid_results tool."""
+    'Register the radiance_list_grid_results tool.'
 
     @mcp.tool(
-        name="list_radiance_grid_results",
-        description="List SensorGrid result folders from a completed Radiance run using SDK folder conventions: folders with grids_info.json and result files such as .res or .ill. Use before radiance_grid_result_to_visualization_set. This tool does not export HTML or SVG; use existing VisualizationSet export tools after creating a target.",
+        name="list_grid_results",
+        description=(
+            "List SensorGrid result folders from a completed Radiance run "
+            "using SDK folder conventions: folders with grids_info.json and "
+            "result files such as .res or .ill. Use before "
+            "radiance_grid_result_to_visualization_set. This lists result "
+            "folders and metadata; it does not create VisualizationSets, "
+            "export HTML/SVG, or read full result arrays."
+        ),
         tags={
-            "honeybee-radiance",
+            "artifact",
             "radiance",
-            "run-radiance",
-            "postprocess",
             "sensor-grid",
-            "grid",
-            "results",
-            "visualization-set",
-            "list",
-            "read-only",
-            "safe",
+            "result",
+            "visualize",
         },
         annotations={"readOnlyHint": True},
         timeout=20,
     )
     def list_radiance_grid_results(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional completed radiance_run target from a grid or matrix recipe."),
+            Field(description="Optional completed radiance_run target from a grid or matrix recipe. Poll the run before listing result folders."),
         ] = None,
         run_id: Annotated[
             str | None,
-            Field(description="Optional run identifier when run_target is omitted."),
+            Field(description="Optional run identifier for a completed grid or matrix run when run_target is not supplied."),
         ] = None,
     ) -> dict[str, Any]:
         """List Radiance SensorGrid result folders."""

@@ -10,24 +10,39 @@ from garden.visualize.honeybee import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the honeybee_room_to_visualization_set tool."""
+    'Register the visualization_honeybee_room_to_visualization_set tool.'
 
     @mcp.tool(
-        name="honeybee_room_to_visualization_set",
-        description="Visualize one Honeybee Room typed target as a Ladybug Display VisualizationSet. color_by accepts only type, boundary_condition, or none; use type for simple room previews. Use this read-only preview after object search finds the room target. For Agent HTML/SVG/vtk.js export paths, set return_visualization_set=false so the tool saves a compact visualization_set_target for exporters instead of moving the full VisualizationSet dict.",
-        tags={"visualize", "honeybee-core", "garden-mode", "room", "read", "safe"},
+        name='honeybee_room_to_visualization_set',
+        description=(
+            "Visualize one Honeybee Room target as a Ladybug Display "
+            "VisualizationSet. color_by accepts type, boundary_condition, or "
+            "none; use type for simple room previews. Use this read-only "
+            "preview after object search finds the room target. For "
+            "HTML/SVG/vtk.js export paths, set return_visualization_set=false "
+            "so the tool saves a compact visualization_set_target for "
+            "exporters. This previews existing room geometry; it does not edit "
+            "the model or run analysis."
+        ),
+        tags={
+            "honeybee",
+            "preview",
+            "room",
+            "visualize",
+            "visualization-set",
+        },
         annotations={"readOnlyHint": True},
         timeout=30,
     )
     def honeybee_room_to_visualization_set(
-        garden_root: Annotated[str, Field(description="Garden root directory.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
         target: Annotated[
-            dict[str, Any], Field(description="Honeybee room typed target.")
+            dict[str, Any], Field(description="Honeybee Room typed target from object search or edit output; do not pass a full model dictionary.")
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target. Defaults to target model or Garden base model."
+                description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the target model or Garden base model."
             ),
         ] = None,
         color_by: Annotated[
@@ -61,7 +76,7 @@ def register(mcp: FastMCP) -> None:
         return_visualization_set: Annotated[
             bool,
             Field(
-                description="Return the full VisualizationSet dict. Set false to save and return a compact visualization_set_target."
+                description="Return the full VisualizationSet dict. Set false to save a compact Garden visualization_set_target for export tools."
             ),
         ] = True,
     ) -> dict[str, Any]:

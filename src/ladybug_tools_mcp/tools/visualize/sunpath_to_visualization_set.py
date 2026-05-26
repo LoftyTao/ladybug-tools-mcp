@@ -11,40 +11,37 @@ from garden.visualize.sky import sunpath_to_visualization_set as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the sunpath_to_visualization_set tool."""
+    'Register the visualization_sunpath_to_visualization_set tool.'
 
     @mcp.tool(
-        name="sunpath_to_visualization_set",
+        name='sunpath_to_visualization_set',
         description=(
-            "Create a Ladybug Display Sunpath VisualizationSet from a Location, "
-            "Garden weather_file target, or Garden-relative EPW path. Use this "
-            "for solar-analysis scenes that need to compose sunpath geometry with "
-            "model or analysis Visualization Sets."
+            "Create a Ladybug Display Sunpath VisualizationSet from a "
+            "Location, Garden weather_file target, or Garden-relative EPW "
+            "path. Use this for solar-analysis scenes that compose sunpath "
+            "geometry with model or analysis VisualizationSets. This creates "
+            "display geometry only; it does not run Radiance, EnergyPlus, or "
+            "UWG weather morphing."
         ),
         tags={
+            "sunpath",
+            "weather",
             "visualize",
             "visualization-set",
-            "sunpath",
-            "ladybug",
-            "weather",
-            "location",
-            "solar",
-            "target",
-            "safe",
         },
         timeout=60,
     )
     def sunpath_to_visualization_set(
         garden_root: Annotated[
             str,
-            Field(description="Garden root containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         location: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Ladybug Location dictionary. Use instead of "
-                    "weather_target or epw_path."
+                    "Optional Ladybug Location dictionary. Provide one of "
+                    "location, weather_target, or epw_path."
                 )
             ),
         ] = None,
@@ -52,8 +49,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Garden weather_file target. Use instead of "
-                    "location or epw_path."
+                    "Optional Garden weather_file target. Provide one of "
+                    "location, weather_target, or epw_path."
                 )
             ),
         ] = None,
@@ -61,8 +58,8 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(
                 description=(
-                    "Optional Garden-relative EPW path. Use instead of location "
-                    "or weather_target."
+                    "Optional Garden-relative EPW path. Provide one of "
+                    "location, weather_target, or epw_path."
                 )
             ),
         ] = None,

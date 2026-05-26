@@ -11,10 +11,10 @@ from garden.dragonfly_core.properties import apply_dragonfly_energy_properties a
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the apply_dragonfly_energy_properties tool."""
+    'Register the dragonfly_apply_energy_properties tool.'
 
     @mcp.tool(
-        name="apply_dragonfly_energy_properties",
+        name="apply_energy_properties",
         description=(
             "Apply narrow SDK-backed Dragonfly Energy properties to a Room2D, "
             "Story, or Building target. Supports Honeybee Energy library "
@@ -22,23 +22,16 @@ def register(mcp: FastMCP) -> None:
             "generic apply-properties-from-dict bridge. For many rooms in one "
             "building, pass the Building target once instead of looping over "
             "each Room2D; the service uses Dragonfly SDK methods to apply room "
-            "programs across the building."
+            "programs across the building. EnergyPlus simulation remains a downstream "
+            "workflow after Dragonfly-to-Honeybee conversion."
         ),
-        tags={
-            "dragonfly-core",
-            "garden-mode",
-            "energy",
-            "properties",
-            "edit",
-            "write",
-            "safe",
-        },
+        tags={"dragonfly", "energy", "properties", "edit", "program-type", "construction-set"},
         timeout=20,
     )
     def apply_dragonfly_energy_properties(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         host_target: Annotated[
             dict[str, Any],
@@ -52,11 +45,16 @@ def register(mcp: FastMCP) -> None:
         ],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly model target. Defaults to base Dragonfly model."),
+            Field(
+                description=(
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
+                )
+            ),
         ] = None,
         program_type_identifier: Annotated[
             str | None,
-            Field(description="Optional Honeybee Energy ProgramType library identifier."),
+            Field(description="Optional Honeybee Energy ProgramType library identifier applied to Dragonfly Room2Ds."),
         ] = None,
         construction_set_identifier: Annotated[
             str | None,
@@ -64,7 +62,7 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Optional Honeybee Energy ConstructionSet library identifier. "
                     "Use an exact construction_set identifier returned by "
-                    "search_energy_library_objects; do not pass material or "
+                    'energy_search_energy_library_objects; do not pass material or '
                     "construction identifiers such as ExteriorWall."
                 )
             ),

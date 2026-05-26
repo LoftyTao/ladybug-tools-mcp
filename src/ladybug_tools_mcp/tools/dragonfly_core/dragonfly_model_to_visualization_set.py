@@ -16,34 +16,33 @@ def register(mcp: FastMCP) -> None:
     """Register the dragonfly_model_to_visualization_set tool."""
 
     @mcp.tool(
-        name="dragonfly_model_to_visualization_set",
-        description="Create a Ladybug Display VisualizationSet from a Garden Dragonfly model using Dragonfly Display for web 3D, React viewer, Remotion, and geometry-asset workflows. Can return the VisualizationSet body or save it as a Garden visualization_set target with return_visualization_set=false. If Web View mode is active, this tool automatically refreshes the demo panel; call visualization_set_to_vtkjs only when the user explicitly asks for a saved vtk.js asset. This tool has no object_type parameter; pass garden_root and optionally model_target.",
-        tags={
-            "dragonfly-core",
-            "dragonfly-display",
-            "visualization-set",
-            "garden-mode",
-            "model",
-            "visualize",
-            "web-3d-source",
-            "vtkjs-source",
-            "geometry-asset",
-            "react-viewer",
-            "remotion",
-            "read",
-            "safe",
-        },
+        name="model_to_visualization_set",
+        description=(
+            "Create a Ladybug Display VisualizationSet from a Garden Dragonfly model "
+            "using Dragonfly Display for web 3D, React viewer, Remotion, and geometry "
+            "asset workflows. Can return the VisualizationSet body or save it as a "
+            "Garden visualization_set target with return_visualization_set=false. If "
+            "Web View mode is active, this tool refreshes the demo panel; call "
+            "visualization_set_to_vtkjs only when the user asks for a saved vtk.js asset. "
+            "This tool has no object_type parameter and does not edit Dragonfly geometry."
+        ),
+        tags={"dragonfly", "visualization-set", "model", "visualize", "preview"},
         annotations={"readOnlyHint": True},
         timeout=60,
     )
     def dragonfly_model_to_visualization_set(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly model target. Defaults to base Dragonfly model."),
+            Field(
+                description=(
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
+                )
+            ),
         ] = None,
         use_multiplier: Annotated[
             bool,
@@ -59,7 +58,7 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         merge_method: Annotated[
             str,
-            Field(description="Dragonfly Display merge_method. Use None for no merging."),
+            Field(description="Dragonfly Display merge_method. Use the string None for no merging."),
         ] = "None",
         color_by: Annotated[
             str | None,
@@ -95,7 +94,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         return_visualization_set: Annotated[
             bool,
-            Field(description="Whether to return the full VisualizationSet body. Set false to save and return visualization_set_target for vtk.js export."),
+            Field(description="Whether to return the full VisualizationSet body. Set false to save and return a compact visualization_set_target for export tools."),
         ] = True,
     ) -> dict[str, Any]:
         """Create a Dragonfly model VisualizationSet."""

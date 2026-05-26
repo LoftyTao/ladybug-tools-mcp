@@ -8,20 +8,23 @@ from garden.honeybee_core.edit import edit_honeybee_door as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the edit_honeybee_door tool."""
+    'Register the honeybee_edit_door tool.'
 
     @mcp.tool(
-        name="edit_honeybee_door",
-        description="Edit a Honeybee Door using a door typed target from search_honeybee_model_objects. Surface-adjacent interior Door geometry updates are paired automatically on the adjacent Door; glass/is_glass changes on Surface door pairs are still rejected when the paired state would diverge. Requires garden_root and target; do not pass arguments null or {} and do not pass only an identifier string.",
+        name="edit_door",
+        description='Edit a Honeybee Door typed target for display name, user data, supported Face3D geometry, glass flag, Honeybee Energy door construction or VentilationOpening, and Honeybee Radiance modifier/dynamic states. Surface-adjacent interior Door geometry updates are paired automatically on the adjacent Door, but single-side is_glass changes are rejected when paired state would diverge. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
         tags={
-            "honeybee-core",
-            "garden-mode",
             "door",
-            "interior-door",
-            "adjacency",
+            "edit",
+            "energy",
             "geometry",
-            "write",
-            "safe",
+            "glass-door",
+            "hosted",
+            "honeybee",
+            "interior-door",
+            "radiance",
+            "surface",
+            "ventilation-opening",
         },
         timeout=20,
     )
@@ -29,19 +32,19 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee door typed target from search_honeybee_model_objects; not a door identifier string. For Surface-adjacent interior doors, pass either side of the pair and geometry edits update the paired adjacent Door automatically."
+                description='Required Honeybee door typed target from honeybee_search_model_objects; not a door identifier string. For Surface-adjacent interior doors, pass either side of the pair and geometry edits update the paired adjacent Door automatically.'
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         display_name: Annotated[
@@ -58,7 +61,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         is_glass: Annotated[
-            bool | None, Field(description="Optional updated is_glass flag.")
+            bool | None, Field(description="Optional updated is_glass flag; Surface-adjacent interior door pairs cannot be changed to divergent glass states.")
         ] = None,
         construction: Annotated[
             dict[str, Any] | None,
@@ -75,13 +78,13 @@ def register(mcp: FastMCP) -> None:
         modifier: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from search_radiance_library_objects."
+                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
             ),
         ] = None,
         modifier_blk: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from search_radiance_library_objects."
+                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
             ),
         ] = None,
         dynamic_group_identifier: Annotated[

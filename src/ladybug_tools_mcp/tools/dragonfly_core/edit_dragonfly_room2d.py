@@ -11,25 +11,31 @@ from garden.dragonfly_core.editing import edit_dragonfly_room2d as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the edit_dragonfly_room2d tool."""
+    'Register the dragonfly_edit_room2d tool.'
 
     @mcp.tool(
-        name="edit_dragonfly_room2d",
-        description="Edit a model-embedded Dragonfly Room2D using public Dragonfly SDK methods. Prefer room2d_target with a Dragonfly Room2D target and garden_root; room_identifier is accepted when a target is not available. For floor boundary edits pass vertices.",
-        tags={"dragonfly-core", "garden-mode", "room2d", "edit", "write", "safe"},
+        name="edit_room2d",
+        description=(
+            "Edit a model-embedded Dragonfly Room2D using public Dragonfly SDK methods. "
+            "Prefer room2d_target with a Dragonfly Room2D target and garden_root; "
+            "room_identifier is accepted when a target is not available. For floor "
+            "boundary edits pass vertices. Use the adjacency and cleanup tools for "
+            "those separate geometry operations."
+        ),
+        tags={"dragonfly", "room2d", "geometry", "edit", "metadata", "floor-plate"},
         timeout=20,
     )
     def edit_dragonfly_room2d(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         room2d_target: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Dragonfly Room2D target from a model or creation workflow. "
-                    "May be omitted when room_identifier is provided."
+                    "Required Dragonfly Room2D target or identifier in the selected Story. "
+                    "Prefer room2d_target when available."
                 )
             ),
         ] = None,
@@ -46,13 +52,14 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Defaults to base Dragonfly model."
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
                 )
             ),
         ] = None,
         vertices: Annotated[
             list[list[float]] | None,
-            Field(description="Optional replacement Room2D floor boundary vertices as [[x, y], ...]."),
+            Field(description="Optional replacement Dragonfly Room2D floor boundary vertices as [[x, y], ...]."),
         ] = None,
         floor_height: Annotated[
             float | None,
@@ -85,7 +92,7 @@ def register(mcp: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Edit a Dragonfly Room2D."""
         if room2d_target is None and room_identifier is None:
-            raise ValueError("edit_dragonfly_room2d requires room2d_target or room_identifier.")
+            raise ValueError('dragonfly_edit_room2d requires room2d_target or room_identifier.')
         return service(
             garden_root=garden_root,
             room2d_target=room2d_target,

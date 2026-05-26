@@ -8,23 +8,20 @@ from garden.energy.ventilation import create_zone_ventilation_fan as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_zone_ventilation_fan tool."""
+    'Register the energy_create_zone_ventilation_fan tool.'
 
     @mcp.tool(
-        name="create_zone_ventilation_fan",
-        description="Create a Honeybee Energy zone ventilation fan / VentilationFan that exports to EnergyPlus ZoneVentilation:DesignFlowRate. Use this for exhaust fans, intake fans, balanced fans, bathroom/kitchen fans, and fan-assisted zone ventilation. This is mechanical or fan-assisted zone ventilation, not operable-window natural ventilation. In Garden mode, pass garden_root and return_object_dict=false to save directly as a zone_ventilation_fan target for edit_honeybee_room.zone_ventilation_fans.",
+        name='create_zone_ventilation_fan',
+        description='Create a Honeybee Energy VentilationFan for fan-assisted zone ventilation or ventilative cooling with Exhaust, Intake, or Balanced outdoor-air flow. Use garden_root to save a zone_ventilation_fan target for honeybee_edit_room.zone_ventilation_fans; set return_object_dict=false only when you want a compact target/summary/receipt response. This exports to EnergyPlus ZoneVentilation:DesignFlowRate and is not the ProgramType Ventilation load, Infiltration, operable-window natural ventilation, AirflowNetwork, or Ironbug DetailedHVAC fan component.',
         tags={
-            "honeybee-energy",
-            "garden-mode",
-            "zone-ventilation",
-            "mechanical-ventilation",
+            "author",
+            "energy",
+            "fan",
+            "outdoor-air",
+            "ventilation",
             "ventilation-fan",
-            "exhaust-fan",
-            "intake-fan",
-            "balanced-fan",
-            "hvac",
-            "write",
-            "safe",
+            "ventilative-cooling",
+            "zone-exhaust",
         },
         timeout=20,
     )
@@ -51,7 +48,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         control: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional full Honeybee Energy VentilationControl dict for fan operation."),
+            Field(description="Optional Honeybee Energy VentilationControl object_dict for fan operation; omit it to build a control from the temperature threshold fields."),
         ] = None,
         min_indoor_temperature: Annotated[
             float,
@@ -75,11 +72,11 @@ def register(mcp: FastMCP) -> None:
         ] = -100,
         garden_root: Annotated[
             str | None,
-            Field(description="Optional Garden root. If provided, saves directly to Garden Properties Library."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,
-            Field(description="When garden_root is provided, set false to return only compact target and summary."),
+            Field(description="When garden_root is provided, set false to omit object_dict and return only compact target, summary_view, persistence_receipt, and report."),
         ] = True,
     ) -> dict[str, Any]:
         """Create a zone ventilation fan."""

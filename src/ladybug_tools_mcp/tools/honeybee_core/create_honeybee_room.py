@@ -8,19 +8,24 @@ from garden.honeybee_core.creation import create_honeybee_room as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_honeybee_room tool."""
+    'Register the honeybee_create_room tool.'
 
     @mcp.tool(
-        name="create_honeybee_room",
-        description="Create a Honeybee Room in an existing Garden Honeybee model from either a Honeybee Face list, a Ladybug Geometry Polyface3D envelope, or custom box dimensions. For simple boxes, use exact arguments x_dim, y_dim, height, and optional origin; do not use boxDimensions, x/y/z, width/depth, or geometry. Call create_honeybee_model first or ensure the Garden has a base model; create_honeybee_room auto-attaches the room to the Garden base model. There is no host_target argument: do not pass host_target, and do not add the returned room target with edit_honeybee_model.add_objects. Returns target, object_target, model_target, and room_target for downstream edit/search calls. Requires garden_root, identifier, and exactly one geometry mode; do not pass arguments null or {}.",
-        tags={"honeybee-core", "garden-mode", "model", "room", "write", "safe"},
+        name="create_room",
+        description='Create a Honeybee Room, meaning a room/space envelope in a Garden Honeybee Model, from either a Honeybee Face list, a Ladybug Geometry Polyface3D envelope, or custom box dimensions. A Honeybee Room can later map partly to EnergyPlus zone concepts, but this tool does not create an Ironbug ThermalZone, assign ProgramType, assign ConstructionSet, set setpoints, or add HVAC. For simple boxes, use x_dim, y_dim, height, and optional origin. There is no host_target argument; the room is a top-level model object and auto-attaches to the selected model. Returns target, object_target, model_target, and room_target. Requires garden_root, identifier, and exactly one geometry mode; do not pass arguments null or {}.',
+        tags={
+            "author",
+            "geometry",
+            "honeybee",
+            "room",
+        },
         timeout=20,
     )
     def create_honeybee_room(
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         identifier: Annotated[
@@ -35,7 +40,7 @@ def register(mcp: FastMCP) -> None:
         room_geometry: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Ladybug Geometry Polyface3D dictionary for the room envelope, for example Polyface3D.from_box(...).to_dict(). Must provide exactly one geometry mode."
+                description="Optional Ladybug Geometry Polyface3D dictionary for the room envelope, for example Polyface3D.from_box(...).to_dict() with vertices and face_indices. Must provide exactly one geometry mode."
             ),
         ] = None,
         x_dim: Annotated[
@@ -65,7 +70,7 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model. This is not host_target; no host_target is supported because create_honeybee_room auto-attaches to the selected model."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model. This is not host_target; no host_target is supported because honeybee_create_room auto-attaches to the selected model."
             ),
         ] = None,
     ) -> dict[str, Any]:

@@ -10,19 +10,17 @@ from garden.energy.constructionsets import (
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_air_boundary_construction tool."""
+    'Register the energy_create_air_boundary_construction tool.'
 
     @mcp.tool(
-        name="create_air_boundary_construction",
-        description="Create a Honeybee Energy AirBoundaryConstruction for air-boundary Faces. Returns object_dict plus summary_view with air mixing property values.",
+        name='create_air_boundary_construction',
+        description="Create a Honeybee Energy AirBoundaryConstruction for air-boundary Faces, the EnergyPlus-adjacent construction used for interior air mixing across a face instead of an opaque heat-transfer layer. Returns object_dict plus summary_view, or a Garden Properties Library target with persistence_receipt when garden_root is provided and return_object_dict=false.",
         tags={
-            "honeybee-energy",
             "energy",
-            "construction-set",
             "construction",
             "air-boundary",
-            "create",
-            "safe",
+            "face",
+            "author",
         },
         timeout=20,
     )
@@ -35,7 +33,7 @@ def register(mcp: FastMCP) -> None:
         ] = 0.1,
         air_mixing_schedule: Annotated[
             dict[str, Any] | str | None,
-            Field(description="Optional schedule dict or library identifier."),
+            Field(description="Optional ScheduleRuleset dict, Garden Properties Library target, or standards library identifier controlling air mixing."),
         ] = None,
         return_detail: Annotated[
             str,
@@ -46,7 +44,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for consuming schedule targets and saving this construction."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

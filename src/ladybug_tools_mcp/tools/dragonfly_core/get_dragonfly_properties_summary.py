@@ -11,43 +11,35 @@ from garden.dragonfly_core.properties import get_dragonfly_properties_summary as
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the get_dragonfly_properties_summary tool."""
+    'Register the dragonfly_get_properties_summary tool.'
 
     @mcp.tool(
-        name="get_dragonfly_properties_summary",
+        name="get_properties_summary",
         description=(
             "Read compact Dragonfly Energy and Radiance extension property summaries "
             "from a Garden Dragonfly model. Imports the official dragonfly_energy and "
             "dragonfly_radiance extension hooks, then reports Model, Building, Story, "
             "and Room2D properties only when SDK to_dict is available. This is a "
-            "read-only summary; use apply_dragonfly_energy_properties for the narrow "
-            "SDK-backed Energy ProgramType/ConstructionSet identifier path."
+            'read-only summary; use dragonfly_apply_energy_properties for the narrow '
+            "SDK-backed Energy ProgramType/ConstructionSet identifier path and "
+            "dragonfly_apply_radiance_properties for ModifierSet or SensorGrid setup."
         ),
-        tags={
-            "dragonfly-core",
-            "garden-mode",
-            "energy",
-            "radiance",
-            "properties",
-            "summary",
-            "read",
-            "safe",
-        },
+        tags={"dragonfly", "energy", "radiance", "summary", "properties", "inventory"},
         timeout=20,
     )
     def get_dragonfly_properties_summary(
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly model target. Defaults to the Garden "
-                    "base Dragonfly model."
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
                 )
             ),
         ] = None,

@@ -11,43 +11,37 @@ from garden.radiance.assets import create_radiance_sensor_grid_from_object as se
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_radiance_sensor_grid_from_object tool."""
+    'Register the radiance_create_sensor_grid_from_object tool.'
 
     @mcp.tool(
-        name="create_radiance_sensor_grid_from_object",
-        description="Create a Honeybee Radiance SensorGrid from object surface geometry by sampling a Honeybee face, aperture, door, shade, shading panel, PV panel, or solar collector object target. Use this for object-hosted surface grids, shade-hosted irradiance sensors, PV shade irradiance / solar-potential studies, and user requests like 'put the sensor grid on the shading panel itself, not on the room workplane'. Pass object_target from search_honeybee_model_objects or a create_honeybee_shade result, plus garden_root. Set attach_to_model=true to attach the grid to the Honeybee model for Radiance grid or annual-irradiance recipes.",
+        name="create_sensor_grid_from_object",
+        description=(
+            "Create a Honeybee Radiance SensorGrid by sampling the surface of "
+            "a Honeybee Face, Aperture, Door, Shade, shading panel, PV panel, "
+            "or solar collector target. Use this for object-hosted grids, "
+            "shade irradiance sensors, and PV solar-potential studies. Pass "
+            "object_target from Honeybee object search or shade creation plus "
+            "garden_root. Set attach_to_model=true to attach the grid for "
+            "Radiance grid or annual-irradiance recipes. This samples existing "
+            "geometry and does not create new Honeybee objects."
+        ),
         tags={
-            "honeybee-radiance",
             "radiance",
             "sensor-grid",
-            "surface-grid",
-            "object-hosted",
-            "object-grid",
-            "from-object",
-            "shade",
-            "shading-panel",
-            "pv-panel",
-            "solar-potential",
-            "face",
-            "irradiance",
-            "garden-mode",
-            "model",
-            "target",
-            "artifact",
-            "write",
-            "safe",
+            "author",
+            "object-surface",
         },
         timeout=60,
     )
     def create_radiance_sensor_grid_from_object(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path string containing garden.json."),
+            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
         ],
         object_target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee face, aperture, door, or shade target. Pass matches[i].target from search_honeybee_model_objects or target from create_honeybee_shade."
+                description='Required Honeybee face, aperture, door, or shade target to sample into a Radiance SensorGrid. Pass matches[i].target from honeybee_search_model_objects or target from honeybee_create_shade.'
             ),
         ],
         identifier: Annotated[

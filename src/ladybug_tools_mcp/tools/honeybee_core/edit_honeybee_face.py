@@ -8,31 +8,42 @@ from garden.honeybee_core.edit import edit_honeybee_face as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the edit_honeybee_face tool."""
+    'Register the honeybee_edit_face tool.'
 
     @mcp.tool(
-        name="edit_honeybee_face",
-        description="Edit a Honeybee Face geometry, type, boundary condition, display name, user data, and face-level energy or radiance properties in a Garden model. Requires garden_root and target from search_honeybee_model_objects; do not pass arguments null or {}.",
-        tags={"honeybee-core", "garden-mode", "face", "geometry", "write", "safe"},
+        name="edit_face",
+        description='Edit a Honeybee Face typed target for display name, user data, Face3D geometry, face type, non-Surface boundary condition, Honeybee Energy construction/AFNCrack, and Honeybee Radiance modifier or black modifier. Geometry edits are for supported Face targets and must respect hosted sub-face and shade constraints; this is not direct EnergyPlus surface authoring. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
+        tags={
+            "boundary-condition",
+            "construction",
+            "edit",
+            "energy",
+            "face",
+            "geometry",
+            "honeybee",
+            "modifier",
+            "radiance",
+            "wall",
+        },
         timeout=20,
     )
     def edit_honeybee_face(
         garden_root: Annotated[
             str,
             Field(
-                description="Required exact Garden root path string containing garden.json."
+                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any],
             Field(
-                description="Required Honeybee face typed target from search_honeybee_model_objects; not a face identifier string."
+                description='Required Honeybee face typed target from honeybee_search_model_objects; not a face identifier string.'
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict. Defaults to the Garden base model."
+                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         display_name: Annotated[
@@ -55,7 +66,7 @@ def register(mcp: FastMCP) -> None:
         boundary_condition: Annotated[
             str | dict[str, Any] | None,
             Field(
-                description="Optional updated Honeybee boundary condition name or dict."
+                description="Optional updated Honeybee boundary condition name or dict. Surface boundary-condition assignment is not supported through this edit path; run relate_model for adjacency solving."
             ),
         ] = None,
         construction: Annotated[
@@ -73,13 +84,13 @@ def register(mcp: FastMCP) -> None:
         modifier: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from search_radiance_library_objects."
+                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
             ),
         ] = None,
         modifier_blk: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from search_radiance_library_objects."
+                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
             ),
         ] = None,
     ) -> dict[str, Any]:

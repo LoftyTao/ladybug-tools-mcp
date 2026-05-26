@@ -11,10 +11,10 @@ from garden.dragonfly_core.properties import apply_dragonfly_radiance_properties
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the apply_dragonfly_radiance_properties tool."""
+    'Register the dragonfly_apply_radiance_properties tool.'
 
     @mcp.tool(
-        name="apply_dragonfly_radiance_properties",
+        name="apply_radiance_properties",
         description=(
             "Apply narrow SDK-backed Dragonfly Radiance properties to a Room2D, "
             "Story, or Building target. Supports Honeybee Radiance ModifierSet "
@@ -24,23 +24,16 @@ def register(mcp: FastMCP) -> None:
             "are applied across its Room2Ds. Do not use Story targets for grid "
             "parameters. Allowed grid_parameter_type values are exactly room_grid, "
             "room_radial_grid, exterior_face_grid, or exterior_aperture_grid; do "
-            "not pass grid_from_room_2d or radial_grid."
+            "not pass grid_from_room_2d or radial_grid. Radiance recipe runs stay in "
+            "the Radiance simulation tools."
         ),
-        tags={
-            "dragonfly-core",
-            "garden-mode",
-            "radiance",
-            "properties",
-            "edit",
-            "write",
-            "safe",
-        },
+        tags={"dragonfly", "radiance", "properties", "sensor-grid", "modifier-set", "edit"},
         timeout=20,
     )
     def apply_dragonfly_radiance_properties(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
         ],
         host_target: Annotated[
             dict[str, Any],
@@ -55,11 +48,16 @@ def register(mcp: FastMCP) -> None:
         ],
         model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Dragonfly model target. Defaults to base Dragonfly model."),
+            Field(
+                description=(
+                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "defaults to the Garden base Dragonfly Model."
+                )
+            ),
         ] = None,
         modifier_set_identifier: Annotated[
             str | None,
-            Field(description="Optional Honeybee Radiance ModifierSet library identifier."),
+            Field(description="Optional Honeybee Radiance ModifierSet library identifier applied to Dragonfly Room2Ds or parent objects."),
         ] = None,
         grid_parameter_type: Annotated[
             str | None,
@@ -74,7 +72,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         grid_dimension: Annotated[
             float | None,
-            Field(description="Required grid dimension when grid_parameter_type is provided."),
+            Field(description="Required Radiance SensorGrid spacing when grid_parameter_type is provided."),
         ] = None,
         grid_offset: Annotated[
             float | None,

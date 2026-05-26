@@ -11,42 +11,45 @@ from garden.versions import create_garden_version as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_garden_version tool."""
+    'Register the garden_create_version tool.'
 
     @mcp.tool(
-        name="create_garden_version",
+        name='create_version',
         description=(
-            "Create and save a compact Git-backed Garden version after an Agent "
-            "prompt, user prompt, undo checkpoint, version checkpoint, or history "
-            "checkpoint changes Garden authoring truth. Use once at the end of a "
-            "modeling/edit/library workflow, not after every low-level write. "
-            "Tracks only garden.json, models, and libraries. Returns version "
-            "metadata only; never returns Git diff, patch text, HBJSON bodies, "
-            "or full file contents."
+            "Create a compact Garden version checkpoint after a user or Agent "
+            "workflow changes Garden authoring truth. Use once at the end of a "
+            "modeling, edit, or library workflow, before the user may need undo, "
+            "rollback, or restore history. The checkpoint tracks only garden.json, "
+            "models, and libraries. Returns target, version_target, summary_view, "
+            "and persistence_receipt metadata only; never returns Git diff, patch "
+            "text, HBJSON bodies, DFJSON bodies, or full file contents."
         ),
         tags={
-            "garden",
-            "garden-mode",
-            "version",
-            "history",
             "checkpoint",
-            "undo",
-            "write",
-            "safe",
+            "garden",
+            "history",
+            "version",
         },
         timeout=20,
     )
     def create_garden_version(
         garden_root: Annotated[
             str,
-            Field(description="Required exact Garden root path containing garden.json."),
+            Field(
+                description=(
+                    "Required Garden root path containing garden.json, usually "
+                    "garden_create['garden_root']; this must be the Garden whose "
+                    "authoring truth should receive the version checkpoint."
+                )
+            ),
         ],
         subject: Annotated[
             str,
             Field(
                 description=(
-                    "Required concise version subject, for example "
-                    "'feat: add office windows'."
+                    "Required short checkpoint subject, for example "
+                    "'add office windows' or 'feat: add office windows'. This is "
+                    "metadata for the Garden version record, not a model body."
                 )
             ),
         ],
@@ -54,8 +57,9 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | str | None,
             Field(
                 description=(
-                    "Optional compact structured summary. Do not include full model "
-                    "bodies or diffs."
+                    "Optional compact structured summary for the Garden version. "
+                    "Do not include full HBJSON/DFJSON model bodies, exported "
+                    "file text, diffs, or patches."
                 )
             ),
         ] = None,
@@ -64,7 +68,8 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Optional compact structured details. Merged into summary when "
-                    "summary is structured; never include full file bodies or diffs."
+                    "summary is structured; never include full file bodies, model "
+                    "snapshots, diffs, or patches."
                 )
             ),
         ] = None,
@@ -72,8 +77,8 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(
                 description=(
-                    "Optional source label such as agent, user, grasshopper, "
-                    "manual, or test."
+                    "Optional source label for the Garden history record, such as "
+                    "agent, user, grasshopper, manual, or test."
                 )
             ),
         ] = "agent",

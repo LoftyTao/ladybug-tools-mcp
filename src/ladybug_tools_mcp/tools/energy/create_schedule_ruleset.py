@@ -8,24 +8,19 @@ from garden.energy.schedules import create_schedule_ruleset as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the create_schedule_ruleset tool."""
+    'Register the energy_create_schedule_ruleset tool.'
 
     @mcp.tool(
-        name="create_schedule_ruleset",
-        description="Create a complete Honeybee Energy ScheduleRuleset for occupancy schedule, lighting schedule, equipment schedule, weekday/weekend rules, design days, holidays, or an annual schedule. Canonical SDK path: pass create_schedule_day.object_dict as default_day_schedule and create_schedule_rule.object_dict items as schedule_rules. Agent-friendly shorthand path: pass default_value plus rules entries with start_time, end_time, value, and days/weekdays/apply_days; the tool converts them into real Honeybee ScheduleDay/ScheduleRule objects. Direct Garden-saving path for the Garden Properties Library: use garden_root, include_data=false, and return_object_dict=false to pass target/summary/receipt downstream. Agent token-saving chart path: use garden_root, include_data=true, return_data=false, and return_object_dict=false to save the ScheduleRuleset target plus a compact ladybug_data_collection data_target without returning 8760 values in the response.",
+        name='create_schedule_ruleset',
+        description="Create a Honeybee Energy ScheduleRuleset, the saved annual schedule resource assembled from a default ScheduleDay plus optional ScheduleRules, holiday, and design-day schedules. Use this for occupancy, lighting, equipment, setpoint, transmittance, or other annual schedules before ProgramType/load/Room property assignment. Returns object_dict, summary_view, and optional data; with garden_root it also returns target, persistence_receipt, and when include_data=true a data_target plus data_persistence_receipt.",
         tags={
-            "honeybee-energy",
             "energy",
             "schedule",
-            "schedule-ruleset",
-            "occupancy-schedule",
-            "lighting-schedule",
-            "equipment-schedule",
-            "weekday",
-            "weekend",
-            "annual-schedule",
-            "create",
-            "safe",
+            "ruleset",
+            "schedule-type-limit",
+            "holiday",
+            "design-day",
+            "author",
         },
         timeout=20,
     )
@@ -34,24 +29,24 @@ def register(mcp: FastMCP) -> None:
         default_day_schedule: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Default ScheduleDay dictionary, usually create_schedule_day.object_dict. If omitted, provide default_value for the Agent-friendly shorthand path."
+                description='Default ScheduleDay object_dict, usually returned by energy_create_schedule_day. If omitted, provide default_value for the Agent-friendly all-day shorthand.'
             ),
         ] = None,
         schedule_rules: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description="Optional ScheduleRule dictionaries ordered by priority, usually create_schedule_rule.object_dict items. Do not pass interval rows here; use rules for shorthand rows."
+                description='Optional ScheduleRule object_dict rows ordered from highest to lowest priority, usually returned by energy_create_schedule_rule. Do not pass interval rows here; use rules for shorthand rows.'
             ),
         ] = None,
         rules: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description="Optional Agent-friendly interval shorthand. Each row must include start_time, end_time, value, and a day selector such as days='weekdays', weekdays='weekday', or apply_days as seven booleans Sunday through Saturday. Converted into a real Honeybee ScheduleRule."
+                description="Optional Agent-friendly interval shorthand. Each row must include start_time, end_time, value, and a day filter such as days='weekdays', weekdays='weekday', or apply_days as seven booleans Sunday through Saturday. Converted into a real Honeybee ScheduleRule."
             ),
         ] = None,
         schedule_type_limit: Annotated[
             dict[str, Any] | str | None,
-            Field(description="Optional ScheduleTypeLimit dict or library identifier."),
+            Field(description="Optional ScheduleTypeLimit dict or standards-library identifier that constrains values and units."),
         ] = None,
         default_value: Annotated[
             float | None,
@@ -61,15 +56,15 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         summer_designday_schedule: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional summer design day ScheduleDay dictionary."),
+            Field(description="Optional summer design-day ScheduleDay object_dict."),
         ] = None,
         winter_designday_schedule: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional winter design day ScheduleDay dictionary."),
+            Field(description="Optional winter design-day ScheduleDay object_dict."),
         ] = None,
         holiday_schedule: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional holiday ScheduleDay dictionary."),
+            Field(description="Optional holiday ScheduleDay object_dict."),
         ] = None,
         include_data: Annotated[
             bool,
@@ -80,7 +75,7 @@ def register(mcp: FastMCP) -> None:
         return_data: Annotated[
             bool,
             Field(
-                description="Return the full Ladybug DataCollection dict in data. Set false with garden_root to persist a data_target instead of sending all values through the Agent context."
+                description="Return the full Ladybug DataCollection dict in data. Set false with garden_root to persist data_target/data_persistence_receipt instead of sending all schedule values through the Agent context."
             ),
         ] = True,
         data_analysis_period: Annotated[
@@ -122,7 +117,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root for direct Garden-saving of the final ScheduleRuleset to the Garden Properties Library."
+                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[

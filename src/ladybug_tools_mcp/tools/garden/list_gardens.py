@@ -8,22 +8,16 @@ from garden.store import list_gardens as list_gardens_service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the list_gardens tool."""
+    'Register the garden_list tool.'
 
     @mcp.tool(
-        name="list_gardens",
-        description="List projects garden workspace entries by finding existing Ladybug Tools Gardens, returned with the most recently created Gardens first. This is the workspace_list / project workspace discovery tool. Use this when a user asks to list Gardens, find existing Gardens, discover project workspaces, or choose a saved Garden. At onboarding, show the first five matches and suggest cleanup when more than ten Gardens exist. Returns reusable garden_target objects for later Garden tools.",
+        name='list',
+        description="List existing Ladybug Tools Garden project workspaces by finding folders that contain garden.json. Use this when a user asks to find saved Gardens, choose a project workspace, or continue prior work. Results are sorted with the most recent Gardens first and may include root paths, descriptions, and base-model summaries. Returns matches with reusable garden_target objects plus summary_view cleanup guidance; pass a selected match path as garden_root to garden_get or downstream tools.",
         tags={
             "garden",
-            "garden-mode",
             "project",
+            "search",
             "workspace",
-            "workspace-list",
-            "project-workspace",
-            "find-existing-gardens",
-            "list-projects",
-            "read",
-            "safe",
         },
         annotations={"readOnlyHint": True},
         timeout=10,
@@ -31,17 +25,17 @@ def register(mcp: FastMCP) -> None:
     def list_gardens(
         root_dir: Annotated[
             str | None,
-            Field(description="Optional root directory containing Garden folders."),
+            Field(description="Optional directory to search for Garden folders. If omitted, the default Gardens root is searched; a direct Garden root containing garden.json is also accepted."),
         ] = None,
         include_paths: Annotated[
-            bool, Field(description="Whether to include Garden root paths in matches.")
+            bool, Field(description="Whether to include Garden root path strings in matches so the user or Agent can pass one as garden_root.")
         ] = True,
         include_base_models: Annotated[
             bool,
-            Field(description="Whether to include each Garden's base_honeybee_model and base_dragonfly_model summaries."),
+            Field(description="Whether to include each Garden's base_honeybee_model, base_dragonfly_model, and related base-model summaries when present."),
         ] = True,
         include_description: Annotated[
-            bool, Field(description="Whether to include each Garden description.")
+            bool, Field(description="Whether to include each Garden description stored in garden.json.")
         ] = True,
     ) -> dict[str, Any]:
         """List Gardens under a root directory."""
