@@ -363,6 +363,13 @@ In our cross-testing set, we have successfully made agent applications complete 
 - Search for and reuse these resources in later models.
 - For incomplete sources, record only what can be determined and do not invent material layers or window parameters.
 
+### Author custom HVAC with Ironbug
+
+- Create Ironbug DetailedHVAC objects for coils, fans, pumps, boilers, chillers, terminals, plant loops, air loops, setpoint managers, and output requests.
+- Assemble source-backed custom HVAC systems such as PTAC, PTHP, FCU, DOAS, VAV, VRF, boiler reheat, chiller plant, and condenser-water loop cases.
+- Link Ironbug ThermalZone objects to Honeybee or Dragonfly rooms, then apply the DetailedHVAC model before running the standard Energy simulation workflow.
+- Use the Ironbug workflow when an HVAC Template is too coarse and you need object-level loop topology, child components, and OpenStudio / EnergyPlus-facing equipment intent.
+
 ### Do basic Radiance work
 
 - Create skies, WEA files, sky matrices, sensor grids, and views.
@@ -436,6 +443,14 @@ Ladybug Tools MCP is not suitable for being a tiny MCP service with only a handf
 - Create Daylighting Control
 - Create PV Properties and Electric Load Center
 
+**Ironbug DetailedHVAC**
+
+- Create DetailedHVAC component objects for fans, pumps, coils, boilers, chillers, heat exchangers, setpoint managers, availability managers, terminals, zone equipment, and plant equipment
+- Create semantic hot-water, chilled-water, and condenser-water loops from source-backed supply and demand components
+- Create AirLoop, PlantLoop, ThermalZone, OutdoorAirSystem, Existing Object, Node Probe, EMS, and output-variable records
+- Search, validate, and assemble Ironbug models saved in the Garden
+- Prepare custom HVAC systems for the Energy workflow after Room energy properties and setpoints are in place
+
 **Radiance**
 
 - Create Modifier Set and Modifier
@@ -501,7 +516,7 @@ These are the main directions for later development. Before there is a broad use
 - [ ] Dragonfly Model creation and editing tools
 - [ ] Add UrbanOpt support
 - [ ] More Visualization Set pre-processing and post-processing support
-- [ ] Design a standalone Ironbug Python API with Pydantic validation for real custom HVAC authoring
+- [ ] Expand retained Ironbug Energy acceptance cases for more custom HVAC topologies
 - [ ] Web View and Model Editor tools for direct agent collaboration
 - [ ] A demo mode that can visualize all processes and steps
 - [ ] Cloud service support
