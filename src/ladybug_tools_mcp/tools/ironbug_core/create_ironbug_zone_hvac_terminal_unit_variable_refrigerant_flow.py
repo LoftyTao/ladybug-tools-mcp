@@ -30,7 +30,7 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='zone_equipment_terminal_unit_variable_refrigerant_flow',
         description=(
-            'Create IB_ZoneHVACTerminalUnitVariableRefrigerantFlow, the Ironbug and EnergyPlus ZoneHVAC:TerminalUnit:VariableRefrigerantFlow zone terminal for VRF systems. This terminal can carry refrigerant DX cooling/heating coils, an on/off fan, operating-mode schedules, outdoor-air rates, and ThermalZone placement. Use it with an IB_AirConditionerVariableRefrigerantFlow parent, not as a hydronic fan coil, air-loop terminal, standalone DX coil, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
+            'Create IB_ZoneHVACTerminalUnitVariableRefrigerantFlow, the Ironbug and EnergyPlus ZoneHVAC:TerminalUnit:VariableRefrigerantFlow zone terminal for VRF systems. This terminal can carry refrigerant-side DX cooling/heating coils, an on/off fan, operating-mode schedules, outdoor-air rates, and ThermalZone placement. Use it with an IB_AirConditionerVariableRefrigerantFlow parent, not as a fan coil, air-loop terminal, standalone DX coil, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
         ),
         tags={'ironbug', 'detailed-hvac', 'hvac', 'component', 'zone-equipment', 'terminal-unit', 'vrf', 'dx', 'fan', 'outdoor-air', 'thermal-zone', 'author'},

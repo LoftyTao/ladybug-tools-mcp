@@ -22,8 +22,10 @@ def register(mcp: FastMCP) -> None:
             "Select converted Honeybee Rooms with exact room_identifiers, or set "
             "apply_to_all_rooms=true explicitly. This does not mutate Dragonfly HVAC "
             "directly, generate OSM/IDF, run OpenStudio or EnergyPlus, or provide "
-            "run_ironbug_energy. Returns model_target, summary_view, "
-            "persistence_receipt, and report."
+            "run_ironbug_energy. Converted Honeybee Rooms need thermostat Setpoint "
+            "data before the DetailedHVAC assignment can be persisted; otherwise "
+            "summary_view and report explain the blocked preflight. Returns "
+            "model_target, summary_view, persistence_receipt, and report."
         ),
         tags={"ironbug", "detailed-hvac", "dragonfly", "apply"},
         timeout=60,

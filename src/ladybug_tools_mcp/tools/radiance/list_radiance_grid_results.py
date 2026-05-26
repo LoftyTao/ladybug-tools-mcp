@@ -21,7 +21,8 @@ def register(mcp: FastMCP) -> None:
             "result files such as .res or .ill. Use before "
             "radiance_grid_result_to_visualization_set. This lists result "
             "folders and metadata; it does not create VisualizationSets, "
-            "export HTML/SVG, or read full result arrays."
+            "export HTML/SVG, or read full result arrays. Returns matches/grids, "
+            "summary_view, and report."
         ),
         tags={
             "artifact",

@@ -18,7 +18,8 @@ def register(mcp: FastMCP) -> None:
             "construction sets. Use returned identifiers in Energy authoring "
             "tools. This searches built-in standards and does not search "
             "Garden files, EnergyPlus result files, or Ironbug objects. For "
-            "thermostat setpoints use energy_create_setpoint."
+            "thermostat setpoints use energy_create_setpoint. Returns matches, "
+            "identifiers, summary_view, and report."
         ),
         tags={
             "energy",
