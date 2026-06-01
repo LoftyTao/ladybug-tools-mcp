@@ -63,7 +63,7 @@ validation = await call_tool("dragonfly_validate_model", {"garden_root": garden_
 - Use `dragonfly_model_to_visualization_set` for a model VisualizationSet.
 - Use `dragonfly_model_envelope_edges_to_visualization_set` for envelope-edge display; if it returns `report.status="degraded"`, use the returned wireframe target instead of retrying edge options.
 - Use `dragonfly_models_to_comparison_visualization_set` for comparison display.
-- Use `visualization_set_to_vtkjs` for Web 3D, React viewer, Remotion, or reusable geometry assets; use `visualization_set_to_html` only for a standalone HTML artifact.
+- Use `visualization_set_to_vtkjs` for Web 3D, FastMCP App viewer, Remotion, or reusable geometry assets; use `visualization_set_to_html` only for a standalone HTML artifact.
 - Use `dragonfly_model_to_honeybee` before Honeybee-only workflows.
 
 ## UWG Alternative Weather Route

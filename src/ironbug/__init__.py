@@ -11,7 +11,7 @@ from ironbug.ibjson import (
     model_to_ibjson_string,
 )
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = [
     "IBJSON_EXTENSION",

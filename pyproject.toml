@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ladybug-tools-mcp"
-version = "1.0.0"
+version = "1.1.0"
 description = "A FastMCP server for Ladybug Tools workflows."
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 classifiers = [
   "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
 ]
+
+[project.scripts]
+python-ironbug-console = "garden.ironbug_console.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

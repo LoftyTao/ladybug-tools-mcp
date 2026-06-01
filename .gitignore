@@ -32,6 +32,9 @@ gardens/
 
 # Local editor/workspace state
 .obsidian/
+.omo/
+.opencode/
+opencode.json
 .worktrees/
 .superpowers/
 remotion/public/ladybug-tools-artwork/

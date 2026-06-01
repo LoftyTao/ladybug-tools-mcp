@@ -18,13 +18,20 @@ There is a fairly large demo GIF here, so it may take a moment to load.
 
 This project has been built entirely by Codex, including the source code and all demo images. GPT 5.4 and GPT 5.5 were used for project development, MiniMax 2.7 was used for focused and partial tool-call testing, and GPT 5.4 Mini was used for complete cross-functional workflow testing. The overall cost is roughly 5 billion tokens per month.
 
+## Version 1.1.0 Highlights
+
+Ladybug Tools MCP `v1.1.0` focuses on two project-level changes:
+
+- Ironbug is now represented through a repository-local, pure Python API layer instead of relying on the earlier C# console path for authoring and validation.
+- Web View Mode now uses the FastMCP Apps protocol for the primary vtk.js preview surface. Hosts with MCP Apps UI support can render the preview directly in a sandboxed app panel. FastMCP's current [Apps documentation](https://gofastmcp.com/apps/quickstart) shows this host-rendered path with examples such as Claude Desktop and Goose; clients that do not advertise the Apps UI extension can still use the returned local `127.0.0.1` fallback URL.
+
 ## Contents
 
 - [Overview](#overview)
 - [User Groups](#user-groups)
 - [Core Concepts](#core-concepts)
 - [Quick Start](#quick-start)
-- [Web View Mode Beta](#web-view-mode-beta)
+- [FastMCP App Preview Mode Beta](#fastmcp-app-preview-mode-beta)
 - [First Use](#first-use)
 - [Workflow Examples](#workflow-examples)
 - [Main Tools](#main-tools)
@@ -81,19 +88,18 @@ Because we want users to keep as much attention as possible on the interaction w
 Before using Ladybug Tools MCP, some system prerequisites usually need to be configured. At minimum, that often includes:
 
 - Python 3.12
-- Ladybug Tools runtime matching the current `v1.0.0` matrix below
+- Ladybug Tools runtime matching the current `v1.1.0` matrix below
 - Git
 - uv
-- Node.js 20+ if you want to try the experimental Web View Mode beta
 - Any agent application, such as [Codex](https://chatgpt.com/codex), [Claude Code](https://code.claude.com/docs/en/desktop-quickstart), [Open Code](https://opencode.ai/), or [OpenClaw](https://openclaw.ai/)
 
 If you are not familiar with agent applications, I am very happy to recommend [Codex](https://chatgpt.com/codex).
 
-Please note that Ladybug Tools is a complete ecosystem and is still being actively updated, so these prerequisites can move over time. The table below records the Ladybug Tools MCP `v1.0.0` source-release runtime expectation as of 2026-05-27. It follows the style of the upstream [Ladybug Tools compatibility matrix](https://github.com/ladybug-tools/lbt-grasshopper/wiki/1.4-Compatibility-Matrix), removes Rhino, and adds the THERM and Ironbug.Console runtimes that this project can report through `get_ladybug_tools_config`.
+Please note that Ladybug Tools is a complete ecosystem and is still being actively updated, so these prerequisites can move over time. The table below records the Ladybug Tools MCP `v1.1.0` source-release runtime expectation as of 2026-06-01. It follows the style of the upstream [Ladybug Tools compatibility matrix](https://github.com/ladybug-tools/lbt-grasshopper/wiki/1.4-Compatibility-Matrix), removes Rhino, and adds the THERM runtime that this project can report through `get_ladybug_tools_config`. Ironbug authoring now runs through the project-local Python layer, so Ironbug.Console is no longer a required runtime for normal MCP workflows.
 
-| Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM | Ironbug.Console |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.0.0` | 3.12 | 5.4 (2023-11-05) | 3.10.0 | 25.1.0 | 1.10.0 | 1.2.0 | 8.1.30 beta | v1.22.0.0 |
+| Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `v1.1.0` | 3.12 | 5.4 (2023-11-05) | 3.10.0 | 25.1.0 | 1.10.0 | 1.2.0 | 8.1.30 beta |
 
 This project does not install these external runtimes for you. Choose the workflows you need, install the corresponding runtimes manually, and use `get_ladybug_tools_config` to inspect what the local SDK configuration can read. When a runtime cannot be found, the Config tool returns documentation links and install hints instead of trying to download or configure it.
 
@@ -142,14 +148,6 @@ uv run python -c "import ladybug_tools_mcp; print(ladybug_tools_mcp.__version__)
 ```
 
 `requirements.txt` is pinned for a reproducible user install. Maintainers who intentionally want the floating development dependency set can install `requirements-dev.txt` instead.
-
-For the experimental Web View Mode beta, also install its frontend dependencies:
-
-```bash
-cd src/web_view
-npm install
-cd ../..
-```
 
 #### MCP Configuration Examples
 
@@ -266,9 +264,11 @@ On macOS / Linux it should point to:
 
 These components add that path into `sys.path` at startup so they can load `flowerpot.runtime` and the Grasshopper collaboration code inside the project.
 
-## Web View Mode Beta
+## FastMCP App Preview Mode Beta
 
-Web View Mode is an experimental local preview mode for live modeling sessions. It lets an already-open browser follow the Garden while an agent creates or edits Honeybee objects.
+Web View Mode is an experimental FastMCP App preview mode for live modeling sessions. It lets a host application render the current Garden preview through vtk.js while an agent creates or edits Honeybee, Dragonfly, Fairyfly, or VisualizationSet outputs.
+
+FastMCP Apps let a tool return a UI resource, which the host renders in a sandboxed iframe when the host supports the MCP Apps UI extension. The official [FastMCP Apps quickstart](https://gofastmcp.com/apps/quickstart) uses host-rendered examples such as Claude Desktop and Goose, and also provides `fastmcp dev apps` for local browser preview during development. Host support still varies. When a client does not advertise the Apps UI extension, Ladybug Tools MCP returns a local fallback URL that serves the same Garden-backed preview from `127.0.0.1`.
 
 ### Enable
 
@@ -284,13 +284,13 @@ In MCP terms, the agent calls:
 start_web_view_mode(garden_root, name="...")
 ```
 
-Starting the mode creates a Garden-local Web View session, starts the local React + vtk.js server, starts a Garden watcher, and returns a local `viewer.url`, usually:
+Starting the mode creates a Garden-local Web View session and returns the FastMCP App metadata for the host. If the host cannot render the App iframe, the result also includes a local `viewer.url`, usually:
 
 ```text
 http://127.0.0.1:3127
 ```
 
-The MCP service does not force-open a system browser. Host applications such as Codex should open the returned URL in their side-panel browser when that capability is available.
+The MCP service does not force-open a system browser. Hosts with MCP Apps support should render the returned `ui://web_view/ladybug-tools/vtkjs-preview.html` resource. Hosts without that support, including current Codex runs that report `client_supports_ui_extension=false`, should open the returned fallback URL when a visible preview is needed.
 
 ### Close
 
@@ -300,21 +300,21 @@ Ask the agent to stop Web View Mode, or call:
 stop_web_view_mode(garden_root)
 ```
 
-This disables future automatic previews and stops the matching local viewer server/watcher. Preview history under `tmp/web_view/` is preserved.
+This disables future automatic previews and stops the matching local fallback viewer if one was started. Preview history under `tmp/web_view/` is preserved.
 
 ### Difference From Ordinary Mode
 
 In ordinary mode, modeling tools write Garden files and return compact targets, summaries, and receipts. No viewer server is started, and no automatic preview file is exported after every edit.
 
-In Web View Mode, significant Honeybee writes automatically export session-managed `.vtkjs` previews under:
+In Web View Mode, significant Honeybee, Dragonfly, Fairyfly, and VisualizationSet operations automatically export session-managed `.vtkjs` previews under:
 
 ```text
 <garden>/tmp/web_view/previews/
 ```
 
-The viewer polls `config.json` and reloads the latest `.vtkjs` package without a manual browser refresh. These automatic previews are local session state, not formal user-requested Garden artifacts. If you need a durable reusable artifact, still ask the agent to export a VisualizationSet with `visualization_set_to_vtkjs`.
+The App polls Garden session state and reloads the latest `.vtkjs` package without a manual refresh. These automatic previews are local session state, not formal user-requested Garden artifacts. If you need a durable reusable artifact, still ask the agent to export a VisualizationSet with `visualization_set_to_vtkjs`.
 
-The beta intentionally uses an explicit local port. If the requested port is already occupied, startup fails clearly instead of silently choosing another port or leaving the browser pointed at an older Garden.
+The fallback viewer intentionally uses an explicit local port. If the requested port is already occupied, startup fails clearly instead of silently choosing another port or leaving the browser pointed at an older Garden.
 
 ## First Use
 
