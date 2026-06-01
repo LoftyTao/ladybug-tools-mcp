@@ -120,6 +120,31 @@ class LenientCodeModeSearch:
         return Tool.from_function(fn=search, name=self._name)
 
 
+class AppAwareCodeMode(CodeMode):
+    """Code Mode transform that keeps model-visible App entry tools exposed."""
+
+    @staticmethod
+    def _is_model_visible_app_entry(tool: Tool) -> bool:
+        meta = tool.meta or {}
+        ui = meta.get("ui")
+        if not isinstance(ui, dict):
+            return False
+        if "resourceUri" not in ui and "resource_uri" not in ui:
+            return False
+        visibility = ui.get("visibility")
+        return visibility is None or "model" in visibility
+
+    async def transform_tools(self, tools: Sequence[Tool]) -> Sequence[Tool]:
+        code_mode_tools = list(await super().transform_tools(tools))
+        existing_names = {tool.name for tool in code_mode_tools}
+        app_entries = [
+            tool
+            for tool in tools
+            if tool.name not in existing_names and self._is_model_visible_app_entry(tool)
+        ]
+        return [*code_mode_tools, *app_entries]
+
+
 def _normalize_code_mode_sleep_calls(code: str) -> str:
     """Convert common time.sleep calls into the injected async sleep helper."""
     return _TIME_SLEEP_RE.sub("await sleep(", code)
@@ -210,8 +235,9 @@ class QuietMontySandboxProvider:
 def create_mcp() -> FastMCP:
     """Create the Ladybug Tools MCP server.
 
-    The public MCP surface is Code Mode only: search, get_schema, execute.
-    Domain tools are called inside execute with await call_tool(name, arguments).
+    The public MCP surface is Code Mode plus model-visible FastMCP App entry
+    tools. Domain tools are called inside execute with
+    await call_tool(name, arguments).
     """
     providers = []
     if SKILL_PATH.exists():
@@ -222,7 +248,7 @@ def create_mcp() -> FastMCP:
             False,
             tags={"debug", "internal", "experimental"},
         ),
-        CodeMode(
+        AppAwareCodeMode(
             sandbox_provider=QuietMontySandboxProvider(),
             discovery_tools=[LenientCodeModeSearch(), GetSchemas()],
             execute_description=(

@@ -19,7 +19,7 @@ def register(mcp: FastMCP) -> None:
             "Export a Ladybug Display VisualizationSet to a persistent .vtkjs "
             "artifact inside a Garden and record it in garden.json artifacts. "
             "Use this when the user asks for a saved vtk.js or Web 3D asset "
-            "for React, vtk.js, WebGL, Remotion, or reusable geometry "
+            "for a FastMCP App viewer, vtk.js, WebGL, Remotion, or reusable geometry "
             "workflows. It does not export GLB/VTP and has no file_format "
             "parameter. Preferred Agent path is visualization_set_target from "
             "an upstream visualize tool; the parameter name is exactly "

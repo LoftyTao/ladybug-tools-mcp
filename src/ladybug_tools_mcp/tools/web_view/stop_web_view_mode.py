@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from web_view.runtime import stop_web_view_runtime
+from web_view.url_fallback import stop_preview_url_fallback
 from web_view.session import stop_web_view_session
 
 
@@ -17,12 +17,13 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="stop_mode",
         description=(
-            "Stop Garden-local Web View Mode by marking the local preview session "
-            "inactive and stopping its viewer server and watcher. Code Mode stops "
-            "exporting automatic session-managed vtk.js previews for the Garden "
-            "after this call. Returns session, session_path, summary_view, and "
-            "viewer runtime status. It does not delete preview history, remove "
-            "Garden visualization artifacts, or close a browser tab."
+            "Stop Garden Web View Mode by marking the FastMCP App preview session "
+            "inactive. Code Mode stops exporting automatic session-managed vtk.js "
+            "previews for the Garden after this call. Returns session, "
+            "session_path, summary_view, and viewer status. It does not delete "
+            "preview history, remove Garden visualization artifacts, or close a "
+            "host App panel. If a local fallback URL was started for a host "
+            "without MCP Apps UI support, this call also stops that local URL."
         ),
         tags={
             "preview",
@@ -35,7 +36,12 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root'].")],
     ) -> dict[str, Any]:
         """Disable Web View Mode for a Garden."""
-        viewer = stop_web_view_runtime(garden_root=garden_root)
         result = stop_web_view_session(garden_root=garden_root)
-        result["viewer"] = viewer or {"status": "not_running"}
+        result["url_fallback"] = stop_preview_url_fallback(garden_root=garden_root)
+        result["viewer"] = {
+            "status": "stopped",
+            "ui": "FastMCP App",
+            "library": "vtk.js",
+            "mode": "mcp_app_preview",
+        }
         return result

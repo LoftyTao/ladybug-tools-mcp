@@ -18,8 +18,8 @@ def register(mcp: FastMCP) -> None:
             "garden.json artifacts. Use this when the user asks for an HTML "
             "page, report page, or browser-openable preview file. Preferred "
             "Agent path is visualization_set_target from an upstream visualize "
-            "tool. For Web 3D geometry packages, vtk.js assets, React viewer "
-            "assets, Remotion assets, or reusable geometry assets, use "
+            "tool. For Web 3D geometry packages, vtk.js assets, FastMCP App "
+            "viewer assets, Remotion assets, or reusable geometry assets, use "
             "visualization_set_to_vtkjs. This exporter does not create or "
             "modify the VisualizationSet source data."
         ),

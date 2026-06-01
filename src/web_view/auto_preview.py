@@ -135,7 +135,12 @@ HONEYBEE_MODEL_PREVIEW_TOOL_NAMES = (
 )
 SKIPPED_TOOL_NAMES = _tool_names(
     "web_view",
-    {"start_web_view_mode", "stop_web_view_mode"},
+    {
+        "start_web_view_mode",
+        "stop_web_view_mode",
+        "preview_state",
+        "preview_artifact",
+    },
 )
 
 def _find_garden_root(value: Any) -> str | None:

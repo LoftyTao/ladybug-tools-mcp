@@ -1,4 +1,4 @@
-"""Local Web View session state for React + vtk.js previews.
+"""Web View session state for FastMCP App vtk.js previews.
 
 This module only coordinates Garden-backed preview state. Geometry and result
 visuals must come from Ladybug Tools SDK/MCP artifacts such as `.vtkjs` files.
@@ -79,7 +79,7 @@ def start_web_view_session(
     name: str = "Local Web View",
     preview_kinds: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
-    """Start or replace a local Web View session for one Garden."""
+    """Start or replace a Web View session for one Garden."""
     root = _resolve_garden_root(garden_root)
     manifest = GardenManifest.read(root)
     kinds = tuple(preview_kinds or SUPPORTED_PREVIEW_KINDS)
@@ -106,9 +106,9 @@ def start_web_view_session(
             "name": manifest.name,
         },
         "viewer": {
-            "ui": "React",
+            "ui": "FastMCP App",
             "library": "vtk.js",
-            "mode": "local_preview",
+            "mode": "mcp_app_preview",
         },
         "preview_kinds": list(kinds),
         "data_sources": _default_data_sources(),
@@ -128,7 +128,7 @@ def start_web_view_session(
 
 
 def stop_web_view_session(*, garden_root: str) -> dict[str, Any]:
-    """Mark a local Web View session as inactive without deleting its history."""
+    """Mark a Web View session as inactive without deleting its history."""
     root = _resolve_garden_root(garden_root)
     session = _read_session(root)
     if session is None:
@@ -385,7 +385,7 @@ def record_preview_failure(
 
 
 def get_web_view_config(*, garden_root: str) -> dict[str, Any]:
-    """Return the local Web View config that a React/vtk.js app can consume."""
+    """Return the Web View config that the FastMCP App can consume."""
     root = _resolve_garden_root(garden_root)
     manifest = GardenManifest.read(root)
     session = _read_session(root)

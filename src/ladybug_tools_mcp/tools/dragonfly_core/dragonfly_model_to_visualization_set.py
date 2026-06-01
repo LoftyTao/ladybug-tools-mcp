@@ -19,7 +19,7 @@ def register(mcp: FastMCP) -> None:
         name="model_to_visualization_set",
         description=(
             "Create a Ladybug Display VisualizationSet from a Garden Dragonfly model "
-            "using Dragonfly Display for web 3D, React viewer, Remotion, and geometry "
+            "using Dragonfly Display for web 3D, FastMCP App viewer, Remotion, and geometry "
             "asset workflows. Can return the VisualizationSet body or save it as a "
             "Garden visualization_set target with return_visualization_set=false. If "
             "Web View mode is active, this tool refreshes the demo panel; call "
