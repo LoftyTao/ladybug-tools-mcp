@@ -158,6 +158,17 @@ def _iter_active_model_objects(model: Any) -> Iterable[Any]:
     yield from _iter_nested(model)
 
 
+def _iter_component_library_objects(library: dict[str, Any]) -> Iterable[Any]:
+    """Iterate component-library objects, including embedded child copies."""
+
+    for record in library.values():
+        if not isinstance(record, dict):
+            continue
+        data = record.get("data")
+        if data is not None:
+            yield from _iter_nested(data)
+
+
 def _issue(
     *,
     severity: str,
@@ -204,7 +215,7 @@ def _outdoor_air_controller_issues(model: Any) -> list[dict[str, Any]]:
 
 def _outdoor_air_system_issues(model: Any) -> list[dict[str, Any]]:
     issues = []
-    for obj in _iter_model_objects(model):
+    for obj in _iter_active_model_objects(model):
         if _source_class(obj) != "IB_OutdoorAirSystem":
             continue
         has_controller = any(
@@ -290,7 +301,10 @@ def _stale_embedded_component_issues(model: Any) -> list[dict[str, Any]]:
         for identifier, record in library.items()
         if isinstance(record, dict) and isinstance(record.get("data"), dict)
     }
-    for obj in _iter_model_objects(model):
+    for obj in (
+        *_iter_active_model_objects(model),
+        *_iter_component_library_objects(library_by_identifier),
+    ):
         identifier = _identifier(obj)
         if not identifier or identifier not in library_by_identifier:
             continue
@@ -519,6 +533,13 @@ def _has_room_linked_thermal_zone(model: Any) -> bool:
     return False
 
 
+def _has_explicit_thermal_zone(model: Any) -> bool:
+    for obj in _iter_model_objects(model):
+        if _source_class(obj) == "IB_ThermalZone":
+            return True
+    return False
+
+
 def _is_room_serving_source_class(source_class: str) -> bool:
     return (
         source_class in ROOM_SERVING_CLASSES
@@ -545,6 +566,27 @@ def _room_serving_without_thermal_zone_issues(model: Any) -> list[dict[str, Any]
                 )
             ]
     return []
+
+
+def _electric_load_center_missing_thermal_zone_issues(
+    model: Any,
+) -> list[dict[str, Any]]:
+    electric_load_center = getattr(model, "ElectricLoadCenter", None)
+    if electric_load_center is None or _has_explicit_thermal_zone(model):
+        return []
+    return [
+        _issue(
+            severity="error",
+            code="ironbug_electric_load_center_missing_thermal_zone",
+            source=electric_load_center,
+            message=(
+                "Ironbug ElectricLoadCenter EnergyPlus paths require an "
+                "explicit IB_ThermalZone whose Name or identifier matches each "
+                "selected Honeybee Room before DetailedHVAC application."
+            ),
+            repair_tool="create_ironbug_thermal_zone",
+        )
+    ]
 
 
 def _load_profile_plant_issues(model: Any) -> list[dict[str, Any]]:
@@ -746,6 +788,7 @@ def validate_ironbug_detailed_hvac_readiness(
         *_outdoor_air_system_issues(model),
         *_thermal_zone_binding_issues(model),
         *_room_serving_without_thermal_zone_issues(model),
+        *_electric_load_center_missing_thermal_zone_issues(model),
     ]
     return _result(target, issues)
 
@@ -772,6 +815,7 @@ def validate_ironbug_energyplus_readiness(
         *_air_loop_component_issues(model),
         *_thermal_zone_binding_issues(model),
         *_room_serving_without_thermal_zone_issues(model),
+        *_electric_load_center_missing_thermal_zone_issues(model),
         *_load_profile_plant_issues(model),
         *_plant_loop_missing_pump_issues(model),
         *_plant_loop_component_issues(model),

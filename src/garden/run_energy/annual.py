@@ -14,13 +14,16 @@ from typing import Any
 
 from ladybug.ddy import DDY
 from ladybug.epw import EPW
-from lbt_recipes.recipe import Recipe
-from lbt_recipes.settings import RecipeSettings
 
 from ladybug_tools_mcp.contracts.report import make_report
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
 from garden.honeybee_core.model_io import resolve_model_target
+from garden.ironbug_console.energy_runtime import (
+    PYTHON_ONLY_ENV,
+    PythonIronbugRuntimeUnsupported,
+    prepare_python_only_energy_model,
+)
 from garden.run_energy.output_requests import (
     simulation_parameter_with_output_request,
 )
@@ -38,6 +41,48 @@ ENERGY_RUN_INDEX = ENERGY_RUNS_DIR / "index.json"
 OUTPUT_NAMES = ("err", "eui", "html", "result-report", "sql", "visual-report", "zsz")
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 GARDEN_VERSION_NEXT_TOOL = "garden_create_version"
+
+
+def _recipe_cli_path(path_value: str | None = None) -> str:
+    """Ensure recipe subprocesses can find CLIs installed in the active venv."""
+    scripts_dir = Path(sys.executable).resolve().parent
+    path_parts = [
+        part
+        for part in (path_value or os.environ.get("PATH") or "").split(os.pathsep)
+        if part
+    ]
+    normalized = {str(Path(part).resolve()).lower() for part in path_parts}
+    scripts_value = str(scripts_dir)
+    if scripts_value.lower() not in normalized:
+        path_parts.insert(0, scripts_value)
+    return os.pathsep.join(path_parts)
+
+
+def _ensure_windows_install_env(env: dict[str, str]) -> None:
+    if os.name != "nt":
+        return
+    env.setdefault("PROGRAMFILES", r"C:\Program Files")
+    env.setdefault("ProgramFiles", env["PROGRAMFILES"])
+    env.setdefault("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+    env.setdefault("ProgramFiles(x86)", env["PROGRAMFILES(X86)"])
+
+
+def _console_executable(name: str) -> str:
+    executable_name = f"{name}.exe" if os.name == "nt" else name
+    return str(Path(sys.executable).resolve().parent / executable_name)
+
+
+@contextmanager
+def _recipe_cli_environment():
+    previous_path = os.environ.get("PATH")
+    os.environ["PATH"] = _recipe_cli_path(previous_path)
+    try:
+        yield
+    finally:
+        if previous_path is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = previous_path
 
 
 class _DaemonBackgroundExecutor:
@@ -69,6 +114,8 @@ class _SubprocessBackgroundExecutor:
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUTF8"] = "1"
+        env["PATH"] = _recipe_cli_path(env.get("PATH"))
+        _ensure_windows_install_env(env)
         with log_path.open("ab") as log_file:
             return subprocess.Popen(
                 [
@@ -487,7 +534,11 @@ def _output_record(
         if isinstance(item, (str, Path)) and item
     ]
     existing_paths = [path for path in resolved_paths if path.is_file()]
-    if not existing_paths and output_name == "eui":
+    is_path_like_output = isinstance(output_value, (str, Path)) or (
+        isinstance(output_value, (list, tuple))
+        and all(isinstance(item, (str, Path)) for item in output_value)
+    )
+    if not existing_paths and output_name == "eui" and not is_path_like_output:
         existing_paths = [
             _write_inline_output(run_dir, output_name, output_value).resolve()
         ]
@@ -734,6 +785,7 @@ def _energy_run_result_evidence(
 def _public_run(record: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "run_id",
+        "target",
         "recipe",
         "status",
         "created_at",
@@ -758,6 +810,7 @@ def _public_run(record: dict[str, Any]) -> dict[str, Any]:
         "source_file_path",
         "run_input_path",
         "expand_objects",
+        "python_ironbug_console_runtime",
     )
     return {key: record.get(key) for key in keys if key in record}
 
@@ -784,6 +837,9 @@ def _completed_reload_response(
             "run_folder": record.get("run_folder"),
             "outputs": _outputs_map(record),
             "preflight": record.get("preflight"),
+            "python_ironbug_console_runtime": record.get(
+                "python_ironbug_console_runtime"
+            ),
             "reloaded": True,
             "result_evidence": _energy_run_result_evidence(
                 garden_root=garden_root,
@@ -838,6 +894,9 @@ def _existing_run_response(
             "run_folder": record.get("run_folder"),
             "outputs": _outputs_map(record),
             "preflight": record.get("preflight"),
+            "python_ironbug_console_runtime": record.get(
+                "python_ironbug_console_runtime"
+            ),
             "result_evidence": evidence,
             "poll_next": {
                 "tool": "energyplus_poll_simulation",
@@ -857,25 +916,107 @@ def _existing_run_response(
 def _recipe_outputs(
     *,
     garden_root_path: Path,
-    recipe: Recipe | None,
     run_dir: Path,
     warnings: list[str],
 ) -> list[dict[str, Any]]:
     outputs = []
+    recipe_dir = run_dir / ENERGY_RUN_RECIPE
+    direct_outputs = {
+        "err": recipe_dir / "run" / "eplusout.err",
+        "eui": recipe_dir / "eui.json",
+        "html": recipe_dir / "run" / "eplustbl.htm",
+        "result-report": recipe_dir / "reports" / "openstudio_results_report.html",
+        "sql": recipe_dir / "run" / "eplusout.sql",
+        "visual-report": recipe_dir / "reports" / "view_data_report.html",
+        "zsz": recipe_dir / "run" / "epluszsz.csv",
+    }
     for name in OUTPUT_NAMES:
-        try:
-            output_path = (
-                recipe.output_value_by_name(name, str(run_dir)) if recipe else None
-            )
-        except Exception as exc:  # pragma: no cover - depends on recipe failure mode
-            output_path = None
-            warnings.append(f"Could not resolve recipe output {name}: {exc}")
+        output_path = direct_outputs.get(name)
         outputs.append(_output_record(garden_root_path, run_dir, name, output_path))
     return outputs
 
 
+def _run_honeybee_energy_cli(
+    *,
+    model_path: Path,
+    epw_path: str,
+    run_dir: Path,
+    sim_par_path: str | None,
+    additional_idf_file: Path | None,
+    measures_folder: Path | None,
+    units: str,
+    silent: bool,
+) -> tuple[int, int]:
+    recipe_dir = run_dir / ENERGY_RUN_RECIPE
+    recipe_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        _console_executable("honeybee-energy"),
+        "simulate",
+        "model",
+        str(model_path),
+        epw_path,
+        "--report-units",
+        units,
+        "--folder",
+        str(recipe_dir),
+    ]
+    if sim_par_path is not None:
+        command.extend(["--sim-par-json", sim_par_path])
+    if measures_folder is not None:
+        command.extend(["--measures", str(measures_folder)])
+    if additional_idf_file is not None:
+        command.extend(["--additional-idf", str(additional_idf_file)])
+    if silent:
+        command.append("--log-file")
+        command.append("-")
+
+    with _recipe_cli_environment(), _capture_recipe_stdio(run_dir):
+        env = os.environ.copy()
+        env["PATH"] = _recipe_cli_path(env.get("PATH"))
+        _ensure_windows_install_env(env)
+        simulate = subprocess.run(
+            command,
+            cwd=str(PROJECT_ROOT),
+            env=env,
+            check=False,
+        )
+        eui_status = 1
+        sql_path = recipe_dir / "run" / "eplusout.sql"
+        if sql_path.is_file():
+            eui_path = recipe_dir / "eui.json"
+            eui_command = [
+                _console_executable("honeybee-energy"),
+                "result",
+                "energy-use-intensity",
+                str(recipe_dir / "run"),
+                f"--{units}",
+                "--output-file",
+                str(eui_path),
+            ]
+            eui = subprocess.run(
+                eui_command,
+                cwd=str(PROJECT_ROOT),
+                env=env,
+                check=False,
+            )
+            eui_status = int(eui.returncode)
+        return int(simulate.returncode), eui_status
+
+
 def _missing_outputs() -> list[dict[str, Any]]:
     return [{"name": name, "path": None, "exists": False} for name in OUTPUT_NAMES]
+
+
+def _should_prepare_python_ironbug_runtime(model_path: Path) -> bool:
+    """Return True when a Honeybee model needs Python Ironbug translation."""
+
+    if os.environ.get(PYTHON_ONLY_ENV) == "1":
+        return True
+    try:
+        text = model_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return '"type": "DetailedHVAC"' in text
 
 
 def run_energy(
@@ -956,7 +1097,6 @@ def run_energy(
         warnings.extend(preflight["issues"])
         outputs = _recipe_outputs(
             garden_root_path=garden_root_path,
-            recipe=None,
             run_dir=run_dir,
             warnings=warnings,
         )
@@ -1015,40 +1155,170 @@ def run_energy(
             ),
         }
 
-    recipe = Recipe("annual-energy-use")
-    recipe.input_value_by_name("model", str(model_path))
-    recipe.input_value_by_name("epw", epw_path)
-    recipe.input_value_by_name("ddy", ddy_path)
-    recipe.input_value_by_name("units", units)
-    if sim_par_path is not None:
-        recipe.input_value_by_name("sim-par", sim_par_path)
-    if additional_idf_file is not None:
-        recipe.input_value_by_name("additional-idf", str(additional_idf_file))
-    if measures_folder is not None:
-        recipe.input_value_by_name("measures", str(measures_folder))
-
-    settings = RecipeSettings(
-        folder=str(run_dir),
-        workers=workers,
-        reload_old=reload_old,
-        report_out=False,
-    )
-    status = "completed"
-    try:
-        with _capture_recipe_stdio(run_dir):
-            recipe.run(
-                settings=settings,
-                openstudio_check=True,
-                energyplus_check=True,
-                silent=silent,
+    python_runtime_translation = None
+    if _should_prepare_python_ironbug_runtime(model_path):
+        try:
+            model_path, python_runtime_translation = prepare_python_only_energy_model(
+                model_path=model_path,
+                run_dir=run_dir,
+                garden_root=garden_root_path,
+                epw_path=epw_path,
+                sim_par_path=sim_par_path,
             )
+            if python_runtime_translation is not None:
+                python_runtime_translation["run_id"] = run_id
+        except PythonIronbugRuntimeUnsupported as exc:
+            warnings.append(str(exc))
+            outputs = _recipe_outputs(
+                garden_root_path=garden_root_path,
+                run_dir=run_dir,
+                warnings=warnings,
+            )
+            completed_at = utc_now_iso()
+            python_runtime_translation = {
+                "status": "blocked",
+                "run_id": run_id,
+                "csharp_ironbug_console_required": False,
+                "python_console_parity_gap": True,
+                "error": str(exc),
+                "unsupported_graphs": exc.unsupported_graphs,
+            }
+            record = {
+                "run_id": run_id,
+                "target": target,
+                "recipe": ENERGY_RUN_RECIPE,
+                "status": "failed",
+                "created_at": started_at,
+                "completed_at": completed_at,
+                "model_target": resolved_model_target,
+                "model_path": to_posix_relative(model_path, garden_root_path),
+                "weather_target": weather_target,
+                "epw_path": epw_path,
+                "ddy_path": ddy_path,
+                "run_folder": run_folder,
+                "outputs": outputs,
+                "units": units,
+                "workers": workers,
+                "warnings": warnings,
+                "preflight": preflight,
+                "python_ironbug_console_runtime": python_runtime_translation,
+            }
+            _upsert_record(garden_root_path, record)
+            return {
+                "target": target,
+                "energy_run_target": target,
+                "run_target": target,
+                "summary_view": {
+                    "garden_target": manifest.target(),
+                    "target": target,
+                    "run_id": run_id,
+                    "status": "failed",
+                    "recipe": ENERGY_RUN_RECIPE,
+                    "run_folder": run_folder,
+                    "outputs": _outputs_map(record),
+                    "preflight": preflight,
+                    "python_ironbug_console_runtime": python_runtime_translation,
+                },
+                "report": make_report(
+                    status="blocked",
+                    message=(
+                        "Python-only Ironbug Console runtime translation failed; "
+                        "run record was saved."
+                    ),
+                    warnings=warnings,
+                ),
+            }
+        except Exception as exc:
+            warnings.append(str(exc))
+            outputs = _recipe_outputs(
+                garden_root_path=garden_root_path,
+                run_dir=run_dir,
+                warnings=warnings,
+            )
+            completed_at = utc_now_iso()
+            python_runtime_translation = {
+                "status": "error",
+                "run_id": run_id,
+                "csharp_ironbug_console_required": False,
+                "error": str(exc),
+            }
+            record = {
+                "run_id": run_id,
+                "target": target,
+                "recipe": ENERGY_RUN_RECIPE,
+                "status": "failed",
+                "created_at": started_at,
+                "completed_at": completed_at,
+                "model_target": resolved_model_target,
+                "model_path": to_posix_relative(model_path, garden_root_path),
+                "weather_target": weather_target,
+                "epw_path": epw_path,
+                "ddy_path": ddy_path,
+                "run_folder": run_folder,
+                "outputs": outputs,
+                "units": units,
+                "workers": workers,
+                "warnings": warnings,
+                "preflight": preflight,
+                "python_ironbug_console_runtime": python_runtime_translation,
+            }
+            _upsert_record(garden_root_path, record)
+            return {
+                "target": target,
+                "energy_run_target": target,
+                "run_target": target,
+                "summary_view": {
+                    "garden_target": manifest.target(),
+                    "target": target,
+                    "run_id": run_id,
+                    "status": "failed",
+                    "recipe": ENERGY_RUN_RECIPE,
+                    "run_folder": run_folder,
+                    "outputs": _outputs_map(record),
+                    "preflight": preflight,
+                    "python_ironbug_console_runtime": python_runtime_translation,
+                },
+                "report": make_report(
+                    status="error",
+                    message=(
+                        "Python-only Ironbug Console runtime translation errored; "
+                        "run record was saved."
+                    ),
+                    warnings=warnings,
+                ),
+            }
+
+    status = "completed"
+    simulate_status = 1
+    eui_status = 1
+    try:
+        simulate_status, eui_status = _run_honeybee_energy_cli(
+            model_path=model_path,
+            epw_path=epw_path,
+            run_dir=run_dir,
+            sim_par_path=sim_par_path,
+            additional_idf_file=additional_idf_file,
+            measures_folder=measures_folder,
+            units=units,
+            silent=silent,
+        )
     except Exception as exc:  # pragma: no cover - exercised by real engines
         status = "failed"
         warnings.append(str(exc))
+    else:
+        if simulate_status != 0:
+            status = "failed"
+            warnings.append(
+                f"Honeybee Energy simulation command failed with exit code {simulate_status}."
+            )
+        elif eui_status != 0:
+            status = "failed"
+            warnings.append(
+                f"Honeybee Energy EUI command failed with exit code {eui_status}."
+            )
 
     outputs = _recipe_outputs(
         garden_root_path=garden_root_path,
-        recipe=recipe,
         run_dir=run_dir,
         warnings=warnings,
     )
@@ -1088,6 +1358,8 @@ def run_energy(
         record["sim_par_path"] = to_posix_relative(Path(sim_par_path), garden_root_path)
     if resolved_output_request_target is not None:
         record["output_request_target"] = resolved_output_request_target
+    if python_runtime_translation is not None:
+        record["python_ironbug_console_runtime"] = python_runtime_translation
     _upsert_record(garden_root_path, record)
 
     return {
@@ -1103,6 +1375,7 @@ def run_energy(
             "run_folder": run_folder,
             "outputs": _outputs_map(record),
             "preflight": preflight,
+            "python_ironbug_console_runtime": python_runtime_translation,
         },
         "report": make_report(
             status="ok" if status == "completed" else "error",
@@ -1299,6 +1572,9 @@ def start_energy_run(
             "run_folder": run_folder,
             "outputs": _outputs_map(record),
             "preflight": preflight,
+            "python_ironbug_console_runtime": record.get(
+                "python_ironbug_console_runtime"
+            ),
             "poll_next": {
                 "tool": "energyplus_poll_simulation",
                 "arguments": poll_arguments,
@@ -1354,6 +1630,9 @@ def get_energy_run(
         "status": status,
         "run_id": resolved_run_id,
         "outputs": outputs,
+        "python_ironbug_console_runtime": record.get(
+            "python_ironbug_console_runtime"
+        ),
         "result_evidence": evidence,
         "final_answer_ready": evidence["final_answer_ready"],
         "summary_view": {
@@ -1362,6 +1641,9 @@ def get_energy_run(
             "run_id": resolved_run_id,
             "status": status,
             "outputs": outputs,
+            "python_ironbug_console_runtime": record.get(
+                "python_ironbug_console_runtime"
+            ),
             "result_evidence": evidence,
             "final_answer_ready": evidence["final_answer_ready"],
             "should_start_another_run": False,
@@ -1447,6 +1729,9 @@ def read_energy_eui(
         return {
             "eui": None,
             "path": None,
+            "python_ironbug_console_runtime": record.get(
+                "python_ironbug_console_runtime"
+            ),
             "energy_blocker": {
                 "status": "missing_eui_output",
                 "message": message,
@@ -1460,6 +1745,9 @@ def read_energy_eui(
                 "path": None,
                 "available_outputs": outputs,
                 "available_output_names": existing_output_names,
+                "python_ironbug_console_runtime": record.get(
+                    "python_ironbug_console_runtime"
+                ),
                 "recommended_next_tools": details["recommended_next_tools"],
             },
             "report": make_report(status="blocked", message=message, details=details),
@@ -1532,6 +1820,9 @@ def read_energy_eui(
         "files": outputs,
         "err_exists": err_exists,
         "sql_exists": sql_exists,
+        "python_ironbug_console_runtime": record.get(
+            "python_ironbug_console_runtime"
+        ),
         "warning_count": int((err_summary or {}).get("warning_count") or 0),
         "severe_count": severe_count,
         "fatal_count": fatal_count,
@@ -1544,6 +1835,9 @@ def read_energy_eui(
             "path": to_posix_relative(eui_path, garden_root_path),
             "err_exists": err_exists,
             "sql_exists": sql_exists,
+            "python_ironbug_console_runtime": record.get(
+                "python_ironbug_console_runtime"
+            ),
             "warning_count": int((err_summary or {}).get("warning_count") or 0),
             "severe_count": severe_count,
             "fatal_count": fatal_count,

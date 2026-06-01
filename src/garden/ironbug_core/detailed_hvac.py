@@ -155,6 +155,14 @@ def build_ironbug_model_detailed_hvac_specification(
         specification["VariableRefrigerantFlows"] = [
             _ironbug_console_spec_value(vrf) for vrf in vrfs
         ]
+    if ironbug_model.EnergyManagementSystem is not None:
+        specification["EnergyManagementSystem"] = _ironbug_console_spec_value(
+            ironbug_model.EnergyManagementSystem
+        )
+    if ironbug_model.ElectricLoadCenter is not None:
+        specification["ElectricLoadCenter"] = _ironbug_console_spec_value(
+            ironbug_model.ElectricLoadCenter
+        )
     return specification
 
 
@@ -713,7 +721,7 @@ def _requires_explicit_thermal_zone(
     plant_loops: list[Any],
     vrfs: list[Any],
 ) -> bool:
-    if air_loops or plant_loops or vrfs:
+    if air_loops or plant_loops or vrfs or model.ElectricLoadCenter is not None:
         return True
     return any(
         _is_room_serving_source_class(source_class)
@@ -739,7 +747,8 @@ def _ensure_explicit_room_linked_thermal_zones(
         return
     raise ValueError(
         "Ironbug DetailedHVAC models with plant loops, air loops, VRF systems, "
-        "air terminals, or zone equipment require explicit room-linked "
+        "ElectricLoadCenter, air terminals, or zone equipment require explicit "
+        "room-linked "
         "IB_ThermalZone objects before application. Create one IB_ThermalZone "
         "per Honeybee Room with matching identifier/Name and bind the zone "
         "equipment or air terminal to that thermal zone."
@@ -756,6 +765,8 @@ def _component_thermal_zones(model: IB_Model) -> list[Any]:
         data = record.get("data")
         if isinstance(data, dict):
             zones.append(_hydrate_source_object(dict(data)))
+        elif data is not None:
+            zones.append(data)
     return zones
 
 

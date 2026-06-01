@@ -32,7 +32,9 @@ For Room1 through Room3:
 
 DOAS supply order: outdoor-air system, DX single-speed cooling coil, scheduled
 cooling setpoint manager around 13 C, constant-volume supply fan. Create
-hot-water loop with pump + district-heating-water serving all radiant coils.
+hot-water loop with pump + district-heating-water serving all radiant coils as
+singleton parallel demand branches, such as
+`[[radiant_coil_1], [radiant_coil_2], [radiant_coil_3]]`.
 Apply, run Energy, read EUI/ERR/SQL.
 
 ## Code Mode Call Example

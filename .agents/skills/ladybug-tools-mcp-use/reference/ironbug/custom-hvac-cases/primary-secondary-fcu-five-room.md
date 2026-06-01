@@ -24,9 +24,10 @@ Use the five-room FCU-only path, then build primary/secondary chilled water.
 2. Primary chilled-water loop: constant-speed pump + district cooling on
    supply, heat exchanger on demand.
 3. Secondary chilled-water loop: variable-speed pump + same heat exchanger on
-   supply, all five FCU cooling coils on demand.
+   supply, all five FCU cooling coils on demand as one inner branch list per
+   coil.
 4. Hot-water loop: pump + district-heating-water serving all five FCU heating
-   coils.
+   coils as one inner branch list per coil.
 5. Apply, run Energy, read EUI/ERR/SQL.
 
 ## Code Mode Call Example

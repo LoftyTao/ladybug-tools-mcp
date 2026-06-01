@@ -1,5 +1,14 @@
 # Case Skill: vav_reheat_four_room
 
+Python Ironbug Console matrix status: accepted on the direct OSM runtime path.
+The accepted path writes OpenStudio VAV reheat air terminals, a variable-volume
+supply fan, central chilled/hot-water coils, AirLoopHVAC demand branches, and
+chilled/hot-water PlantLoops through `pyironbug.osm`; it must not call C#
+`Ironbug.Console` or use a Honeybee template HVAC surrogate.
+For the current Codex Row 14 path, keep hot-water reheat demand branches
+parallel and use a variable-speed hot-water pump. Do not collapse all
+hot-water coils into one serial branch as a passing shortcut.
+
 ## Applicable Scenario
 
 Use this case when the request matches the retained prompt: `对 Room1 到 Room4 添加带热水再热的 VAV。`. Keep the system family and served-room list exactly aligned with this case (["Room1", "Room2", "Room3", "Room4"]) unless you intentionally switch to the family workflow for a variant.
@@ -21,7 +30,9 @@ For Room1 through Room4:
 
 1. Create matching ThermalZone.
 2. Create hot-water terminal reheat coil.
-3. Create VAV reheat terminal with the reheat coil and ThermalZone.
+3. Create VAV reheat terminal with the reheat coil and ThermalZone. Use
+   `maximum_air_flow_rate="Autosize"` and
+   `maximum_hot_water_or_steam_flow_rate=0.001`.
 
 Central supply order:
 
@@ -31,9 +42,19 @@ Central supply order:
 4. Heating scheduled setpoint manager around 32 C.
 5. Variable-volume supply fan.
 
+Use `maximum_flow_rate="Autosize"` for the variable-volume fan.
+
 Create branches, AirLoopHVAC, chilled-water loop serving the central cooling
 coil, and hot-water loop serving the central heating coil plus all terminal
-reheat coils. Apply, run Energy, read EUI/ERR/SQL.
+reheat coils. The hot-water loop demand must be parallel singleton branches:
+`demand_branch_component_targets=[[central_heating_coil], [reheat_1], ...]`.
+
+Use a constant-speed/intermittent pump for the single-coil chilled-water loop.
+Use `detailed_hvac_pump_variable_speed` for the multi-branch hot-water loop
+with `rated_flow_rate="Autosize"`, `pump_control_type="Intermittent"`,
+`minimum_flow_rate=0.0`, `design_minimum_flow_rate_fraction=0.0`,
+`rated_pump_head=179352.0`, and `motor_efficiency=0.9`. Apply, run Energy,
+read EUI/ERR/SQL.
 
 ## Code Mode Call Example
 
@@ -53,6 +74,8 @@ ironbug = await call_tool("detailed_hvac_create_model", {
 
 # Create the source-backed Ironbug components listed in MCP Tool Chain above.
 # Keep the returned targets and pass those targets into later create/apply calls.
+# Use overwrite=True on stable detailed_hvac_* identifiers so recovery attempts
+# do not rebuild the whole HVAC graph after a single failed step.
 
 applied = await call_tool("detailed_hvac_apply_to_honeybee_model", {
     "garden_root": garden_root,
@@ -99,8 +122,11 @@ return {
 
 Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
 `ironbug_model_target`, `detailed_hvac_target`, `energy_status`, `eui`,
-`err_path`, `sql_path`, and `blocker`. `energy_status` must be `completed` and
-`eui` must be non-null for a pass.
+`err_path`, `sql_path`, `python_ironbug_console_runtime`, and `blocker`.
+`energy_status` must be `completed` and `eui` must be non-null for a pass.
+The runtime evidence must include `simulation_input_kind="openstudio_osm"`,
+a Garden-relative `.osm` `runtime_model_path`, `compiled_room_count == 4`,
+empty `writer_diagnostics`, and `csharp_ironbug_console_required=false`.
 
 ## Code Mode Return Example
 
@@ -115,6 +141,12 @@ Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
   "eui": 123.456,
   "err_path": "runs/energy/vav_reheat_four_room_run/annual_energy_use/run/eplusout.err",
   "sql_path": "runs/energy/vav_reheat_four_room_run/annual_energy_use/run/eplusout.sql",
+  "python_ironbug_console_runtime": {
+    "simulation_input_kind": "openstudio_osm",
+    "runtime_model_path": "runs/energy/vav_reheat_four_room_run/pyironbug.osm",
+    "compiled_room_count": 4,
+    "csharp_ironbug_console_required": false
+  },
   "blocker": null
 }
 ```
@@ -127,4 +159,9 @@ the precise blocker and any available ERR/SQL paths instead of rebuilding the
 whole graph.
 
 Do not omit the central setpoint managers. Do not leave terminal reheat coils
-off the hot-water loop demand side.
+off the hot-water loop demand side. Do not use VAV no-reheat terminals for
+this case.
+Do not use one serial hot-water demand branch for Row 14 closure; it may
+complete EnergyPlus but is the wrong topology. Do not use a constant-speed
+hot-water pump for the correct parallel multi-reheat branch topology unless
+the task is explicitly testing a constant-flow bypass design.

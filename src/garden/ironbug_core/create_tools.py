@@ -594,6 +594,42 @@ def _store_system_object(
             ),
             replaced,
         )
+    if source_class == "IB_EnergyManagementSystem":
+        replaced = model.EnergyManagementSystem is not None
+        if replaced and not overwrite:
+            raise ValueError(
+                "Ironbug model already has an EnergyManagementSystem. "
+                "Pass overwrite=true to replace it."
+            )
+        model.EnergyManagementSystem = obj
+        return (
+            make_ironbug_model_object_target(
+                model_target=model_target,
+                object_type="energy_management_system",
+                object_path="EnergyManagementSystem",
+                source_class=source_class,
+                identifier=identifier,
+            ),
+            replaced,
+        )
+    if source_class == "IB_ElectricLoadCenter":
+        replaced = model.ElectricLoadCenter is not None
+        if replaced and not overwrite:
+            raise ValueError(
+                "Ironbug model already has an ElectricLoadCenter. "
+                "Pass overwrite=true to replace it."
+            )
+        model.ElectricLoadCenter = obj
+        return (
+            make_ironbug_model_object_target(
+                model_target=model_target,
+                object_type="electric_load_center",
+                object_path="ElectricLoadCenter",
+                source_class=source_class,
+                identifier=identifier,
+            ),
+            replaced,
+        )
     if model.HVACSystem is None:
         raise ValueError(
             "Ironbug model has no HVACSystem. Create one with "

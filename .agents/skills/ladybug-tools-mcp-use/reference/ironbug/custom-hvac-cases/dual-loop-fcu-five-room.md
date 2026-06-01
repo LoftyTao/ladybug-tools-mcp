@@ -22,9 +22,11 @@ Use the five-room FCU-only path.
 1. For Room1 through Room5, create matching ThermalZone, OnOff fan, hot-water
    coil, chilled-water coil, and four-pipe FCU.
 2. Create one chilled-water loop with pump + district cooling serving all five
-   cooling coils.
+   cooling coils. Pass demand as singleton parallel branches:
+   `[[cooling_coil_1], [cooling_coil_2], ...]`.
 3. Create one hot-water loop with pump + district-heating-water serving all
-   five heating coils.
+   five heating coils. Pass demand as singleton parallel branches:
+   `[[heating_coil_1], [heating_coil_2], ...]`.
 4. Apply, run Energy, read EUI/ERR/SQL.
 
 ## Code Mode Call Example

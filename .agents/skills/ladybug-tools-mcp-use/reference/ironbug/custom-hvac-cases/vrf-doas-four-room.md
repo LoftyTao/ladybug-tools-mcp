@@ -1,5 +1,11 @@
 # Case Skill: vrf_doas_four_room
 
+Python Ironbug Console matrix status: accepted on the direct OSM runtime path.
+The accepted path writes four room-linked OpenStudio VRF terminals, one VRF
+outdoor unit, four no-reheat DOAS terminals, one AirLoopHVAC outdoor-air system,
+and the outdoor-air controllers through `pyironbug.osm`; it must not call C#
+`Ironbug.Console` or use a Honeybee template HVAC surrogate.
+
 ## Applicable Scenario
 
 Use this case when the request matches the retained prompt: `对 Room1 到 Room4 添加 VRF，并加新风系统。`. Keep the system family and served-room list exactly aligned with this case (["Room1", "Room2", "Room3", "Room4"]) unless you intentionally switch to the family workflow for a variant.
@@ -95,8 +101,11 @@ return {
 
 Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
 `ironbug_model_target`, `detailed_hvac_target`, `energy_status`, `eui`,
-`err_path`, `sql_path`, and `blocker`. `energy_status` must be `completed` and
-`eui` must be non-null for a pass.
+`err_path`, `sql_path`, `python_ironbug_console_runtime`, and `blocker`.
+`energy_status` must be `completed` and `eui` must be non-null for a pass.
+The runtime evidence must include `simulation_input_kind="openstudio_osm"`, a
+Garden-relative `.osm` `runtime_model_path`, `compiled_room_count == 4`,
+`writer_diagnostics == []`, and `csharp_ironbug_console_required == false`.
 
 ## Code Mode Return Example
 
@@ -111,6 +120,13 @@ Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
   "eui": 123.456,
   "err_path": "runs/energy/vrf_doas_four_room_run/annual_energy_use/run/eplusout.err",
   "sql_path": "runs/energy/vrf_doas_four_room_run/annual_energy_use/run/eplusout.sql",
+  "python_ironbug_console_runtime": {
+    "status": "translated",
+    "simulation_input_kind": "openstudio_osm",
+    "runtime_model_path": "runs/energy/vrf_doas_four_room_run/pyironbug.osm",
+    "compiled_room_count": 4,
+    "csharp_ironbug_console_required": false
+  },
   "blocker": null
 }
 ```

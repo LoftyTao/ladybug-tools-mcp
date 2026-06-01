@@ -12,7 +12,8 @@ Use this case when the request matches the retained prompt: `对 Room1 和 Room2
 ## Case Preconditions
 
 - Load `index.md` and `../ironbug-room-energy-preconditions.md` first.
-- The Garden must already contain configured Rooms Room1, Room2 in the base Honeybee Model, or an explicitly retained Dragonfly path for the same rooms.
+- For the Python Ironbug Console matrix, start from a fresh Garden when the user asks for a complete MCP proof. Create the Honeybee Model, Room1, Room2, setpoint, and weather evidence through Ladybug Tools MCP in that Garden.
+- A retained prepared Garden is still valid for replay or diagnosis only if it already contains configured Rooms Room1 and Room2 in the base Honeybee Model, or an explicitly retained Dragonfly path for the same rooms.
 - Use the current Honeybee DetailedHVAC route for this retained case unless the test is intentionally validating a Dragonfly variant.
 
 ## MCP Tool Chain
@@ -29,11 +30,17 @@ Repeat the PTHP path for Room1 and Room2.
 
 ```python
 # Inside Ladybug Tools MCP Code Mode execute.
-garden_root = "D:/path/to/prepared-garden"
+garden_root = "D:/path/to/artifact-garden"
 case_id = "pthp_two_room"
 rooms = ["Room1", "Room2"]
 
-base = await call_tool("garden_get_base_honeybee_model", {"garden_root": garden_root})
+# Create or reuse the case Garden and create Room1 / Room2 through MCP before
+# applying the Ironbug HVAC. For matrix acceptance, do not assume a prebuilt
+# Honeybee Model unless the retained artifact explicitly says so.
+base = await call_tool("honeybee_create_model", {
+    "garden_root": garden_root,
+    "identifier": case_id + "_model",
+})
 ironbug = await call_tool("detailed_hvac_create_model", {
     "garden_root": garden_root,
     "identifier": case_id,
@@ -54,7 +61,7 @@ applied = await call_tool("detailed_hvac_apply_to_honeybee_model", {
 run = await call_tool("energyplus_start_simulation", {
     "garden_root": garden_root,
     "model_target": applied["updated_model_target"],
-    "weather_target": "<prepared Garden weather_file target>",
+    "weather_target": "<weather_file target created or downloaded in this Garden>",
     "run_id": case_id + "_run",
 })
 status = await call_tool("energyplus_poll_simulation", {
@@ -73,38 +80,80 @@ eui = await call_tool("energyplus_read_eui", {
 })
 return {
     "case_id": case_id,
-    "garden_root": garden_root,
+    "status": "mimo-v25-case-pass",
+    "garden_target": "<garden target>",
+    "building_model_target": base["target"],
     "rooms": rooms,
     "ironbug_model_target": ironbug["target"],
-    "detailed_hvac_target": applied.get("detailed_hvac_target"),
+    "detailed_hvac_application": {
+        "status": "applied",
+        "model_target": base["target"],
+        "ironbug_model_target": ironbug["target"],
+        "updated_model_target": applied["updated_model_target"],
+    },
+    "energy_run_id": run["target"]["run_id"],
+    "energy_run_target": run["target"],
     "energy_status": status["summary_view"]["status"],
-    "eui": eui.get("eui"),
-    "err_path": "<extract eplusout.err from outputs>",
-    "sql_path": "<extract eplusout.sql from outputs>",
+    "eui": {"total": eui["eui"], "run_id": run["target"]["run_id"]},
+    "err": "<structured ERR exists/path/warning/severe/fatal summary>",
+    "sql": "<structured SQL exists/path/run_id summary>",
+    "python_ironbug_console_runtime": status.get("python_ironbug_console_runtime"),
+    "compliant_numeric_result": True,
+    "rerun_command": "<minimum pytest rerun command>",
     "blocker": None,
 }
 ```
 
 ## Expected MCP Return
 
-Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
-`ironbug_model_target`, `detailed_hvac_target`, `energy_status`, `eui`,
-`err_path`, `sql_path`, and `blocker`. `energy_status` must be `completed` and
-`eui` must be non-null for a pass.
+Return compact JSON-compatible evidence with `case_id`, `status`,
+`garden_target`, `building_model_target`, `rooms`, `ironbug_model_target`,
+`detailed_hvac_application`, `energy_run_id`, `energy_run_target`,
+`energy_status`, structured `eui`, structured `err`, structured `sql`,
+`python_ironbug_console_runtime`, `compliant_numeric_result`, `rerun_command`,
+and `blocker`. `energy_status` must be `completed`,
+`python_ironbug_console_runtime.csharp_ironbug_console_required` must be false,
+and `eui.total` must be non-null for a pass.
 
 ## Code Mode Return Example
 
 ```jsonc
 {
   "case_id": "pthp_two_room",
-  "garden_root": "D:/path/to/prepared-garden",
+  "status": "mimo-v25-case-pass",
+  "garden_target": {"target_type": "garden", "garden_id": "<garden_id>"},
+  "building_model_target": {"target_type": "honeybee_model", "path": "<hbjson path>"},
   "rooms": ["Room1", "Room2"],
-  "ironbug_model_target": "<detailed_hvac_create_model.target>",
-  "detailed_hvac_target": "<detailed_hvac_apply_to_honeybee_model.detailed_hvac_target>",
+  "ironbug_model_target": {"target_type": "ironbug_model", "path": "<ibjson path>"},
+  "detailed_hvac_application": {
+    "status": "applied",
+    "model_target": {"target_type": "honeybee_model", "path": "<source hbjson path>"},
+    "ironbug_model_target": {"target_type": "ironbug_model", "path": "<ibjson path>"},
+    "updated_model_target": {"target_type": "honeybee_model", "path": "<updated hbjson path>"}
+  },
+  "energy_run_id": "<energy_run_id>",
+  "energy_run_target": {"target_type": "energy_run", "run_id": "<energy_run_id>"},
   "energy_status": "completed",
-  "eui": 123.456,
-  "err_path": "runs/energy/pthp_two_room_run/annual_energy_use/run/eplusout.err",
-  "sql_path": "runs/energy/pthp_two_room_run/annual_energy_use/run/eplusout.sql",
+  "eui": {"total": 123.456, "run_id": "<energy_run_id>"},
+  "err": {
+    "exists": true,
+    "path": "runs/energy/<energy_run_id>/annual_energy_use/run/eplusout.err",
+    "warning_count": 0,
+    "severe_count": 0,
+    "fatal_count": 0
+  },
+  "sql": {
+    "exists": true,
+    "path": "runs/energy/<energy_run_id>/annual_energy_use/run/eplusout.sql",
+    "run_id": "<energy_run_id>"
+  },
+  "python_ironbug_console_runtime": {
+    "status": "translated",
+    "csharp_ironbug_console_required": false,
+    "conversion_count": 2
+  },
+  "compliant_numeric_result": true,
+  "rerun_command": "<minimum pytest rerun command>",
   "blocker": null
 }
 ```
@@ -112,9 +161,18 @@ Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
 ## Case Notes
 
 Acceptance requires Ironbug DetailedHVAC application plus standard
-Ladybug Tools MCP Energy simulation and EUI readback. If the run fails, return
-the precise blocker and any available ERR/SQL paths instead of rebuilding the
-whole graph.
+Ladybug Tools MCP Energy simulation and same-run EUI/ERR/SQL readback. For
+Python-only matrix acceptance, the run must be under
+`LBT_REQUIRE_PYTHON_IRONBUG_CONSOLE_ONLY=1`, must report
+`csharp_ironbug_console_required=false`, and must have positive finite EUI,
+ERR severe/fatal counts of 0, and SQL present. If the run fails, return the
+precise blocker and any available ERR/SQL paths instead of rebuilding the whole
+graph.
+
+This operation path is projected from
+`docs/llm-wiki/evidence/python-ironbug-console-matrix-2026-05-29.md`; keep run
+ids, EUI values, ERR counts, token/cost, and artifact paths in that evidence
+page rather than copying them into this Skill.
 
 Do not share one PTHP between rooms. Do not create hydronic loops, DOAS, or
 AirLoopHVAC.

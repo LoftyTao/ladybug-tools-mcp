@@ -172,7 +172,11 @@ def register(mcp: FastMCP) -> None:
                     "branch; a nested list such as [[chiller_1_target], "
                     "[chiller_2_target, chiller_3_target]] creates multiple "
                     "parallel branches, each preserving its inner serial "
-                    "component order."
+                    "component order. This branch-shape rule applies to all "
+                    "plant-loop components; when separate chillers, heat "
+                    "exchangers, towers, tanks, or loads should be parallel, "
+                    "use one inner list per component or per intended serial "
+                    "group."
                 )
             ),
         ] = None,

@@ -19,15 +19,29 @@ Use this case when the request matches the retained prompt: `对 Room1 添加 PT
 
 Use Room1 only.
 
-1. Create one `detailed_hvac_thermal_zone` with `identifier="Room1"` and
-   `name="Room1"`.
-2. Create `detailed_hvac_fan_on_off` with autosized maximum flow.
-3. Create `detailed_hvac_coil_heating_electric`.
-4. Create `detailed_hvac_coil_cooling_dx_single_speed`.
-5. Create `detailed_hvac_zone_equipment_ptac` with
+1. Create the Ironbug model with `detailed_hvac_create_model` and keep its
+   returned `target`.
+2. Create one `detailed_hvac_thermal_zone` with the same
+   `ironbug_model_target`, `identifier="Room1"`, and `name="Room1"`. Do not
+   pass `room_identifier`.
+3. Create `detailed_hvac_fan_on_off` with the same `ironbug_model_target` and
+   autosized maximum flow.
+4. Create `detailed_hvac_coil_heating_electric` with the same
+   `ironbug_model_target`.
+5. Create `detailed_hvac_coil_cooling_dx_single_speed` with the same
+   `ironbug_model_target`.
+6. Create `detailed_hvac_zone_equipment_ptac` with the same
+   `ironbug_model_target`,
    the fan, heating coil, cooling coil, and ThermalZone targets. Autosize
-   cooling/heating/no-load supply air flow rates.
-6. Apply to the Honeybee model, run standard Energy, read EUI, ERR, and SQL.
+   cooling/heating/no-load supply air flow rates. The fan argument is
+   `fan_target`, not `supply_fan_target`.
+7. Apply to the Honeybee model, run standard Energy, read EUI, ERR, and SQL.
+
+For a fresh Python Ironbug Console case, create the Honeybee Model first and pass
+that model target into `honeybee_create_room`. Configure Room1 with
+`program_type="Generic Office Program"` and pass the `energy_create_setpoint`
+returned target as `setpoint`; do not create a ProgramType unless the user asks
+for a custom one.
 
 ## Code Mode Call Example
 
@@ -119,6 +133,11 @@ Acceptance requires Ironbug DetailedHVAC application plus standard
 Ladybug Tools MCP Energy simulation and EUI readback. If the run fails, return
 the precise blocker and any available ERR/SQL paths instead of rebuilding the
 whole graph.
+
+Use the standard Energy tool argument names: `energyplus_start_simulation`
+receives `model_target`, while poll/list/read tools should use the returned
+`run_target` or a schema-supported run id field. Avoid ad hoc result-shape
+probing; Code Mode `await call_tool(...)` returns the tool result dict.
 
 Do not create plant loops, DOAS, AirLoopHVAC, NoAirLoop, load-profile plant
 demand, or Ironbug-only simulation runs.

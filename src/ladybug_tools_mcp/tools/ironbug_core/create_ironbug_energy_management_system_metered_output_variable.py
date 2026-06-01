@@ -71,6 +71,15 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description='Name of the EMS variable or local Erl variable to expose as a metered output variable.'),
         ] = None,
+        ems_program_or_subroutine_name: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional EMS Program or Subroutine name that owns the local Erl variable "
+                    "referenced by ems_variable_name."
+                )
+            ),
+        ] = None,
         name: Annotated[
             str | None,
             Field(description='User-facing EnergyPlus output variable name that will appear in reporting outputs.'),
@@ -118,6 +127,7 @@ def register(mcp: FastMCP) -> None:
             ems_program_target,
         ]
         source_fields: dict[str, Any] = {}
+        custom_attributes: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}
         source_properties: dict[str, Any] = {}
         if name is not None:
@@ -136,6 +146,10 @@ def register(mcp: FastMCP) -> None:
             source_fields['Units'] = units
         if ems_variable_name is not None:
             source_fields['EMSVariableName'] = ems_variable_name
+        if ems_program_or_subroutine_name is not None:
+            custom_attributes['EMSProgramOrSubroutineName'] = (
+                ems_program_or_subroutine_name
+            )
         return create_source_backed_ironbug_object(
             garden_root=garden_root,
             ironbug_model_target=ironbug_model_target,
@@ -143,6 +157,7 @@ def register(mcp: FastMCP) -> None:
             identifier=identifier,
             display_name=display_name,
             source_fields=source_fields or None,
+            custom_attributes=custom_attributes or None,
             source_field_targets=source_field_targets or None,
             source_properties=source_properties or None,
             child_targets=child_targets if any(item is not None for item in child_targets) else None,

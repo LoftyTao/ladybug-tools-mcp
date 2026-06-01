@@ -65,8 +65,11 @@ run only as the acceptance check for EUI/ERR/SQL evidence.
 
 ## Shared Acceptance
 
-Every case must create Ironbug HVAC through public `create_ironbug_*` tools,
-apply with `detailed_hvac_apply_to_honeybee_model`, run standard Energy,
-read EUI, and return true `.err` / `.sql` paths. Do not substitute `.ibjson`,
+Every case must create Ironbug HVAC through public `detailed_hvac_*` or
+source-backed Ironbug tools, apply with `detailed_hvac_apply_to_honeybee_model`,
+run standard Energy,
+read EUI, and return true `.err` / `.sql` paths. Python Console acceptance also
+requires runtime evidence with `simulation_input_kind="openstudio_osm"` and
+`csharp_ironbug_console_required=false`. Do not substitute `.ibjson`,
 validation, DetailedHVAC object creation, OpenStudio translation, or historical
 artifact evidence for a completed Energy run.

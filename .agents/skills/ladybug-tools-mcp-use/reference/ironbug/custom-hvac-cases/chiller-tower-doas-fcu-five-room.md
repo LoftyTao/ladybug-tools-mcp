@@ -31,9 +31,9 @@ Then:
 3. Create condenser pump + variable-speed cooling tower.
 4. Create condenser-water loop with chiller as demand.
 5. Create chilled-water loop with chiller on supply and all FCU cooling coils
-   as demand.
+   as demand, using one inner branch list per coil.
 6. Create hot-water loop with district-heating-water and all FCU heating coils
-   as demand.
+   as demand, using one inner branch list per coil.
 7. Apply, run Energy, read EUI/ERR/SQL.
 
 ## Code Mode Call Example

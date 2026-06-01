@@ -13,14 +13,19 @@ Use this case when the request matches the retained prompt: `对 Room1 添加冷
 
 - Load `index.md` and `../ironbug-room-energy-preconditions.md` first.
 - The Garden must already contain configured Rooms Room1 in the base Honeybee Model, or an explicitly retained Dragonfly path for the same rooms.
-- Use the current Honeybee DetailedHVAC route for this retained case unless the test is intentionally validating a Dragonfly variant.
+- Use the Honeybee DetailedHVAC route for this retained case unless the test is intentionally validating a Dragonfly variant.
+- Acceptance requires Python Console direct OpenStudio OSM runtime evidence. Do
+  not accept C# `Ironbug.Console`, Honeybee template HVAC, or runtime HBJSON
+  surrogate evidence for this case.
 
 ## MCP Tool Chain
 
 1. Create Room1 ThermalZone, FCU fan, hot-water coil, chilled-water coil, and
    four-pipe FCU.
-2. Create water-cooled chiller.
-3. Create condenser pump and variable-speed cooling tower.
+2. Create water-cooled `IB_ChillerElectricEIR` with autosized reference
+   capacity, reference COP around 5.5, water-cooled condenser intent, and chilled
+   water leaving temperature around 6.7 C.
+3. Create condenser pump and `IB_CoolingTowerVariableSpeed`.
 4. Create condenser-water loop with pump + tower on supply and chiller on
    demand.
 5. Create chilled-water loop with pump + chiller on supply and FCU cooling coil
@@ -93,8 +98,31 @@ return {
 
 Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
 `ironbug_model_target`, `detailed_hvac_target`, `energy_status`, `eui`,
-`err_path`, `sql_path`, and `blocker`. `energy_status` must be `completed` and
-`eui` must be non-null for a pass.
+`err_path`, `sql_path`, `python_ironbug_console_runtime`, and `blocker`.
+`energy_status` must be `completed` and `eui` must be non-null for a pass.
+`python_ironbug_console_runtime` must show:
+
+- `status == "translated"`.
+- `compiler_stage == "detailed_hvac_specification_to_openstudio_model"`.
+- `compiler_output_kind == "openstudio_model"`.
+- `simulation_input_kind == "openstudio_osm"`.
+- A Garden-relative `.osm` runtime model path, normally `pyironbug.osm` under
+  the Energy run directory.
+- Empty writer diagnostics.
+- `csharp_ironbug_console_required == false`.
+
+Writer evidence must include at least:
+
+- `IB_ZoneHVACFourPipeFanCoil -> OS:ZoneHVAC:FourPipeFanCoil`.
+- `IB_CoilCoolingWater -> OS:Coil:Cooling:Water`.
+- `IB_CoilHeatingWater -> OS:Coil:Heating:Water`.
+- `IB_FanOnOff -> OS:Fan:OnOff`.
+- `IB_PlantLoop -> OS:PlantLoop`.
+- `IB_PumpConstantSpeed -> OS:Pump:ConstantSpeed`.
+- `IB_ChillerElectricEIR -> OS:Chiller:Electric:EIR`.
+- `IB_CoolingTowerVariableSpeed -> OS:CoolingTower:VariableSpeed`.
+- `IB_DistrictHeatingWater -> OS:DistrictHeating:Water`.
+- `IB_SetpointManagerScheduled -> OS:SetpointManager:Scheduled`.
 
 ## Code Mode Return Example
 
@@ -109,6 +137,15 @@ Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
   "eui": 123.456,
   "err_path": "runs/energy/chiller_fcu_single_run/annual_energy_use/run/eplusout.err",
   "sql_path": "runs/energy/chiller_fcu_single_run/annual_energy_use/run/eplusout.sql",
+  "python_ironbug_console_runtime": {
+    "status": "translated",
+    "runtime_model_path": "runs/energy/chiller_fcu_single_run/pyironbug.osm",
+    "compiler_stage": "detailed_hvac_specification_to_openstudio_model",
+    "compiler_output_kind": "openstudio_model",
+    "simulation_input_kind": "openstudio_osm",
+    "writer_diagnostics": [],
+    "csharp_ironbug_console_required": false
+  },
   "blocker": null
 }
 ```
@@ -116,9 +153,9 @@ Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
 ## Case Notes
 
 Acceptance requires Ironbug DetailedHVAC application plus standard
-Ladybug Tools MCP Energy simulation and EUI readback. If the run fails, return
-the precise blocker and any available ERR/SQL paths instead of rebuilding the
-whole graph.
+Ladybug Tools MCP Energy simulation and EUI readback from the Python Console
+OSM runtime. If the run fails, return the precise blocker and any available
+ERR/SQL paths instead of rebuilding the whole graph.
 
 Do not create DOAS or AirLoopHVAC. Do not use load-profile plant demand,
 generic PlantLoop, or Ironbug-only simulation runs.

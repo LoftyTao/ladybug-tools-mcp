@@ -30,6 +30,31 @@ Keep dependent calls inside one Code Mode `execute` block:
 `ironbug_model_target`; do not call it with only `garden_root` and
 `object_type="model"`.
 
+## ElectricLoadCenter Notes
+
+For PVWatts or other generator workflows, create the generator, inverter, and
+`IB_ElectricLoadCenterDistribution`, then wrap the distribution with the root
+`detailed_hvac_electric_load_center` tool before applying DetailedHVAC. During
+verification, inspect the runtime compiler writer families and OSM object
+presence: accepted compile evidence should include `electric_load_center` and
+`OS:Generator:*` / `OS:ElectricLoadCenter:*` objects, not only `.ibjson`
+validation.
+
+For a first-stage PVWatts comparison against an Ideal Air baseline, set the
+room-linked `IB_ThermalZone` `UseIdealAirLoads=True` so the Python Console
+emits `OS:ZoneHVAC:IdealLoadsAirSystem`. Otherwise NoAirLoop PV variants can
+produce valid PV SQL outputs but report `conditioned_floor_area=0.0`, which is
+not a comparable EUI case.
+
+For simple battery storage, bind `IB_ElectricLoadCenterStorageSimple` through
+`electrical_storage_target` and `IB_ElectricLoadCenterStorageConverter` through
+`storage_converter_target` on `detailed_hvac_electric_load_center_distribution`.
+Use an ElectricLoadCenter buss type that matches the PV/storage arrangement,
+such as `DirectCurrentWithInverterDCStorage` for PVWatts with DC storage. If
+using `FacilityDemandLeveling`, choose a utility demand target low enough to
+exercise discharge; otherwise the run can be valid but show charge-only
+storage behavior.
+
 ## DetailedHVAC Handoff
 
 Honeybee:
@@ -43,6 +68,19 @@ Honeybee:
    selection mode: `room_targets`, `room_identifiers`, or
    `apply_to_all_rooms=True`.
 5. Use `updated_model_target` for later Honeybee validation or Energy runs.
+
+Minimal no-air-loop Energy closure:
+
+- For a row-1-style no-air-loop EnergyPlus closure, do not stop at
+  DetailedHVAC application and do not treat an empty `IB_NoAirLoop` shell as
+  runnable HVAC evidence.
+- Create a Honeybee Room with ProgramType and thermostat Setpoint, create a
+  room-matching `IB_ThermalZone`, set its `use_ideal_air_loads=True`, wrap that
+  ThermalZone with `detailed_hvac_no_air_loop`, apply DetailedHVAC to the
+  Honeybee Room, then run the standard EnergyPlus workflow and read ERR, SQL,
+  and EUI.
+- Treat this as a minimal no-air-loop / ideal-loads closure, not evidence for a
+  real zone-equipment system.
 
 Dragonfly:
 

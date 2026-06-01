@@ -100,6 +100,15 @@ Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
 `err_path`, `sql_path`, and `blocker`. `energy_status` must be `completed` and
 `eui` must be non-null for a pass.
 
+When the Python Console guard is enabled, also return or preserve the
+`python_ironbug_console_runtime` ledger evidence from the Energy run. It must
+show `status == "translated"`, `simulation_input_kind == "openstudio_osm"`,
+`compiler_output_kind == "openstudio_model"`,
+`csharp_ironbug_console_required == false`, `compiled_room_count == 3`,
+`writer_diagnostics == []`, and writer families including
+`air_loop_unitary`, `air_loops`, `air_terminals`, `terminal_components`,
+`sizing`, and `thermal_zone`.
+
 ## Code Mode Return Example
 
 ```jsonc
@@ -126,3 +135,8 @@ whole graph.
 
 Do not use `detailed_hvac_air_loop_unitary_heat_pump_air_to_air`; retained
 Energy used the unitary-system wrapper.
+
+Do not substitute a Honeybee template HVAC system for this case. The accepted
+path is a Python Console direct OSM path with one
+`AirLoopHVAC:UnitarySystem`, three constant-volume no-reheat air terminals, DX
+cooling/heating coils, an OnOff fan, and electric supplemental heat.

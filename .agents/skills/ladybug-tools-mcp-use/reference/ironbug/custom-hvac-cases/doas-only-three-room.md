@@ -4,6 +4,10 @@
 
 Use this case when the request matches the retained prompt: `对 Room1 到 Room3 添加只送新风的 DOAS。`. Keep the system family and served-room list exactly aligned with this case (["Room1", "Room2", "Room3"]) unless you intentionally switch to the family workflow for a variant.
 
+Status: accepted for the direct Python Ironbug Console OpenStudio OSM path. The
+Energy model must be produced as `pyironbug.osm`; do not use the C# Console or a
+Honeybee template HVAC surrogate.
+
 ## User Prompt And Keywords
 
 - Prompt: `对 Room1 到 Room3 添加只送新风的 DOAS。`
@@ -93,8 +97,12 @@ return {
 
 Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
 `ironbug_model_target`, `detailed_hvac_target`, `energy_status`, `eui`,
-`err_path`, `sql_path`, and `blocker`. `energy_status` must be `completed` and
-`eui` must be non-null for a pass.
+`err_path`, `sql_path`, `python_ironbug_console_runtime`, and `blocker`.
+`energy_status` must be `completed` and `eui` must be non-null for a pass.
+`python_ironbug_console_runtime` must report `status == "translated"`,
+`simulation_input_kind == "openstudio_osm"`, a `runtime_model_path` ending in
+`pyironbug.osm`, `compiled_room_count == 3`, and
+`csharp_ironbug_console_required == false`.
 
 ## Code Mode Return Example
 
@@ -109,6 +117,21 @@ Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
   "eui": 123.456,
   "err_path": "runs/energy/doas_only_three_room_run/annual_energy_use/run/eplusout.err",
   "sql_path": "runs/energy/doas_only_three_room_run/annual_energy_use/run/eplusout.sql",
+  "python_ironbug_console_runtime": {
+    "status": "translated",
+    "simulation_input_kind": "openstudio_osm",
+    "runtime_model_path": "runs/energy/doas_only_three_room_run/pyironbug.osm",
+    "compiled_room_count": 3,
+    "csharp_ironbug_console_required": false,
+    "expected_openstudio_objects": {
+      "OS:AirLoopHVAC": 1,
+      "OS:AirLoopHVAC:OutdoorAirSystem": 1,
+      "OS:Controller:OutdoorAir": 1,
+      "OS:Controller:MechanicalVentilation": 1,
+      "OS:Fan:ConstantVolume": 1,
+      "OS:AirTerminal:SingleDuct:ConstantVolume:NoReheat": 3
+    }
+  },
   "blocker": null
 }
 ```
@@ -116,9 +139,9 @@ Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
 ## Case Notes
 
 Acceptance requires Ironbug DetailedHVAC application plus standard
-Ladybug Tools MCP Energy simulation and EUI readback. If the run fails, return
-the precise blocker and any available ERR/SQL paths instead of rebuilding the
-whole graph.
+Ladybug Tools MCP Energy simulation and EUI readback from the Python Console
+OSM. If the run fails, return the precise blocker and any available ERR/SQL
+paths instead of rebuilding the whole graph.
 
 Do not bind `oa_stream_targets` to ThermalZones or branches. Do not create FCUs,
 plant loops, or load-profile demand.

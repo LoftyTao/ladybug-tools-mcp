@@ -1,5 +1,11 @@
 # Case Skill: vrf_single
 
+Python Ironbug Console matrix status: accepted on the direct OSM runtime path.
+The accepted path writes one OpenStudio VRF outdoor unit, one VRF terminal, VRF
+DX cooling/heating coils, an OnOff fan, and a room-linked ThermalZone through
+`pyironbug.osm`; it must not call C# `Ironbug.Console` or use a Honeybee
+template HVAC surrogate.
+
 ## Applicable Scenario
 
 Use this case when the request matches the retained prompt: `对 Room1 添加 VRF 空调系统。`. Keep the system family and served-room list exactly aligned with this case (["Room1"]) unless you intentionally switch to the family workflow for a variant.
@@ -90,8 +96,11 @@ return {
 
 Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
 `ironbug_model_target`, `detailed_hvac_target`, `energy_status`, `eui`,
-`err_path`, `sql_path`, and `blocker`. `energy_status` must be `completed` and
-`eui` must be non-null for a pass.
+`err_path`, `sql_path`, `python_ironbug_console_runtime`, and `blocker`.
+`energy_status` must be `completed` and `eui` must be non-null for a pass.
+The runtime evidence must include `simulation_input_kind="openstudio_osm"`, a
+Garden-relative `.osm` `runtime_model_path`, `compiled_room_count == 1`,
+`writer_diagnostics == []`, and `csharp_ironbug_console_required == false`.
 
 ## Code Mode Return Example
 
@@ -106,6 +115,13 @@ Return compact JSON-compatible evidence with `case_id`, `garden_root`, `rooms`,
   "eui": 123.456,
   "err_path": "runs/energy/vrf_single_run/annual_energy_use/run/eplusout.err",
   "sql_path": "runs/energy/vrf_single_run/annual_energy_use/run/eplusout.sql",
+  "python_ironbug_console_runtime": {
+    "status": "translated",
+    "simulation_input_kind": "openstudio_osm",
+    "runtime_model_path": "runs/energy/vrf_single_run/pyironbug.osm",
+    "compiled_room_count": 1,
+    "csharp_ironbug_console_required": false
+  },
   "blocker": null
 }
 ```

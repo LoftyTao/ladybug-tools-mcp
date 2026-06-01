@@ -2,7 +2,7 @@
 
 ## Applicable Scenario
 
-Use this case when the request matches the retained prompt: `对 Room1 到 Room4 添加 VAV 中央空调，不要再热。`. Keep the system family and served-room list exactly aligned with this case (["Room1", "Room2", "Room3", "Room4"]) unless you intentionally switch to the family workflow for a variant.
+Use this case when the request matches the prompt: `对 Room1 到 Room4 添加 VAV 中央空调，不要再热。`. Keep the system family and served-room list exactly aligned with this case (["Room1", "Room2", "Room3", "Room4"]) unless you intentionally switch to the family workflow for a variant.
 
 ## User Prompt And Keywords
 
@@ -13,7 +13,8 @@ Use this case when the request matches the retained prompt: `对 Room1 到 Room4
 
 - Load `index.md` and `../ironbug-room-energy-preconditions.md` first.
 - The Garden must already contain configured Rooms Room1, Room2, Room3, Room4 in the base Honeybee Model, or an explicitly retained Dragonfly path for the same rooms.
-- Use the current Honeybee DetailedHVAC route for this retained case unless the test is intentionally validating a Dragonfly variant.
+- Use the current Honeybee DetailedHVAC route for this case unless the test is intentionally validating a Dragonfly variant.
+- Current status: deterministic Energy pass only; Mimo retained pass is pending.
 
 ## MCP Tool Chain
 
@@ -27,13 +28,12 @@ Central supply order:
 
 1. Cooling water coil.
 2. Cooling scheduled setpoint manager around 13 C.
-3. Heating water coil.
-4. Heating scheduled setpoint manager around 32 C.
-5. Variable-volume supply fan.
+3. Variable-volume supply fan.
 
-Create AirLoopBranches, AirLoopHVAC, chilled-water loop serving central cooling
-coil, and hot-water loop serving central heating coil only. Apply, run Energy,
-read EUI/ERR/SQL.
+Create AirLoopBranches, AirLoopHVAC, and a chilled-water loop serving the
+central cooling coil. Do not create a central heating coil, terminal reheat
+coil, hot-water loop, or district heating object for this no-reheat case.
+Apply, run Energy, read EUI/ERR/SQL.
 
 ## Code Mode Call Example
 
@@ -126,5 +126,6 @@ Ladybug Tools MCP Energy simulation and EUI readback. If the run fails, return
 the precise blocker and any available ERR/SQL paths instead of rebuilding the
 whole graph.
 
-Do not create terminal reheat coils. Do not omit the central scheduled setpoint
-managers.
+Do not create terminal reheat coils, a central heating water coil, a hot-water
+loop, or district heating. Do not omit the central cooling scheduled setpoint
+manager.
