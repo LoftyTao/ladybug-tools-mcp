@@ -80,7 +80,7 @@ eui = await call_tool("energyplus_read_eui", {
 })
 return {
     "case_id": case_id,
-    "status": "mimo-v25-case-pass",
+    "status": "accepted-case-pass",
     "garden_target": "<garden target>",
     "building_model_target": base["target"],
     "rooms": rooms,
@@ -120,7 +120,7 @@ and `eui.total` must be non-null for a pass.
 ```jsonc
 {
   "case_id": "pthp_two_room",
-  "status": "mimo-v25-case-pass",
+  "status": "accepted-case-pass",
   "garden_target": {"target_type": "garden", "garden_id": "<garden_id>"},
   "building_model_target": {"target_type": "honeybee_model", "path": "<hbjson path>"},
   "rooms": ["Room1", "Room2"],
@@ -169,10 +169,8 @@ ERR severe/fatal counts of 0, and SQL present. If the run fails, return the
 precise blocker and any available ERR/SQL paths instead of rebuilding the whole
 graph.
 
-This operation path is projected from
-`docs/llm-wiki/evidence/python-ironbug-console-matrix-2026-05-29.md`; keep run
-ids, EUI values, ERR counts, token/cost, and artifact paths in that evidence
-page rather than copying them into this Skill.
+Keep detailed evidence records in LLM-Wiki rather than copying them into this
+Skill.
 
 Do not share one PTHP between rooms. Do not create hydronic loops, DOAS, or
 AirLoopHVAC.

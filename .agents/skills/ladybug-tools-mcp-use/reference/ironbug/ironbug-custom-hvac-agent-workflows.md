@@ -94,25 +94,17 @@ Final JSON keys: `case_id`, `garden_root`, `rooms`, `energy_status`, `eui`,
   `UFactorTimesAreaAndDesignWaterFlowRate` need numeric
   `u_factor_times_area_value` and numeric `maximum_water_flow_rate` for
   Energy-ready FCU, reheat, and unit-heater paths.
-- Local passed/candidate from
-  `docs/llm-wiki/evidence/ironbug-next-round-tool-tests-2026-05-31`:
-  electric convective baseboard, electric radiant-convective baseboard,
-  water convective/radiant-convective baseboards, ZoneHVAC ERV,
-  air-cooled EIR chiller + FCU, repaired fluid-cooler
-  condenser-water loop + FCU, CV no-reheat + DOAS, CV reheat + boiler, and VAV
-  HeatAndCool no-reheat/reheat, plus unit ventilator cooling-only /
-  heating-only variants, PlantLoop EIR heat pump, parallel/series PIU reheat,
-  inlet-side mixer + FCU, cooled beam + DOAS, four-pipe beam, four-pipe
-  induction, high-temperature radiant, and low-temperature radiant
-  variable-flow, D2 two-speed DX unitary + Fan:SystemModel, D2 explicit
-  OAStream air-side ERV, D2 multi-speed heat pump + FanOnOff, D2 evaporative
-  DOAS, and D2 humidity/desiccant DOAS.
-  Treat these as local tool-test directions, not Agent-verified case playbooks.
-- Do not promote the same next-round cohort's blocked/partial records:
-  heat-recovery operation scheme is fidelity-partial, headered/tertiary pump
-  topology remains blocked.
-  Existing retained 24-case guidance remains separate when a specific case file
-  has its own pass evidence.
+- Local tool-test directions include electric and water baseboards, ZoneHVAC
+  ERV, air-cooled EIR chiller + FCU, repaired fluid-cooler condenser-water loop
+  + FCU, CV no-reheat + DOAS, CV reheat + boiler, VAV HeatAndCool
+  no-reheat/reheat, unit ventilator one-coil variants, PlantLoop EIR heat pump,
+  PIU reheat, inlet-side mixer + FCU, cooled beam + DOAS, beam/induction
+  terminals, radiant variants, two-speed and multi-speed unitary DX, explicit
+  OAStream ERV, evaporative DOAS, and humidity/desiccant DOAS. Treat these as
+  local tool-test directions unless a specific case file gives an accepted
+  natural-language path.
+- Do not promote blocked or partial records: heat-recovery operation scheme is
+  fidelity-partial, and headered/tertiary pump topology remains blocked.
 
 ## Family Selector
 
@@ -492,11 +484,10 @@ Supply side:
 Do not use `detailed_hvac_air_loop_unitary_heat_pump_air_to_air` for the
 retained Energy path.
 
-Local Codex-direct EnergyPlus pass: `IB_AirLoopHVACUnitarySystem` can accept a
+Local Codex-direct EnergyPlus rule: `IB_AirLoopHVACUnitarySystem` can accept a
 two-speed DX cooling coil, electric heating coil, and `IB_FanSystemModel` child
 combination. Keep the Fan:SystemModel flow-fraction curve nonblank in the
-runtime OSM; the retained compact rerun used a short run id and produced clean
-ERR/EUI/SQL evidence.
+runtime OSM and read ERR/EUI/SQL before calling the path accepted.
 
 ### Multi-Speed Heat Pump
 
@@ -534,7 +525,7 @@ Local Codex-direct EnergyPlus pass for a compact DOAS / exhaust scenario:
    `oa_stream_targets=[heat_exchanger_target]`.
 3. Do not use `heat_recovery_target` for the retained compact D2-B path.
 4. Keep zone exhaust as zone equipment on the matching `IB_ThermalZone`.
-5. Use a short run id on deep Windows artifact paths.
+5. Use a short run label on deep Windows artifact paths.
 
 Stop if the runtime OSM/IDF lacks
 `HeatExchanger:AirToAir:SensibleAndLatent` or the OutdoorAirSystem equipment

@@ -1,11 +1,8 @@
 # Ironbug EMS Storage Dispatch
 
-Status: deterministic-contract-pass with Codex-direct MCP verification. This is
-projected from
-`docs/llm-wiki/evidence/ems-ice-storage-fcu-doas-python-only-2026-05-30.md`
-and `docs/llm-wiki/workflows/ironbug-loop-topology-placement-guidance.md`.
-Do not call it Agent-verified or a recommended natural-language Agent path until
-a focused natural-language EMS storage Agent run passes.
+Status: deterministic-contract-pass with Codex-direct MCP verification. Do not
+call it Agent-verified or a recommended natural-language Agent path until a
+focused natural-language EMS storage Agent run passes.
 
 Use this reference when the user asks for an Ironbug EMS ice-storage or
 storage-dispatch demonstration and accepts an EMS proxy instead of native

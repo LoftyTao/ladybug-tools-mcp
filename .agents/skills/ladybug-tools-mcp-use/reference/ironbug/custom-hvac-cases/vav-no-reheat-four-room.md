@@ -14,7 +14,8 @@ Use this case when the request matches the prompt: `对 Room1 到 Room4 添加 V
 - Load `index.md` and `../ironbug-room-energy-preconditions.md` first.
 - The Garden must already contain configured Rooms Room1, Room2, Room3, Room4 in the base Honeybee Model, or an explicitly retained Dragonfly path for the same rooms.
 - Use the current Honeybee DetailedHVAC route for this case unless the test is intentionally validating a Dragonfly variant.
-- Current status: deterministic Energy pass only; Mimo retained pass is pending.
+- This case has deterministic Energy guidance only; do not call it an accepted
+  natural-language path until focused external validation passes.
 
 ## MCP Tool Chain
 

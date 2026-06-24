@@ -4,8 +4,8 @@
 
 Use this case when the request matches the retained prompt: `对 Room1 添加热水盘管单元加热器。`. Keep the system family and served-room list exactly aligned with this case (["Room1"]) unless you intentionally switch to the family workflow for a variant.
 
-Python Ironbug Console matrix status: `mimo-v25-case-pass` on the direct OSM
-runtime path. The accepted path must preserve exact OpenStudio
+Python Ironbug Console route: accepted on the direct OSM runtime path. The
+accepted path must preserve exact OpenStudio
 `ZoneHVAC:UnitHeater` fan/coil semantics; the older
 `Baseboard/DHWBaseboard` surrogate remains rejected diagnostic history only.
 
@@ -49,7 +49,7 @@ runtime path. The accepted path must preserve exact OpenStudio
   `rated_flow_rate`, `motor_efficiency`, and `pump_control_type`; do not use
   `nominal_flow_rate` or `nominal_head`.
 - `energyplus_start_simulation` uses `model_target`, not
-  `honeybee_model_target`. Read the run id from the returned run target.
+  `honeybee_model_target`. Use the returned run target for follow-up reads.
 - `energyplus_read_eui` exposes the positive EUI value at
   `eui_result["eui"]["eui"]`; do not let `total_energy == 0` overwrite the
   acceptance EUI value.
@@ -65,7 +65,7 @@ Return compact JSON-compatible evidence with `case_id`, `status`,
 `detailed_hvac_application`, optional `energy_run_id`, optional
 `energy_run_target`, optional structured `eui`, optional structured `err`,
 optional structured `sql`, `python_ironbug_console_runtime`, `rerun_command`,
-and `blocker`. For a pass, set `status` to `mimo-v25-case-pass`, make
+and `blocker`. For a pass, set `status` to `accepted-case-pass`, make
 `blocker` null, and include Python Console runtime evidence with
 `simulation_input_kind="openstudio_osm"`,
 `csharp_ironbug_console_required=false`, empty `writer_diagnostics`, and
@@ -83,10 +83,8 @@ severe/fatal counts of 0, SQL present, and must preserve exact UnitHeater
 semantics. If the runtime can only translate to `Baseboard/DHWBaseboard`, return
 the precise blocker and any available ERR/SQL paths instead of reporting a pass.
 
-This operation path is projected from
-`docs/llm-wiki/evidence/python-ironbug-console-matrix-2026-05-29.md`; keep run
-ids, EUI values, ERR counts, token/cost, and artifact paths in that evidence
-page rather than copying them into this Skill.
+Keep detailed evidence records in LLM-Wiki rather than copying them into this
+Skill.
 
 Do not use `detailed_hvac_district_heating`. Do not create DOAS, chilled-water
 loops, load-profile plant demand, or generic PlantLoop tools.

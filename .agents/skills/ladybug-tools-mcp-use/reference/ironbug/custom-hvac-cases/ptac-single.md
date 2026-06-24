@@ -136,7 +136,7 @@ whole graph.
 
 Use the standard Energy tool argument names: `energyplus_start_simulation`
 receives `model_target`, while poll/list/read tools should use the returned
-`run_target` or a schema-supported run id field. Avoid ad hoc result-shape
+`run_target` or another schema-supported run reference. Avoid ad hoc result-shape
 probing; Code Mode `await call_tool(...)` returns the tool result dict.
 
 Do not create plant loops, DOAS, AirLoopHVAC, NoAirLoop, load-profile plant

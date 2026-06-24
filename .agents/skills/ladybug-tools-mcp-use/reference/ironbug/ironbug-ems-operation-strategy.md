@@ -29,11 +29,9 @@ strategy:
 Stop here if the native object can represent the requested behavior. EMS is for
 supervisory logic, not ordinary schedule or reset setup.
 
-Local passed/candidate from
-`docs/llm-wiki/evidence/ironbug-next-round-tool-tests-2026-05-31`:
-AvailabilityManager suites for air-loop and plant-loop use passed next-round
-tool testing. Use them first for ordinary availability behavior; do not move to
-EMS just to express availability.
+Use AvailabilityManager suites for ordinary air-loop and plant-loop
+availability behavior before reaching for EMS. Do not move to EMS just to
+express availability.
 
 Minimal EMS occupied demand limit has Codex-direct EnergyPlus pass evidence
 with EMS Program, Actuator, ProgramCallingManager, MeteredOutputVariable, and
@@ -89,9 +87,9 @@ Honeybee `ElectricEquipment` when native `ElectricEquipment:ITE:AirCooled` is
 not part of the MCP workflow. Calculate:
 `PUE = total_energy / (end_uses["Electric Equipment"] * conditioned_floor_area)`.
 
-Keep one compact returned dictionary from each `execute` block with run ids,
-ERR severe/fatal counts, EUI, relevant meter totals, and EMS output-series
-names/counts.
+Keep one compact returned dictionary from each `execute` block with run
+targets, ERR severe/fatal counts, EUI, relevant meter totals, and EMS
+output-series names/counts.
 
 When several variants share one Honeybee Model, run them one at a time:
 `apply DetailedHVAC -> start Energy -> poll completed -> read results`. Do not

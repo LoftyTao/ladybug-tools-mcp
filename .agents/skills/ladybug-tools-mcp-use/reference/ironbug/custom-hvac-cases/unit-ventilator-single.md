@@ -4,8 +4,8 @@
 
 Use this case when the request matches the retained prompt: `对 Room1 添加带冷热盘管的单元通风器。`. Keep the system family and served-room list exactly aligned with this case (["Room1"]) unless you intentionally switch to the family workflow for a variant.
 
-Python Ironbug Console matrix status: `mimo-v25-case-pass` on the direct OSM
-runtime path. The accepted path writes OpenStudio
+Python Ironbug Console route: accepted on the direct OSM runtime path. The
+accepted path writes OpenStudio
 `ZoneHVAC:UnitVentilator`, water coils, PlantLoops, district sources, and
 scheduled setpoints through the Python Console writer.
 
@@ -137,10 +137,8 @@ Python-only matrix acceptance, the run must be under
 run fails, return the precise blocker and any available ERR/SQL paths instead
 of rebuilding the whole graph.
 
-This operation path is projected from
-`docs/llm-wiki/evidence/python-ironbug-console-matrix-2026-05-29.md`; keep run
-ids, EUI values, ERR counts, token/cost, and artifact paths in that evidence
-page rather than copying them into this Skill.
+Keep detailed evidence records in LLM-Wiki rather than copying them into this
+Skill.
 
 Do not use `detailed_hvac_district_heating`. Do not create a hand-made
 NoAirLoop, generic PlantLoop, or Ironbug-only simulation run.

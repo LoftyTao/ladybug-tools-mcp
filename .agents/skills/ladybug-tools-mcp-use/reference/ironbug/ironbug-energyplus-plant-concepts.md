@@ -55,17 +55,14 @@ Do not call or invent generic `create_ironbug_plant_loop`, relationship helper,
 explicit PlantEquipmentOperation, or Ironbug-only simulation tools for retained
 Agent workflows.
 
-Local passed/candidate from
-`docs/llm-wiki/evidence/ironbug-next-round-tool-tests-2026-05-31`:
-air-cooled EIR chiller + FCU and repaired fluid-cooler condenser-water loop +
-FCU passed next-round tool testing. The 2026-06-01 first-surface recovery also
-closed PlantLoop EIR heat pump as a Codex-direct EnergyPlus pass with
-cooling/heating `HeatPump:PlantLoop:EIR` writer evidence. Treat these as local
+Local tool-test directions include air-cooled EIR chiller + FCU, repaired
+fluid-cooler condenser-water loop + FCU, and PlantLoop EIR heat pump with
+cooling/heating `HeatPump:PlantLoop:EIR` writer coverage. Treat these as local
 tool-test directions, not Agent-verified playbooks. Stop if the requested plant
 path depends on headered/tertiary pump topology or cooled-beam coil EnergyPlus
-validation; those records are blocked/partial. Compact branch-contained
-`IB_NodeProbe` plus SystemNodeReset has Codex-direct EnergyPlus evidence only;
-treat it as a local candidate path, not a retained Agent playbook.
+validation; those routes remain blocked or partial. Compact branch-contained
+`IB_NodeProbe` plus SystemNodeReset is a local candidate path, not an accepted
+Agent playbook.
 
 ## Branch Target Shape
 
