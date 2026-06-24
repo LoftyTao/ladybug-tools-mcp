@@ -15,7 +15,7 @@ Use this when the user explicitly asks for Dragonfly, district/building massing,
 3. `df_room2d` with `vertices`, `floor_height`, and `floor_to_ceiling_height`.
 4. `df_story` with `room2d_targets: [room["room2d_target"]]`.
 5. `df_building` with `story_targets: [story["story_target"]]`.
-6. Optional context: `df_context_shade`.
+6. Optional context: `df_context_shade` with `geometry`, `vertices`, or parametric `x_dim` / `y_dim` / `height` / `origin`.
 7. `df_validate_model`.
 8. Optional preview: `df_model_to_visualization_set` then `visualization_set_to_vtkjs`.
 9. Optional handoff: `df_model_to_honeybee` with `set_base=true`.
@@ -49,6 +49,7 @@ validation = await call_tool("df_validate_model", {"garden_root": garden_root})
 ## Editing And Properties
 
 - Search with `df_search_objects`; use `object_type` values `building`, `story`, `room2d`, `context_shade`, or `all`. Use `children_scope` to inspect a Building or Story, and request `include_counts`, `include_properties`, `include_geometry`, or `limit` only when needed.
+- For `df_context_shade`, use `geometry`, `vertices`, or parametric `x_dim` / `y_dim` / `height` / `origin`; do not pass `faces`.
 - When the Room2D attribute name is uncertain, call `df_room2d_attributes` with `garden_root`; then call `df_room2ds_by_attribute` to get `values`, `groups`, flat `matches`, and a `dragonfly_selection` handoff. Use `operator` with `equals`, `contains`, `gt`, `lt`, `gte`, or `lte`; do not use symbols such as `>` or `<` in Code Mode calls.
 - Do not pass `include_geometry` to `df_room2ds_by_attribute`. If geometry is needed for review or visualization context, call `df_search_objects` with `include_geometry=true` and use by-attribute only for screening, grouping, and selection handoff.
 - Prefer `df_search_objects`, `df_room2d_attributes`, and `df_room2ds_by_attribute` for routine list/search/filter inspection. Do not request full DFJSON bodies for routine inspection.
