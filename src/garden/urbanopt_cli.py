@@ -93,6 +93,7 @@ def run_urbanopt_reopt_with_cli_bundle(
     project_dir = _check_project_files(feature_geojson, scenario_csv)
     assumptions_file = _write_reopt_assumptions_file(
         project_dir=project_dir,
+        runtime=runtime,
         urdb_label=urdb_label,
     )
     env_extra = {"GEM_DEVELOPER_KEY": developer_key} if developer_key else None
@@ -229,21 +230,87 @@ def _update_rnm_inputs(
         json.dump(geo_dict, handle, indent=4)
 
 
-def _write_reopt_assumptions_file(*, project_dir: Path, urdb_label: str) -> Path:
+def _write_reopt_assumptions_file(
+    *,
+    project_dir: Path,
+    runtime: dict[str, Any] | None,
+    urdb_label: str,
+) -> Path:
     assumptions_path = getattr(dragonfly_energy_folders, "reopt_assumptions_path", None)
-    if not assumptions_path:
-        raise RuntimeError("No REopt assumptions template is configured in dragonfly_energy.")
-    parameters = REoptParameter()
-    parameters.pv_parameter.max_kw = 1000000000
-    parameters.storage_parameter.max_kw = 1000000
-    parameters.generator_parameter.max_kw = 1000000000
     reopt_folder = project_dir / "reopt"
     reopt_folder.mkdir(exist_ok=True)
     assumptions_file = reopt_folder / "reopt_assumptions.json"
-    assumptions = parameters.to_assumptions_dict(assumptions_path, urdb_label)
+    assumptions = _load_reopt_assumptions(runtime)
+    if assumptions is None:
+        if not assumptions_path:
+            raise RuntimeError("No REopt assumptions template is configured in dragonfly_energy.")
+        parameters = REoptParameter()
+        parameters.pv_parameter.max_kw = 1000000000
+        parameters.storage_parameter.max_kw = 1000000
+        parameters.generator_parameter.max_kw = 1000000000
+        assumptions = parameters.to_assumptions_dict(assumptions_path, urdb_label)
+    assumptions = _normalize_reopt_assumptions(assumptions)
+    _apply_reopt_defaults(assumptions, urdb_label=urdb_label)
     with assumptions_file.open("w", encoding="utf-8", newline="\n") as handle:
         json.dump(assumptions, handle, indent=4)
     return assumptions_file
+
+
+def _load_reopt_assumptions(runtime: dict[str, Any] | None) -> dict[str, Any] | None:
+    template = _reopt_assumptions_template(runtime)
+    if template is None:
+        return None
+    with template.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _reopt_assumptions_template(runtime: dict[str, Any] | None) -> Path | None:
+    bundle_path = urbanopt_cli_gem_bundle_path(runtime)
+    if bundle_path is not None:
+        example_root = bundle_path / "gems"
+        for candidate in sorted(example_root.glob("urbanopt-cli-*/example_files/reopt/multiPV_assumptions.json")):
+            if candidate.is_file():
+                return candidate
+        fallback = bundle_path / "gems" / "urbanopt-cli-1.2.0" / "example_files" / "reopt" / "multiPV_assumptions.json"
+        if fallback.is_file():
+            return fallback
+    return None
+
+
+def _normalize_reopt_assumptions(assumptions: dict[str, Any]) -> dict[str, Any]:
+    """Return an URBANopt REopt 1.2-compatible assumptions dictionary."""
+    if "Scenario" in assumptions and isinstance(assumptions["Scenario"], dict):
+        scenario = assumptions["Scenario"]
+        site = scenario.get("Site")
+        if isinstance(site, dict):
+            assumptions = dict(site)
+            if "time_steps_per_hour" in scenario:
+                settings = assumptions.setdefault("Settings", {})
+                if isinstance(settings, dict):
+                    settings.setdefault("time_steps_per_hour", scenario["time_steps_per_hour"])
+    if "Storage" in assumptions and "ElectricStorage" not in assumptions:
+        assumptions["ElectricStorage"] = assumptions.pop("Storage")
+    return assumptions
+
+
+def _apply_reopt_defaults(assumptions: dict[str, Any], *, urdb_label: str) -> None:
+    tariff = assumptions.setdefault("ElectricTariff", {})
+    if isinstance(tariff, dict):
+        tariff["urdb_label"] = urdb_label
+    pv = assumptions.get("PV")
+    if isinstance(pv, list):
+        for system in pv:
+            if isinstance(system, dict):
+                system["max_kw"] = 1000000000
+    elif isinstance(pv, dict):
+        pv["max_kw"] = 1000000000
+    storage = assumptions.setdefault("ElectricStorage", {})
+    if isinstance(storage, dict):
+        storage["max_kw"] = 1000000
+        storage.setdefault("max_kwh", 1000000)
+    generator = assumptions.setdefault("Generator", {})
+    if isinstance(generator, dict):
+        generator["max_kw"] = 1000000000
 
 
 def _bundle_executable(runtime: dict[str, Any] | None) -> str:
