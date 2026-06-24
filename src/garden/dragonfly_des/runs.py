@@ -811,6 +811,28 @@ def _preflight_urbanopt_runtime() -> dict[str, Any]:
 
 
 def _preflight_gmt_runtime() -> dict[str, Any]:
+    try:
+        config = get_ladybug_tools_config()
+        des_gmt = config.get("summary_view", {}).get("engines", {}).get("des_gmt")
+    except Exception:
+        des_gmt = None
+    if isinstance(des_gmt, dict):
+        if des_gmt.get("available") is True:
+            return {
+                "status": "ok",
+                "runtime_status": "ready",
+                "issues": [],
+                "runtime": des_gmt,
+            }
+        exe = des_gmt.get("exe")
+        exe_path = exe.get("path") if isinstance(exe, dict) else None
+        missing = [str(item) for item in des_gmt.get("missing", []) if item]
+        details = ", ".join(missing) if missing else "DES GMT dependencies"
+        return _blocked_preflight(
+            [f"GMT / uo_des command is not ready at {exe_path}; missing: {details}."],
+            missing=["gmt"],
+            runtime=des_gmt,
+        )
     scripts_path = Path(str(hb_folders.python_scripts_path or "")).expanduser()
     exe_name = "uo_des.exe" if _is_windows() else "uo_des"
     gmt_exe = scripts_path / exe_name

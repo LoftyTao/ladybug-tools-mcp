@@ -1,6 +1,6 @@
 # Dragonfly Skill Overview
 
-Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_grid_*`, `df_uwg_*`, `df_urbanopt_*`, Dragonfly base-model Garden helpers, and Ironbug-to-Dragonfly bridge tools. The AX1 core authoring/search/attribute/visualization path is Agent-verified through Codex-native MCP. AX5 UWG local-weather morphing is Agent-verified through Codex-native MCP. AX6 URBANopt Energy completion is Agent-verified through Codex-native MCP; DES sys-param remains blocked without GMT / `uo_des.exe`. AX7 Electric Grid authoring and runtime-blocked ledger handling are Agent-verified through Codex-native MCP. The broader Dragonfly namespace remains deterministic-contract-pass until the remaining cross-test suite is retained.
+Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_grid_*`, `df_uwg_*`, `df_urbanopt_*`, Dragonfly base-model Garden helpers, and Ironbug-to-Dragonfly bridge tools. The AX1 core authoring/search/attribute/visualization path is Agent-verified through Codex-native MCP. AX5 UWG local-weather morphing is Agent-verified through Codex-native MCP. AX6 URBANopt Energy completion is Agent-verified through Codex-native MCP; DES sys-param remains blocked until `config_get_runtime_config.summary_view.engines.des_gmt.available=true`. AX7 Electric Grid authoring and runtime-blocked ledger handling are Agent-verified through Codex-native MCP. The broader Dragonfly namespace remains deterministic-contract-pass until the remaining cross-test suite is retained.
 
 ## Preconditions
 

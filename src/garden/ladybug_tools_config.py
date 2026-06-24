@@ -11,7 +11,9 @@ from typing import Any
 
 from dragonfly_energy.config import folders as dragonfly_energy_folders
 from garden.fairyfly.availability import therm_engine_config
+from honeybee.config import folders as hb_folders
 from honeybee_energy.config import folders as energy_folders
+from ladybug.config import folders as lb_folders
 from honeybee_radiance.config import folders as radiance_folders
 from ladybug_tools_mcp.contracts.report import make_report
 
@@ -79,6 +81,22 @@ _ENGINE_HELP: dict[str, dict[str, str | list[str]]] = {
             "workflow commands when needed."
         ),
         "required_for": ["Dragonfly district-scale URBANopt workflows"],
+    },
+    "des_gmt": {
+        "documentation_url": "https://github.com/ladybug-tools/dragonfly-energy",
+        "compatibility_url": "https://github.com/ladybug-tools/lbt-grasshopper/wiki/1.4-Compatibility-Matrix",
+        "install_hint": (
+            "Dragonfly DES sys-param and Modelica workflows require the local "
+            "geojson-modelica-translator uo_des command, ThermalNetwork command, "
+            "and Modelica Buildings Library resources. Install them out of band "
+            "with the Ladybug Tools / Grasshopper DES setup path or "
+            "`dragonfly_energy install all-des`; MCP validation does not run this "
+            "installer or download dependencies."
+        ),
+        "required_for": [
+            "Dragonfly DES system-parameter sizing",
+            "Dragonfly DES Modelica project generation",
+        ],
     },
     "therm": {
         "documentation_url": "https://windows.lbl.gov/therm-software-downloads",
@@ -397,6 +415,14 @@ def _existing_path(value: str | None) -> dict[str, Any]:
     return {"path": value, "exists": exists}
 
 
+def _version_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (tuple, list)):
+        return ".".join(str(item) for item in value)
+    return str(value)
+
+
 def _version_value(getter) -> str | None:
     try:
         return getter()
@@ -654,6 +680,97 @@ def _urbanopt_config() -> dict[str, Any]:
     return record
 
 
+def _dist_info_record(package_path: Path, package_name: str, required_version: str | None) -> dict[str, Any]:
+    candidates = sorted(package_path.glob(f"{package_name}-*.dist-info")) if package_path.is_dir() else []
+    selected = None
+    if required_version:
+        expected = package_path / f"{package_name}-{required_version}.dist-info"
+        if expected.is_dir():
+            selected = expected
+    if selected is None and candidates:
+        selected = candidates[0]
+    version = _version_from_name(selected.name) if selected else None
+    return {
+        "package_name": package_name,
+        "required_version": required_version,
+        "path": str(selected) if selected else str(package_path / f"{package_name}-{required_version or '*'}.dist-info"),
+        "installed": bool(selected and selected.is_dir()),
+        "version": version,
+        "version_status": _version_status(version, required_version),
+        "candidates": [str(candidate) for candidate in candidates],
+    }
+
+
+def _des_gmt_config() -> dict[str, Any]:
+    scripts_path = Path(str(getattr(hb_folders, "python_scripts_path", "") or "")).expanduser()
+    package_path = Path(str(getattr(hb_folders, "python_package_path", "") or "")).expanduser()
+    exe_name = "uo_des.exe" if os.name == "nt" else "uo_des"
+    thermalnetwork_name = "thermalnetwork.exe" if os.name == "nt" else "thermalnetwork"
+    uo_des = scripts_path / exe_name
+    thermalnetwork = scripts_path / thermalnetwork_name
+    gmt_version = _version_string(getattr(dragonfly_energy_folders, "UO_GMT_VERSION", None))
+    tn_version = _version_string(getattr(dragonfly_energy_folders, "UO_TN_VERSION", None))
+    mbl_version = _version_string(getattr(dragonfly_energy_folders, "MBL_VERSION", None))
+    resources_path = Path(str(getattr(lb_folders, "ladybug_tools_folder", "") or "")).expanduser() / "resources"
+    mbl_dir = resources_path / "mbl"
+    version_file = mbl_dir / "version.txt"
+    installed_mbl_version = version_file.read_text(encoding="utf-8").strip() if version_file.is_file() else None
+    packages = {
+        "geojson_modelica_translator": _dist_info_record(
+            package_path,
+            "geojson_modelica_translator",
+            gmt_version,
+        ),
+        "thermalnetwork": _dist_info_record(
+            package_path,
+            "ThermalNetwork",
+            tn_version,
+        ),
+    }
+    mbl = {
+        "path": str(mbl_dir),
+        "exists": mbl_dir.is_dir(),
+        "required_version": mbl_version,
+        "version": installed_mbl_version,
+        "version_status": _version_status(installed_mbl_version, mbl_version),
+        "version_file": _existing_path(str(version_file)),
+    }
+    available = (
+        uo_des.is_file()
+        and thermalnetwork.is_file()
+        and all(package["installed"] for package in packages.values())
+        and mbl["exists"]
+        and mbl["version_status"] == "compatible"
+    )
+    record = {
+        "name": "des_gmt",
+        "kind": "dragonfly_des_dependency_runtime",
+        "available": available,
+        "path": str(scripts_path),
+        "path_exists": scripts_path.is_dir(),
+        "exe": _existing_path(str(uo_des)),
+        "exe_exists": uo_des.is_file(),
+        "thermalnetwork_exe": _existing_path(str(thermalnetwork)),
+        "python_package_path": str(package_path),
+        "python_package_path_exists": package_path.is_dir(),
+        "packages": packages,
+        "modelica_buildings_library": mbl,
+        "missing": [
+            name
+            for name, missing in {
+                "uo_des": not uo_des.is_file(),
+                "thermalnetwork": not thermalnetwork.is_file(),
+                "geojson_modelica_translator": not packages["geojson_modelica_translator"]["installed"],
+                "thermalnetwork_package": not packages["thermalnetwork"]["installed"],
+                "modelica_buildings_library": not (mbl["exists"] and mbl["version_status"] == "compatible"),
+            }.items()
+            if missing
+        ],
+    }
+    record.update(_ENGINE_HELP["des_gmt"])
+    return record
+
+
 def _ironbug_console_config() -> dict[str, Any]:
     exe = getattr(energy_folders, "ironbug_exe", None)
     path = getattr(energy_folders, "ironbug_path", None)
@@ -708,6 +825,7 @@ def get_ladybug_tools_config() -> dict[str, Any]:
         "openstudio": openstudio,
         "energyplus": energyplus,
         "urbanopt": _urbanopt_config(),
+        "des_gmt": _des_gmt_config(),
         "therm": therm_engine_config(),
         "ironbug_console": _ironbug_console_config(),
     }
@@ -735,6 +853,7 @@ def get_ladybug_tools_config() -> dict[str, Any]:
         if not engine.get("path_exists")
         or ("exe_exists" in engine and not engine.get("exe_exists"))
         or ("bin_path_exists" in engine and not engine.get("bin_path_exists"))
+        or (name == "des_gmt" and not engine.get("available"))
     ]
     incompatible = [
         name
