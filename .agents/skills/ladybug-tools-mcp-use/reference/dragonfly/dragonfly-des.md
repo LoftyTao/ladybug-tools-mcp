@@ -21,7 +21,8 @@ Use this path for Dragonfly DES tool discovery, minimal Dragonfly authoring, exp
 - Start from a Garden created or selected with `garden_create` / `garden_get`.
 - Use a Garden `base_dragonfly_model` or an explicit Dragonfly Model target.
 - Create or select DES loop targets before export. Fifth-generation and GHE loops need connector and parameter targets created by the DES authoring tools.
-- Only pass `des_loop_target` to export when the loop topology is valid for Dragonfly Energy. A single ThermalConnector attached to one Building is not a valid loop for SDK export; first export without a DES loop or author a better connected loop.
+- Only pass `des_loop_target` to export when the loop topology is valid for Dragonfly Energy. ThermalConnectors must form a closed loop; a single open connector is accepted as an object but fails export. First export without a DES loop or author a closed connected loop.
+- For `df_des_create_horizontal_pipe_parameter`, use `diameter_ratio` between 11 and 17.
 - For DES export, use a Garden `weather_file` target with an EPW path.
 - Check runtime configuration before any URBANopt, GMT/uo_des, Docker, or OpenModelica execution.
 - Keep URBANopt export Gardens on a short filesystem path on Windows. Dragonfly Energy asserts that the export simulation folder path must be shorter than 60 characters; the MCP service uses compact root-level export folders and preserves short caller path aliases for the SDK writer.
