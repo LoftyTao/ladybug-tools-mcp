@@ -127,6 +127,12 @@ def run_urbanopt_opendss_with_cli_bundle(
     """Run OpenDSS with the CLI bundle Gemfile and initialized Python deps."""
     project_dir = _check_project_files(feature_geojson, scenario_csv)
     args = ["opendss", "--scenario", str(scenario_csv), "--feature", str(feature_geojson)]
+    if _opendss_rnm_results_path(project_dir, Path(scenario_csv)).is_file():
+        args.append("--rnm")
+    else:
+        equipment = project_dir / "electrical_database.json"
+        if equipment.is_file():
+            args.extend(["--equipment", str(equipment)])
     if autosize:
         args.append("--upgrade")
     _run_uo(
@@ -136,6 +142,31 @@ def run_urbanopt_opendss_with_cli_bundle(
         log_name="run_opendss",
     )
     return project_dir
+
+
+def _opendss_rnm_results_path(project_dir: Path, scenario_csv: Path) -> Path:
+    """Return the RNM distribution-system GeoJSON expected before OpenDSS."""
+    scenario_name = scenario_csv.stem
+    scenario_path = (
+        project_dir
+        / "run"
+        / scenario_name
+        / "rnm-us"
+        / "results"
+        / "GeoJSON"
+        / "Distribution_system.json"
+    )
+    if scenario_path.is_file() or scenario_name == "honeybee_scenario":
+        return scenario_path
+    return (
+        project_dir
+        / "run"
+        / "honeybee_scenario"
+        / "rnm-us"
+        / "results"
+        / "GeoJSON"
+        / "Distribution_system.json"
+    )
 
 
 def has_urbanopt_cli_bundle(runtime: dict[str, Any] | None) -> bool:
