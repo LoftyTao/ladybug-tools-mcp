@@ -74,12 +74,30 @@ def register(mcp: FastMCP) -> None:
                 description="Optional Dragonfly Building or Story object target used to return only child Stories or Room2Ds."
             ),
         ] = None,
+        include_counts: Annotated[
+            bool,
+            Field(
+                description="Whether to include compact counts_by_type before any limit is applied."
+            ),
+        ] = False,
         include_geometry: Annotated[
             bool,
             Field(
                 description="Whether to include compact Room2D Face3D floor geometry summaries. Defaults false to avoid large object payloads."
             ),
         ] = False,
+        include_properties: Annotated[
+            bool,
+            Field(
+                description="Whether to include compact Dragonfly object property values under a properties field."
+            ),
+        ] = False,
+        limit: Annotated[
+            int | None,
+            Field(
+                description="Optional maximum number of matches to return after filtering. Counts still report the full filtered total."
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         """Search Dragonfly objects and return compact typed targets."""
         return service(
@@ -91,5 +109,8 @@ def register(mcp: FastMCP) -> None:
             building_identifier=building_identifier,
             story_identifier=story_identifier,
             children_scope=children_scope,
+            include_counts=include_counts,
             include_geometry=include_geometry,
+            include_properties=include_properties,
+            limit=limit,
         )

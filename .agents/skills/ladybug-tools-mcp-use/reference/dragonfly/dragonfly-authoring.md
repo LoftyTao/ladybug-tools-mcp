@@ -48,7 +48,8 @@ validation = await call_tool("df_validate_model", {"garden_root": garden_root})
 
 ## Editing And Properties
 
-- Search with `df_search_objects`; use `object_type` values `building`, `story`, `room2d`, `context_shade`, or `all`.
+- Search with `df_search_objects`; use `object_type` values `building`, `story`, `room2d`, `context_shade`, or `all`. Use `children_scope` to inspect a Building or Story, and request `include_counts`, `include_properties`, `include_geometry`, or `limit` only when needed.
+- When the Room2D attribute name is uncertain, call `df_room2d_attributes`; then call `df_room2ds_by_attribute` to get `values`, `groups`, flat `matches`, and a `dragonfly_selection` handoff. Use `operator` with `equals`, `contains`, `gt`, `lt`, `gte`, or `lte` for screening.
 - Summarize with `df_get_model_summary`; do not request full DFJSON bodies for routine inspection.
 - Edit metadata with `df_edit_model`, `df_edit_story`, `df_edit_building`, or `df_edit_room2d`.
 - Add/remove Stories with `df_add_stories_to_building` and `df_remove_stories_from_building`.

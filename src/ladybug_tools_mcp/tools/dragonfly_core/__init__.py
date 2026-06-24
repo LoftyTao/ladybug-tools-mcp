@@ -62,6 +62,9 @@ from ladybug_tools_mcp.tools.dragonfly_core.get_dragonfly_geometry_properties im
 from ladybug_tools_mcp.tools.dragonfly_core.query_dragonfly_room2ds_by_attribute import (
     register as register_query_dragonfly_room2ds_by_attribute,
 )
+from ladybug_tools_mcp.tools.dragonfly_core.list_df_room2d_attributes import (
+    register as register_list_df_room2d_attributes,
+)
 from ladybug_tools_mcp.tools.dragonfly_core.get_dragonfly_model_summary import (
     register as register_get_dragonfly_model_summary,
 )
@@ -128,6 +131,7 @@ def register(mcp: FastMCP) -> None:
     register_search_dragonfly_model_objects(mcp)
     register_get_dragonfly_geometry_properties(mcp)
     register_query_dragonfly_room2ds_by_attribute(mcp)
+    register_list_df_room2d_attributes(mcp)
     register_get_dragonfly_model_summary(mcp)
     register_create_dragonfly_window_parameter(mcp)
     register_apply_dragonfly_window_parameter(mcp)

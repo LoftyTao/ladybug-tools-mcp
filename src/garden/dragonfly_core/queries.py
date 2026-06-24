@@ -29,6 +29,68 @@ DEFAULT_GEOMETRY_ATTRIBUTES = [
     "multiplier",
 ]
 
+ROOM2D_ATTRIBUTE_CATALOG = [
+    {
+        "name": "identifier",
+        "type_hint": "string",
+        "operators": ["equals", "contains"],
+        "description": "Stable Dragonfly Room2D identifier.",
+    },
+    {
+        "name": "display_name",
+        "type_hint": "string",
+        "operators": ["equals", "contains"],
+        "description": "Optional user-facing Dragonfly Room2D display name.",
+    },
+    {
+        "name": "floor_area",
+        "type_hint": "number",
+        "operators": ["equals", "gt", "lt", "gte", "lte"],
+        "description": "Room2D floor area.",
+    },
+    {
+        "name": "footprint_area",
+        "type_hint": "number",
+        "operators": ["equals", "gt", "lt", "gte", "lte"],
+        "description": "Room2D footprint area.",
+    },
+    {
+        "name": "volume",
+        "type_hint": "number",
+        "operators": ["equals", "gt", "lt", "gte", "lte"],
+        "description": "Room2D volume.",
+    },
+    {
+        "name": "floor_height",
+        "type_hint": "number",
+        "operators": ["equals", "gt", "lt", "gte", "lte"],
+        "description": "Room2D floor elevation.",
+    },
+    {
+        "name": "floor_to_ceiling_height",
+        "type_hint": "number",
+        "operators": ["equals", "gt", "lt", "gte", "lte"],
+        "description": "Room2D floor-to-ceiling height.",
+    },
+    {
+        "name": "is_ground_contact",
+        "type_hint": "boolean",
+        "operators": ["equals"],
+        "description": "Whether the Room2D floor is ground-contact.",
+    },
+    {
+        "name": "is_top_exposed",
+        "type_hint": "boolean",
+        "operators": ["equals"],
+        "description": "Whether the Room2D ceiling is top-exposed.",
+    },
+]
+
+SUPPORTED_ROOM2D_ATTRIBUTES = {
+    record["name"]: record for record in ROOM2D_ATTRIBUTE_CATALOG
+}
+ATTRIBUTE_OPERATORS = {"equals", "contains", "gt", "lt", "gte", "lte"}
+
 
 def _garden_root(garden_root: str) -> Path:
     return Path(garden_root).expanduser().resolve()
@@ -52,6 +114,10 @@ def _compact_value(value: Any) -> Any:
 
 
 def _attribute_value(obj: Any, attribute: str) -> Any:
+    if attribute == "identifier":
+        return str(getattr(obj, "identifier", ""))
+    if attribute == "display_name":
+        return _display_name(obj)
     try:
         value = getattr(obj, attribute)
     except AttributeError:
@@ -59,6 +125,117 @@ def _attribute_value(obj: Any, attribute: str) -> Any:
     if callable(value):
         return None
     return _compact_value(value)
+
+
+def _selection(
+    *,
+    garden_id: str,
+    model_identifier: str,
+    object_targets: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "target_type": "dragonfly_selection",
+        "garden_id": garden_id,
+        "domain": "dragonfly",
+        "model_identifier": model_identifier,
+        "object_targets": object_targets,
+    }
+
+
+def _unsupported_attribute_response(
+    *,
+    manifest: GardenManifest,
+    model_target: dict[str, Any],
+    attribute: str,
+) -> dict[str, Any]:
+    available = sorted(SUPPORTED_ROOM2D_ATTRIBUTES)
+    return {
+        "values": [],
+        "groups": [],
+        "matches": [],
+        "selection": _selection(
+            garden_id=manifest.garden_id,
+            model_identifier=str(model_target["model_identifier"]),
+            object_targets=[],
+        ),
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "model_target": model_target,
+            "attribute": attribute,
+            "match_count": 0,
+            "available_attributes": available,
+        },
+        "report": make_report(
+            status="blocked",
+            message=(
+                f"Dragonfly Room2D attribute is not exposed for compact "
+                f"attribute grouping: {attribute}."
+            ),
+            details={"available_attributes": available},
+        ),
+    }
+
+
+def _coerce_compare_value(raw_value: Any, sample_value: Any) -> Any:
+    if isinstance(sample_value, bool):
+        if isinstance(raw_value, str):
+            return raw_value.strip().lower() in {"true", "1", "yes"}
+        return bool(raw_value)
+    if isinstance(sample_value, (int, float)):
+        return float(raw_value)
+    if raw_value is None:
+        return None
+    return str(raw_value)
+
+
+def _matches_operator(value: Any, operator: str | None, expected: Any) -> bool:
+    if operator is None:
+        return True
+    op = operator.strip().lower()
+    if op not in ATTRIBUTE_OPERATORS:
+        raise ValueError("operator must be equals, contains, gt, lt, gte, or lte.")
+    if op == "contains":
+        return str(expected or "").lower() in str(value or "").lower()
+    compare_value = _coerce_compare_value(expected, value)
+    if op == "equals":
+        if isinstance(value, str):
+            return value.lower() == str(compare_value or "").lower()
+        return value == compare_value
+    if value is None or compare_value is None:
+        return False
+    if op == "gt":
+        return value > compare_value
+    if op == "lt":
+        return value < compare_value
+    if op == "gte":
+        return value >= compare_value
+    if op == "lte":
+        return value <= compare_value
+    return False
+
+
+def _sort_key(value: Any) -> tuple[str, str]:
+    return (value.__class__.__name__, str(value))
+
+
+def _group_matches(matches: list[dict[str, Any]]) -> tuple[list[Any], list[dict[str, Any]]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for match in matches:
+        value = match["value"]
+        key = str(value)
+        if key not in grouped:
+            grouped[key] = {
+                "value": value,
+                "count": 0,
+                "matches": [],
+                "object_targets": [],
+            }
+        grouped[key]["count"] += 1
+        grouped[key]["matches"].append(match)
+        grouped[key]["object_targets"].append(match["target"])
+    groups = sorted(grouped.values(), key=lambda item: _sort_key(item["value"]))
+    values = [group["value"] for group in groups]
+    return values, groups
 
 
 def _properties(obj: Any, attributes: list[str]) -> dict[str, Any]:
@@ -248,13 +425,21 @@ def query_dragonfly_room2ds_by_attribute(
     garden_root: str,
     attribute: str,
     model_target: dict[str, Any] | None = None,
+    operator: str | None = None,
+    value: Any = None,
 ) -> dict[str, Any]:
-    """Return Room2D targets and compact values for one SDK attribute."""
+    """Return Room2D targets, grouped values, and optional screened matches."""
     if not attribute or not str(attribute).strip():
         raise ValueError("attribute is required.")
     requested_attribute = str(attribute).strip()
     garden_root_path = _garden_root(garden_root)
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
+    if requested_attribute not in SUPPORTED_ROOM2D_ATTRIBUTES:
+        return _unsupported_attribute_response(
+            manifest=manifest,
+            model_target=resolved_model_target,
+            attribute=requested_attribute,
+        )
     model = load_dragonfly_model(garden_root_path, resolved_model_target)
     model_identifier = str(resolved_model_target["model_identifier"])
     matches: list[dict[str, Any]] = []
@@ -265,8 +450,10 @@ def query_dragonfly_room2ds_by_attribute(
     ):
         if target["object_type"] != "room2d":
             continue
-        value = _attribute_value(obj, requested_attribute)
-        if value is None:
+        room_value = _attribute_value(obj, requested_attribute)
+        if room_value is None:
+            continue
+        if not _matches_operator(room_value, operator, value):
             continue
         matches.append(
             {
@@ -275,17 +462,28 @@ def query_dragonfly_room2ds_by_attribute(
                 "display_name": _display_name(obj),
                 "parent": parent,
                 "attribute": requested_attribute,
-                "value": value,
+                "value": room_value,
             }
         )
+    values, groups = _group_matches(matches)
 
     return {
+        "values": values,
+        "groups": groups,
         "matches": matches,
+        "selection": _selection(
+            garden_id=manifest.garden_id,
+            model_identifier=model_identifier,
+            object_targets=[match["target"] for match in matches],
+        ),
         "summary_view": {
             "garden_target": manifest.target(),
             "model_target": resolved_model_target,
             "attribute": requested_attribute,
+            "operator": operator,
+            "value": value,
             "match_count": len(matches),
+            "value_count": len(values),
         },
         "report": make_report(
             status="ok",
@@ -293,5 +491,28 @@ def query_dragonfly_room2ds_by_attribute(
                 f"Found {len(matches)} Dragonfly Room2D value(s) for "
                 f"{requested_attribute}."
             ),
+        ),
+    }
+
+
+def list_dragonfly_room2d_attributes(
+    *,
+    garden_root: str,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """List compact Room2D attributes supported by df_room2ds_by_attribute."""
+    garden_root_path = _garden_root(garden_root)
+    manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
+    attributes = [dict(record) for record in ROOM2D_ATTRIBUTE_CATALOG]
+    return {
+        "attributes": attributes,
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "model_target": resolved_model_target,
+            "attribute_count": len(attributes),
+        },
+        "report": make_report(
+            status="ok",
+            message=f"Returned {len(attributes)} Dragonfly Room2D attribute(s).",
         ),
     }

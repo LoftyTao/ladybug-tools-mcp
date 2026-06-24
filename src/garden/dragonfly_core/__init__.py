@@ -40,6 +40,7 @@ from garden.dragonfly_core.properties import (
     apply_dragonfly_radiance_properties,
     get_dragonfly_properties_summary,
 )
+from garden.dragonfly_core.queries import list_dragonfly_room2d_attributes
 from garden.dragonfly_core.search import search_dragonfly_model_objects
 from garden.dragonfly_core.summary import get_dragonfly_model_summary
 from garden.dragonfly_core.validation import validate_dragonfly_model
@@ -69,6 +70,7 @@ __all__ = [
     "get_dragonfly_model_summary",
     "get_dragonfly_properties_summary",
     "honeybee_model_to_dragonfly",
+    "list_dragonfly_room2d_attributes",
     "remove_dragonfly_stories_from_building",
     "reset_dragonfly_story_adjacency",
     "search_dragonfly_model_objects",

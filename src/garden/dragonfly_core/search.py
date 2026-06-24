@@ -117,6 +117,21 @@ def _metadata(obj: Any, object_type: str, include_geometry: bool) -> dict[str, A
     return metadata
 
 
+def _selection(
+    *,
+    garden_id: str,
+    model_identifier: str,
+    object_targets: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "target_type": "dragonfly_selection",
+        "garden_id": garden_id,
+        "domain": "dragonfly",
+        "model_identifier": model_identifier,
+        "object_targets": object_targets,
+    }
+
+
 def _scope_filter(
     children_scope: dict[str, Any] | None,
 ) -> tuple[str, str] | None:
@@ -252,7 +267,10 @@ def search_dragonfly_model_objects(
     building_identifier: str | None = None,
     story_identifier: str | None = None,
     children_scope: dict[str, Any] | None = None,
+    include_counts: bool = False,
     include_geometry: bool = False,
+    include_properties: bool = False,
+    limit: int | None = None,
 ) -> dict[str, Any]:
     """Search Dragonfly objects by type and compact identifier/display-name query."""
     object_type = str(object_type or "all").strip().lower()
@@ -261,11 +279,13 @@ def search_dragonfly_model_objects(
             "object_type must be one of all, building, story, room2d, or "
             "context_shade."
         )
+    if limit is not None and int(limit) < 0:
+        raise ValueError("limit must be greater than or equal to 0.")
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
     model = load_dragonfly_model(garden_root_path, resolved_model_target)
     scope = _scope_filter(children_scope)
-    matches: list[dict[str, Any]] = []
+    filtered_matches: list[dict[str, Any]] = []
     model_identifier = str(resolved_model_target["model_identifier"])
     embedded_items = list(
         _iter_dragonfly_objects(
@@ -313,20 +333,37 @@ def search_dragonfly_model_objects(
             continue
         if not _text_matches(obj, query):
             continue
-        matches.append(
-            {
+        metadata = _metadata(obj, target["object_type"], include_geometry)
+        match = {
                 "target": target,
                 "object_type": target["object_type"],
                 "identifier": obj.identifier,
                 "display_name": display_name,
                 "parent": parent,
                 "matched_fields": [{"field": "identifier", "value": obj.identifier}],
-                **_metadata(obj, target["object_type"], include_geometry),
             }
-        )
+        if include_properties:
+            match["properties"] = metadata
+        match.update(metadata)
+        filtered_matches.append(match)
+
+    counts_by_type: dict[str, int] = {}
+    for match in filtered_matches:
+        type_name = str(match["object_type"])
+        counts_by_type[type_name] = counts_by_type.get(type_name, 0) + 1
+    limited_matches = (
+        filtered_matches
+        if limit is None
+        else filtered_matches[: int(limit)]
+    )
 
     result: dict[str, Any] = {
-        "matches": matches,
+        "matches": limited_matches,
+        "selection": _selection(
+            garden_id=manifest.garden_id,
+            model_identifier=model_identifier,
+            object_targets=[match["target"] for match in limited_matches],
+        ),
         "summary_view": {
             "garden_target": manifest.target(),
             "model_target": resolved_model_target,
@@ -336,14 +373,21 @@ def search_dragonfly_model_objects(
             "building_identifier": building_identifier,
             "story_identifier": story_identifier,
             "children_scope": children_scope,
+            "include_counts": include_counts,
             "include_geometry": include_geometry,
-            "count": len(matches),
+            "include_properties": include_properties,
+            "limit": limit,
+            "count": len(limited_matches),
+            "returned_count": len(limited_matches),
+            "total_count": len(filtered_matches),
         },
         "report": make_report(
             status="ok",
-            message=f"Found {len(matches)} Dragonfly object(s).",
+            message=f"Found {len(filtered_matches)} Dragonfly object(s).",
         ),
     }
-    if len(matches) == 1:
-        result["target"] = matches[0]["target"]
+    if include_counts:
+        result["summary_view"]["counts_by_type"] = counts_by_type
+    if len(limited_matches) == 1:
+        result["target"] = limited_matches[0]["target"]
     return result

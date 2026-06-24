@@ -33,6 +33,21 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(description="Dragonfly Room2D SDK property name, such as floor_area."),
         ],
+        operator: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional filter operator: equals, contains, gt, lt, gte, or lte. "
+                    "Omit it to list and group all values."
+                )
+            ),
+        ] = None,
+        value: Annotated[
+            Any,
+            Field(
+                description="Optional comparison value used with operator."
+            ),
+        ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional Dragonfly model target; defaults to base_dragonfly_model."),
@@ -43,4 +58,6 @@ def register(mcp: FastMCP) -> None:
             garden_root=garden_root,
             attribute=attribute,
             model_target=model_target,
+            operator=operator,
+            value=value,
         )
