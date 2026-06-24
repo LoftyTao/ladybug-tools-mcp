@@ -25,10 +25,13 @@ from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
 from garden.urbanopt_cli import (
     has_urbanopt_cli_bundle,
+    has_urbanopt_opendss_python_deps,
     run_urbanopt_default_report_with_cli_bundle,
+    run_urbanopt_opendss_with_cli_bundle,
     run_urbanopt_reopt_with_cli_bundle,
     run_urbanopt_rnm_with_cli_bundle,
 )
+from garden.dragonfly_grid.results import OPENDSS_RESULT_ARTIFACT_TYPE
 from ladybug_tools_mcp.contracts.report import make_report
 
 GRID_RUN_TARGET_TYPE = "dragonfly_grid_run"
@@ -105,8 +108,9 @@ def start_opendss(
     """Start or block an OpenDSS simulation run."""
     root = _garden_root(garden_root)
     manifest = GardenManifest.read(root)
-    _resolve_artifact(root, manifest, feature_geojson_target, suffix=".geojson")
-    _resolve_artifact(root, manifest, scenario_csv_target, suffix=".csv")
+    feature_geojson = _resolve_artifact(root, manifest, feature_geojson_target, suffix=".geojson")
+    scenario_csv = _resolve_artifact(root, manifest, scenario_csv_target, suffix=".csv")
+    runtime = _urbanopt_runtime_config()
     normalized_run_id = _normalize_run_id(run_id, "opendss")
     record = _start_record(
         garden_root=root,
@@ -119,7 +123,15 @@ def start_opendss(
         preflight=_preflight_opendss_runtime(),
     )
     if record["status"] == "running":
-        _complete_with_error(root, "opendss", normalized_run_id, "OpenDSS execution is not implemented in the MCP service yet.")
+        _BACKGROUND_EXECUTOR.submit(
+            _run_opendss_job,
+            garden_root=str(root),
+            run_id=normalized_run_id,
+            feature_geojson=str(feature_geojson),
+            scenario_csv=str(scenario_csv),
+            runtime=runtime,
+            autosize=autosize,
+        )
     latest = _run_record_by_id(root, "opendss", normalized_run_id) or record
     return _result_from_record(root, manifest, latest)
 
@@ -231,11 +243,24 @@ def _preflight_rnm_runtime(runtime: dict[str, Any] | None = None) -> dict[str, A
     return _blocked_preflight("rnm", "URBANopt/RNM runtime is not available.")
 
 
-def _preflight_opendss_runtime() -> dict[str, Any]:
-    return _blocked_preflight(
-        "opendss",
-        "Direct OpenDSS execution is not SDK-backed in the current Dragonfly Grid service.",
-    )
+def _preflight_opendss_runtime(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
+    runtime = _urbanopt_runtime_config() if runtime is None else runtime
+    if not has_urbanopt_cli_bundle(runtime):
+        return _blocked_preflight("opendss", "URBANopt CLI 1.2.0 bundle is required for local OpenDSS execution.")
+    if not has_urbanopt_opendss_python_deps(runtime):
+        return _blocked_preflight(
+            "opendss",
+            "URBANopt CLI OpenDSS Python dependencies are not initialized in the local 1.2.0 bundle. "
+            "Missing python_config.json under example_files/python_deps; MCP local-only validation will not run "
+            "uo install_python or download dependencies.",
+        )
+    return {
+        "status": "ok",
+        "runtime_status": "ready",
+        "issues": [],
+        "missing": [],
+        "recommended_next_tools": [],
+    }
 
 
 def _preflight_reopt_runtime(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -441,6 +466,24 @@ def _run_reopt_job(**kwargs: Any) -> None:
         _complete_with_error(root, "reopt", run_id, traceback.format_exc())
 
 
+def _run_opendss_job(**kwargs: Any) -> None:
+    root = Path(kwargs["garden_root"])
+    run_id = kwargs["run_id"]
+    feature_geojson = Path(kwargs["feature_geojson"])
+    try:
+        runtime = kwargs.get("runtime")
+        write_urbanopt_bundle_config(feature_geojson.parent, runtime)
+        outputs = run_urbanopt_opendss_with_cli_bundle(
+            feature_geojson=str(feature_geojson),
+            scenario_csv=kwargs["scenario_csv"],
+            runtime=runtime,
+            autosize=kwargs["autosize"],
+        )
+        _complete_success(root, "opendss", run_id, outputs, feature_geojson.parent)
+    except Exception:  # pragma: no cover - external runtime diagnostics vary
+        _complete_with_error(root, "opendss", run_id, traceback.format_exc())
+
+
 def _complete_success(
     root: Path,
     recipe: str,
@@ -451,7 +494,7 @@ def _complete_success(
     record = _run_record_by_id(root, recipe, run_id)
     if record is None:
         return
-    outputs = _outputs_from_sdk_result(root, sdk_outputs)
+    outputs = [] if recipe == "opendss" else _outputs_from_sdk_result(root, sdk_outputs)
     if project_dir is not None:
         seen = {output["path"] for output in outputs}
         for output in _discover_project_outputs(root, project_dir, recipe):
@@ -506,16 +549,43 @@ def _discover_project_outputs(root: Path, project_dir: Path, recipe: str) -> lis
             if path.is_file():
                 outputs.append(_output_for_path(root, path))
         return outputs
+    if recipe == "opendss":
+        outputs = []
+        for base in (project_dir / "opendss", project_dir / "run"):
+            if not base.exists():
+                continue
+            for path in sorted(base.rglob("*.csv")):
+                if path.is_file():
+                    outputs.append(_output_for_path(root, path, artifact_type=OPENDSS_RESULT_ARTIFACT_TYPE))
+        return outputs
     return []
 
 
-def _output_for_path(root: Path, path: Path, *, name: str | None = None) -> dict[str, Any]:
-    return {
+def _output_for_path(
+    root: Path,
+    path: Path,
+    *,
+    name: str | None = None,
+    artifact_type: str | None = None,
+) -> dict[str, Any]:
+    output = {
         "name": name or path.name,
         "path": to_posix_relative(path, root),
         "exists": path.exists(),
         "kind": path.suffix.lower().lstrip(".") or "file",
     }
+    if artifact_type is not None:
+        manifest = GardenManifest.read(root)
+        output.update(
+            {
+                "target_type": "artifact",
+                "domain": GRID_RUN_DOMAIN,
+                "garden_id": manifest.garden_id,
+                "artifact_type": artifact_type,
+                "identifier": path.stem,
+            }
+        )
+    return output
 
 
 def _scan_output_files(

@@ -117,10 +117,37 @@ def run_urbanopt_reopt_with_cli_bundle(
     return run_folder / "scenario_optimization.csv", run_folder / "scenario_optimization.json"
 
 
+def run_urbanopt_opendss_with_cli_bundle(
+    *,
+    feature_geojson: str,
+    scenario_csv: str,
+    runtime: dict[str, Any] | None,
+    autosize: bool = False,
+) -> Path:
+    """Run OpenDSS with the CLI bundle Gemfile and initialized Python deps."""
+    project_dir = _check_project_files(feature_geojson, scenario_csv)
+    args = ["opendss", "--scenario", str(scenario_csv), "--feature", str(feature_geojson)]
+    if autosize:
+        args.append("--upgrade")
+    _run_uo(
+        project_dir=project_dir,
+        runtime=runtime,
+        args=args,
+        log_name="run_opendss",
+    )
+    return project_dir
+
+
 def has_urbanopt_cli_bundle(runtime: dict[str, Any] | None) -> bool:
     """Return True when a runtime includes an existing CLI Gemfile."""
     gemfile = urbanopt_cli_runtime_gemfile_path(runtime)
     return bool(gemfile and gemfile.is_file())
+
+
+def has_urbanopt_opendss_python_deps(runtime: dict[str, Any] | None) -> bool:
+    """Return True when URBANopt CLI OpenDSS Python deps are initialized."""
+    config = _opendss_python_config(runtime)
+    return bool(config and config.is_file())
 
 
 def _check_project_files(feature_geojson: str | Path, scenario_csv: str | Path) -> Path:
@@ -274,6 +301,20 @@ def _reopt_assumptions_template(runtime: dict[str, Any] | None) -> Path | None:
         fallback = bundle_path / "gems" / "urbanopt-cli-1.2.0" / "example_files" / "reopt" / "multiPV_assumptions.json"
         if fallback.is_file():
             return fallback
+    return None
+
+
+def _opendss_python_config(runtime: dict[str, Any] | None) -> Path | None:
+    bundle_path = urbanopt_cli_gem_bundle_path(runtime)
+    if bundle_path is None:
+        return None
+    example_root = bundle_path / "gems"
+    for candidate in sorted(example_root.glob("urbanopt-cli-*/example_files/python_deps/python_config.json")):
+        if candidate.is_file():
+            return candidate
+    fallback = bundle_path / "gems" / "urbanopt-cli-1.2.0" / "example_files" / "python_deps" / "python_config.json"
+    if fallback.is_file():
+        return fallback
     return None
 
 
