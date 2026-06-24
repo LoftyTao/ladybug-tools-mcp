@@ -146,6 +146,10 @@ def has_urbanopt_cli_bundle(runtime: dict[str, Any] | None) -> bool:
 
 def has_urbanopt_opendss_python_deps(runtime: dict[str, Any] | None) -> bool:
     """Return True when URBANopt CLI OpenDSS Python deps are initialized."""
+    if isinstance(runtime, dict):
+        deps = runtime.get("opendss_python_deps")
+        if isinstance(deps, dict) and deps.get("initialized") is True:
+            return True
     config = _opendss_python_config(runtime)
     return bool(config and config.is_file())
 

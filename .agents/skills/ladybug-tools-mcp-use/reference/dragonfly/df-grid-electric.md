@@ -13,7 +13,7 @@ OKF source: `docs/llm-wiki/tools/dragonfly-grid-tools.md`.
 - Use a real short Garden root under `D:\`, such as `D:\df_mcp_ax7`, and a short `folder_name` for URBANopt-backed handoff artifacts because the Dragonfly Energy URBANopt writer rejects long export folders. Do not use mapped/cache drives for this validation lane.
 - Use `df_des_export_urbanopt_model` to produce the `dragonfly_des` feature GeoJSON target, then `df_urbanopt_prepare_project` to produce the scenario CSV target before runtime tools. Pass `electrical_network_target`, `road_network_target`, and `ground_pv_targets` to `df_des_export_urbanopt_model` when the downstream Grid run needs those features. Do not use ordinary `df_export_model_file(file_type="geojson")` output as the Grid runtime prerequisite.
 - RNM and REopt are URBANopt post-processing paths, but in URBANopt CLI 1.2.0 they are API-backed, not local bundle calculations. Run and poll URBANopt Energy through the local 1.2.0 bundle first. Under the MCP local-only policy, expect `df_grid_start_rnm` and `df_grid_start_reopt` to return `runtime_status="blocked"` before online API submission unless a future local RNM/REopt service path is explicitly added.
-- OpenDSS should use the local URBANopt CLI 1.2.0 bundle, not an online download. `df_grid_start_opendss` can run only when the bundle's OpenDSS Python dependencies have already been initialized and `example_files/python_deps/python_config.json` exists. If that file is missing, stop on the blocked response; do not run `uo install_python` during validation.
+- OpenDSS should use the local URBANopt CLI 1.2.0 bundle, not an online download. Before calling `df_grid_start_opendss`, inspect `config_get_runtime_config.summary_view.engines.urbanopt.opendss_python_deps.initialized`. Continue only when it is `true`; if it is `false`, report the missing `python_config.json` blocker and do not run `uo install_python` during validation.
 
 ## Tool Order
 
@@ -96,7 +96,7 @@ exported = await call_tool("df_des_export_urbanopt_model", {
 
 - Stop on `runtime_status="blocked"` from `df_grid_start_rnm`, `df_grid_start_opendss`, or `df_grid_start_reopt`; return the `run_target`, blocked reason, and `config_get_runtime_config` guidance.
 - Do not run RNM-US or REopt online API paths as part of local bundle validation. If a separate manual probe reaches `rnm.urbanopt.net` or `developer.nrel.gov`, record it as external-service evidence only, not MCP local completion.
-- Treat OpenDSS as a local URBANopt CLI 1.2.0 bundle path. If the local bundle lacks `example_files/python_deps/python_config.json`, report the dependency-initialization blocker and stop; do not download dependencies or call `uo install_python` from the Agent run.
+- Treat OpenDSS as a local URBANopt CLI 1.2.0 bundle path. If `config_get_runtime_config.summary_view.engines.urbanopt.opendss_python_deps.initialized` is not `true`, report the dependency-initialization blocker and stop; do not download dependencies or call `uo install_python` from the Agent run.
 - Do not call `df_urbanopt_*` tools as substitutes for Grid execution. URBANopt Energy and Electric Grid are separate workflow families.
 - Do not invent `df_urbanopt_export_model`, `df_grid_run_opendss`, `df_grid_run_rnm`, or `df_grid_run_reopt`; the current public start tools are `df_grid_start_*`.
 - Do not treat Honeybee Energy ElectricLoadCenter or Ironbug electrical source objects as Dragonfly Electric Grid network objects.

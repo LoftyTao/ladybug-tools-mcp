@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import glob
+import json
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -547,6 +548,53 @@ def _urbanopt_cli_gem_bundle(cli_path: str | None) -> Path | None:
     return _first_existing_glob(str(Path(cli_path) / "gems" / "ruby" / "*"))
 
 
+def _urbanopt_opendss_python_deps(cli_gem_bundle: Path | None) -> dict[str, Any]:
+    if cli_gem_bundle is None:
+        return {
+            "path": None,
+            "path_exists": False,
+            "initialized": False,
+            "python_config": _existing_path(None),
+            "dependencies_file": _existing_path(None),
+            "dependencies": [],
+            "install_command": "uo install_python",
+        }
+    matches = sorted(
+        (cli_gem_bundle / "gems").glob("urbanopt-cli-*/example_files/python_deps")
+    )
+    deps_path = matches[0] if matches else (
+        cli_gem_bundle
+        / "gems"
+        / "urbanopt-cli-1.2.0"
+        / "example_files"
+        / "python_deps"
+    )
+    config_path = deps_path / "python_config.json"
+    dependencies_file = deps_path / "dependencies.json"
+    dependencies: list[dict[str, Any]] = []
+    if dependencies_file.is_file():
+        try:
+            loaded = json.loads(dependencies_file.read_text(encoding="utf-8"))
+            if isinstance(loaded, list):
+                dependencies = [item for item in loaded if isinstance(item, dict)]
+        except json.JSONDecodeError:
+            dependencies = []
+    return {
+        "path": str(deps_path),
+        "path_exists": deps_path.is_dir(),
+        "initialized": config_path.is_file(),
+        "python_config": _existing_path(str(config_path)),
+        "dependencies_file": _existing_path(str(dependencies_file)),
+        "dependencies": dependencies,
+        "install_command": "uo install_python",
+        "note": (
+            "OpenDSS/DISCO/GMT Python dependencies are initialized only when "
+            "python_config.json exists. This report is read-only and does not "
+            "run uo install_python."
+        ),
+    }
+
+
 def _urbanopt_sdk_search() -> dict[str, Any]:
     return {
         "package": "dragonfly_energy",
@@ -660,6 +708,7 @@ def _urbanopt_config() -> dict[str, Any]:
         "cli_runtime_gemfile": cli_runtime_gemfile,
         "openstudio_runtime_gemfile": openstudio_runtime_gemfile,
         "cli_gem_bundle": _sourced_path_record(cli_gem_bundle, "cli_runtime"),
+        "opendss_python_deps": _urbanopt_opendss_python_deps(cli_gem_bundle),
         "setup_env": {
             "configured": _path_record(env_path),
             "candidates": setup_candidates,
