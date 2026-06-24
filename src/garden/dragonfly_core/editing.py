@@ -200,6 +200,34 @@ def _compact_identifier(value: str) -> str:
     return "".join(ch for ch in value.lower() if ch.isalnum())
 
 
+def _resolve_identifiers_from_targets(
+    *,
+    object_targets: list[dict[str, Any]] | None,
+    identifiers: list[str] | None,
+    expected_type: str,
+) -> list[str]:
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for identifier in identifiers or []:
+        if identifier not in seen:
+            resolved.append(identifier)
+            seen.add(identifier)
+    for target in object_targets or []:
+        normalized = normalize_dragonfly_object_target(
+            target,
+            expected_type=expected_type,
+        )
+        identifier = str(normalized["object_identifier"])
+        if identifier not in seen:
+            resolved.append(identifier)
+            seen.add(identifier)
+    if not resolved:
+        raise ValueError(
+            f"Provide object_targets or identifiers for Dragonfly {expected_type} removal."
+        )
+    return resolved
+
+
 def _delete_draft_object(
     garden_root: Path,
     *,
@@ -218,6 +246,71 @@ def _delete_draft_object(
         object_path.unlink()
         return True
     return False
+
+
+def _removed_model_response(
+    *,
+    garden_root_path: Path,
+    manifest: Any,
+    resolved_model_target: dict[str, Any],
+    model: Model,
+    operation: str,
+    removed_key: str,
+    removed_identifiers_key: str,
+    removed_identifiers: list[str],
+    relationship_cleanup: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    updated_model_target, persisted_path = _save_changed_model(
+        garden_root_path,
+        manifest,
+        resolved_model_target,
+        model,
+    )
+    deleted_draft_count = 0
+    object_type = removed_key.removesuffix("s")
+    for identifier in removed_identifiers:
+        if _delete_draft_object(
+            garden_root_path,
+            model_identifier=str(updated_model_target["model_identifier"]),
+            object_type=object_type,
+            object_identifier=identifier,
+        ):
+            deleted_draft_count += 1
+    removed_counts = {removed_key: len(removed_identifiers)}
+    cleanup = relationship_cleanup or {}
+    summary_view = {
+        "target": updated_model_target,
+        "model_target": updated_model_target,
+        "identifier": model.identifier,
+        "display_name": model.display_name,
+        "type": model.to_dict().get("type"),
+        "removed_counts": removed_counts,
+        removed_identifiers_key: removed_identifiers,
+        "relationship_cleanup": cleanup,
+        "deleted_draft_object_count": deleted_draft_count,
+    }
+    return {
+        "target": updated_model_target,
+        "model_target": updated_model_target,
+        "summary_view": summary_view,
+        "persistence_receipt": _receipt(
+            garden_id=manifest.garden_id,
+            model_target=updated_model_target,
+            persisted_path=persisted_path,
+            operation=operation,
+            target=updated_model_target,
+            change_details={
+                "removed_counts": removed_counts,
+                removed_identifiers_key: removed_identifiers,
+                "relationship_cleanup": cleanup,
+                "deleted_draft_object_count": deleted_draft_count,
+            },
+        ),
+        "report": make_report(
+            status="ok",
+            message=f"Removed {len(removed_identifiers)} Dragonfly {removed_key}.",
+        ),
+    }
 
 
 def edit_dragonfly_model(
@@ -695,3 +788,168 @@ def remove_dragonfly_stories_from_building(
             ),
         ),
     }
+
+
+def remove_dragonfly_room2ds(
+    *,
+    garden_root: str,
+    object_targets: list[dict[str, Any]] | None = None,
+    room2d_identifiers: list[str] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Remove Room2Ds from a Dragonfly Model and clean empty parent objects."""
+    identifiers = _resolve_identifiers_from_targets(
+        object_targets=object_targets,
+        identifiers=room2d_identifiers,
+        expected_type="room2d",
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    model_dict = model.to_dict()
+    remaining_to_remove = set(identifiers)
+    removed_identifiers: list[str] = []
+    emptied_stories: list[str] = []
+    emptied_buildings: list[str] = []
+    kept_buildings: list[dict[str, Any]] = []
+    for building in model_dict.get("buildings", []):
+        kept_stories: list[dict[str, Any]] = []
+        for story in building.get("unique_stories", []):
+            kept_rooms: list[dict[str, Any]] = []
+            removed_from_story = False
+            for room in story.get("room_2ds", []):
+                room_identifier = str(room.get("identifier"))
+                if room_identifier in remaining_to_remove:
+                    removed_identifiers.append(room_identifier)
+                    removed_from_story = True
+                    continue
+                kept_rooms.append(room)
+            story["room_2ds"] = kept_rooms
+            if kept_rooms:
+                kept_stories.append(story)
+            elif removed_from_story:
+                emptied_stories.append(str(story.get("identifier")))
+        building["unique_stories"] = kept_stories
+        if kept_stories or building.get("room_3ds"):
+            kept_buildings.append(building)
+        else:
+            emptied_buildings.append(str(building.get("identifier")))
+    missing = sorted(set(identifiers) - set(removed_identifiers))
+    if missing:
+        raise ValueError(
+            "Dragonfly Room2D identifier(s) not found: " + ", ".join(missing) + "."
+        )
+    model_dict["buildings"] = kept_buildings
+    updated_model = Model.from_dict(model_dict)
+    return _removed_model_response(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=updated_model,
+        operation="remove_dragonfly_room2ds",
+        removed_key="room2ds",
+        removed_identifiers_key="removed_room2d_identifiers",
+        removed_identifiers=removed_identifiers,
+        relationship_cleanup={
+            "emptied_stories": emptied_stories,
+            "emptied_buildings": emptied_buildings,
+        },
+    )
+
+
+def remove_dragonfly_buildings(
+    *,
+    garden_root: str,
+    object_targets: list[dict[str, Any]] | None = None,
+    building_identifiers: list[str] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Remove Buildings from a Dragonfly Model."""
+    identifiers = _resolve_identifiers_from_targets(
+        object_targets=object_targets,
+        identifiers=building_identifiers,
+        expected_type="building",
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    model_dict = model.to_dict()
+    kept_buildings: list[dict[str, Any]] = []
+    removed_identifiers: list[str] = []
+    for building in model_dict.get("buildings", []):
+        identifier = str(building.get("identifier"))
+        if identifier in identifiers:
+            removed_identifiers.append(identifier)
+            continue
+        kept_buildings.append(building)
+    missing = sorted(set(identifiers) - set(removed_identifiers))
+    if missing:
+        raise ValueError(
+            "Dragonfly Building identifier(s) not found: " + ", ".join(missing) + "."
+        )
+    model_dict["buildings"] = kept_buildings
+    updated_model = Model.from_dict(model_dict)
+    return _removed_model_response(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=updated_model,
+        operation="remove_dragonfly_buildings",
+        removed_key="buildings",
+        removed_identifiers_key="removed_building_identifiers",
+        removed_identifiers=removed_identifiers,
+        relationship_cleanup={
+            "removed_embedded_story_scope": "building",
+            "removed_embedded_room2d_scope": "building",
+        },
+    )
+
+
+def remove_dragonfly_context_shades(
+    *,
+    garden_root: str,
+    object_targets: list[dict[str, Any]] | None = None,
+    context_shade_identifiers: list[str] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Remove ContextShades from a Dragonfly Model."""
+    identifiers = _resolve_identifiers_from_targets(
+        object_targets=object_targets,
+        identifiers=context_shade_identifiers,
+        expected_type="context_shade",
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    model_dict = model.to_dict()
+    kept_shades: list[dict[str, Any]] = []
+    removed_identifiers: list[str] = []
+    for shade in model_dict.get("context_shades", []):
+        identifier = str(shade.get("identifier"))
+        if identifier in identifiers:
+            removed_identifiers.append(identifier)
+            continue
+        kept_shades.append(shade)
+    missing = sorted(set(identifiers) - set(removed_identifiers))
+    if missing:
+        raise ValueError(
+            "Dragonfly ContextShade identifier(s) not found: "
+            + ", ".join(missing)
+            + "."
+        )
+    model_dict["context_shades"] = kept_shades
+    updated_model = Model.from_dict(model_dict)
+    return _removed_model_response(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=updated_model,
+        operation="remove_dragonfly_context_shades",
+        removed_key="context_shades",
+        removed_identifiers_key="removed_context_shade_identifiers",
+        removed_identifiers=removed_identifiers,
+        relationship_cleanup={},
+    )

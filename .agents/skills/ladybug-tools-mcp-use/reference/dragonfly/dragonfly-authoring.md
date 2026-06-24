@@ -53,6 +53,7 @@ validation = await call_tool("df_validate_model", {"garden_root": garden_root})
 - Summarize with `df_get_model_summary`; do not request full DFJSON bodies for routine inspection.
 - Edit metadata with `df_edit_model`, `df_edit_story`, `df_edit_building`, or `df_edit_room2d`.
 - Add/remove Stories with `df_add_stories_to_building` and `df_remove_stories_from_building`.
+- Remove Room2Ds, Buildings, or ContextShades with `df_remove_room2ds`, `df_remove_buildings`, or `df_remove_context_shades`. Prefer object targets from `df_search_objects` or `df_room2ds_by_attribute` over raw identifiers when available. Check `summary_view.removed_counts` and `summary_view.relationship_cleanup` before claiming the model was cleaned.
 - Solve or reset Story adjacency with `df_solve_story_adjacency` and `df_reset_story_adjacency`.
 - Clean Room2D boundaries with `df_clean_room2d_geometry`.
 - Apply Dragonfly-native window and shading parameters with `df_create_window_parameter`, `df_apply_window_parameter`, `df_create_shading_parameter`, and `df_apply_shading_parameter`.
@@ -62,6 +63,9 @@ validation = await call_tool("df_validate_model", {"garden_root": garden_root})
 ## Visualization And Handoff
 
 - Use `df_model_to_visualization_set` for a model VisualizationSet.
+- Use `df_building_to_visualization_set`, `df_story_to_visualization_set`, `df_room2d_to_visualization_set`, or `df_context_shade_to_visualization_set` for object previews.
+- Use `df_selection_to_visualization_set` after `df_search_objects`, and `df_room2d_attribute_to_visualization_set` after `df_room2ds_by_attribute`.
+- Set `return_visualization_set=false` when the next step is `visualization_set_to_vtkjs`, `visualization_set_to_svg`, or Web View; pass the returned `visualization_set_target`.
 - Use `df_model_envelope_edges_to_visualization_set` for envelope-edge display; if it returns `report.status="degraded"`, use the returned wireframe target instead of retrying edge options.
 - Use `df_models_to_comparison_visualization_set` for comparison display.
 - Use `visualization_set_to_vtkjs` for Web 3D, FastMCP App viewer, Remotion, or reusable geometry assets; use `visualization_set_to_html` only for a standalone HTML artifact.
@@ -102,13 +106,14 @@ poll = await call_tool("df_uwg_poll_simulation", {
 - Dragonfly hierarchy exists as Room2D -> Story -> Building.
 - `df_validate_model` reports valid when the workflow claims a usable model.
 - Visualization calls return `visualization_set_target` and exporter artifacts when requested.
+- Removal calls return a persisted `model_target`, `persistence_receipt`, and compact cleanup summary.
 - Conversion returns Honeybee model targets and updates `base_honeybee_model` only when requested.
 - UWG completion returns a morphed weather target before Energy handoff.
 
 ## Stop Conditions
 
 - Do not use `room2ds` or `room_2ds`; `df_story` takes `room2d_targets`.
-- Do not invent Building or Room2D deletion tools.
+- Do not use removal tools for list/search workflows; search with `df_search_objects` or `df_room2ds_by_attribute` first, then remove only explicit targets.
 - Do not call or invent `run_urbanopt`.
 - Do not pass `terrain` as a label such as `Suburban`; omit it unless a real Terrain dictionary is available.
 - Use UWG program identifiers such as `MediumOffice`, `LargeOffice`, `SmallOffice`, or `MidriseApartment`; do not pass broad labels like `Office`.

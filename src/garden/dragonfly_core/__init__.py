@@ -12,9 +12,15 @@ from garden.dragonfly_core.conversion import (
     honeybee_model_to_dragonfly,
 )
 from garden.dragonfly_core.display import (
+    dragonfly_building_to_visualization_set,
+    dragonfly_context_shade_to_visualization_set,
     dragonfly_model_envelope_edges_to_visualization_set,
     dragonfly_model_to_visualization_set,
     dragonfly_models_to_comparison_visualization_set,
+    dragonfly_room2d_attribute_to_visualization_set,
+    dragonfly_room2d_to_visualization_set,
+    dragonfly_selection_to_visualization_set,
+    dragonfly_story_to_visualization_set,
 )
 from garden.dragonfly_core.editing import (
     add_dragonfly_stories_to_building,
@@ -22,6 +28,9 @@ from garden.dragonfly_core.editing import (
     edit_dragonfly_model,
     edit_dragonfly_room2d,
     edit_dragonfly_story,
+    remove_dragonfly_buildings,
+    remove_dragonfly_context_shades,
+    remove_dragonfly_room2ds,
     remove_dragonfly_stories_from_building,
 )
 from garden.dragonfly_core.envelope_parameters import (
@@ -60,9 +69,15 @@ __all__ = [
     "create_dragonfly_window_parameter",
     "add_dragonfly_stories_to_building",
     "dragonfly_model_to_honeybee",
+    "dragonfly_building_to_visualization_set",
+    "dragonfly_context_shade_to_visualization_set",
     "dragonfly_model_envelope_edges_to_visualization_set",
     "dragonfly_model_to_visualization_set",
     "dragonfly_models_to_comparison_visualization_set",
+    "dragonfly_room2d_attribute_to_visualization_set",
+    "dragonfly_room2d_to_visualization_set",
+    "dragonfly_selection_to_visualization_set",
+    "dragonfly_story_to_visualization_set",
     "edit_dragonfly_building",
     "edit_dragonfly_model",
     "edit_dragonfly_room2d",
@@ -71,6 +86,9 @@ __all__ = [
     "get_dragonfly_properties_summary",
     "honeybee_model_to_dragonfly",
     "list_dragonfly_room2d_attributes",
+    "remove_dragonfly_buildings",
+    "remove_dragonfly_context_shades",
+    "remove_dragonfly_room2ds",
     "remove_dragonfly_stories_from_building",
     "reset_dragonfly_story_adjacency",
     "search_dragonfly_model_objects",

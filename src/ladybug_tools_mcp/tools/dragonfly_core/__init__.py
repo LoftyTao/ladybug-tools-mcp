@@ -44,6 +44,15 @@ from ladybug_tools_mcp.tools.dragonfly_core.add_dragonfly_stories_to_building im
 from ladybug_tools_mcp.tools.dragonfly_core.remove_dragonfly_stories_from_building import (
     register as register_remove_dragonfly_stories_from_building,
 )
+from ladybug_tools_mcp.tools.dragonfly_core.remove_dragonfly_room2ds import (
+    register as register_remove_dragonfly_room2ds,
+)
+from ladybug_tools_mcp.tools.dragonfly_core.remove_dragonfly_buildings import (
+    register as register_remove_dragonfly_buildings,
+)
+from ladybug_tools_mcp.tools.dragonfly_core.remove_dragonfly_context_shades import (
+    register as register_remove_dragonfly_context_shades,
+)
 from ladybug_tools_mcp.tools.dragonfly_core.solve_dragonfly_story_adjacency import (
     register as register_solve_dragonfly_story_adjacency,
 )
@@ -101,6 +110,24 @@ from ladybug_tools_mcp.tools.dragonfly_core.honeybee_model_to_dragonfly import (
 from ladybug_tools_mcp.tools.dragonfly_core.dragonfly_model_to_visualization_set import (
     register as register_dragonfly_model_to_visualization_set,
 )
+from ladybug_tools_mcp.tools.dragonfly_core.dragonfly_building_to_visualization_set import (
+    register as register_dragonfly_building_to_visualization_set,
+)
+from ladybug_tools_mcp.tools.dragonfly_core.dragonfly_story_to_visualization_set import (
+    register as register_dragonfly_story_to_visualization_set,
+)
+from ladybug_tools_mcp.tools.dragonfly_core.dragonfly_room2d_to_visualization_set import (
+    register as register_dragonfly_room2d_to_visualization_set,
+)
+from ladybug_tools_mcp.tools.dragonfly_core.dragonfly_context_shade_to_visualization_set import (
+    register as register_dragonfly_context_shade_to_visualization_set,
+)
+from ladybug_tools_mcp.tools.dragonfly_core.dragonfly_selection_to_visualization_set import (
+    register as register_dragonfly_selection_to_visualization_set,
+)
+from ladybug_tools_mcp.tools.dragonfly_core.dragonfly_room2d_attribute_to_visualization_set import (
+    register as register_dragonfly_room2d_attribute_to_visualization_set,
+)
 from ladybug_tools_mcp.tools.dragonfly_core.dragonfly_model_envelope_edges_to_visualization_set import (
     register as register_dragonfly_model_envelope_edges_to_visualization_set,
 )
@@ -125,6 +152,9 @@ def register(mcp: FastMCP) -> None:
     register_edit_dragonfly_room2d(mcp)
     register_add_dragonfly_stories_to_building(mcp)
     register_remove_dragonfly_stories_from_building(mcp)
+    register_remove_dragonfly_room2ds(mcp)
+    register_remove_dragonfly_buildings(mcp)
+    register_remove_dragonfly_context_shades(mcp)
     register_solve_dragonfly_story_adjacency(mcp)
     register_reset_dragonfly_story_adjacency(mcp)
     register_clean_dragonfly_room2d_geometry(mcp)
@@ -144,5 +174,11 @@ def register(mcp: FastMCP) -> None:
     register_dragonfly_model_to_honeybee(mcp)
     register_honeybee_model_to_dragonfly(mcp)
     register_dragonfly_model_to_visualization_set(mcp)
+    register_dragonfly_building_to_visualization_set(mcp)
+    register_dragonfly_story_to_visualization_set(mcp)
+    register_dragonfly_room2d_to_visualization_set(mcp)
+    register_dragonfly_context_shade_to_visualization_set(mcp)
+    register_dragonfly_selection_to_visualization_set(mcp)
+    register_dragonfly_room2d_attribute_to_visualization_set(mcp)
     register_dragonfly_model_envelope_edges_to_visualization_set(mcp)
     register_dragonfly_models_to_comparison_visualization_set(mcp)
