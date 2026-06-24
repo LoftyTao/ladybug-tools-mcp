@@ -14,7 +14,7 @@ def register(mcp: FastMCP) -> None:
     'Register the dragonfly_create_model tool.'
 
     @mcp.tool(
-        name="create_model",
+        name="model",
         description=(
             "Create an empty Dragonfly model in a Garden and optionally set it as the "
             "base Dragonfly model with set_base; not set_as_base. Returns target and "

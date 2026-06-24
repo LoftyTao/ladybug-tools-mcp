@@ -14,7 +14,7 @@ def register(mcp: FastMCP) -> None:
     'Register the dragonfly_create_context_shade tool.'
 
     @mcp.tool(
-        name="create_context_shade",
+        name="context_shade",
         description=(
             "Create a Dragonfly ContextShade in a Garden from one or more 3D "
             "shade faces, save it into the Dragonfly model, and return a "

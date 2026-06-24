@@ -14,7 +14,7 @@ def register(mcp: FastMCP) -> None:
     'Register the dragonfly_create_building tool.'
 
     @mcp.tool(
-        name="create_building",
+        name="building",
         description=(
             "Create a Dragonfly Building in a Garden Dragonfly model from Dragonfly Story "
             "targets and save the DFJSON model. The service uses Dragonfly SDK "

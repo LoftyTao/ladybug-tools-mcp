@@ -40,12 +40,14 @@ def _save_receipt(
     model_target: dict[str, Any],
     persisted_path: str,
     operation: str,
+    base_dragonfly_model_changed: bool = False,
     change_details: dict[str, Any] | None = None,
     warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     return make_persistence_receipt(
         status="persisted",
         garden_id=garden_id,
+        base_dragonfly_model_changed=base_dragonfly_model_changed,
         model_target=model_target,
         persisted_path=persisted_path,
         warnings=warnings,
@@ -282,10 +284,11 @@ def _created_object_response(
     persisted_path: str,
     operation: str,
     message: str,
+    include_object_dict: bool = True,
+    base_dragonfly_model_changed: bool = False,
 ) -> dict[str, Any]:
     object_type = str(target.get("object_type") or "")
     response = {
-        "object_dict": object_dict,
         "target": target,
         "object_target": target,
         "model_target": model_target,
@@ -295,10 +298,13 @@ def _created_object_response(
             model_target=model_target,
             persisted_path=persisted_path,
             operation=operation,
+            base_dragonfly_model_changed=base_dragonfly_model_changed,
             change_details={"target": target},
         ),
         "report": make_report(status="ok", message=message),
     }
+    if include_object_dict:
+        response["object_dict"] = object_dict
     if object_type:
         response[f"{object_type}_target"] = target
     return response
@@ -505,6 +511,7 @@ def create_dragonfly_context_shade(
         uwg = getattr(getattr(shade, "properties", None), "uwg", None)
         if uwg is not None and hasattr(uwg, "is_vegetation"):
             uwg.is_vegetation = bool(is_vegetation)
+    base_dragonfly_model_changed = manifest.base_dragonfly_model == resolved_model_target
     model.add_context_shade(shade)
     updated_model_target, persisted_path = _save_changed_model(
         garden_root_path,
@@ -526,6 +533,7 @@ def create_dragonfly_context_shade(
         persisted_path=persisted_path,
         operation="create_dragonfly_context_shade",
         message=f"Created Dragonfly ContextShade: {resolved_identifier}",
+        base_dragonfly_model_changed=base_dragonfly_model_changed,
     )
     response["summary_view"]["face_count"] = len(faces)
     return response
@@ -736,6 +744,7 @@ def create_dragonfly_building(
         for room in story.room_2ds:
             objects_to_add.append(("room2d", room.identifier))
     _ensure_unique_model_objects(model, objects_to_add)
+    base_dragonfly_model_changed = manifest.base_dragonfly_model == resolved_model_target
     model.add_building(building)
     updated_model_target, persisted_path = _save_changed_model(
         garden_root_path,
@@ -757,6 +766,95 @@ def create_dragonfly_building(
         persisted_path=persisted_path,
         operation="create_dragonfly_building",
         message=f"Created Dragonfly Building: {resolved_identifier}",
+        base_dragonfly_model_changed=base_dragonfly_model_changed,
     )
     response["summary_view"]["story_count"] = len(building.unique_stories)
+    return response
+
+
+def _footprint_face_from_points(points: Any) -> Face3D:
+    if not isinstance(points, list) or len(points) < 3:
+        raise ValueError("Each footprint must be a list of at least three points.")
+    vertices = []
+    for point in points:
+        if not isinstance(point, (list, tuple)) or len(point) < 2:
+            raise ValueError("Footprint points must be [x, y] or [x, y, z] lists.")
+        z = float(point[2]) if len(point) > 2 else 0.0
+        vertices.append(Point3D(float(point[0]), float(point[1]), z))
+    return Face3D(vertices)
+
+
+def create_dragonfly_building_from_footprint(
+    *,
+    garden_root: str,
+    identifier: str,
+    footprints: list[list[list[float]]],
+    floor_to_floor_heights: list[float],
+    perimeter_offset: float | None = None,
+    model_target: dict[str, Any] | None = None,
+    display_name: str | None = None,
+    tolerance: float | None = None,
+) -> dict[str, Any]:
+    """Create a Dragonfly Building from explicit footprint point loops."""
+    if not footprints:
+        raise ValueError("create_dragonfly_building_from_footprint requires footprints.")
+    if not floor_to_floor_heights:
+        raise ValueError(
+            "create_dragonfly_building_from_footprint requires floor_to_floor_heights."
+        )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    resolved_identifier = _clean_dragonfly_identifier(identifier)
+    footprint_faces = [_footprint_face_from_points(footprint) for footprint in footprints]
+    building = Building.from_footprint(
+        resolved_identifier,
+        footprint_faces,
+        [float(height) for height in floor_to_floor_heights],
+        perimeter_offset=0 if perimeter_offset is None else float(perimeter_offset),
+        tolerance=0 if tolerance is None else float(tolerance),
+    )
+    if display_name:
+        building.display_name = display_name
+    objects_to_add = [("building", building.identifier)]
+    for story in building.unique_stories:
+        objects_to_add.append(("story", story.identifier))
+        for room in story.room_2ds:
+            objects_to_add.append(("room2d", room.identifier))
+    _ensure_unique_model_objects(model, objects_to_add)
+    base_dragonfly_model_changed = manifest.base_dragonfly_model == resolved_model_target
+    model.add_building(building)
+    updated_model_target, persisted_path = _save_changed_model(
+        garden_root_path,
+        manifest,
+        resolved_model_target,
+        model,
+    )
+    target = make_dragonfly_object_target(
+        garden_id=manifest.garden_id,
+        model_identifier=str(updated_model_target["model_identifier"]),
+        object_type="building",
+        object_identifier=resolved_identifier,
+    )
+    response = _created_object_response(
+        object_dict=building.to_dict(),
+        target=target,
+        garden_id=manifest.garden_id,
+        model_target=updated_model_target,
+        persisted_path=persisted_path,
+        operation="create_dragonfly_building_from_footprint",
+        message=f"Created Dragonfly Building from footprint: {resolved_identifier}",
+        include_object_dict=False,
+        base_dragonfly_model_changed=base_dragonfly_model_changed,
+    )
+    response["summary_view"].update(
+        {
+            "source_geometry": "footprint_points",
+            "footprint_count": len(footprint_faces),
+            "story_count": len(floor_to_floor_heights),
+            "unique_story_count": len(building.unique_stories),
+            "perimeter_offset": perimeter_offset,
+        }
+    )
     return response

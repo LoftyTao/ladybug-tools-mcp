@@ -440,6 +440,12 @@ def _path_record(value: str | Path | None) -> dict[str, Any]:
     return _existing_path(path)
 
 
+def _sourced_path_record(value: str | Path | None, source: str) -> dict[str, Any]:
+    record = _path_record(value)
+    record["source"] = source
+    return record
+
+
 def _existing_dirs(values: list[Path]) -> list[str]:
     return [str(value) for value in values if value.is_dir()]
 
@@ -496,6 +502,44 @@ def _urbanopt_setup_candidates(cli_path: str | None) -> list[dict[str, Any]]:
     ]
 
 
+def _urbanopt_runtime_gemfile(cli_path: str | None) -> str | None:
+    if not cli_path:
+        return None
+    return str(Path(cli_path) / "openstudio-runtime-gems" / "Gemfile")
+
+
+def _urbanopt_sdk_search() -> dict[str, Any]:
+    return {
+        "package": "dragonfly_energy",
+        "config_class": "dragonfly_energy.config.Folders",
+        "config_properties": [
+            "urbanopt_cli_path",
+            "urbanopt_gemfile_path",
+            "urbanopt_env_path",
+            "urbanopt_version",
+            "urbanopt_version_str",
+        ],
+        "config_methods": [
+            "retrieve_urbanopt_env_path",
+            "generate_urbanopt_env_path",
+            "check_urbanopt_version",
+        ],
+        "run_module": "dragonfly_energy.run",
+        "run_functions": [
+            "prepare_urbanopt_folder",
+            "run_urbanopt",
+            "run_default_report",
+            "set_building_district_loads",
+        ],
+        "grasshopper_mindset": [
+            "Dragonfly Model to geoJSON",
+            "Run URBANopt",
+            "Run Energy Simulation",
+            "Read URBANopt Result",
+        ],
+    }
+
+
 def _urbanopt_path_updates(cli_path: str | None) -> dict[str, Any]:
     if not cli_path:
         return {"prepend": [], "env": {}}
@@ -525,15 +569,24 @@ def _urbanopt_path_updates(cli_path: str | None) -> dict[str, Any]:
 
 def _urbanopt_config() -> dict[str, Any]:
     folders = dragonfly_energy_folders
-    configured_path = _normalized_path(folders.urbanopt_cli_path)
+    configured_path = _normalized_path(getattr(folders, "urbanopt_cli_path", None))
     candidates = _urbanopt_candidates()
     selected, reason = _select_candidate(candidates, configured_path=configured_path)
     cli_path = selected.get("path") if selected else configured_path
-    gemfile_path = str(Path(cli_path) / "Gemfile") if cli_path else folders.urbanopt_gemfile_path
-    env_path = folders.urbanopt_env_path
+    sdk_gemfile_path = _normalized_path(getattr(folders, "urbanopt_gemfile_path", None))
+    runtime_gemfile_path = _urbanopt_runtime_gemfile(cli_path)
+    if sdk_gemfile_path and Path(sdk_gemfile_path).expanduser().is_file():
+        gemfile_path = sdk_gemfile_path
+        gemfile_source = "sdk_config"
+    else:
+        gemfile_path = runtime_gemfile_path
+        gemfile_source = "cli_runtime"
+    env_path = getattr(folders, "urbanopt_env_path", None)
     detected_version = selected.get("version") if selected else None
     cli = _path_record(cli_path)
-    gemfile = _path_record(gemfile_path)
+    gemfile = _sourced_path_record(gemfile_path, gemfile_source)
+    runtime_gemfile = _sourced_path_record(runtime_gemfile_path, "cli_runtime")
+    setup_candidates = _urbanopt_setup_candidates(cli_path)
     path_updates = _urbanopt_path_updates(cli_path)
     record = {
         "name": "urbanopt",
@@ -550,19 +603,24 @@ def _urbanopt_config() -> dict[str, Any]:
         "selection_reason": reason,
         "detected_version": detected_version,
         "version": detected_version,
-        "version_source": "sdk_cache_or_cli_folder_name",
+        "version_source": "sdk_config_or_cli_folder_name",
         "candidates": candidates,
         "cli": cli,
         "gemfile": gemfile,
+        "runtime_gemfile": runtime_gemfile,
         "setup_env": {
             "configured": _path_record(env_path),
-            "candidates": _urbanopt_setup_candidates(cli_path),
+            "candidates": setup_candidates,
+            "generatable": any(candidate.get("exists") for candidate in setup_candidates),
         },
+        "sdk_search": _urbanopt_sdk_search(),
         "path_updates": path_updates,
         "note": (
             "URBANopt is a Dragonfly Energy runtime workflow for district-scale "
-            "EnergyPlus/OpenStudio runs from URBANopt-compatible geoJSON. This "
-            "config report is read-only and does not run setup-env."
+            "EnergyPlus/OpenStudio runs from URBANopt-compatible geoJSON. The "
+            "Dragonfly Energy SDK uses urbanopt_gemfile_path for project "
+            "preparation and can generate an env script from setup-env when "
+            "needed. This config report is read-only and does not run setup-env."
         ),
     }
     _apply_runtime_requirement("urbanopt", record)

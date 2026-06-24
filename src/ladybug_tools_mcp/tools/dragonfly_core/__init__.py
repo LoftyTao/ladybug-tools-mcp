@@ -5,6 +5,12 @@ from fastmcp import FastMCP
 from ladybug_tools_mcp.tools.dragonfly_core.create_dragonfly_model import (
     register as register_create_dragonfly_model,
 )
+from ladybug_tools_mcp.tools.dragonfly_core.import_dragonfly_model_file import (
+    register as register_import_dragonfly_model_file,
+)
+from ladybug_tools_mcp.tools.dragonfly_core.export_dragonfly_model_file import (
+    register as register_export_dragonfly_model_file,
+)
 from ladybug_tools_mcp.tools.dragonfly_core.create_dragonfly_room2d import (
     register as register_create_dragonfly_room2d,
 )
@@ -13,6 +19,9 @@ from ladybug_tools_mcp.tools.dragonfly_core.create_dragonfly_story import (
 )
 from ladybug_tools_mcp.tools.dragonfly_core.create_dragonfly_building import (
     register as register_create_dragonfly_building,
+)
+from ladybug_tools_mcp.tools.dragonfly_core.create_dragonfly_building_from_footprint import (
+    register as register_create_dragonfly_building_from_footprint,
 )
 from ladybug_tools_mcp.tools.dragonfly_core.create_dragonfly_context_shade import (
     register as register_create_dragonfly_context_shade,
@@ -46,6 +55,12 @@ from ladybug_tools_mcp.tools.dragonfly_core.clean_dragonfly_room2d_geometry impo
 )
 from ladybug_tools_mcp.tools.dragonfly_core.search_dragonfly_model_objects import (
     register as register_search_dragonfly_model_objects,
+)
+from ladybug_tools_mcp.tools.dragonfly_core.get_dragonfly_geometry_properties import (
+    register as register_get_dragonfly_geometry_properties,
+)
+from ladybug_tools_mcp.tools.dragonfly_core.query_dragonfly_room2ds_by_attribute import (
+    register as register_query_dragonfly_room2ds_by_attribute,
 )
 from ladybug_tools_mcp.tools.dragonfly_core.get_dragonfly_model_summary import (
     register as register_get_dragonfly_model_summary,
@@ -94,9 +109,12 @@ from ladybug_tools_mcp.tools.dragonfly_core.dragonfly_models_to_comparison_visua
 def register(mcp: FastMCP) -> None:
     """Register Dragonfly Core tools."""
     register_create_dragonfly_model(mcp)
+    register_import_dragonfly_model_file(mcp)
+    register_export_dragonfly_model_file(mcp)
     register_create_dragonfly_room2d(mcp)
     register_create_dragonfly_story(mcp)
     register_create_dragonfly_building(mcp)
+    register_create_dragonfly_building_from_footprint(mcp)
     register_create_dragonfly_context_shade(mcp)
     register_edit_dragonfly_model(mcp)
     register_edit_dragonfly_story(mcp)
@@ -108,6 +126,8 @@ def register(mcp: FastMCP) -> None:
     register_reset_dragonfly_story_adjacency(mcp)
     register_clean_dragonfly_room2d_geometry(mcp)
     register_search_dragonfly_model_objects(mcp)
+    register_get_dragonfly_geometry_properties(mcp)
+    register_query_dragonfly_room2ds_by_attribute(mcp)
     register_get_dragonfly_model_summary(mcp)
     register_create_dragonfly_window_parameter(mcp)
     register_apply_dragonfly_window_parameter(mcp)

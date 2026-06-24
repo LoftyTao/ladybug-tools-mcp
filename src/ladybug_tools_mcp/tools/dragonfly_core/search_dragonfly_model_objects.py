@@ -14,7 +14,7 @@ def register(mcp: FastMCP) -> None:
     'Register the dragonfly_search_model_objects tool.'
 
     @mcp.tool(
-        name="search_model_objects",
+        name="search_objects",
         description=(
             "Search Dragonfly Buildings, Stories, Room2Ds, and ContextShades in the "
             "Garden base Dragonfly model or an explicit Dragonfly model target. Also "

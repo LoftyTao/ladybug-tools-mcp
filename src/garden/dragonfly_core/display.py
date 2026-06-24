@@ -42,6 +42,27 @@ def _set_visualization_set_name(vis_set: Any, name: str | None) -> None:
     vis_set.display_name = name
 
 
+def _display_options_for_view_mode(view_mode: str | None) -> dict[str, Any]:
+    mode = (view_mode or "custom").strip().lower()
+    if mode == "quick":
+        return {"view_mode": "quick", "include_wireframe": True, "use_mesh": True}
+    if mode == "all":
+        return {"view_mode": "all", "include_wireframe": True, "use_mesh": True}
+    if mode == "floors":
+        return {
+            "view_mode": "floors",
+            "use_multiplier": False,
+            "include_wireframe": False,
+            "use_mesh": True,
+            "color_by": "type",
+        }
+    if mode == "wireframe":
+        return {"view_mode": "wireframe", "include_wireframe": True, "use_mesh": False}
+    if mode == "custom":
+        return {"view_mode": "custom"}
+    raise ValueError("view_mode must be quick, all, floors, wireframe, or custom.")
+
+
 def _visualization_set_response(
     *,
     garden_root_path: Path,
@@ -155,6 +176,7 @@ def dragonfly_model_to_visualization_set(
     *,
     garden_root: str,
     model_target: dict[str, Any] | None = None,
+    view_mode: str | None = None,
     use_multiplier: bool = True,
     exclude_plenums: bool = False,
     solve_ceiling_adjacencies: bool = False,
@@ -173,6 +195,12 @@ def dragonfly_model_to_visualization_set(
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest, resolved_target = resolve_model_target(garden_root_path, model_target)
     model = load_dragonfly_model(garden_root_path, resolved_target)
+    view_options = _display_options_for_view_mode(view_mode)
+    resolved_view_mode = str(view_options.pop("view_mode"))
+    use_multiplier = view_options.get("use_multiplier", use_multiplier)
+    include_wireframe = view_options.get("include_wireframe", include_wireframe)
+    use_mesh = view_options.get("use_mesh", use_mesh)
+    color_by = view_options.get("color_by", color_by)
     vis_set = model_to_vis_set(
         model,
         use_multiplier=use_multiplier,
@@ -196,6 +224,7 @@ def dragonfly_model_to_visualization_set(
         {
             "garden_target": manifest.target(),
             "model_target": resolved_target,
+            "view_mode": resolved_view_mode,
             "use_multiplier": use_multiplier,
             "exclude_plenums": exclude_plenums,
             "solve_ceiling_adjacencies": solve_ceiling_adjacencies,

@@ -24,7 +24,9 @@ def register(mcp: FastMCP) -> None:
             "Garden visualization_set target with return_visualization_set=false. If "
             "Web View mode is active, this tool refreshes the demo panel; call "
             "visualization_set_to_vtkjs only when the user asks for a saved vtk.js asset. "
-            "This tool has no object_type parameter and does not edit Dragonfly geometry."
+            "Grasshopper quick/all/floors/wireframe visualize components are consolidated "
+            "through view_mode here. This tool has no object_type parameter and does not "
+            "edit Dragonfly geometry."
         ),
         tags={"dragonfly", "visualization-set", "model", "visualize", "preview"},
         annotations={"readOnlyHint": True},
@@ -41,6 +43,16 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
+                )
+            ),
+        ] = None,
+        view_mode: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional consolidated Dragonfly-Grasshopper visualize mode: "
+                    "quick, all, floors, wireframe, or custom. Use custom or omit "
+                    "to control detailed Display options directly."
                 )
             ),
         ] = None,
@@ -101,6 +113,7 @@ def register(mcp: FastMCP) -> None:
         return service(
             garden_root=garden_root,
             model_target=model_target,
+            view_mode=view_mode,
             use_multiplier=use_multiplier,
             exclude_plenums=exclude_plenums,
             solve_ceiling_adjacencies=solve_ceiling_adjacencies,

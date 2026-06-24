@@ -14,7 +14,7 @@ def register(mcp: FastMCP) -> None:
     'Register the dragonfly_create_room2d tool.'
 
     @mcp.tool(
-        name="create_room2d",
+        name="room2d",
         description=(
             "Create a Dragonfly Room2D draft object in a Garden from 2D floor vertices. "
             "Use Room2D targets with dragonfly_create_story, then dragonfly_create_building, "

@@ -279,12 +279,9 @@ def create_mcp() -> FastMCP:
                 "weather files are managed by the Garden, not a separate folder. "
                 'Then call `energyplus_start_simulation` and poll `energyplus_poll_simulation`; avoid blocking '
                 '`energyplus_run_simulation_wait` unless the user explicitly asks to wait. '
-                "For UWG Alternative Weather workflows, create or select a Dragonfly "
-                "model, create or select a Garden-managed `weather_file` target or "
-                'Garden-relative EPW, call `uwg_create_simulation_parameter` when '
-                'custom UWG settings are needed, then call `uwg_start_simulation` and poll '
-                '`uwg_poll_simulation`; use the returned morphed `weather_target` with '
-                '`energyplus_start_simulation` only when downstream Energy simulation is requested. '
+                "For Dragonfly, DES, UWG, and URBANopt workflows, use the "
+                "namespaced domain tools inside execute. Dragonfly Energy "
+                "supports the offline URBANopt path in this dependency set. "
                 "For Radiance simulation, first attach SensorGrids or Views to the "
                 "Honeybee model, create a `radiance_sky_file` for point-in-time "
                 "grid/view recipes or a `wea_file` for annual/matrix recipes, create "

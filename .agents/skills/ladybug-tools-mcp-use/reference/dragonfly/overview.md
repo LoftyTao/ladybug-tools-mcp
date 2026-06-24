@@ -1,10 +1,11 @@
 # Dragonfly Skill Overview
 
-Use this category when the Agent needs Dragonfly Model, Building, Story, Room2D, context shade, UWG, Dragonfly visualization, or Dragonfly-to-Honeybee handoff.
+Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_uwg_*`, `df_urbanopt_*`, Dragonfly base-model Garden helpers, and Ironbug-to-Dragonfly bridge tools. This namespace path is deterministic-contract-pass until the broader Dragonfly Agent cross-test suite is retained.
 
 ## Preconditions
 
 - Treat Dragonfly as a core Ladybug Tools model family, parallel to Honeybee and Fairyfly.
+- Call Dragonfly tools inside Code Mode `execute` with `await call_tool(...)`, just like other domain tools.
 - Use `base_dragonfly_model` and Dragonfly typed targets; do not mix them with Honeybee model targets unless a conversion tool is requested.
 - Decide whether the user wants native Dragonfly authoring, UWG weather morphing, visualization, or downstream Honeybee/Energy handoff.
 
@@ -27,10 +28,11 @@ Use this category when the Agent needs Dragonfly Model, Building, Story, Room2D,
 
 ## Stop Conditions
 
-- Stop before inventing URBANopt Energy, Electric Grid, or District Thermal behavior.
+- For URBANopt Energy, keep to the `df_urbanopt_*` path; stop before inventing Electric Grid or District Thermal behavior.
 - Stop when a Honeybee-only operation would require conversion and the user has not authorized conversion.
 - Stop when UWG is blocked or still running; return the run target and current status.
 
 ## References
 
 - `dragonfly-authoring.md`
+- `urbanopt-energy.md`

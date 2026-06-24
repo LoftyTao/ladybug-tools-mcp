@@ -14,7 +14,7 @@ def register(mcp: FastMCP) -> None:
     'Register the dragonfly_create_story tool.'
 
     @mcp.tool(
-        name="create_story",
+        name="story",
         description=(
             "Create a Dragonfly Story draft object from Dragonfly Room2D targets. "
             "The parameter name is exactly room2d_targets, not room2ds and not room_2ds. "
@@ -75,7 +75,7 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(
                 description=(
-                    "Dragonfly Story type. Use Standard for ordinary ground, "
+                    "Dragonfly Story type; values are case-sensitive. Use Standard for ordinary ground, "
                     "middle, top, or typical floors. Only use CeilingPlenum or "
                     "FloorPlenum for plenum stories."
                 )
