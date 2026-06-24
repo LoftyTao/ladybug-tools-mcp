@@ -7,10 +7,12 @@ import shutil
 import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from dragonfly_energy.run import base_honeybee_osw as sdk_base_honeybee_osw
 from dragonfly_energy.run import prepare_urbanopt_folder as sdk_prepare_urbanopt_folder
 from dragonfly_energy.run import run_des_modelica as sdk_run_des_modelica
 from dragonfly_energy.run import run_des_sys_param as sdk_run_des_sys_param
@@ -19,9 +21,15 @@ from dragonfly_energy.run import run_urbanopt as sdk_run_urbanopt
 from dragonfly_energy.run import set_building_district_loads as sdk_set_building_district_loads
 from honeybee.config import folders as hb_folders
 
-from garden.ladybug_tools_config import get_ladybug_tools_config
+from garden.ladybug_tools_config import (
+    get_ladybug_tools_config,
+    iter_urbanopt_sdk_output_paths,
+    urbanopt_runtime_env,
+    write_urbanopt_bundle_config,
+)
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
+from garden.run_energy.config import resolve_garden_weather_epw
 from ladybug_tools_mcp.contracts.receipts import make_artifact_receipt
 from ladybug_tools_mcp.contracts.report import make_report
 
@@ -40,6 +48,19 @@ DES_RUN_DOMAIN = "dragonfly_des"
 DES_RUN_ROOT = Path("runs") / "dragonfly_des"
 DES_RUN_RECIPES = {"urbanopt", "sys_param", "modelica"}
 CONFIG_NEXT_TOOL = "config_get_runtime_config"
+STALE_RUNNING_SECONDS = 60 * 60
+URBANOPT_STANDARD_OUTPUT_NAMES = {
+    "in.osm",
+    "in.idf",
+    "eplusout.sql",
+    "epluszsz.csv",
+    "eplusout.rdd",
+    "eplustbl.htm",
+    "eplustbl.html",
+    "eplusout.err",
+    "finished.job",
+    "failed.job",
+}
 
 _index_lock = threading.Lock()
 
@@ -48,6 +69,7 @@ def prepare_urbanopt_project(
     *,
     garden_root: str,
     feature_geojson_target: dict[str, Any],
+    weather_target: dict[str, Any] | None = None,
     cpu_count: int | None = None,
     verbose: bool = False,
 ) -> dict[str, Any]:
@@ -55,6 +77,15 @@ def prepare_urbanopt_project(
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     feature_geojson = _resolve_feature_geojson(garden_root_path, manifest, feature_geojson_target)
+    epw_path = (
+        resolve_garden_weather_epw(
+            garden_root=garden_root_path,
+            manifest=manifest,
+            weather_target=weather_target,
+        )
+        if weather_target is not None
+        else None
+    )
     preflight = _preflight_urbanopt_runtime()
     if preflight["runtime_status"] == "blocked":
         return _operation_blocked_result(
@@ -64,6 +95,13 @@ def prepare_urbanopt_project(
             preflight=preflight,
         )
 
+    runtime = preflight.get("runtime")
+    sdk_base_honeybee_osw(
+        str(feature_geojson.parent),
+        epw_file=str(epw_path) if epw_path is not None else None,
+        skip_report=True,
+    )
+    write_urbanopt_bundle_config(feature_geojson.parent, runtime)
     scenario_csv = Path(
         sdk_prepare_urbanopt_folder(
             str(feature_geojson),
@@ -91,18 +129,21 @@ def prepare_urbanopt_project(
         absolute_path=str(scenario_csv),
         source={"feature_geojson_target": feature_geojson_target},
     )
+    summary_view = {
+        "garden_target": manifest.target(),
+        "prepared": True,
+        "runtime_status": "ready",
+        "feature_geojson_target": feature_geojson_target,
+        "scenario_csv_target": scenario_target,
+        "preflight": preflight,
+    }
+    if weather_target is not None:
+        summary_view["weather_target"] = weather_target
     return {
         "target": scenario_target,
         "scenario_csv_target": scenario_target,
         "runtime_status": "ready",
-        "summary_view": {
-            "garden_target": manifest.target(),
-            "prepared": True,
-            "runtime_status": "ready",
-            "feature_geojson_target": feature_geojson_target,
-            "scenario_csv_target": scenario_target,
-            "preflight": preflight,
-        },
+        "summary_view": summary_view,
         "persistence_receipt": receipt,
         "report": make_report(
             status="ok",
@@ -159,6 +200,7 @@ def start_urbanopt_simulation(
             feature_geojson=str(feature_geojson),
             scenario_csv=str(scenario_csv),
             cpu_count=cpu_count,
+            runtime=preflight.get("runtime"),
         )
     latest = _run_record_by_id(garden_root_path, "urbanopt", normalized_run_id) or record
     return _result_from_record(
@@ -509,6 +551,7 @@ def _poll_run(
     record = _run_record_by_id(garden_root_path, recipe, resolved_id)
     if record is None:
         raise ValueError(f"Dragonfly DES {recipe} run not found: {resolved_id}")
+    record = _stabilize_running_record(garden_root_path, recipe, record)
     return _result_from_record(
         garden_root=garden_root_path,
         manifest=manifest,
@@ -530,6 +573,7 @@ def _list_run_outputs(
     record = _run_record_by_id(garden_root_path, recipe, resolved_id)
     if record is None:
         raise ValueError(f"Dragonfly DES {recipe} run not found: {resolved_id}")
+    record = _stabilize_running_record(garden_root_path, recipe, record)
     outputs = list(record.get("outputs") or [])
     if not outputs:
         run_folder = record.get("run_folder")
@@ -538,15 +582,21 @@ def _list_run_outputs(
     return {
         "matches": outputs,
         "outputs": outputs,
+        "runtime_status": record.get("runtime_status"),
+        "run_target": record.get("target"),
         "summary_view": {
             "garden_target": manifest.target(),
             "run_id": resolved_id,
             "recipe": recipe,
+            "status": record.get("runtime_status"),
+            "runtime_status": record.get("runtime_status"),
+            "run": _public_run(record),
             "count": len(outputs),
         },
         "report": make_report(
-            status="ok",
+            status="warning" if record.get("runtime_status") in {"blocked", "failed"} else "ok",
             message=f"Found {len(outputs)} output(s) for Dragonfly DES {recipe} run {resolved_id}.",
+            warnings=[record["error"]] if record.get("error") else [],
         ),
     }
 
@@ -558,19 +608,33 @@ def _run_urbanopt_job(
     feature_geojson: str,
     scenario_csv: str,
     cpu_count: int | None,
+    runtime: dict[str, Any] | None = None,
 ) -> None:
     garden_root_path = _garden_root(garden_root)
     record = _run_record_by_id(garden_root_path, "urbanopt", run_id)
     if record is None:
         return
     try:
-        outputs = sdk_run_urbanopt(feature_geojson, scenario_csv, cpu_count=cpu_count)
+        with urbanopt_runtime_env(runtime):
+            outputs = sdk_run_urbanopt(feature_geojson, scenario_csv, cpu_count=cpu_count)
+        discovered = _outputs_from_sdk_result(garden_root_path, outputs)
+        if not discovered:
+            discovered = _discover_outputs(garden_root_path, Path(feature_geojson).parent)
+        if not discovered:
+            raise RuntimeError("URBANopt run finished without discoverable outputs.")
+        failed_job_error = _failed_job_error(garden_root_path, Path(feature_geojson).parent)
+        if failed_job_error:
+            failure = _failure_fields(failed_job_error, failed_job_error)
+            failure["outputs"] = discovered
+            record.update(failure)
+            _upsert_record(garden_root_path, "urbanopt", record)
+            return
         record.update(
             {
                 "status": "completed",
                 "runtime_status": "completed",
                 "completed_at": utc_now_iso(),
-                "outputs": _outputs_from_sdk_result(garden_root_path, outputs),
+                "outputs": discovered,
             }
         )
     except Exception as exc:
@@ -994,6 +1058,75 @@ def _run_record_by_id(garden_root: Path, recipe: str, run_id: str) -> dict[str, 
     return None
 
 
+def _stabilize_running_record(
+    garden_root: Path,
+    recipe: str,
+    record: dict[str, Any],
+) -> dict[str, Any]:
+    """Turn abandoned in-process background ledgers into honest blocked records."""
+    if record.get("runtime_status") != "running":
+        return record
+    if not _running_record_is_stale(record):
+        return record
+    run_folder = record.get("run_folder")
+    discovered: list[dict[str, Any]] = []
+    if isinstance(run_folder, str):
+        discovered = _discover_outputs(garden_root, garden_root / run_folder)
+    if discovered:
+        record = dict(record)
+        record["outputs"] = discovered
+        return record
+
+    record = dict(record)
+    message = (
+        "stale running ledger; the original in-process background worker is no "
+        "longer active. Restart the run or rerun it with a live MCP process."
+    )
+    preflight = dict(record.get("preflight") or {})
+    issues = list(preflight.get("issues") or [])
+    if message not in issues:
+        issues.append(message)
+    preflight.update(
+        {
+            "status": "blocked",
+            "runtime_status": "blocked",
+            "issues": issues,
+            "recommended_next_tools": [CONFIG_NEXT_TOOL],
+        }
+    )
+    record.update(
+        {
+            "status": "blocked",
+            "runtime_status": "blocked",
+            "completed_at": utc_now_iso(),
+            "preflight": preflight,
+            "error": message,
+        }
+    )
+    _upsert_record(garden_root, recipe, record)
+    return record
+
+
+def _running_record_is_stale(record: dict[str, Any]) -> bool:
+    started = _parse_utc(record.get("started_at") or record.get("created_at"))
+    if started is None:
+        return False
+    return (datetime.now(UTC) - started).total_seconds() >= STALE_RUNNING_SECONDS
+
+
+def _parse_utc(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 def _public_run(record: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "run_id",
@@ -1090,22 +1223,10 @@ def _output_for_path(garden_root: Path, path: Path, *, name: str | None = None) 
 
 def _outputs_from_sdk_result(garden_root: Path, value: Any) -> list[dict[str, Any]]:
     outputs: list[dict[str, Any]] = []
-    if isinstance(value, dict):
-        for output_type, paths in value.items():
-            if isinstance(paths, (list, tuple)):
-                for path in paths:
-                    outputs.append(
-                        _output_for_path(garden_root, Path(path).resolve(), name=f"{output_type}:{Path(path).name}")
-                    )
-            elif paths:
-                outputs.append(
-                    _output_for_path(garden_root, Path(paths).resolve(), name=str(output_type))
-                )
-    elif isinstance(value, (list, tuple)):
-        for path in value:
-            outputs.append(_output_for_path(garden_root, Path(path).resolve()))
-    elif value:
-        outputs.append(_output_for_path(garden_root, Path(value).resolve()))
+    for output_type, path in iter_urbanopt_sdk_output_paths(value):
+        path_obj = Path(path).resolve()
+        name = f"{output_type}:{path_obj.name}" if output_type else None
+        outputs.append(_output_for_path(garden_root, path_obj, name=name))
     return outputs
 
 
@@ -1116,5 +1237,19 @@ def _discover_outputs(garden_root: Path, run_dir: Path) -> list[dict[str, Any]]:
     for path in sorted(run_dir.rglob("*")):
         if not path.is_file() or path.name == "background_request.json":
             continue
+        if path.name.lower() not in URBANOPT_STANDARD_OUTPUT_NAMES:
+            continue
         outputs.append(_output_for_path(garden_root, path))
     return outputs
+
+
+def _failed_job_error(garden_root: Path, run_dir: Path) -> str | None:
+    if not run_dir.is_dir():
+        return None
+    failed_jobs = sorted(run_dir.rglob("failed.job"))
+    if not failed_jobs:
+        return None
+    markers = ", ".join(to_posix_relative(path, garden_root) for path in failed_jobs[:5])
+    if len(failed_jobs) > 5:
+        markers += f", ... ({len(failed_jobs)} total)"
+    return f"URBANopt run wrote failed.job marker(s): {markers}"

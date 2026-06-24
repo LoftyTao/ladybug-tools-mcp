@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import glob
 import os
+from contextlib import contextmanager
 from pathlib import Path
 import re
 from typing import Any
@@ -508,6 +509,12 @@ def _urbanopt_runtime_gemfile(cli_path: str | None) -> str | None:
     return str(Path(cli_path) / "openstudio-runtime-gems" / "Gemfile")
 
 
+def _urbanopt_cli_gem_bundle(cli_path: str | None) -> Path | None:
+    if not cli_path:
+        return None
+    return _first_existing_glob(str(Path(cli_path) / "gems" / "ruby" / "*"))
+
+
 def _urbanopt_sdk_search() -> dict[str, Any]:
     return {
         "package": "dragonfly_energy",
@@ -555,6 +562,7 @@ def _urbanopt_path_updates(cli_path: str | None) -> dict[str, Any]:
     if gem_home and gem_home.is_dir():
         env["GEM_HOME"] = str(gem_home)
         env["GEM_PATH"] = str(gem_home)
+        env["UO_CLI_GEM_BUNDLE_PATH"] = str(gem_home)
     runtime_gemfile = base / "openstudio-runtime-gems" / "Gemfile"
     if runtime_gemfile.is_file():
         env["UO_GEMFILE_PATH"] = str(runtime_gemfile)
@@ -575,6 +583,7 @@ def _urbanopt_config() -> dict[str, Any]:
     cli_path = selected.get("path") if selected else configured_path
     sdk_gemfile_path = _normalized_path(getattr(folders, "urbanopt_gemfile_path", None))
     runtime_gemfile_path = _urbanopt_runtime_gemfile(cli_path)
+    cli_gem_bundle = _urbanopt_cli_gem_bundle(cli_path)
     if sdk_gemfile_path and Path(sdk_gemfile_path).expanduser().is_file():
         gemfile_path = sdk_gemfile_path
         gemfile_source = "sdk_config"
@@ -608,6 +617,7 @@ def _urbanopt_config() -> dict[str, Any]:
         "cli": cli,
         "gemfile": gemfile,
         "runtime_gemfile": runtime_gemfile,
+        "cli_gem_bundle": _sourced_path_record(cli_gem_bundle, "cli_runtime"),
         "setup_env": {
             "configured": _path_record(env_path),
             "candidates": setup_candidates,
@@ -767,3 +777,115 @@ def apply_ladybug_tools_runtime_to_path() -> list[str]:
     if new_parts:
         os.environ["PATH"] = os.pathsep.join([*new_parts, *current_parts])
     return prepend
+
+
+def urbanopt_cli_gem_bundle_path(runtime: dict[str, Any] | None) -> Path | None:
+    """Return the URBANopt CLI bundle path used by project-local Bundler config."""
+    if not isinstance(runtime, dict):
+        return None
+    direct = runtime.get("cli_gem_bundle")
+    if isinstance(direct, dict):
+        path_value = direct.get("path")
+        if isinstance(path_value, str) and path_value:
+            return Path(path_value).expanduser()
+    path_updates = runtime.get("path_updates")
+    if isinstance(path_updates, dict):
+        env = path_updates.get("env")
+        if isinstance(env, dict):
+            for key in ("UO_CLI_GEM_BUNDLE_PATH", "GEM_HOME"):
+                value = env.get(key)
+                if isinstance(value, str) and value:
+                    return Path(value).expanduser()
+    return None
+
+
+def write_urbanopt_bundle_config(project_dir: str | Path, runtime: dict[str, Any] | None) -> Path | None:
+    """Write project-local Bundler config for the URBANopt CLI gem bundle."""
+    bundle_path = urbanopt_cli_gem_bundle_path(runtime)
+    if bundle_path is None:
+        return None
+    config_dir = Path(project_dir).expanduser().resolve() / ".bundle"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config_dir / "config"
+    bundle_value = str(bundle_path).replace("\\", "/")
+    config_path.write_text(f'---\nBUNDLE_PATH: "{bundle_value}"\n', encoding="utf-8")
+    return config_path
+
+
+@contextmanager
+def urbanopt_runtime_env(runtime: dict[str, Any] | None):
+    """Temporarily expose URBANopt CLI env discovered by config_get_runtime_config."""
+    if not isinstance(runtime, dict):
+        yield
+        return
+    path_updates = runtime.get("path_updates")
+    if not isinstance(path_updates, dict):
+        yield
+        return
+    env_updates = path_updates.get("env")
+    prepend = path_updates.get("prepend")
+    env_updates = env_updates if isinstance(env_updates, dict) else {}
+    prepend = prepend if isinstance(prepend, list) else []
+    original: dict[str, str | None] = {}
+    try:
+        for key, value in env_updates.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                continue
+            original.setdefault(key, os.environ.get(key))
+            if key.upper() == "PATH":
+                parts = [part for part in value.split(os.pathsep) if part]
+                current = os.environ.get("PATH", "")
+                os.environ["PATH"] = os.pathsep.join([*parts, current]) if current else value
+            else:
+                os.environ[key] = value
+        path_parts = [str(part) for part in prepend if isinstance(part, str) and part]
+        if path_parts:
+            original.setdefault("PATH", os.environ.get("PATH"))
+            current = os.environ.get("PATH", "")
+            os.environ["PATH"] = (
+                os.pathsep.join([*path_parts, current])
+                if current
+                else os.pathsep.join(path_parts)
+            )
+        yield
+    finally:
+        for key, value in original.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+URBANOPT_SDK_OUTPUT_TYPES = ("osm", "idf", "sql", "zsz", "rdd", "html", "err")
+
+
+def iter_urbanopt_sdk_output_paths(value: Any):
+    """Yield (output_type, path) pairs from Dragonfly Energy URBANopt SDK results."""
+    if isinstance(value, dict):
+        for output_type, paths in value.items():
+            if isinstance(paths, (list, tuple)):
+                for path in paths:
+                    if path:
+                        yield str(output_type), path
+            elif paths:
+                yield str(output_type), paths
+        return
+    if isinstance(value, (list, tuple)):
+        looks_like_sdk_tuple = len(value) == len(URBANOPT_SDK_OUTPUT_TYPES) and any(
+            isinstance(item, (list, tuple)) for item in value
+        )
+        if looks_like_sdk_tuple:
+            for output_type, paths in zip(URBANOPT_SDK_OUTPUT_TYPES, value):
+                if isinstance(paths, (list, tuple)):
+                    for path in paths:
+                        if path:
+                            yield output_type, path
+                elif paths:
+                    yield output_type, paths
+            return
+        for path in value:
+            if path:
+                yield None, path
+        return
+    if value:
+        yield None, value

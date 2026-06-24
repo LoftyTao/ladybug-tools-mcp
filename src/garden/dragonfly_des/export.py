@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from hashlib import sha1
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,7 @@ def export_urbanopt_model(
         if blocked is not None:
             return blocked
         raise
+    _patch_urbanopt_detailed_model_filenames(feature_geojson, hb_model_jsons)
 
     bundle_target = artifact_target_for_path(
         manifest=manifest,
@@ -267,6 +269,39 @@ def export_model_to_des(
 
 def _garden_root(value: str | Path) -> Path:
     return Path(value).expanduser()
+
+
+def _patch_urbanopt_detailed_model_filenames(
+    feature_geojson: str | Path,
+    hb_model_jsons: list[str],
+) -> None:
+    feature_path = Path(feature_geojson).expanduser()
+    if not feature_path.is_file():
+        return
+    hbjson_by_stem = {
+        Path(path).stem: str(Path(path).expanduser().resolve())
+        for path in hb_model_jsons
+    }
+    if not hbjson_by_stem:
+        return
+    geo_dict = json.loads(feature_path.read_text(encoding="utf-8"))
+    changed = False
+    for feature in geo_dict.get("features", []):
+        properties = feature.get("properties") if isinstance(feature, dict) else None
+        if not isinstance(properties, dict) or properties.get("type") != "Building":
+            continue
+        building_id = properties.get("id")
+        hbjson = hbjson_by_stem.get(str(building_id))
+        if hbjson is None:
+            continue
+        if properties.get("detailed_model_filename") != hbjson:
+            properties["detailed_model_filename"] = hbjson
+            changed = True
+    if changed:
+        feature_path.write_text(
+            json.dumps(geo_dict, indent=4, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
 
 def _export_id(folder_name: str | None, model_identifier: str, suffix: str) -> str:

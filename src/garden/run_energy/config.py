@@ -113,6 +113,36 @@ def make_garden_weather_target(
     return target
 
 
+def resolve_garden_weather_epw(
+    *,
+    garden_root: Path,
+    manifest: GardenManifest,
+    weather_target: dict[str, Any],
+) -> Path:
+    """Resolve a Garden weather_file target to an existing EPW path."""
+    if not isinstance(weather_target, dict):
+        raise ValueError("weather_target must be a Garden weather_file target.")
+    if weather_target.get("target_type") != WEATHER_TARGET_TYPE:
+        raise ValueError("weather_target must have target_type 'weather_file'.")
+    if weather_target.get("garden_id") != manifest.garden_id:
+        raise ValueError("weather_target belongs to a different Garden.")
+    path_value = weather_target.get("epw_path")
+    if not isinstance(path_value, str) or not path_value:
+        raise ValueError("weather_target requires epw_path.")
+    if Path(path_value).is_absolute():
+        raise ValueError("weather_target epw_path must be Garden-relative.")
+    epw_path = (garden_root / path_value).resolve()
+    try:
+        epw_path.relative_to(garden_root.resolve())
+    except ValueError as exc:
+        raise ValueError("weather_target epw_path must stay inside the Garden.") from exc
+    if epw_path.suffix.lower() != ".epw":
+        raise ValueError("weather_target epw_path must reference a .epw file.")
+    if not epw_path.is_file():
+        raise ValueError(f"EPW file not found: {path_value}")
+    return epw_path
+
+
 def _searchable_weather_values(target: dict[str, Any]) -> list[str]:
     values: list[str] = []
     for key in (
