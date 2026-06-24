@@ -49,8 +49,9 @@ validation = await call_tool("df_validate_model", {"garden_root": garden_root})
 ## Editing And Properties
 
 - Search with `df_search_objects`; use `object_type` values `building`, `story`, `room2d`, `context_shade`, or `all`. Use `children_scope` to inspect a Building or Story, and request `include_counts`, `include_properties`, `include_geometry`, or `limit` only when needed.
-- When the Room2D attribute name is uncertain, call `df_room2d_attributes`; then call `df_room2ds_by_attribute` to get `values`, `groups`, flat `matches`, and a `dragonfly_selection` handoff. Use `operator` with `equals`, `contains`, `gt`, `lt`, `gte`, or `lte` for screening.
-- Summarize with `df_get_model_summary`; do not request full DFJSON bodies for routine inspection.
+- When the Room2D attribute name is uncertain, call `df_room2d_attributes` with `garden_root`; then call `df_room2ds_by_attribute` to get `values`, `groups`, flat `matches`, and a `dragonfly_selection` handoff. Use `operator` with `equals`, `contains`, `gt`, `lt`, `gte`, or `lte`; do not use symbols such as `>` or `<` in Code Mode calls.
+- Do not pass `include_geometry` to `df_room2ds_by_attribute`. If geometry is needed for review or visualization context, call `df_search_objects` with `include_geometry=true` and use by-attribute only for screening, grouping, and selection handoff.
+- Prefer `df_search_objects`, `df_room2d_attributes`, and `df_room2ds_by_attribute` for routine list/search/filter inspection. Do not request full DFJSON bodies for routine inspection.
 - Edit metadata with `df_edit_model`, `df_edit_story`, `df_edit_building`, or `df_edit_room2d`.
 - Add/remove Stories with `df_add_stories_to_building` and `df_remove_stories_from_building`.
 - Remove Room2Ds, Buildings, or ContextShades with `df_remove_room2ds`, `df_remove_buildings`, or `df_remove_context_shades`. Prefer object targets from `df_search_objects` or `df_room2ds_by_attribute` over raw identifiers when available. Check `summary_view.removed_counts` and `summary_view.relationship_cleanup` before claiming the model was cleaned.

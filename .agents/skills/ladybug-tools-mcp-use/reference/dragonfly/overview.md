@@ -1,6 +1,6 @@
 # Dragonfly Skill Overview
 
-Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_grid_*`, `df_uwg_*`, `df_urbanopt_*`, Dragonfly base-model Garden helpers, and Ironbug-to-Dragonfly bridge tools. This namespace path is deterministic-contract-pass until the broader Dragonfly Agent cross-test suite is retained.
+Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_grid_*`, `df_uwg_*`, `df_urbanopt_*`, Dragonfly base-model Garden helpers, and Ironbug-to-Dragonfly bridge tools. The AX1 core authoring/search/attribute/visualization path is Agent-verified through Codex-native MCP. AX7 Electric Grid authoring and runtime-blocked ledger handling are Agent-verified through Codex-native MCP. The broader Dragonfly namespace remains deterministic-contract-pass until the remaining cross-test suite is retained.
 
 ## Preconditions
 
@@ -13,7 +13,7 @@ Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_grid_*
 
 - Author district/building massing with Room2D, Story, and Building hierarchy.
 - Apply Dragonfly Energy, Radiance, window, shading, or UWG properties.
-- Validate or summarize a Dragonfly Model.
+- Validate, search, filter, or visualize a Dragonfly Model.
 - Convert Dragonfly to Honeybee for downstream Honeybee/Energy/Ironbug tools.
 - Produce Dragonfly VisualizationSet, vtk.js, or UWG morphed weather targets.
 
