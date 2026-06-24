@@ -1,6 +1,6 @@
 # Dragonfly Skill Overview
 
-Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_uwg_*`, `df_urbanopt_*`, Dragonfly base-model Garden helpers, and Ironbug-to-Dragonfly bridge tools. This namespace path is deterministic-contract-pass until the broader Dragonfly Agent cross-test suite is retained.
+Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_grid_*`, `df_uwg_*`, `df_urbanopt_*`, Dragonfly base-model Garden helpers, and Ironbug-to-Dragonfly bridge tools. This namespace path is deterministic-contract-pass until the broader Dragonfly Agent cross-test suite is retained.
 
 ## Preconditions
 
@@ -28,7 +28,7 @@ Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_uwg_*`
 
 ## Stop Conditions
 
-- For URBANopt Energy, keep to the `df_urbanopt_*` path; stop before inventing Electric Grid or District Thermal behavior.
+- For URBANopt Energy, keep to the `df_urbanopt_*` path; for Electric Grid, keep to `df_grid_*`; stop before crossing these runtime families without a user request.
 - Stop when a Honeybee-only operation would require conversion and the user has not authorized conversion.
 - Stop when UWG is blocked or still running; return the run target and current status.
 
@@ -36,3 +36,4 @@ Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_uwg_*`
 
 - `dragonfly-authoring.md`
 - `urbanopt-energy.md`
+- `df-grid-electric.md`

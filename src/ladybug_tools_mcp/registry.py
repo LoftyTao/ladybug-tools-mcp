@@ -6,6 +6,7 @@ from garden.fairyfly.availability import fairyfly_tools_enabled
 from ladybug_tools_mcp.tools.config import register as register_config_tools
 from ladybug_tools_mcp.tools.des import register as register_des_tools
 from ladybug_tools_mcp.tools.dragonfly_core import register as register_dragonfly_tools
+from ladybug_tools_mcp.tools.dragonfly_grid import register as register_dragonfly_grid_tools
 from ladybug_tools_mcp.tools.energy import register as register_energy_tools
 from ladybug_tools_mcp.tools.flowerpot import register as register_flowerpot_tools
 from ladybug_tools_mcp.tools.garden import register as register_garden_tools
@@ -29,6 +30,7 @@ def register_tools(mcp: FastMCP) -> FastMCP:
     mount_registered_family(mcp, family="honeybee_core", register=register_honeybee_tools)
     mount_registered_family(mcp, family="ironbug_core", register=register_ironbug_tools)
     mount_registered_family(mcp, family="dragonfly_core", register=register_dragonfly_tools)
+    mount_registered_family(mcp, family="dragonfly_grid", register=register_dragonfly_grid_tools)
     mount_registered_family(mcp, family="des", register=register_des_tools)
     mount_registered_family(mcp, family="energy", register=register_energy_tools)
     mount_registered_family(mcp, family="radiance", register=register_radiance_tools)

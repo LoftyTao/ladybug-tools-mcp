@@ -16,6 +16,7 @@ TOOL_NAMESPACE_BY_FAMILY: dict[str, str] = {
     "web_view": "web_view",
     "honeybee_core": "honeybee",
     "dragonfly_core": "df",
+    "dragonfly_grid": "df_grid",
     "des": "df_des",
     "energy": "energy",
     "run_energy": "energyplus",
