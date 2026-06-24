@@ -95,6 +95,9 @@ from ladybug_tools_mcp.tools.dragonfly_core.get_dragonfly_properties_summary imp
 from ladybug_tools_mcp.tools.dragonfly_core.apply_dragonfly_energy_properties import (
     register as register_apply_dragonfly_energy_properties,
 )
+from ladybug_tools_mcp.tools.dragonfly_core.apply_dragonfly_detailed_hvac import (
+    register as register_apply_dragonfly_detailed_hvac,
+)
 from ladybug_tools_mcp.tools.dragonfly_core.apply_dragonfly_radiance_properties import (
     register as register_apply_dragonfly_radiance_properties,
 )
@@ -169,6 +172,7 @@ def register(mcp: FastMCP) -> None:
     register_apply_dragonfly_shading_parameter(mcp)
     register_get_dragonfly_properties_summary(mcp)
     register_apply_dragonfly_energy_properties(mcp)
+    register_apply_dragonfly_detailed_hvac(mcp)
     register_apply_dragonfly_radiance_properties(mcp)
     register_validate_dragonfly_model(mcp)
     register_dragonfly_model_to_honeybee(mcp)

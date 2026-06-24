@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from dragonfly.model import Model as DragonflyModel
+from honeybee.typing import clean_string
 
 from garden.dragonfly_core.model_io import (
     load_dragonfly_model,
@@ -122,7 +123,8 @@ def honeybee_model_to_dragonfly(
         honeybee_model,
         conversion_method=conversion_method,
     )
-    dragonfly_model.identifier = identifier
+    dragonfly_model.identifier = clean_string(identifier, "dragonfly model identifier")
+    dragonfly_model.display_name = identifier
     dragonfly_model_target, persisted_path = save_dragonfly_model(
         garden_root_path,
         manifest,
