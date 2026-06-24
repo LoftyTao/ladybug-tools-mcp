@@ -74,6 +74,10 @@ Minimal no-air-loop Energy closure:
 - For a row-1-style no-air-loop EnergyPlus closure, do not stop at
   DetailedHVAC application and do not treat an empty `IB_NoAirLoop` shell as
   runnable HVAC evidence.
+- If an empty Ironbug model is applied through the minimal no-air-loop bridge,
+  the service can emit room-linked `IB_ThermalZone` specifications and complete
+  an EnergyPlus smoke run. Treat `conditioned_floor_area=0.0` or missing HVAC
+  end uses as a signal that the run is not HVAC-performance evidence.
 - Create a Honeybee Room with ProgramType and thermostat Setpoint, create a
   room-matching `IB_ThermalZone`, set its `use_ideal_air_loads=True`, wrap that
   ThermalZone with `detailed_hvac_no_air_loop`, apply DetailedHVAC to the

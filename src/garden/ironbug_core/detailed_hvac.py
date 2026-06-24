@@ -62,19 +62,23 @@ def build_detailed_hvac_specification(
             {
                 "$type": NO_AIR_LOOP_TYPE,
                 "ThermalZones": [
-                    {
-                        "CustomAttributes": [
-                            {
-                                "Field": {"FullName": "Name"},
-                                "Value": room_identifier,
-                            }
-                        ]
-                    }
+                    _minimal_no_air_loop_thermal_zone(room_identifier)
                     for room_identifier in normalized_room_ids
                 ],
             }
         ]
     }
+
+
+def _minimal_no_air_loop_thermal_zone(room_identifier: str) -> dict[str, Any]:
+    custom_attributes = _thermal_zone_name_attributes({}, room_identifier)
+    return _with_console_type(
+        {
+            "CustomAttributes": _console_custom_attributes(custom_attributes),
+            "SizingZone": _with_console_type({}, ironbug_hvac.IB_SizingZone),
+        },
+        ironbug_hvac.IB_ThermalZone,
+    )
 
 
 def build_chiller_condenser_loop_detailed_hvac_specification(
