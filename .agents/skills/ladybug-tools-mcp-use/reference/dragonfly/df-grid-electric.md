@@ -1,6 +1,6 @@
 # Dragonfly Electric Grid Workflow
 
-Status: Agent-verified for Grid authoring, DES/URBANopt prerequisite artifacts, VisualizationSet handoff, and blocked runtime ledgers. Use this reference for Dragonfly Electric Grid authoring and runtime-gated RNM/OpenDSS/REopt attempts. Do not describe actual Grid runtime completion as Agent-verified until retained runtime evidence exists.
+Status: Agent-verified for Grid authoring, Grid-target URBANopt feature export, URBANopt Energy handoff, VisualizationSet handoff, and blocked/failed runtime ledgers. Use this reference for Dragonfly Electric Grid authoring and runtime-gated RNM/OpenDSS/REopt attempts. Do not describe RNM/OpenDSS/REopt completion as Agent-verified until retained runtime evidence exists.
 
 OKF source: `docs/llm-wiki/tools/dragonfly-grid-tools.md`.
 
@@ -11,7 +11,8 @@ OKF source: `docs/llm-wiki/tools/dragonfly-grid-tools.md`.
 - Use `df_grid_search_opendss` to find catalog identifiers before creating transformers or electrical connectors.
 - Use exact catalog identifiers from `df_grid_search_opendss` matches. Do not guess values such as `default`.
 - Use a short Garden root and short `folder_name` for URBANopt-backed handoff artifacts because the Dragonfly Energy URBANopt writer rejects long export folders.
-- Use `df_des_export_urbanopt_model` to produce the `dragonfly_des` feature GeoJSON target, then `df_urbanopt_prepare_project` to produce the scenario CSV target before runtime tools. Do not use ordinary `df_export_model_file(file_type="geojson")` output as the Grid runtime prerequisite.
+- Use `df_des_export_urbanopt_model` to produce the `dragonfly_des` feature GeoJSON target, then `df_urbanopt_prepare_project` to produce the scenario CSV target before runtime tools. Pass `electrical_network_target`, `road_network_target`, and `ground_pv_targets` to `df_des_export_urbanopt_model` when the downstream Grid run needs those features. Do not use ordinary `df_export_model_file(file_type="geojson")` output as the Grid runtime prerequisite.
+- RNM and REopt are URBANopt post-processing paths. Run and poll URBANopt Energy first, and only attempt RNM/REopt after default feature/scenario reports contain the required timeseries/location data.
 
 ## Tool Order
 
@@ -22,9 +23,10 @@ OKF source: `docs/llm-wiki/tools/dragonfly-grid-tools.md`.
 5. Create `df_grid_electrical_network` from the Substation, Transformer, and ElectricalConnector targets.
 6. Optionally create `df_grid_road_network` for RNM and `df_grid_ground_photovoltaics` / `df_grid_financial_parameters` for REopt handoff.
 7. Preview with `df_grid_network_to_visualization_set`, then use shared `visualization_*` exporters.
-8. Export prerequisites with `df_des_export_urbanopt_model`, then call `df_urbanopt_prepare_project` to get the scenario CSV target.
-9. Start runtime-gated runs only with feature GeoJSON and scenario CSV targets: `df_grid_start_rnm`, `df_grid_start_opendss`, or `df_grid_start_reopt`.
-10. Read OpenDSS CSV outputs only when they are registered as `dragonfly_grid_opendss_result_csv` artifacts.
+8. Export prerequisites with `df_des_export_urbanopt_model`, including Grid targets when applicable, then call `df_urbanopt_prepare_project` to get the scenario CSV target.
+9. Start and poll `df_urbanopt_start_simulation` / `df_urbanopt_poll_simulation`; preserve the run ledger and list outputs.
+10. Start runtime-gated runs only with feature GeoJSON and scenario CSV targets: `df_grid_start_rnm`, `df_grid_start_opendss`, or `df_grid_start_reopt`.
+11. Read OpenDSS CSV outputs only when they are registered as `dragonfly_grid_opendss_result_csv` artifacts.
 
 ## Code Mode Skeleton
 
@@ -62,19 +64,38 @@ network = await call_tool("df_grid_electrical_network", {
     "transformer_targets": [transformer["target"]],
     "connector_targets": [connector["target"]],
 })
+roads = await call_tool("df_grid_road_network", {
+    "garden_root": garden_root,
+    "identifier": "Roads_A",
+    "substation_target": substation["target"],
+    "road_segments": [{
+        "identifier": "Main_Road",
+        "polyline_points": [[-12, 3], [0, 3], [14, 3]],
+    }],
+})
 preview = await call_tool("df_grid_network_to_visualization_set", {
     "garden_root": garden_root,
     "network_target": network["target"],
 })
+exported = await call_tool("df_des_export_urbanopt_model", {
+    "garden_root": garden_root,
+    "location": location,
+    "folder_name": "r",
+    "electrical_network_target": network["target"],
+    "road_network_target": roads["target"],
+})
 {
     "network": network["summary_view"],
     "preview": preview["visualization_set_target"],
+    "feature_geojson_target": exported["feature_geojson_target"],
 }
 ```
 
 ## Stop Conditions
 
 - Stop on `runtime_status="blocked"` from `df_grid_start_rnm`, `df_grid_start_opendss`, or `df_grid_start_reopt`; return the `run_target`, blocked reason, and `config_get_runtime_config` guidance.
+- Stop on RNM/REopt `runtime_status="failed"` when URBANopt default reports are missing feature timeseries CSVs, location data, or REopt assumptions handoff. Report that URBANopt Energy passed but Grid post-processing did not.
+- Treat direct OpenDSS as blocked unless a future SDK-backed direct OpenDSS runner is exposed; Dragonfly Energy currently exposes RNM and REopt SDK functions but no direct `run_opendss`.
 - Do not call `df_urbanopt_*` tools as substitutes for Grid execution. URBANopt Energy and Electric Grid are separate workflow families.
 - Do not invent `df_urbanopt_export_model`, `df_grid_run_opendss`, `df_grid_run_rnm`, or `df_grid_run_reopt`; the current public start tools are `df_grid_start_*`.
 - Do not treat Honeybee Energy ElectricLoadCenter or Ironbug electrical source objects as Dragonfly Electric Grid network objects.

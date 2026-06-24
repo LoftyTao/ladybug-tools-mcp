@@ -11,9 +11,16 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from dragonfly_energy.run import run_default_report as sdk_run_default_report
 from dragonfly_energy.run import run_reopt as sdk_run_reopt
 from dragonfly_energy.run import run_rnm as sdk_run_rnm
 
+from garden.ladybug_tools_config import (
+    get_ladybug_tools_config,
+    iter_urbanopt_sdk_output_paths,
+    urbanopt_runtime_env,
+    write_urbanopt_bundle_config,
+)
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
 from ladybug_tools_mcp.contracts.report import make_report
@@ -43,6 +50,7 @@ def start_rnm(
     manifest = GardenManifest.read(root)
     feature_geojson = _resolve_artifact(root, manifest, feature_geojson_target, suffix=".geojson")
     scenario_csv = _resolve_artifact(root, manifest, scenario_csv_target, suffix=".csv")
+    runtime = _urbanopt_runtime_config()
     normalized_run_id = _normalize_run_id(run_id, "rnm")
     record = _start_record(
         garden_root=root,
@@ -57,7 +65,7 @@ def start_rnm(
             "lv_only": lv_only,
             "nodes_per_building": nodes_per_building,
         },
-        preflight=_preflight_rnm_runtime(),
+        preflight=_preflight_rnm_runtime(runtime),
     )
     if record["status"] == "running":
         _BACKGROUND_EXECUTOR.submit(
@@ -66,6 +74,7 @@ def start_rnm(
             run_id=normalized_run_id,
             feature_geojson=str(feature_geojson),
             scenario_csv=str(scenario_csv),
+            runtime=runtime,
             underground_ratio=underground_ratio,
             lv_only=lv_only,
             nodes_per_building=nodes_per_building,
@@ -118,6 +127,7 @@ def start_reopt(
     manifest = GardenManifest.read(root)
     feature_geojson = _resolve_artifact(root, manifest, feature_geojson_target, suffix=".geojson")
     scenario_csv = _resolve_artifact(root, manifest, scenario_csv_target, suffix=".csv")
+    runtime = _urbanopt_runtime_config()
     normalized_run_id = _normalize_run_id(run_id, "reopt")
     record = _start_record(
         garden_root=root,
@@ -127,7 +137,7 @@ def start_reopt(
         feature_geojson_target=feature_geojson_target,
         scenario_csv_target=scenario_csv_target,
         request={"operation": "run_reopt", "urdb_label": urdb_label},
-        preflight=_preflight_reopt_runtime(),
+        preflight=_preflight_reopt_runtime(runtime),
     )
     if record["status"] == "running":
         _BACKGROUND_EXECUTOR.submit(
@@ -136,6 +146,7 @@ def start_reopt(
             run_id=normalized_run_id,
             feature_geojson=str(feature_geojson),
             scenario_csv=str(scenario_csv),
+            runtime=runtime,
             urdb_label=urdb_label,
             developer_key=developer_key,
         )
@@ -166,20 +177,59 @@ def _resolve_artifact(root: Path, manifest: GardenManifest, target: dict[str, An
     return resolved
 
 
-def _preflight_rnm_runtime() -> dict[str, Any]:
+def _urbanopt_runtime_config() -> dict[str, Any] | None:
+    try:
+        config = get_ladybug_tools_config()
+    except Exception:
+        return None
+    summary = config.get("summary_view") if isinstance(config, dict) else None
+    if not isinstance(summary, dict):
+        return None
+    engines = summary.get("engines")
+    if isinstance(engines, dict):
+        urbanopt = engines.get("urbanopt")
+        if isinstance(urbanopt, dict):
+            return urbanopt
+    return summary
+
+
+def _urbanopt_runtime_ready(runtime: dict[str, Any] | None) -> bool:
     if shutil.which("uo"):
+        return True
+    if not isinstance(runtime, dict):
+        return False
+    engines = runtime.get("engines")
+    if isinstance(engines, dict):
+        urbanopt = engines.get("urbanopt")
+        if isinstance(urbanopt, dict) and urbanopt.get("status") == "available":
+            return True
+    if runtime.get("available") is True:
+        return True
+    if runtime.get("status") == "available":
+        return True
+    bundle = runtime.get("cli_gem_bundle")
+    if isinstance(bundle, dict) and bundle.get("status") == "available":
+        return True
+    return False
+
+
+def _preflight_rnm_runtime(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
+    runtime = _urbanopt_runtime_config() if runtime is None else runtime
+    if _urbanopt_runtime_ready(runtime):
         return {"status": "ok", "runtime_status": "ready", "issues": []}
     return _blocked_preflight("rnm", "URBANopt/RNM runtime is not available.")
 
 
 def _preflight_opendss_runtime() -> dict[str, Any]:
-    if shutil.which("opendsscmd") or shutil.which("OpenDSSCmd"):
-        return {"status": "ok", "runtime_status": "ready", "issues": []}
-    return _blocked_preflight("opendss", "OpenDSS command runtime is not available.")
+    return _blocked_preflight(
+        "opendss",
+        "Direct OpenDSS execution is not SDK-backed in the current Dragonfly Grid service.",
+    )
 
 
-def _preflight_reopt_runtime() -> dict[str, Any]:
-    if shutil.which("uo"):
+def _preflight_reopt_runtime(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
+    runtime = _urbanopt_runtime_config() if runtime is None else runtime
+    if _urbanopt_runtime_ready(runtime):
         return {"status": "ok", "runtime_status": "ready", "issues": []}
     return _blocked_preflight("reopt", "URBANopt/REopt runtime is not available.")
 
@@ -313,15 +363,20 @@ def _complete_with_error(root: Path, recipe: str, run_id: str, message: str) -> 
 def _run_rnm_job(**kwargs: Any) -> None:
     root = Path(kwargs["garden_root"])
     run_id = kwargs["run_id"]
+    feature_geojson = Path(kwargs["feature_geojson"])
     try:
-        sdk_run_rnm(
-            kwargs["feature_geojson"],
-            kwargs["scenario_csv"],
-            underground_ratio=kwargs["underground_ratio"],
-            lv_only=kwargs["lv_only"],
-            nodes_per_building=kwargs["nodes_per_building"],
-        )
-        _complete_success(root, "rnm", run_id)
+        runtime = kwargs.get("runtime")
+        write_urbanopt_bundle_config(feature_geojson.parent, runtime)
+        with urbanopt_runtime_env(runtime):
+            sdk_run_default_report(str(feature_geojson), kwargs["scenario_csv"])
+            outputs = sdk_run_rnm(
+                str(feature_geojson),
+                kwargs["scenario_csv"],
+                underground_ratio=kwargs["underground_ratio"],
+                lv_only=kwargs["lv_only"],
+                nodes_per_building=kwargs["nodes_per_building"],
+            )
+        _complete_success(root, "rnm", run_id, outputs, feature_geojson.parent)
     except Exception:  # pragma: no cover - external runtime diagnostics vary
         _complete_with_error(root, "rnm", run_id, traceback.format_exc())
 
@@ -329,32 +384,119 @@ def _run_rnm_job(**kwargs: Any) -> None:
 def _run_reopt_job(**kwargs: Any) -> None:
     root = Path(kwargs["garden_root"])
     run_id = kwargs["run_id"]
+    feature_geojson = Path(kwargs["feature_geojson"])
     try:
-        sdk_run_reopt(
-            kwargs["feature_geojson"],
-            kwargs["scenario_csv"],
-            kwargs["urdb_label"],
-            developer_key=kwargs["developer_key"],
-        )
-        _complete_success(root, "reopt", run_id)
+        runtime = kwargs.get("runtime")
+        write_urbanopt_bundle_config(feature_geojson.parent, runtime)
+        with urbanopt_runtime_env(runtime):
+            sdk_run_default_report(str(feature_geojson), kwargs["scenario_csv"])
+            outputs = sdk_run_reopt(
+                str(feature_geojson),
+                kwargs["scenario_csv"],
+                kwargs["urdb_label"],
+                developer_key=kwargs["developer_key"],
+            )
+        _complete_success(root, "reopt", run_id, outputs, feature_geojson.parent)
     except Exception:  # pragma: no cover - external runtime diagnostics vary
         _complete_with_error(root, "reopt", run_id, traceback.format_exc())
 
 
-def _complete_success(root: Path, recipe: str, run_id: str) -> None:
+def _complete_success(
+    root: Path,
+    recipe: str,
+    run_id: str,
+    sdk_outputs: Any = None,
+    project_dir: Path | None = None,
+) -> None:
     record = _run_record_by_id(root, recipe, run_id)
     if record is None:
+        return
+    outputs = _outputs_from_sdk_result(root, sdk_outputs)
+    if project_dir is not None:
+        seen = {output["path"] for output in outputs}
+        for output in _discover_project_outputs(root, project_dir, recipe):
+            if output["path"] not in seen:
+                outputs.append(output)
+                seen.add(output["path"])
+    if not outputs:
+        record.update(
+            {
+                "status": "failed",
+                "runtime_status": "failed",
+                "completed_at": utc_now_iso(),
+                "outputs": [],
+                "error": f"Dragonfly Grid {recipe} run finished without discoverable outputs.",
+            }
+        )
+        _upsert_record(root, recipe, record)
         return
     record.update(
         {
             "status": "completed",
             "runtime_status": "completed",
             "completed_at": utc_now_iso(),
-            "outputs": _scan_outputs(root / record["run_folder"]),
+            "outputs": outputs,
             "error": None,
         }
     )
     _upsert_record(root, recipe, record)
+
+
+def _outputs_from_sdk_result(root: Path, value: Any) -> list[dict[str, Any]]:
+    outputs: list[dict[str, Any]] = []
+    for output_type, path_value in iter_urbanopt_sdk_output_paths(value):
+        path = Path(path_value).expanduser().resolve()
+        if path.is_dir():
+            outputs.extend(_scan_output_files(root, path))
+            continue
+        if not path.exists():
+            continue
+        name = f"{output_type}:{path.name}" if output_type else f"{path.suffix.lower().lstrip('.') or 'file'}:{path.name}"
+        outputs.append(_output_for_path(root, path, name=name))
+    return outputs
+
+
+def _discover_project_outputs(root: Path, project_dir: Path, recipe: str) -> list[dict[str, Any]]:
+    project_dir = project_dir.expanduser().resolve()
+    if recipe == "rnm":
+        return _scan_output_files(project_dir, project_dir / "run", root=root, pattern="rnm-us/results")
+    if recipe == "reopt":
+        outputs = []
+        for path in sorted((project_dir / "run").rglob("scenario_optimization.*")):
+            if path.is_file():
+                outputs.append(_output_for_path(root, path))
+        return outputs
+    return []
+
+
+def _output_for_path(root: Path, path: Path, *, name: str | None = None) -> dict[str, Any]:
+    return {
+        "name": name or path.name,
+        "path": to_posix_relative(path, root),
+        "exists": path.exists(),
+        "kind": path.suffix.lower().lstrip(".") or "file",
+    }
+
+
+def _scan_output_files(
+    base_root: Path,
+    path: Path,
+    *,
+    root: Path | None = None,
+    pattern: str | None = None,
+) -> list[dict[str, Any]]:
+    result_root = root or base_root
+    if not path.exists():
+        return []
+    outputs = []
+    for item in sorted(candidate for candidate in path.rglob("*") if candidate.is_file()):
+        rel = item.relative_to(base_root).as_posix() if item.is_relative_to(base_root) else item.as_posix()
+        if pattern and pattern not in rel:
+            continue
+        if item.name == "background_request.json":
+            continue
+        outputs.append(_output_for_path(result_root, item))
+    return outputs
 
 
 def _scan_outputs(run_dir: Path) -> list[dict[str, Any]]:
@@ -362,6 +504,8 @@ def _scan_outputs(run_dir: Path) -> list[dict[str, Any]]:
         return []
     outputs = []
     for path in sorted(item for item in run_dir.rglob("*") if item.is_file()):
+        if path.name == "background_request.json":
+            continue
         outputs.append(
             {
                 "name": path.name,
@@ -410,4 +554,3 @@ def _result_from_record(root: Path, manifest: GardenManifest, record: dict[str, 
             },
         ),
     }
-

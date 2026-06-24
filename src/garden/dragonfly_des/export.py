@@ -15,6 +15,7 @@ from ladybug.location import Location
 from ladybug_geometry.geometry2d.pointvector import Point2D
 
 from garden.dragonfly_core.model_io import load_dragonfly_model, resolve_model_target
+from garden.dragonfly_grid.serialization import load_grid_object
 from garden.manifest import GardenManifest
 from garden.paths import slugify_name, to_posix_relative
 from ladybug_tools_mcp.contracts.receipts import make_artifact_receipt
@@ -41,6 +42,9 @@ def export_urbanopt_model(
     location: dict[str, Any],
     model_target: dict[str, Any] | None = None,
     des_loop_target: dict[str, Any] | None = None,
+    electrical_network_target: dict[str, Any] | None = None,
+    road_network_target: dict[str, Any] | None = None,
+    ground_pv_targets: list[dict[str, Any]] | None = None,
     point: list[float] | None = None,
     folder_name: str | None = None,
     shade_distance: float | None = None,
@@ -59,6 +63,32 @@ def export_urbanopt_model(
         if des_loop_target
         else None
     )
+    electrical_network = (
+        load_grid_object(
+            garden_root=garden_root_path,
+            target=electrical_network_target,
+            expected_kind="electrical_network",
+        )
+        if electrical_network_target
+        else None
+    )
+    road_network = (
+        load_grid_object(
+            garden_root=garden_root_path,
+            target=road_network_target,
+            expected_kind="road_network",
+        )
+        if road_network_target
+        else None
+    )
+    ground_pv = [
+        load_grid_object(
+            garden_root=garden_root_path,
+            target=target,
+            expected_kind="ground_photovoltaics",
+        )
+        for target in ground_pv_targets or []
+    ]
     export_id = _export_id(folder_name, getattr(model, "identifier", "dragonfly"), "urbanopt")
     export_dir = garden_root_path / DES_EXPORTS_DIR / export_id
     export_dir.mkdir(parents=True, exist_ok=True)
@@ -74,6 +104,9 @@ def export_urbanopt_model(
             solve_ceiling_adjacencies=solve_ceiling_adjacencies,
             merge_method=merge_method,
             des_loop=des_loop,
+            electrical_network=electrical_network,
+            road_network=road_network,
+            ground_pv=ground_pv,
             folder=str(export_dir),
             tolerance=tolerance,
         )
@@ -120,6 +153,9 @@ def export_urbanopt_model(
         source={
             "model_target": resolved_model_target,
             "des_loop_target": des_loop_target or {},
+            "electrical_network_target": electrical_network_target or {},
+            "road_network_target": road_network_target or {},
+            "ground_pv_targets": ground_pv_targets or [],
             "writer": "dragonfly_energy.writer.model_to_urbanopt",
         },
     )
@@ -134,6 +170,9 @@ def export_urbanopt_model(
             "export_type": "urbanopt",
             "model_target": resolved_model_target,
             "des_loop_target": des_loop_target or {},
+            "electrical_network_target": electrical_network_target or {},
+            "road_network_target": road_network_target or {},
+            "ground_pv_targets": ground_pv_targets or [],
             "feature_geojson_target": feature_target,
             "honeybee_model_count": len(hb_targets),
             "honeybee_model_identifiers": [
