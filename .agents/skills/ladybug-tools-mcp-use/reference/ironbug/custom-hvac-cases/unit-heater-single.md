@@ -58,12 +58,88 @@ accepted path must preserve exact OpenStudio
   create tool with the same identifier and `overwrite=True`; do not keep
   replaying the whole Garden.
 
+## Code Mode Call Example
+
+```python
+# Inside Ladybug Tools MCP Code Mode execute.
+garden_root = "D:/path/to/artifact-garden"
+case_id = "unit_heater_single"
+rooms = ["Room1"]
+
+base = await call_tool("honeybee_create_model", {
+    "garden_root": garden_root,
+    "identifier": case_id + "_model",
+})
+ironbug = await call_tool("detailed_hvac_create_model", {
+    "garden_root": garden_root,
+    "identifier": case_id,
+    "include_hvac_system": True,
+    "overwrite": True,
+})
+
+# Create Room1 ThermalZone, OnOff fan, hot-water coil, UnitHeater, pump, and
+# hot-water source described in MCP Tool Chain above. Keep returned targets.
+
+applied = await call_tool("detailed_hvac_apply_to_honeybee_model", {
+    "garden_root": garden_root,
+    "ironbug_model_target": ironbug["target"],
+    "honeybee_model_target": base["target"],
+    "room_identifiers": rooms,
+    "detailed_hvac_identifier": case_id + "_detailed_hvac",
+})
+run = await call_tool("energyplus_start_simulation", {
+    "garden_root": garden_root,
+    "model_target": applied["updated_model_target"],
+    "weather_target": "<cold-weather EPW target created or registered in this Garden>",
+    "run_id": case_id + "_run",
+})
+status = await call_tool("energyplus_poll_simulation", {
+    "garden_root": garden_root,
+    "run_target": run["target"],
+    "wait_seconds": 60,
+    "poll_interval": 2,
+})
+outputs = await call_tool("energyplus_list_run_outputs", {
+    "garden_root": garden_root,
+    "run_target": run["target"],
+})
+eui = await call_tool("energyplus_read_eui", {
+    "garden_root": garden_root,
+    "run_target": run["target"],
+})
+return {
+    "case_id": case_id,
+    "status": "accepted-case-pass",
+    "garden_target": "<garden target>",
+    "building_model_target": base["target"],
+    "rooms": rooms,
+    "ironbug_model_target": ironbug["target"],
+    "detailed_hvac_target": applied.get("detailed_hvac_target"),
+    "detailed_hvac_application": {
+        "status": "applied",
+        "model_target": base["target"],
+        "ironbug_model_target": ironbug["target"],
+        "detailed_hvac_target": applied.get("detailed_hvac_target"),
+        "updated_model_target": applied["updated_model_target"],
+    },
+    "energy_run_id": run["target"]["run_id"],
+    "energy_run_target": run["target"],
+    "energy_status": status["summary_view"]["status"],
+    "eui": {"total": eui["eui"]["eui"], "run_id": run["target"]["run_id"]},
+    "err": "<structured ERR exists/path/warning/severe/fatal summary>",
+    "sql": "<structured SQL exists/path/run_id summary>",
+    "python_ironbug_console_runtime": status.get("python_ironbug_console_runtime"),
+    "rerun_command": "<minimum pytest rerun command>",
+    "blocker": None,
+}
+```
+
 ## Expected MCP Return
 
 Return compact JSON-compatible evidence with `case_id`, `status`,
 `garden_target`, `building_model_target`, `rooms`, `ironbug_model_target`,
-`detailed_hvac_application`, optional `energy_run_id`, optional
-`energy_run_target`, optional structured `eui`, optional structured `err`,
+`detailed_hvac_target`, `detailed_hvac_application`, optional `energy_run_id`, optional
+`energy_run_target`, `energy_status`, optional structured `eui`, optional structured `err`,
 optional structured `sql`, `python_ironbug_console_runtime`, `rerun_command`,
 and `blocker`. For a pass, set `status` to `accepted-case-pass`, make
 `blocker` null, and include Python Console runtime evidence with
@@ -71,6 +147,51 @@ and `blocker`. For a pass, set `status` to `accepted-case-pass`, make
 `csharp_ironbug_console_required=false`, empty `writer_diagnostics`, and
 `compiler_reports` showing
 `IB_ZoneHVACUnitHeater -> OS:ZoneHVAC:UnitHeater`.
+
+## Code Mode Return Example
+
+```jsonc
+{
+  "case_id": "unit_heater_single",
+  "status": "accepted-case-pass",
+  "garden_target": {"target_type": "garden", "garden_id": "<garden_id>"},
+  "building_model_target": {"target_type": "honeybee_model", "path": "<hbjson path>"},
+  "rooms": ["Room1"],
+  "ironbug_model_target": {"target_type": "ironbug_model", "path": "<ibjson path>"},
+  "detailed_hvac_target": "<detailed_hvac_apply_to_honeybee_model.detailed_hvac_target>",
+  "detailed_hvac_application": {
+    "status": "applied",
+    "model_target": {"target_type": "honeybee_model", "path": "<source hbjson path>"},
+    "ironbug_model_target": {"target_type": "ironbug_model", "path": "<ibjson path>"},
+    "detailed_hvac_target": "<detailed_hvac_apply_to_honeybee_model.detailed_hvac_target>",
+    "updated_model_target": {"target_type": "honeybee_model", "path": "<updated hbjson path>"}
+  },
+  "energy_run_id": "<energy_run_id>",
+  "energy_run_target": {"target_type": "energy_run", "run_id": "<energy_run_id>"},
+  "energy_status": "completed",
+  "eui": {"total": 123.456, "run_id": "<energy_run_id>"},
+  "err": {
+    "exists": true,
+    "path": "runs/energy/<energy_run_id>/annual_energy_use/run/eplusout.err",
+    "warning_count": 0,
+    "severe_count": 0,
+    "fatal_count": 0
+  },
+  "sql": {
+    "exists": true,
+    "path": "runs/energy/<energy_run_id>/annual_energy_use/run/eplusout.sql",
+    "run_id": "<energy_run_id>"
+  },
+  "python_ironbug_console_runtime": {
+    "status": "translated",
+    "simulation_input_kind": "openstudio_osm",
+    "csharp_ironbug_console_required": false,
+    "compiler_reports": ["IB_ZoneHVACUnitHeater -> OS:ZoneHVAC:UnitHeater"]
+  },
+  "rerun_command": "<minimum pytest rerun command>",
+  "blocker": null
+}
+```
 
 ## Case Notes
 

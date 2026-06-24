@@ -503,7 +503,13 @@ def _urbanopt_setup_candidates(cli_path: str | None) -> list[dict[str, Any]]:
     ]
 
 
-def _urbanopt_runtime_gemfile(cli_path: str | None) -> str | None:
+def _urbanopt_cli_runtime_gemfile(cli_path: str | None) -> str | None:
+    if not cli_path:
+        return None
+    return str(Path(cli_path) / "gems" / "Gemfile")
+
+
+def _urbanopt_openstudio_runtime_gemfile(cli_path: str | None) -> str | None:
     if not cli_path:
         return None
     return str(Path(cli_path) / "openstudio-runtime-gems" / "Gemfile")
@@ -563,9 +569,13 @@ def _urbanopt_path_updates(cli_path: str | None) -> dict[str, Any]:
         env["GEM_HOME"] = str(gem_home)
         env["GEM_PATH"] = str(gem_home)
         env["UO_CLI_GEM_BUNDLE_PATH"] = str(gem_home)
-    runtime_gemfile = base / "openstudio-runtime-gems" / "Gemfile"
-    if runtime_gemfile.is_file():
-        env["UO_GEMFILE_PATH"] = str(runtime_gemfile)
+    cli_runtime_gemfile = base / "gems" / "Gemfile"
+    if cli_runtime_gemfile.is_file():
+        env["BUNDLE_GEMFILE"] = str(cli_runtime_gemfile)
+        env["UO_CLI_GEMFILE_PATH"] = str(cli_runtime_gemfile)
+    openstudio_runtime_gemfile = base / "openstudio-runtime-gems" / "Gemfile"
+    if openstudio_runtime_gemfile.is_file():
+        env["UO_OPENSTUDIO_RUNTIME_GEMFILE_PATH"] = str(openstudio_runtime_gemfile)
     runtime_gems = base / "openstudio-runtime-gems"
     if runtime_gems.is_dir():
         env["UO_BUNDLE_INSTALL_PATH"] = str(runtime_gems)
@@ -582,19 +592,24 @@ def _urbanopt_config() -> dict[str, Any]:
     selected, reason = _select_candidate(candidates, configured_path=configured_path)
     cli_path = selected.get("path") if selected else configured_path
     sdk_gemfile_path = _normalized_path(getattr(folders, "urbanopt_gemfile_path", None))
-    runtime_gemfile_path = _urbanopt_runtime_gemfile(cli_path)
+    cli_runtime_gemfile_path = _urbanopt_cli_runtime_gemfile(cli_path)
+    openstudio_runtime_gemfile_path = _urbanopt_openstudio_runtime_gemfile(cli_path)
     cli_gem_bundle = _urbanopt_cli_gem_bundle(cli_path)
     if sdk_gemfile_path and Path(sdk_gemfile_path).expanduser().is_file():
         gemfile_path = sdk_gemfile_path
         gemfile_source = "sdk_config"
     else:
-        gemfile_path = runtime_gemfile_path
-        gemfile_source = "cli_runtime"
+        gemfile_path = cli_runtime_gemfile_path
+        gemfile_source = "cli_bundle"
     env_path = getattr(folders, "urbanopt_env_path", None)
     detected_version = selected.get("version") if selected else None
     cli = _path_record(cli_path)
     gemfile = _sourced_path_record(gemfile_path, gemfile_source)
-    runtime_gemfile = _sourced_path_record(runtime_gemfile_path, "cli_runtime")
+    cli_runtime_gemfile = _sourced_path_record(cli_runtime_gemfile_path, "cli_bundle")
+    openstudio_runtime_gemfile = _sourced_path_record(
+        openstudio_runtime_gemfile_path,
+        "openstudio_runtime",
+    )
     setup_candidates = _urbanopt_setup_candidates(cli_path)
     path_updates = _urbanopt_path_updates(cli_path)
     record = {
@@ -616,7 +631,8 @@ def _urbanopt_config() -> dict[str, Any]:
         "candidates": candidates,
         "cli": cli,
         "gemfile": gemfile,
-        "runtime_gemfile": runtime_gemfile,
+        "cli_runtime_gemfile": cli_runtime_gemfile,
+        "openstudio_runtime_gemfile": openstudio_runtime_gemfile,
         "cli_gem_bundle": _sourced_path_record(cli_gem_bundle, "cli_runtime"),
         "setup_env": {
             "configured": _path_record(env_path),
@@ -796,6 +812,31 @@ def urbanopt_cli_gem_bundle_path(runtime: dict[str, Any] | None) -> Path | None:
                 value = env.get(key)
                 if isinstance(value, str) and value:
                     return Path(value).expanduser()
+    return None
+
+
+def urbanopt_cli_runtime_gemfile_path(runtime: dict[str, Any] | None) -> Path | None:
+    """Return the URBANopt CLI Gemfile used for ``bundle exec uo`` commands."""
+    if not isinstance(runtime, dict):
+        return None
+    direct = runtime.get("cli_runtime_gemfile")
+    if isinstance(direct, dict):
+        path_value = direct.get("path")
+        if isinstance(path_value, str) and path_value:
+            return Path(path_value).expanduser()
+    path_updates = runtime.get("path_updates")
+    if isinstance(path_updates, dict):
+        env = path_updates.get("env")
+        if isinstance(env, dict):
+            for key in ("BUNDLE_GEMFILE", "UO_CLI_GEMFILE_PATH"):
+                value = env.get(key)
+                if isinstance(value, str) and value:
+                    return Path(value).expanduser()
+    cli_path = runtime.get("path")
+    if isinstance(cli_path, str) and cli_path:
+        candidate = Path(cli_path).expanduser() / "gems" / "Gemfile"
+        if candidate.is_file():
+            return candidate
     return None
 
 

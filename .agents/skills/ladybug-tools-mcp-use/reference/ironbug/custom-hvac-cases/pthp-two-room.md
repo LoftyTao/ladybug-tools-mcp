@@ -85,10 +85,12 @@ return {
     "building_model_target": base["target"],
     "rooms": rooms,
     "ironbug_model_target": ironbug["target"],
+    "detailed_hvac_target": applied.get("detailed_hvac_target"),
     "detailed_hvac_application": {
         "status": "applied",
         "model_target": base["target"],
         "ironbug_model_target": ironbug["target"],
+        "detailed_hvac_target": applied.get("detailed_hvac_target"),
         "updated_model_target": applied["updated_model_target"],
     },
     "energy_run_id": run["target"]["run_id"],
@@ -108,7 +110,7 @@ return {
 
 Return compact JSON-compatible evidence with `case_id`, `status`,
 `garden_target`, `building_model_target`, `rooms`, `ironbug_model_target`,
-`detailed_hvac_application`, `energy_run_id`, `energy_run_target`,
+`detailed_hvac_target`, `detailed_hvac_application`, `energy_run_id`, `energy_run_target`,
 `energy_status`, structured `eui`, structured `err`, structured `sql`,
 `python_ironbug_console_runtime`, `compliant_numeric_result`, `rerun_command`,
 and `blocker`. `energy_status` must be `completed`,
@@ -125,10 +127,12 @@ and `eui.total` must be non-null for a pass.
   "building_model_target": {"target_type": "honeybee_model", "path": "<hbjson path>"},
   "rooms": ["Room1", "Room2"],
   "ironbug_model_target": {"target_type": "ironbug_model", "path": "<ibjson path>"},
+  "detailed_hvac_target": "<detailed_hvac_apply_to_honeybee_model.detailed_hvac_target>",
   "detailed_hvac_application": {
     "status": "applied",
     "model_target": {"target_type": "honeybee_model", "path": "<source hbjson path>"},
     "ironbug_model_target": {"target_type": "ironbug_model", "path": "<ibjson path>"},
+    "detailed_hvac_target": "<detailed_hvac_apply_to_honeybee_model.detailed_hvac_target>",
     "updated_model_target": {"target_type": "honeybee_model", "path": "<updated hbjson path>"}
   },
   "energy_run_id": "<energy_run_id>",

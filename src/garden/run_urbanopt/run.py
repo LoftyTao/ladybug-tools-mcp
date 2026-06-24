@@ -29,6 +29,10 @@ from garden.ladybug_tools_config import (
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
 from garden.run_energy.config import resolve_garden_weather_epw
+from garden.urbanopt_cli import (
+    has_urbanopt_cli_bundle,
+    run_urbanopt_energy_with_cli_bundle,
+)
 from ladybug_tools_mcp.contracts.receipts import make_artifact_receipt
 from ladybug_tools_mcp.contracts.report import make_report
 
@@ -91,7 +95,7 @@ def prepare_project(
     sdk_base_honeybee_osw(
         str(feature_geojson.parent),
         epw_file=str(epw_path) if epw_path is not None else None,
-        skip_report=True,
+        skip_report=False,
     )
     write_urbanopt_bundle_config(feature_geojson.parent, runtime)
     scenario_csv = Path(
@@ -307,9 +311,18 @@ def _run_urbanopt_job(
     if record is None:
         return
     try:
-        with urbanopt_runtime_env(runtime):
-            outputs = sdk_run_urbanopt(feature_geojson, scenario_csv, cpu_count=cpu_count)
-        discovered = _outputs_from_sdk_result(garden_root_path, outputs)
+        if has_urbanopt_cli_bundle(runtime):
+            run_urbanopt_energy_with_cli_bundle(
+                feature_geojson=feature_geojson,
+                scenario_csv=scenario_csv,
+                runtime=runtime,
+                cpu_count=cpu_count,
+            )
+            discovered = []
+        else:
+            with urbanopt_runtime_env(runtime):
+                outputs = sdk_run_urbanopt(feature_geojson, scenario_csv, cpu_count=cpu_count)
+            discovered = _outputs_from_sdk_result(garden_root_path, outputs)
         if not discovered:
             discovered = _discover_outputs(garden_root_path, Path(project_dir))
         if not discovered:

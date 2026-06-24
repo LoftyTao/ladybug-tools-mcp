@@ -23,6 +23,12 @@ from garden.ladybug_tools_config import (
 )
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
+from garden.urbanopt_cli import (
+    has_urbanopt_cli_bundle,
+    run_urbanopt_default_report_with_cli_bundle,
+    run_urbanopt_reopt_with_cli_bundle,
+    run_urbanopt_rnm_with_cli_bundle,
+)
 from ladybug_tools_mcp.contracts.report import make_report
 
 GRID_RUN_TARGET_TYPE = "dragonfly_grid_run"
@@ -367,15 +373,30 @@ def _run_rnm_job(**kwargs: Any) -> None:
     try:
         runtime = kwargs.get("runtime")
         write_urbanopt_bundle_config(feature_geojson.parent, runtime)
-        with urbanopt_runtime_env(runtime):
-            sdk_run_default_report(str(feature_geojson), kwargs["scenario_csv"])
-            outputs = sdk_run_rnm(
-                str(feature_geojson),
-                kwargs["scenario_csv"],
+        if has_urbanopt_cli_bundle(runtime):
+            run_urbanopt_default_report_with_cli_bundle(
+                feature_geojson=str(feature_geojson),
+                scenario_csv=kwargs["scenario_csv"],
+                runtime=runtime,
+            )
+            outputs = run_urbanopt_rnm_with_cli_bundle(
+                feature_geojson=str(feature_geojson),
+                scenario_csv=kwargs["scenario_csv"],
+                runtime=runtime,
                 underground_ratio=kwargs["underground_ratio"],
                 lv_only=kwargs["lv_only"],
                 nodes_per_building=kwargs["nodes_per_building"],
             )
+        else:
+            with urbanopt_runtime_env(runtime):
+                sdk_run_default_report(str(feature_geojson), kwargs["scenario_csv"])
+                outputs = sdk_run_rnm(
+                    str(feature_geojson),
+                    kwargs["scenario_csv"],
+                    underground_ratio=kwargs["underground_ratio"],
+                    lv_only=kwargs["lv_only"],
+                    nodes_per_building=kwargs["nodes_per_building"],
+                )
         _complete_success(root, "rnm", run_id, outputs, feature_geojson.parent)
     except Exception:  # pragma: no cover - external runtime diagnostics vary
         _complete_with_error(root, "rnm", run_id, traceback.format_exc())
@@ -388,14 +409,28 @@ def _run_reopt_job(**kwargs: Any) -> None:
     try:
         runtime = kwargs.get("runtime")
         write_urbanopt_bundle_config(feature_geojson.parent, runtime)
-        with urbanopt_runtime_env(runtime):
-            sdk_run_default_report(str(feature_geojson), kwargs["scenario_csv"])
-            outputs = sdk_run_reopt(
-                str(feature_geojson),
-                kwargs["scenario_csv"],
-                kwargs["urdb_label"],
+        if has_urbanopt_cli_bundle(runtime):
+            run_urbanopt_default_report_with_cli_bundle(
+                feature_geojson=str(feature_geojson),
+                scenario_csv=kwargs["scenario_csv"],
+                runtime=runtime,
+            )
+            outputs = run_urbanopt_reopt_with_cli_bundle(
+                feature_geojson=str(feature_geojson),
+                scenario_csv=kwargs["scenario_csv"],
+                runtime=runtime,
+                urdb_label=kwargs["urdb_label"],
                 developer_key=kwargs["developer_key"],
             )
+        else:
+            with urbanopt_runtime_env(runtime):
+                sdk_run_default_report(str(feature_geojson), kwargs["scenario_csv"])
+                outputs = sdk_run_reopt(
+                    str(feature_geojson),
+                    kwargs["scenario_csv"],
+                    kwargs["urdb_label"],
+                    developer_key=kwargs["developer_key"],
+                )
         _complete_success(root, "reopt", run_id, outputs, feature_geojson.parent)
     except Exception:  # pragma: no cover - external runtime diagnostics vary
         _complete_with_error(root, "reopt", run_id, traceback.format_exc())
