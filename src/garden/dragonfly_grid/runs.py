@@ -36,6 +36,11 @@ GRID_RUN_DOMAIN = "dragonfly_grid"
 GRID_RUN_ROOT = Path("runs") / "dragonfly_grid"
 GRID_RUN_RECIPES = {"rnm", "opendss", "reopt"}
 CONFIG_NEXT_TOOL = "config_get_runtime_config"
+LOCAL_GRID_RUNTIME_BLOCKER = (
+    "URBANopt CLI 1.2.0 is available for local Energy/OpenStudio execution, "
+    "but this RNM/REopt path requires an external or separately hosted API service. "
+    "The MCP service is configured for local bundle execution only."
+)
 
 _BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dragonfly-grid")
 _index_lock = threading.Lock()
@@ -222,7 +227,7 @@ def _urbanopt_runtime_ready(runtime: dict[str, Any] | None) -> bool:
 def _preflight_rnm_runtime(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime = _urbanopt_runtime_config() if runtime is None else runtime
     if _urbanopt_runtime_ready(runtime):
-        return {"status": "ok", "runtime_status": "ready", "issues": []}
+        return _blocked_preflight("rnm", LOCAL_GRID_RUNTIME_BLOCKER)
     return _blocked_preflight("rnm", "URBANopt/RNM runtime is not available.")
 
 
@@ -236,7 +241,7 @@ def _preflight_opendss_runtime() -> dict[str, Any]:
 def _preflight_reopt_runtime(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime = _urbanopt_runtime_config() if runtime is None else runtime
     if _urbanopt_runtime_ready(runtime):
-        return {"status": "ok", "runtime_status": "ready", "issues": []}
+        return _blocked_preflight("reopt", LOCAL_GRID_RUNTIME_BLOCKER)
     return _blocked_preflight("reopt", "URBANopt/REopt runtime is not available.")
 
 
