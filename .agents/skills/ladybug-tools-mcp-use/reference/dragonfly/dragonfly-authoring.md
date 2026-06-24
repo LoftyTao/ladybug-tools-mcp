@@ -60,7 +60,7 @@ validation = await call_tool("df_validate_model", {"garden_root": garden_root})
 - Clean Room2D boundaries with `df_clean_room2d_geometry`.
 - Apply Dragonfly-native window and shading parameters with `df_create_window_parameter`, `df_apply_window_parameter`, `df_create_shading_parameter`, and `df_apply_shading_parameter`.
 - Apply Energy properties with `df_apply_energy_properties` using library identifiers for Room2D, Story, or Building targets. HVAC, SHW, schedules, and arbitrary property dict bridges are not stable in this path.
-- Apply Ironbug-backed DetailedHVAC to Dragonfly Room2D, Story, or Building hosts with `df_detailed_hvac`. Pass `ironbug_model_target` from the DetailedHVAC/Ironbug route and a Dragonfly `host_target`; do not pass plain strings or Honeybee-only DetailedHVAC bodies. This only writes Dragonfly Energy HVAC properties and does not run EnergyPlus.
+- Apply Ironbug-backed DetailedHVAC to Dragonfly Room2D, Story, or Building hosts with `df_detailed_hvac`. Pass `ironbug_model_target` from the DetailedHVAC/Ironbug route and a Dragonfly `host_target`; do not pass plain strings or Honeybee-only DetailedHVAC bodies. This only writes Dragonfly Energy HVAC properties and does not run EnergyPlus. If `conditioned_only=true` reports no conditioned Room2Ds and the user wants all child Room2Ds served, retry with `conditioned_only=false`; otherwise stop and ask for conditioning/program setup.
 - Apply Radiance properties with `df_apply_radiance_properties`. Story grid parameters are intentionally rejected.
 
 ## Visualization And Handoff
