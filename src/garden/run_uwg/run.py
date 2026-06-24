@@ -566,7 +566,10 @@ def _result_from_record(
                 "arguments": {"garden_root": garden_root, "run_target": target},
             },
         },
-        "report": make_report(status="ok", message=message),
+        "report": make_report(
+            status="failed" if record.get("status") == "failed" else "ok",
+            message=message,
+        ),
     }
 
 

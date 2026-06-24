@@ -80,7 +80,8 @@ Use this only when the user asks for Urban Weather Generator, urban microclimate
 2. Apply properties with `df_uwg_apply_dragonfly_properties` on Model, Building, or ContextShade targets.
 3. Create parameters with `df_uwg_create_simulation_parameter` when custom run settings are needed.
 4. Start with `df_uwg_start_simulation` and poll with `df_uwg_poll_simulation`.
-5. Use `summary_view.run.outputs.weather_target` for downstream Energy only after completion.
+5. If `summary_view.status` or `report.status` is `failed`, preserve the run ledger and stop before Energy handoff.
+6. Use `summary_view.run.outputs.weather_target` for downstream Energy only after completion.
 
 ```python
 props = await call_tool("df_uwg_apply_dragonfly_properties", {
