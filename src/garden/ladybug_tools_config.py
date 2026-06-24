@@ -558,6 +558,8 @@ def _urbanopt_opendss_python_deps(cli_gem_bundle: Path | None) -> dict[str, Any]
             "dependencies_file": _existing_path(None),
             "dependencies": [],
             "install_command": "uo install_python",
+            "installer": _urbanopt_python_deps_installer(None),
+            "offline_runtime_pack": _urbanopt_python_deps_offline_pack(None),
         }
     matches = sorted(
         (cli_gem_bundle / "gems").glob("urbanopt-cli-*/example_files/python_deps")
@@ -587,11 +589,66 @@ def _urbanopt_opendss_python_deps(cli_gem_bundle: Path | None) -> dict[str, Any]
         "dependencies_file": _existing_path(str(dependencies_file)),
         "dependencies": dependencies,
         "install_command": "uo install_python",
+        "installer": _urbanopt_python_deps_installer(deps_path),
+        "offline_runtime_pack": _urbanopt_python_deps_offline_pack(config_path),
         "note": (
             "OpenDSS/DISCO/GMT Python dependencies are initialized only when "
-            "python_config.json exists. This report is read-only and does not "
-            "run uo install_python."
+            "python_config.json exists. This report is read-only, requires an "
+            "offline runtime pack for MCP validation, and does not run "
+            "uo install_python."
         ),
+    }
+
+
+def _urbanopt_python_deps_offline_pack(config_path: Path | None) -> dict[str, Any]:
+    ready = bool(config_path and config_path.is_file())
+    return {
+        "required": True,
+        "ready": ready,
+        "python_config": _existing_path(str(config_path) if config_path else None),
+        "online_installer_allowed": False,
+        "mcp_no_network_required": True,
+        "ready_condition": (
+            "python_config.json exists from a pre-provisioned offline runtime pack"
+        ),
+    }
+
+
+def _urbanopt_python_deps_installer(deps_path: Path | None) -> dict[str, Any]:
+    if deps_path is None:
+        return {
+            "script": _existing_path(None),
+            "requires_network": False,
+            "network_indicators": [],
+            "mcp_validation_allowed": False,
+        }
+    script = deps_path / ("install_python.ps1" if os.name == "nt" else "install_python.sh")
+    indicators: list[str] = []
+    if script.is_file():
+        content = script.read_text(encoding="utf-8", errors="ignore")
+        for marker in ("repo.anaconda.com/miniconda", "Invoke-WebRequest", "curl ", "wget "):
+            if marker in content:
+                indicators.append(marker)
+    return {
+        "script": _existing_path(str(script)),
+        "requires_network": bool(indicators),
+        "network_indicators": indicators,
+        "mcp_validation_allowed": False,
+    }
+
+
+def _urbanopt_network_policy() -> dict[str, Any]:
+    return {
+        "mode": "offline_required",
+        "runtime_validation_allows_network": False,
+        "online_install_allowed": False,
+        "online_api_allowed": False,
+        "installer_commands_allowed": [],
+        "required_local_paths": [
+            "URBANopt CLI 1.2.0 gem bundle",
+            "offline-initialized OpenDSS/DISCO/GMT python_config.json",
+            "local RNM/REopt service or runtime when those workflows are enabled",
+        ],
     }
 
 
@@ -708,6 +765,7 @@ def _urbanopt_config() -> dict[str, Any]:
         "cli_runtime_gemfile": cli_runtime_gemfile,
         "openstudio_runtime_gemfile": openstudio_runtime_gemfile,
         "cli_gem_bundle": _sourced_path_record(cli_gem_bundle, "cli_runtime"),
+        "network_policy": _urbanopt_network_policy(),
         "opendss_python_deps": _urbanopt_opendss_python_deps(cli_gem_bundle),
         "setup_env": {
             "configured": _path_record(env_path),

@@ -40,9 +40,10 @@ GRID_RUN_ROOT = Path("runs") / "dragonfly_grid"
 GRID_RUN_RECIPES = {"rnm", "opendss", "reopt"}
 CONFIG_NEXT_TOOL = "config_get_runtime_config"
 LOCAL_GRID_RUNTIME_BLOCKER = (
-    "URBANopt CLI 1.2.0 is available for local Energy/OpenStudio execution, "
-    "but this RNM/REopt path requires an external or separately hosted API service. "
-    "The MCP service is configured for local bundle execution only."
+    "URBANopt CLI 1.2.0 is available for offline Energy/OpenStudio execution, "
+    "but this RNM/REopt path resolves to an online API unless a compatible "
+    "local service or runtime is configured. MCP requires confirmed no-network "
+    "execution and blocks online API submission."
 )
 
 _BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dragonfly-grid")
@@ -251,8 +252,8 @@ def _preflight_opendss_runtime(runtime: dict[str, Any] | None = None) -> dict[st
         return _blocked_preflight(
             "opendss",
             "URBANopt CLI OpenDSS Python dependencies are not initialized in the local 1.2.0 bundle. "
-            "Missing python_config.json under example_files/python_deps; MCP local-only validation will not run "
-            "uo install_python or download dependencies.",
+            "Missing python_config.json under example_files/python_deps; provide an offline-initialized runtime pack. "
+            "MCP confirmed no-network validation will not run uo install_python or download dependencies.",
         )
     return {
         "status": "ok",
