@@ -250,7 +250,7 @@ def assign_building_loads(
     """Assign building loads for DES simulation using SDK output files."""
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
-    feature_geojson = _resolve_feature_geojson(garden_root_path, manifest, feature_geojson_target)
+    _resolve_feature_geojson(garden_root_path, manifest, feature_geojson_target)
     scenario_csv = _resolve_scenario_csv(garden_root_path, manifest, scenario_csv_target)
     preflight = _preflight_gmt_runtime()
     if preflight["runtime_status"] == "blocked":
@@ -260,7 +260,7 @@ def assign_building_loads(
             operation="assign_building_loads",
             preflight=preflight,
         )
-    warnings = sdk_set_building_district_loads(str(feature_geojson), str(scenario_csv))
+    warnings = sdk_set_building_district_loads(str(scenario_csv))
     return {
         "runtime_status": "completed",
         "summary_view": {

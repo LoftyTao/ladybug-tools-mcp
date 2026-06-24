@@ -51,5 +51,6 @@ Return compact targets, summaries, runtime status, reports, and persistence rece
 - If a required Garden artifact target is missing, go back to the export or authoring step that creates it instead of fabricating a target dict.
 - Treat `failed.job` markers as a failed URBANopt run even when OSM or IDF files exist.
 - `df_des_prepare_urbanopt_project` writes the base Honeybee OSW and project-local URBANopt CLI bundle config; do not run Bundler setup manually from Code Mode.
+- `df_des_assign_building_loads` is a scenario-results binding stage after URBANopt Energy outputs exist. Pass the MCP-required feature and scenario targets, but do not invent a separate feature-patching step or expect it to run DES sys-param.
 - There is not yet a public DES object search/recovery tool. Keep returned DES targets in the same `execute` block, or deliberately recreate them after a partial failure.
 - `df_des_export_model` needs DES-ready Dragonfly Building loads. A minimal Dragonfly Model made only from Room2D/Story/Building is not enough for full DES export.

@@ -57,5 +57,6 @@ outputs = await call_tool("df_urbanopt_list_run_outputs", {
 - `df_urbanopt_prepare_project` writes the base Honeybee OSW with default feature reports enabled and project-local URBANopt CLI bundle config; do not call `base_honeybee_osw` or Bundler setup yourself from Code Mode.
 - For SDK-prepared URBANopt projects, expect `runner.conf.gemfile_path` to point to the copied project `Gemfile` and `runner.conf.bundle_install_path` to point to the installed URBANopt CLI gem bundle. Do not replace this with the global CLI Gemfile path in Agent-side debugging.
 - URBANopt CLI 1.2.0 uses `C:\URBANopt-cli-1.2.0\gems\Gemfile` with bundled `bundle.bat exec uo`; do not rely on a bare global `uo` command when debugging Windows runtime behavior.
+- Grasshopper `DF Run URBANopt` supports optional measures, mapper measures, default feature reports, and emissions-year settings. The current MCP `df_urbanopt_prepare_project` schema does not expose those optional knobs yet, so do not promise or fabricate them during Agent runs.
 - Do not call a generic `run_urbanopt` tool.
 - Do not treat this as DES sys-param, Modelica, UWG, or Electric Grid execution.
