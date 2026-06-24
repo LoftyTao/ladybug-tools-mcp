@@ -113,6 +113,7 @@ def prepare_urbanopt_project(
             verbose=verbose,
         )
     ).expanduser().resolve()
+    write_urbanopt_bundle_config(feature_geojson.parent, runtime)
     scenario_target = artifact_target_for_path(
         manifest=manifest,
         garden_root=garden_root_path,

@@ -1018,7 +1018,35 @@ def write_urbanopt_bundle_config(project_dir: str | Path, runtime: dict[str, Any
     config_path = config_dir / "config"
     bundle_value = str(bundle_path).replace("\\", "/")
     config_path.write_text(f'---\nBUNDLE_PATH: "{bundle_value}"\n', encoding="utf-8")
+    _write_urbanopt_runner_bundle_config(project_dir, runtime, bundle_path)
     return config_path
+
+
+def _write_urbanopt_runner_bundle_config(
+    project_dir: str | Path,
+    runtime: dict[str, Any] | None,
+    bundle_path: Path,
+) -> Path | None:
+    project_path = Path(project_dir).expanduser().resolve()
+    gemfile_path = project_path / "Gemfile"
+    if not gemfile_path.is_file():
+        return None
+    runner_conf = project_path / "runner.conf"
+    if not runner_conf.is_file():
+        return None
+    try:
+        runner_config = json.loads(runner_conf.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(runner_config, dict):
+        return None
+    runner_config["gemfile_path"] = str(gemfile_path).replace("\\", "/")
+    runner_config["bundle_install_path"] = str(bundle_path).replace("\\", "/")
+    runner_conf.write_text(
+        json.dumps(runner_config, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return runner_conf
 
 
 @contextmanager

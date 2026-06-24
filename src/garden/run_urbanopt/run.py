@@ -105,6 +105,7 @@ def prepare_project(
             verbose=verbose,
         )
     ).expanduser().resolve()
+    write_urbanopt_bundle_config(feature_geojson.parent, runtime)
     scenario_csv = _bounded_existing_path(garden_root_path, scenario_csv, suffix=".csv")
     project_dir = _bounded_existing_directory(garden_root_path, scenario_csv.parent)
     project_target = _artifact_target_for_path(

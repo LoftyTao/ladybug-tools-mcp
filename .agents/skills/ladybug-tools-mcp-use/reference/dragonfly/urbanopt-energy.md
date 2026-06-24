@@ -55,6 +55,7 @@ outputs = await call_tool("df_urbanopt_list_run_outputs", {
 - Only read SQL/HTML/ERR/IDF-style outputs after `df_urbanopt_list_run_outputs` reports them.
 - Treat `failed.job` markers as a failed URBANopt run even when OSM or IDF files exist.
 - `df_urbanopt_prepare_project` writes the base Honeybee OSW with default feature reports enabled and project-local URBANopt CLI bundle config; do not call `base_honeybee_osw` or Bundler setup yourself from Code Mode.
+- For SDK-prepared URBANopt projects, expect `runner.conf.gemfile_path` to point to the copied project `Gemfile` and `runner.conf.bundle_install_path` to point to the installed URBANopt CLI gem bundle. Do not replace this with the global CLI Gemfile path in Agent-side debugging.
 - URBANopt CLI 1.2.0 uses `C:\URBANopt-cli-1.2.0\gems\Gemfile` with bundled `bundle.bat exec uo`; do not rely on a bare global `uo` command when debugging Windows runtime behavior.
 - Do not call a generic `run_urbanopt` tool.
 - Do not treat this as DES sys-param, Modelica, UWG, or Electric Grid execution.
