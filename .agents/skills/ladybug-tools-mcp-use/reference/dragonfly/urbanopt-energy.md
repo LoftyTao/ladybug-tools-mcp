@@ -9,7 +9,9 @@ Use this workflow when the user asks for URBANopt-backed Dragonfly Energy runs. 
 - Prefer a Garden `weather_file` target when running a real URBANopt Energy simulation. Local Ladybug Tools weather copied into the Garden is acceptable when remote EPW lookup is not needed.
 - Keep the feature GeoJSON and later project/run artifacts inside the same Garden.
 - On Windows, keep the Garden path visible to the SDK very short. For Dragonfly URBANopt runtime validation, use a real short Garden under `D:\`, such as `D:\df_mcp_ax7`; do not use mapped/cache drives or a deep repository path. A normal long repository path can trigger `urbanopt_writer_path_too_long`.
-- Expect the first real URBANopt run to spend a long time in Ruby/Bundler dependency setup. Poll the run and list outputs before reading simulation results.
+- URBANopt validation must stay fully offline. Use the local URBANopt CLI 1.2.0 bundle and an existing Garden weather target; do not run Bundler installation, online weather download, online API submission, or dependency installers from the Agent path.
+- If URBANopt runtime preflight blocks, report `summary_view.runtime_diagnostics` first. It should include `network_policy.mode="offline_required"`, `online_install_allowed=false`, `online_api_allowed=false`, and the local `urbanopt` runtime record.
+- A real local URBANopt run can still be slow because OpenStudio/EnergyPlus is doing work. Poll the run and list outputs before reading simulation results.
 
 ## Tool Order
 
