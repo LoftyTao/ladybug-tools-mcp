@@ -121,7 +121,7 @@ def start_opendss(
         feature_geojson_target=feature_geojson_target,
         scenario_csv_target=scenario_csv_target,
         request={"operation": "run_opendss", "autosize": autosize},
-        preflight=_preflight_opendss_runtime(),
+        preflight=_preflight_opendss_runtime(runtime),
     )
     if record["status"] == "running":
         _BACKGROUND_EXECUTOR.submit(
@@ -246,14 +246,20 @@ def _preflight_rnm_runtime(runtime: dict[str, Any] | None = None) -> dict[str, A
 
 def _preflight_opendss_runtime(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime = _urbanopt_runtime_config() if runtime is None else runtime
+    diagnostics = _opendss_runtime_diagnostics(runtime)
     if not has_urbanopt_cli_bundle(runtime):
-        return _blocked_preflight("opendss", "URBANopt CLI 1.2.0 bundle is required for local OpenDSS execution.")
+        return _blocked_preflight(
+            "opendss",
+            "URBANopt CLI 1.2.0 bundle is required for local OpenDSS execution.",
+            runtime_diagnostics=diagnostics,
+        )
     if not has_urbanopt_opendss_python_deps(runtime):
         return _blocked_preflight(
             "opendss",
             "URBANopt CLI OpenDSS Python dependencies are not initialized in the local 1.2.0 bundle. "
             "Missing python_config.json under example_files/python_deps; provide an offline-initialized runtime pack. "
             "MCP confirmed no-network validation will not run uo install_python or download dependencies.",
+            runtime_diagnostics=diagnostics,
         )
     return {
         "status": "ok",
@@ -261,6 +267,7 @@ def _preflight_opendss_runtime(runtime: dict[str, Any] | None = None) -> dict[st
         "issues": [],
         "missing": [],
         "recommended_next_tools": [],
+        "runtime_diagnostics": diagnostics,
     }
 
 
@@ -271,14 +278,43 @@ def _preflight_reopt_runtime(runtime: dict[str, Any] | None = None) -> dict[str,
     return _blocked_preflight("reopt", "URBANopt/REopt runtime is not available.")
 
 
-def _blocked_preflight(name: str, message: str) -> dict[str, Any]:
-    return {
+def _blocked_preflight(
+    name: str,
+    message: str,
+    *,
+    runtime_diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    result = {
         "status": "blocked",
         "runtime_status": "blocked",
         "issues": [message],
         "missing": [name],
         "recommended_next_tools": [CONFIG_NEXT_TOOL],
     }
+    if runtime_diagnostics:
+        result["runtime_diagnostics"] = runtime_diagnostics
+    return result
+
+
+def _opendss_runtime_diagnostics(runtime: dict[str, Any] | None) -> dict[str, Any]:
+    deps = _opendss_python_deps(runtime)
+    return {"opendss_python_deps": deps} if deps else {}
+
+
+def _opendss_python_deps(runtime: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(runtime, dict):
+        return {}
+    deps = runtime.get("opendss_python_deps")
+    if isinstance(deps, dict):
+        return deps
+    engines = runtime.get("engines")
+    if isinstance(engines, dict):
+        urbanopt = engines.get("urbanopt")
+        if isinstance(urbanopt, dict):
+            deps = urbanopt.get("opendss_python_deps")
+            if isinstance(deps, dict):
+                return deps
+    return {}
 
 
 def _normalize_run_id(run_id: str | None, prefix: str) -> str:
@@ -630,38 +666,49 @@ def _scan_outputs(run_dir: Path) -> list[dict[str, Any]]:
 
 def _result_from_record(root: Path, manifest: GardenManifest, record: dict[str, Any]) -> dict[str, Any]:
     status = str(record.get("runtime_status") or record.get("status") or "unknown")
+    preflight = record.get("preflight", {})
+    runtime_diagnostics = (
+        preflight.get("runtime_diagnostics") if isinstance(preflight, dict) else None
+    )
+    recommended_value = (
+        preflight.get("recommended_next_tools") if isinstance(preflight, dict) else None
+    )
     recommended = list(
-        record.get("preflight", {}).get("recommended_next_tools")
-        or ([CONFIG_NEXT_TOOL] if status == "blocked" else [])
+        recommended_value or ([CONFIG_NEXT_TOOL] if status == "blocked" else [])
     )
     poll_next = {
         "tool": f"df_grid_start_{record['recipe']}" if status == "blocked" else None,
         "run_target": record["target"],
         "run_id": record["run_id"],
     }
+    summary_view = {
+        "garden_target": manifest.target(),
+        "run": {
+            "run_id": record["run_id"],
+            "recipe": record["recipe"],
+            "status": record.get("status"),
+            "runtime_status": status,
+        },
+        "recommended_next_tools": recommended,
+        "output_count": len(record.get("outputs", [])),
+    }
+    report_details = {
+        "run_target": record["target"],
+        "error": record.get("error"),
+        "recommended_next_tools": recommended,
+    }
+    if runtime_diagnostics:
+        summary_view["runtime_diagnostics"] = runtime_diagnostics
+        report_details["runtime_diagnostics"] = runtime_diagnostics
     return {
         "target": record["target"],
         "run_target": record["target"],
         "runtime_status": status,
         "poll_next": poll_next,
-        "summary_view": {
-            "garden_target": manifest.target(),
-            "run": {
-                "run_id": record["run_id"],
-                "recipe": record["recipe"],
-                "status": record.get("status"),
-                "runtime_status": status,
-            },
-            "recommended_next_tools": recommended,
-            "output_count": len(record.get("outputs", [])),
-        },
+        "summary_view": summary_view,
         "report": make_report(
             status=status if status in {"blocked", "failed"} else "ok",
             message=f"Dragonfly Grid {record['recipe']} run {status}: {record['run_id']}",
-            details={
-                "run_target": record["target"],
-                "error": record.get("error"),
-                "recommended_next_tools": recommended,
-            },
+            details=report_details,
         ),
     }
