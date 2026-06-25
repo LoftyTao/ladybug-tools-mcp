@@ -18,6 +18,18 @@ from garden.ladybug_tools_config import (
     urbanopt_runtime_env,
 )
 
+NO_NETWORK_ENV_KEYS = {
+    "ALL_PROXY",
+    "FTP_PROXY",
+    "GEM_DEVELOPER_KEY",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NREL_API_KEY",
+    "NREL_DEVELOPER_KEY",
+    "NO_PROXY",
+    "REOPT_API_KEY",
+}
+
 
 def run_urbanopt_energy_with_cli_bundle(
     *,
@@ -285,6 +297,7 @@ def _run_uo(
             for key, value in env_extra.items():
                 if value is not None:
                     env[key] = value
+        _sanitize_no_network_env(env)
         completed = subprocess.run(
             command,
             cwd=str(project_dir),
@@ -307,6 +320,13 @@ def _offline_bundler_env(runtime: dict[str, Any] | None, gemfile: Path) -> dict[
     if bundle_path is not None:
         env["UO_BUNDLE_INSTALL_PATH"] = str(bundle_path)
     return env
+
+
+def _sanitize_no_network_env(env: dict[str, str]) -> None:
+    for key in list(env):
+        if key.upper() in NO_NETWORK_ENV_KEYS:
+            env.pop(key, None)
+    env["LADYBUG_MCP_NO_NETWORK"] = "true"
 
 
 def _update_rnm_inputs(
