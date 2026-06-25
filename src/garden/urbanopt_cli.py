@@ -179,10 +179,30 @@ def has_urbanopt_opendss_python_deps(runtime: dict[str, Any] | None) -> bool:
     """Return True when URBANopt CLI OpenDSS Python deps are initialized."""
     if isinstance(runtime, dict):
         deps = runtime.get("opendss_python_deps")
-        if isinstance(deps, dict) and deps.get("initialized") is True:
-            return True
+        if isinstance(deps, dict):
+            pack = deps.get("offline_runtime_pack")
+            if isinstance(pack, dict):
+                return deps.get("initialized") is True and pack.get("ready") is True
+            if deps.get("initialized") is True:
+                return _opendss_python_config_ready(_opendss_python_config(runtime))
     config = _opendss_python_config(runtime)
-    return bool(config and config.is_file())
+    return _opendss_python_config_ready(config)
+
+
+def _opendss_python_config_ready(config: Path | None) -> bool:
+    if config is None or not config.is_file():
+        return False
+    try:
+        loaded = json.loads(config.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(loaded, dict):
+        return False
+    for key in ("python_path", "pip_path", "ditto_path"):
+        value = loaded.get(key)
+        if not isinstance(value, str) or not Path(value).is_file():
+            return False
+    return True
 
 
 def _check_project_files(feature_geojson: str | Path, scenario_csv: str | Path) -> Path:

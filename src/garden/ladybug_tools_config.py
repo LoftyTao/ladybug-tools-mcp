@@ -601,15 +601,39 @@ def _urbanopt_opendss_python_deps(cli_gem_bundle: Path | None) -> dict[str, Any]
 
 
 def _urbanopt_python_deps_offline_pack(config_path: Path | None) -> dict[str, Any]:
-    ready = bool(config_path and config_path.is_file())
+    required_keys = ["python_path", "pip_path", "ditto_path"]
+    config_valid = False
+    configured_paths: dict[str, Any] = {
+        key: _existing_path(None) for key in required_keys
+    }
+    if config_path and config_path.is_file():
+        try:
+            loaded = json.loads(config_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                config_valid = True
+                for key in required_keys:
+                    value = loaded.get(key)
+                    configured_paths[key] = _existing_path(value if isinstance(value, str) else None)
+        except json.JSONDecodeError:
+            config_valid = False
+    missing = [
+        key for key in required_keys
+        if not configured_paths[key].get("exists")
+    ]
+    ready = bool(config_path and config_path.is_file() and config_valid and not missing)
     return {
         "required": True,
         "ready": ready,
         "python_config": _existing_path(str(config_path) if config_path else None),
+        "config_valid": config_valid,
+        "required_config_keys": required_keys,
+        "configured_paths": configured_paths,
+        "missing_required_paths": missing,
         "online_installer_allowed": False,
         "mcp_no_network_required": True,
         "ready_condition": (
-            "python_config.json exists from a pre-provisioned offline runtime pack"
+            "python_config.json exists from a pre-provisioned offline runtime pack "
+            "and python_path, pip_path, and ditto_path all point to local files"
         ),
     }
 
