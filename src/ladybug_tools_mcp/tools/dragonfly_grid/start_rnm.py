@@ -17,8 +17,10 @@ def register(mcp: FastMCP) -> None:
         name="start_rnm",
         description=(
             "Start or block a Dragonfly Electric Grid RNM run from a feature "
-            "GeoJSON target and scenario CSV target. Missing runtime returns a "
-            "blocked run ledger with config_get_runtime_config as the next check."
+            "GeoJSON target and scenario CSV target. Under the confirmed "
+            "no-network policy, API-backed RNM-US submission returns a blocked "
+            "run ledger with runtime_diagnostics.external_api_blocker and "
+            "config_get_runtime_config as the next check."
         ),
         tags={"dragonfly", "electric-grid", "rnm", "run", "runtime", "target"},
         timeout=30,
@@ -42,4 +44,3 @@ def register(mcp: FastMCP) -> None:
             lv_only=lv_only,
             nodes_per_building=nodes_per_building,
         )
-

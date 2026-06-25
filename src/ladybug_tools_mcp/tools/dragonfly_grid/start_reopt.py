@@ -17,9 +17,10 @@ def register(mcp: FastMCP) -> None:
         name="start_reopt",
         description=(
             "Start or block a Dragonfly Electric Grid REopt post-processing run "
-            "from feature GeoJSON and scenario CSV targets. Missing runtime or "
-            "credentials returns a blocked ledger; this tool does not hide REopt "
-            "cost/API prerequisites."
+            "from feature GeoJSON and scenario CSV targets. Under the confirmed "
+            "no-network policy, API-backed REopt submission returns a blocked "
+            "ledger with runtime_diagnostics.external_api_blocker; this tool "
+            "does not hide REopt local-service, credential, or cost prerequisites."
         ),
         tags={"dragonfly", "electric-grid", "reopt", "run", "runtime", "target"},
         timeout=30,
@@ -41,4 +42,3 @@ def register(mcp: FastMCP) -> None:
             run_id=run_id,
             developer_key=developer_key,
         )
-

@@ -45,6 +45,37 @@ LOCAL_GRID_RUNTIME_BLOCKER = (
     "local service or runtime is configured. MCP requires confirmed no-network "
     "execution and blocks online API submission."
 )
+DEFAULT_GRID_NETWORK_POLICY = {
+    "mode": "offline_required",
+    "online_install_allowed": False,
+    "online_api_allowed": False,
+}
+GRID_EXTERNAL_API_BLOCKERS = {
+    "rnm": {
+        "recipe": "rnm",
+        "api_backed": True,
+        "online_api_blocked": True,
+        "online_api_endpoints": ["https://rnm.urbanopt.net/api/v2/"],
+        "local_service_required": True,
+        "local_service_configured": False,
+        "required_local_runtime": (
+            "Compatible local RNM service/runtime explicitly configured and "
+            "covered by no-network tests."
+        ),
+    },
+    "reopt": {
+        "recipe": "reopt",
+        "api_backed": True,
+        "online_api_blocked": True,
+        "online_api_endpoints": ["https://developer.nrel.gov/api/reopt/"],
+        "local_service_required": True,
+        "local_service_configured": False,
+        "required_local_runtime": (
+            "Compatible local REopt API/service explicitly configured and "
+            "covered by no-network tests."
+        ),
+    },
+}
 
 _BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dragonfly-grid")
 _index_lock = threading.Lock()
@@ -239,9 +270,18 @@ def _urbanopt_runtime_ready(runtime: dict[str, Any] | None) -> bool:
 
 def _preflight_rnm_runtime(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime = _urbanopt_runtime_config() if runtime is None else runtime
+    diagnostics = _grid_external_api_diagnostics("rnm", runtime)
     if _urbanopt_runtime_ready(runtime):
-        return _blocked_preflight("rnm", LOCAL_GRID_RUNTIME_BLOCKER)
-    return _blocked_preflight("rnm", "URBANopt/RNM runtime is not available.")
+        return _blocked_preflight(
+            "rnm",
+            LOCAL_GRID_RUNTIME_BLOCKER,
+            runtime_diagnostics=diagnostics,
+        )
+    return _blocked_preflight(
+        "rnm",
+        "URBANopt/RNM runtime is not available.",
+        runtime_diagnostics=diagnostics,
+    )
 
 
 def _preflight_opendss_runtime(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -273,9 +313,18 @@ def _preflight_opendss_runtime(runtime: dict[str, Any] | None = None) -> dict[st
 
 def _preflight_reopt_runtime(runtime: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime = _urbanopt_runtime_config() if runtime is None else runtime
+    diagnostics = _grid_external_api_diagnostics("reopt", runtime)
     if _urbanopt_runtime_ready(runtime):
-        return _blocked_preflight("reopt", LOCAL_GRID_RUNTIME_BLOCKER)
-    return _blocked_preflight("reopt", "URBANopt/REopt runtime is not available.")
+        return _blocked_preflight(
+            "reopt",
+            LOCAL_GRID_RUNTIME_BLOCKER,
+            runtime_diagnostics=diagnostics,
+        )
+    return _blocked_preflight(
+        "reopt",
+        "URBANopt/REopt runtime is not available.",
+        runtime_diagnostics=diagnostics,
+    )
 
 
 def _blocked_preflight(
@@ -299,6 +348,27 @@ def _blocked_preflight(
 def _opendss_runtime_diagnostics(runtime: dict[str, Any] | None) -> dict[str, Any]:
     deps = _opendss_python_deps(runtime)
     return {"opendss_python_deps": deps} if deps else {}
+
+
+def _grid_external_api_diagnostics(recipe: str, runtime: dict[str, Any] | None) -> dict[str, Any]:
+    blocker = dict(GRID_EXTERNAL_API_BLOCKERS[recipe])
+    return {
+        "network_policy": _grid_network_policy(runtime),
+        "external_api_blocker": blocker,
+    }
+
+
+def _grid_network_policy(runtime: dict[str, Any] | None) -> dict[str, Any]:
+    if isinstance(runtime, dict):
+        for candidate in (
+            runtime.get("network_policy"),
+            runtime.get("engines", {}).get("urbanopt", {}).get("network_policy")
+            if isinstance(runtime.get("engines"), dict)
+            else None,
+        ):
+            if isinstance(candidate, dict):
+                return candidate
+    return dict(DEFAULT_GRID_NETWORK_POLICY)
 
 
 def _opendss_python_deps(runtime: dict[str, Any] | None) -> dict[str, Any]:
