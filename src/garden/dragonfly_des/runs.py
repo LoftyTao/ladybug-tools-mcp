@@ -52,6 +52,11 @@ DES_RUN_DOMAIN = "dragonfly_des"
 DES_RUN_ROOT = Path("runs") / "dragonfly_des"
 DES_RUN_RECIPES = {"urbanopt", "sys_param", "modelica"}
 CONFIG_NEXT_TOOL = "config_get_runtime_config"
+DEFAULT_DES_NETWORK_POLICY = {
+    "mode": "offline_required",
+    "online_install_allowed": False,
+    "online_api_allowed": False,
+}
 STALE_RUNNING_SECONDS = 60 * 60
 URBANOPT_STANDARD_OUTPUT_NAMES = {
     "in.osm",
@@ -883,7 +888,7 @@ def _blocked_preflight(
     missing: list[str],
     runtime: dict[str, Any],
 ) -> dict[str, Any]:
-    return {
+    result = {
         "status": "blocked",
         "runtime_status": "blocked",
         "issues": issues,
@@ -891,6 +896,49 @@ def _blocked_preflight(
         "runtime": runtime,
         "recommended_next_tools": [CONFIG_NEXT_TOOL],
     }
+    diagnostics = _runtime_diagnostics_from_preflight(result)
+    if diagnostics:
+        result["runtime_diagnostics"] = diagnostics
+    return result
+
+
+def _runtime_diagnostics_from_preflight(preflight: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(preflight, dict):
+        return {}
+    runtime = preflight.get("runtime")
+    if not isinstance(runtime, dict):
+        return {}
+    diagnostics: dict[str, Any] = {"network_policy": dict(DEFAULT_DES_NETWORK_POLICY)}
+    gmt = runtime.get("gmt") if isinstance(runtime.get("gmt"), dict) else runtime
+    if isinstance(gmt, dict):
+        diagnostics["des_gmt"] = gmt
+    if "docker" in runtime or "omc" in runtime:
+        diagnostics["modelica_runtime"] = {
+            "docker": runtime.get("docker"),
+            "omc": runtime.get("omc"),
+            "missing": list(preflight.get("missing") or []),
+        }
+    return diagnostics
+
+
+def _preflight_runtime_diagnostics(preflight: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(preflight, dict):
+        return {}
+    existing = preflight.get("runtime_diagnostics")
+    if isinstance(existing, dict) and existing:
+        return existing
+    return _runtime_diagnostics_from_preflight(preflight)
+
+
+def _attach_runtime_diagnostics(
+    summary_view: dict[str, Any],
+    report_details: dict[str, Any],
+    preflight: dict[str, Any] | None,
+) -> None:
+    diagnostics = _preflight_runtime_diagnostics(preflight)
+    if diagnostics:
+        summary_view["runtime_diagnostics"] = diagnostics
+        report_details["runtime_diagnostics"] = diagnostics
 
 
 def _operation_blocked_result(
@@ -901,24 +949,27 @@ def _operation_blocked_result(
     preflight: dict[str, Any],
 ) -> dict[str, Any]:
     recommended = list(preflight.get("recommended_next_tools") or [CONFIG_NEXT_TOOL])
+    summary_view = {
+        "garden_target": manifest.target(),
+        "operation": operation,
+        "runtime_status": "blocked",
+        "preflight": preflight,
+        "recommended_next_tools": recommended,
+    }
+    report_details = {
+        "garden_root": str(garden_root),
+        "recommended_next_tools": recommended,
+        "preflight": preflight,
+    }
+    _attach_runtime_diagnostics(summary_view, report_details, preflight)
     return {
         "runtime_status": "blocked",
-        "summary_view": {
-            "garden_target": manifest.target(),
-            "operation": operation,
-            "runtime_status": "blocked",
-            "preflight": preflight,
-            "recommended_next_tools": recommended,
-        },
+        "summary_view": summary_view,
         "report": make_report(
             status="warning",
             message=f"Dragonfly DES operation blocked by missing runtime: {operation}",
             warnings=list(preflight.get("issues") or []),
-            details={
-                "garden_root": str(garden_root),
-                "recommended_next_tools": recommended,
-                "preflight": preflight,
-            },
+            details=report_details,
         ),
     }
 
@@ -1218,6 +1269,11 @@ def _result_from_record(
     if record.get("candidate_status"):
         summary_view["candidate_status"] = record["candidate_status"]
     report_status = "warning" if runtime_status in {"blocked", "failed"} else "ok"
+    report_details = {
+        "recommended_next_tools": recommended,
+        "preflight": record.get("preflight"),
+    }
+    _attach_runtime_diagnostics(summary_view, report_details, record.get("preflight"))
     result = {
         "target": target,
         "run_target": target,
@@ -1228,10 +1284,7 @@ def _result_from_record(
             status=report_status,
             message=message,
             warnings=list((record.get("preflight") or {}).get("issues") or []),
-            details={
-                "recommended_next_tools": recommended,
-                "preflight": record.get("preflight"),
-            },
+            details=report_details,
         ),
     }
     for key in ("system_parameter_json_target", "modelica_project_target"):

@@ -26,7 +26,7 @@ Use this path for Dragonfly DES tool discovery, minimal Dragonfly authoring, exp
 - For DES export and URBANopt Energy runs, use a Garden `weather_file` target with an EPW path.
 - Check runtime configuration before any URBANopt, GMT/uo_des, Docker, or OpenModelica execution.
 - For sys-param and Modelica work, inspect `config_get_runtime_config.summary_view.engines.des_gmt`. Continue only when `available=true`; missing `uo_des.exe`, `thermalnetwork.exe`, `geojson_modelica_translator`, `ThermalNetwork`, or Modelica Buildings Library resources are local dependency blockers.
-- Do not run `dragonfly_energy install all-des` from an Agent validation run. Grasshopper can use that installer when the user chooses it, but MCP validation should report the missing `des_gmt` dependencies and stop.
+- Do not run `dragonfly_energy install all-des` from an Agent validation run. Grasshopper can use that installer when the user chooses it, but MCP validation must stay fully offline, report the missing `des_gmt` dependencies, and stop.
 - Keep URBANopt export Gardens on a short filesystem path on Windows. Dragonfly Energy asserts that the export simulation folder path must be shorter than 60 characters; the MCP service uses compact root-level export folders and preserves short caller path aliases for the SDK writer.
 
 ## Usual MCP Route
@@ -46,7 +46,8 @@ Return compact targets, summaries, runtime status, reports, and persistence rece
 ## Result Handling
 
 - If URBANopt/GMT/Docker/OpenModelica are present but the user only asked for a smoke test or setup check, do not launch a real simulation without explicit permission.
-- If `df_des_start_sys_param` returns `runtime_status="blocked"`, return the run target and the `des_gmt` missing dependency details from the preflight; do not treat successful URBANopt Energy completion as proof that DES sys-param is ready.
+- If `df_des_start_sys_param`, `df_des_write_modelica_project`, or `df_des_start_modelica_simulation` returns `runtime_status="blocked"`, report `summary_view.runtime_diagnostics` first. It should include `network_policy.mode="offline_required"`, `online_install_allowed=false`, `online_api_allowed=false`, and the relevant `des_gmt` or `modelica_runtime` missing dependency details.
+- Do not treat successful URBANopt Energy completion as proof that DES sys-param or Modelica is ready.
 - Poll ledgers and output paths for Modelica; do not invent numeric Modelica result readers or summaries.
 - If a required Garden artifact target is missing, go back to the export or authoring step that creates it instead of fabricating a target dict.
 - Treat `failed.job` markers as a failed URBANopt run even when OSM or IDF files exist.
