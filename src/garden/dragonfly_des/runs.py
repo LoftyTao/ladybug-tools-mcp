@@ -809,6 +809,10 @@ def _preflight_urbanopt_runtime() -> dict[str, Any]:
     issues = []
     if not urbanopt.get("available"):
         issues.append("URBANopt CLI or Gemfile is not available to dragonfly_energy.")
+    if not has_urbanopt_cli_bundle(urbanopt):
+        issues.append(
+            "A local URBANopt CLI 1.2.0 bundle Gemfile is required for MCP no-network validation."
+        )
     if urbanopt.get("version_status") in {"older", "newer", "unknown"}:
         issues.append("URBANopt runtime version does not match the current DEV requirement.")
     if issues:
@@ -909,6 +913,10 @@ def _runtime_diagnostics_from_preflight(preflight: dict[str, Any] | None) -> dic
     if not isinstance(runtime, dict):
         return {}
     diagnostics: dict[str, Any] = {"network_policy": dict(DEFAULT_DES_NETWORK_POLICY)}
+    runtime_name = runtime.get("name")
+    if runtime_name == "urbanopt" or "cli_runtime_gemfile" in runtime:
+        diagnostics["urbanopt"] = runtime
+        return diagnostics
     gmt = runtime.get("gmt") if isinstance(runtime.get("gmt"), dict) else runtime
     if isinstance(gmt, dict):
         diagnostics["des_gmt"] = gmt

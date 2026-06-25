@@ -10,6 +10,7 @@ Use this workflow when the user asks for URBANopt-backed Dragonfly Energy runs. 
 - Keep the feature GeoJSON and later project/run artifacts inside the same Garden.
 - On Windows, keep the Garden path visible to the SDK very short. For Dragonfly URBANopt runtime validation, use a real short Garden under `D:\`, such as `D:\df_mcp_ax7`; do not use mapped/cache drives or a deep repository path. A normal long repository path can trigger `urbanopt_writer_path_too_long`.
 - URBANopt validation must stay fully offline. Use the local URBANopt CLI 1.2.0 bundle and an existing Garden weather target; do not run Bundler installation, online weather download, online API submission, or dependency installers from the Agent path.
+- Continue only when `config_get_runtime_config.summary_view.engines.urbanopt.cli_runtime_gemfile.exists=true`; an SDK-only `urbanopt_gemfile_path` is a blocked MCP validation path.
 - If URBANopt runtime preflight blocks, report `summary_view.runtime_diagnostics` first. It should include `network_policy.mode="offline_required"`, `online_install_allowed=false`, `online_api_allowed=false`, and the local `urbanopt` runtime record.
 - A real local URBANopt run can still be slow because OpenStudio/EnergyPlus is doing work. Poll the run and list outputs before reading simulation results.
 
@@ -58,7 +59,7 @@ outputs = await call_tool("df_urbanopt_list_run_outputs", {
 - Treat `failed.job` markers as a failed URBANopt run even when OSM or IDF files exist.
 - `df_urbanopt_prepare_project` writes the base Honeybee OSW with default feature reports enabled and project-local URBANopt CLI bundle config; do not call `base_honeybee_osw` or Bundler setup yourself from Code Mode.
 - For SDK-prepared URBANopt projects, expect `runner.conf.gemfile_path` to point to the copied project `Gemfile` and `runner.conf.bundle_install_path` to point to the installed URBANopt CLI gem bundle. Do not replace this with the global CLI Gemfile path in Agent-side debugging.
-- URBANopt CLI 1.2.0 uses `C:\URBANopt-cli-1.2.0\gems\Gemfile` with bundled `bundle.bat exec uo`; do not rely on a bare global `uo` command when debugging Windows runtime behavior.
+- URBANopt CLI 1.2.0 uses `C:\URBANopt-cli-1.2.0\gems\Gemfile` with bundled `bundle.bat exec uo`, `GEM_HOME`/`GEM_PATH` and `UO_BUNDLE_INSTALL_PATH` set to `gems\ruby\<version>`, `BUNDLE_RETRY=0`, and `BUNDLE_DISABLE_VERSION_CHECK=true`; do not rely on a bare global `uo` command when debugging Windows runtime behavior. Do not set `BUNDLE_FROZEN` or process-level `BUNDLE_PATH` for cross-drive Garden runs.
 - Grasshopper `DF Run URBANopt` supports optional measures, mapper measures, default feature reports, and emissions-year settings. The current MCP `df_urbanopt_prepare_project` schema does not expose those optional knobs yet, so do not promise or fabricate them during Agent runs.
 - Do not call a generic `run_urbanopt` tool.
 - Do not treat this as DES sys-param, Modelica, UWG, or Electric Grid execution.

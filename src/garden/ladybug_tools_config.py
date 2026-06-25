@@ -724,6 +724,9 @@ def _urbanopt_path_updates(cli_path: str | None) -> dict[str, Any]:
         env["GEM_HOME"] = str(gem_home)
         env["GEM_PATH"] = str(gem_home)
         env["UO_CLI_GEM_BUNDLE_PATH"] = str(gem_home)
+        env["BUNDLE_RETRY"] = "0"
+        env["BUNDLE_DISABLE_VERSION_CHECK"] = "true"
+        env["UO_BUNDLE_INSTALL_PATH"] = str(gem_home)
     cli_runtime_gemfile = base / "gems" / "Gemfile"
     if cli_runtime_gemfile.is_file():
         env["BUNDLE_GEMFILE"] = str(cli_runtime_gemfile)
@@ -731,9 +734,6 @@ def _urbanopt_path_updates(cli_path: str | None) -> dict[str, Any]:
     openstudio_runtime_gemfile = base / "openstudio-runtime-gems" / "Gemfile"
     if openstudio_runtime_gemfile.is_file():
         env["UO_OPENSTUDIO_RUNTIME_GEMFILE_PATH"] = str(openstudio_runtime_gemfile)
-    runtime_gems = base / "openstudio-runtime-gems"
-    if runtime_gems.is_dir():
-        env["UO_BUNDLE_INSTALL_PATH"] = str(runtime_gems)
     if openstudio_ruby.is_dir():
         env["RUBYLIB"] = str(openstudio_ruby)
         env["RUBY_DLL_PATH"] = str(openstudio_ruby)

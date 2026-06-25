@@ -278,7 +278,9 @@ def _run_uo(
     with urbanopt_runtime_env(runtime):
         env = os.environ.copy()
         env["PYTHONHOME"] = ""
-        env["BUNDLE_GEMFILE"] = str(gemfile)
+        env.update(_offline_bundler_env(runtime, gemfile))
+        env.pop("BUNDLE_PATH", None)
+        env.pop("BUNDLE_FROZEN", None)
         if env_extra:
             for key, value in env_extra.items():
                 if value is not None:
@@ -293,6 +295,18 @@ def _run_uo(
     _write_process_log(project_dir, log_name, command, completed)
     if completed.returncode != 0:
         raise RuntimeError(_process_error(f"URBANopt CLI command failed: {log_name}.", completed))
+
+
+def _offline_bundler_env(runtime: dict[str, Any] | None, gemfile: Path) -> dict[str, str]:
+    env = {
+        "BUNDLE_GEMFILE": str(gemfile),
+        "BUNDLE_RETRY": "0",
+        "BUNDLE_DISABLE_VERSION_CHECK": "true",
+    }
+    bundle_path = urbanopt_cli_gem_bundle_path(runtime)
+    if bundle_path is not None:
+        env["UO_BUNDLE_INSTALL_PATH"] = str(bundle_path)
+    return env
 
 
 def _update_rnm_inputs(
