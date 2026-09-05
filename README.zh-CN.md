@@ -11,10 +11,6 @@ Ladybug Tools MCP 是基于 FastMCP 构建、面向代理应用的 MCP 服务。
 
 ![OpenCode Honeybee 建模流程](https://raw.githubusercontent.com/LoftyTao/ladybug-tools-mcp/f530e12d9836db518b187639eee4e7644a6a7e9f/resources/remotion/snapshots/videos/opencode-honeybee-modeling-vtkjs-flow-en/opencode-honeybee-modeling-vtkjs-flow-en-latest.gif)
 
-本项目全部由 Codex 构建，包括源代码和演示图像。
-项目开发使用了 GPT 5.4 和 GPT 5.5，专项及部分工具调用测试使用了 MiniMax 2.7，完整跨功能工作流测试使用了 GPT 5.4 Mini。
-总体用量约为每月 50 亿 Token。
-
 ## 目录
 
 - [概览](#概览)
