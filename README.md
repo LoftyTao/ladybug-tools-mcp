@@ -1,5 +1,7 @@
 # Ladybug Tools MCP
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 ![Ladybug Tools MCP Header](https://raw.githubusercontent.com/LoftyTao/ladybug-tools-mcp/f530e12d9836db518b187639eee4e7644a6a7e9f/resources/GitHub-Obsidian-header-flowerpot-garden.png)
 
 ## Overview
