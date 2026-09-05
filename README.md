@@ -95,9 +95,9 @@ If you are not familiar with agent applications, I am very happy to recommend [C
 The table below records the external runtime versions expected by Ladybug Tools MCP `v1.2.0`. Install the engines needed for your workflows.
 Ironbug authoring uses the project-local Python layer.
 
-| Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
+Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.0` | 3.12 | 5.4 (2023-11-05) | 3.10.0 | 25.1.0 | 1.10.0 | 1.4.0 | 8.1.30 beta |
+| `v1.2.0` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NatLabRockies/OpenStudio/releases/tag/v3.11.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
 
 Use `LB_get_runtime_config` to check installed engines and obtain setup guidance for any missing runtime.
 
