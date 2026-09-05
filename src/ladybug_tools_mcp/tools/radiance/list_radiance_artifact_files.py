@@ -7,7 +7,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.store import list_garden_artifacts as service
 
 
 _FORMAL_ARTIFACT_TYPES = {
@@ -32,10 +31,10 @@ def _normalize_artifact_type(value: str | None) -> str | None:
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_list_artifact_files tool.'
+    'Register the RAD_list_artifact_files tool.'
 
     @mcp.tool(
-        name="list_artifact_files",
+        name="RAD_list_artifact_files",
         description=(
             "List Garden-managed Radiance artifact file records such as HDR "
             "images, falsecolor images, grid result files, and VisualizationSet "
@@ -55,12 +54,14 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def list_radiance_artifact_files(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         artifact_type: Annotated[str | None, Field(description="Optional formal Radiance artifact target_type, such as radiance_sky_file, radiance_view, radiance_sensor_grid, radiance_hdr_image, or radiance_gif_image. Omit to list all Radiance artifact files.")] = None,
         query: Annotated[str | None, Field(description="Optional artifact name or Garden-relative path substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """List Radiance artifact records from the Garden manifest."""
+        from garden.store import list_garden_artifacts as service
+
         normalized_artifact_type = _normalize_artifact_type(artifact_type)
         result = service(garden_root=garden_root, artifact_type=normalized_artifact_type)
         query_text = (query or "").strip().lower()
@@ -107,7 +108,7 @@ def register(mcp: FastMCP) -> None:
             elif artifact_type_value == "radiance_hdr_image":
                 grouped["hdr_images"].append(artifact)
                 producer = artifact.get("source", {}).get("producer") if isinstance(artifact.get("source"), dict) else None
-                if producer == "radiance_hdr_to_falsecolor":
+                if producer == "RAD_hdr_to_falsecolor":
                     grouped["falsecolor"].append(artifact)
             elif artifact_type_value == "radiance_gif_image":
                 grouped["gifs"].append(artifact)

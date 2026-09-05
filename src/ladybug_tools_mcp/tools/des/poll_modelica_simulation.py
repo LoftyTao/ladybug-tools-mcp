@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.runs import poll_modelica_simulation as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the Modelica candidate poll tool."""
 
     @mcp.tool(
-        name="poll_modelica_simulation",
+        name="DF_des_poll_modelica_simulation",
         description=(
             "Read the compact Garden ledger for a candidate DES Modelica project "
             "write or Docker simulation. Use it to inspect runtime_status, "
@@ -30,4 +29,6 @@ def register(mcp: FastMCP) -> None:
         run_id: Annotated[str | None, Field(description="Modelica candidate run id to poll when run_target is not available.") ] = None,
     ) -> dict[str, Any]:
         """Poll a candidate Modelica run."""
+        from garden.dragonfly_des.runs import poll_modelica_simulation as service
+
         return service(garden_root=garden_root, run_target=run_target, run_id=run_id)

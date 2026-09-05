@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.model_files import import_dragonfly_model_file as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_import_model_file tool."""
+    """Register the DF_import_model_file tool."""
 
     @mcp.tool(
-        name="import_model_file",
+        name="DF_import_model_file",
         description=(
             "Import a Garden-local Dragonfly DFJSON or Dragonfly-compatible "
             "geoJSON file and save it as a Dragonfly model target. This is the "
@@ -79,6 +78,8 @@ def register(mcp: FastMCP) -> None:
         ] = 1.0,
     ) -> dict[str, Any]:
         """Import a Dragonfly model file."""
+        from garden.dragonfly_core.model_files import import_dragonfly_model_file as service
+
         return service(
             garden_root=garden_root,
             file_path=file_path,

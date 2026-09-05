@@ -1,23 +1,18 @@
-'MCP tool for detailed_hvac_air_terminal_vav_reheat.'
+'MCP tool for IB_air_terminal_vav_reheat.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    set_ironbug_thermal_zone_air_terminal,
-    set_ironbug_vav_reheat_terminal_coil,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_air_terminal_vav_reheat tool.'
+    'Register the IB_air_terminal_vav_reheat tool.'
 
     @mcp.tool(
-        name='air_terminal_vav_reheat',
+        name='IB_air_terminal_vav_reheat',
         description=(
             'Create IB_AirTerminalSingleDuctVAVReheat, an Ironbug single-duct '
             'variable air volume (VAV) reheat terminal unit that maps '
@@ -37,13 +32,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_air_terminal_single_duct_vav_reheat(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -155,7 +150,7 @@ def register(mcp: FastMCP) -> None:
                     "Optional IB_CoilHeatingWater, IB_CoilHeatingElectric, "
                     "or IB_CoilHeatingGas target or same-model identifier to "
                     "attach as this VAV terminal's child reheat coil. Use a "
-                    "detailed_hvac_coil_heating_* target, not a cooling coil."
+                    "IB_coil_heating_* target, not a cooling coil."
                 )
             ),
         ] = None,
@@ -185,6 +180,13 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_AirTerminalSingleDuctVAVReheat as a reviewed VAV reheat terminal."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            set_ironbug_thermal_zone_air_terminal,
+            set_ironbug_vav_reheat_terminal_coil,
+        )
 
         child_targets = [
             heating_coil_target,

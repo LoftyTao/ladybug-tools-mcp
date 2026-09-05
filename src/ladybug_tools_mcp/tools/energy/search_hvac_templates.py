@@ -4,19 +4,18 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.hvac import search_hvac_templates as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_search_hvac_templates tool.'
+    'Register the EP_search_hvac_templates tool.'
 
     @mcp.tool(
-        name='search_hvac_templates',
+        name='EP_search_hvac_templates',
         description=(
             "Search Honeybee Energy SDK HVAC templates and, when identifier is "
             "provided with a unique template selection, return a ready-to-use "
             "HVAC object_dict or Garden Properties Library target for "
-            'honeybee_edit_room hvac. Supports all-air, DOAS, and heat-cool '
+            'HB_edit_room hvac. Supports all-air, DOAS, and heat-cool '
             "template HVAC systems. This Honeybee Energy template search does "
             "not build Ironbug DetailedHVAC component graphs; use the "
             "ironbug_core or detailed_hvac tools for custom EnergyPlus HVAC "
@@ -117,7 +116,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -131,6 +130,8 @@ def register(mcp: FastMCP) -> None:
         ] = 10,
     ) -> dict[str, Any]:
         """Search Honeybee Energy HVAC templates and optionally create one."""
+        from garden.energy.hvac import search_hvac_templates as service
+
         return service(
             query=query,
             system_type=system_type,

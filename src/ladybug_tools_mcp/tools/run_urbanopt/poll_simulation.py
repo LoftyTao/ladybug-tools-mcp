@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.run_urbanopt.run import poll_simulation as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the URBANopt Energy poll tool."""
 
     @mcp.tool(
-        name="poll_simulation",
+        name="DF_urbanopt_poll_simulation",
         description=(
             "Read the compact Garden ledger for an URBANopt Energy simulation. "
             "Use this after urbanopt_start_simulation to inspect run_target, "
@@ -30,4 +29,6 @@ def register(mcp: FastMCP) -> None:
         run_id: Annotated[str | None, Field(description="Optional URBANopt run id when run_target is not available.") ] = None,
     ) -> dict[str, Any]:
         """Poll an URBANopt Energy simulation."""
+        from garden.run_urbanopt.run import poll_simulation as service
+
         return service(garden_root=garden_root, run_target=run_target, run_id=run_id)

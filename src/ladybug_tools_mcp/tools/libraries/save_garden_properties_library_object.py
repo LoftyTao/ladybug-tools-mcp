@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.libraries.properties import (
-    save_garden_properties_library_object as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the library_save_garden_properties_object tool.'
+    'Register the GD_library_save_garden_properties_object tool.'
 
     @mcp.tool(
-        name="save_garden_properties_object",
+        name="GD_library_save_garden_properties_object",
         description="Save an existing full object_dict: save one Honeybee Energy or Honeybee Radiance SDK object dict into the Garden Properties Library as a reusable file-backed resource. Prefer direct Garden-saving create tools when they expose garden_root and return_object_dict=false, because those return target/summary/receipt without moving the full SDK object through Agent context. Use this tool for schedules, program types, loads, HVAC systems, materials, constructions, construction sets, modifiers, modifier sets, and luminaires when the object_dict already exists.",
         tags={
             "author",
@@ -26,7 +23,7 @@ def register(mcp: FastMCP) -> None:
     )
     def save_garden_properties_library_object(
         garden_root: Annotated[
-            str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root'].")
+            str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root'].")
         ],
         domain: Annotated[
             str,
@@ -72,8 +69,22 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = True,
+        operation_id: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional fixed write operation identifier. Reuse it only to "
+                    "retry the same object, identifier, and overwrite intent after "
+                    "an interrupted request."
+                )
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         """Save one object dict into the Garden Properties Library."""
+        from garden.libraries.properties import (
+            save_garden_properties_library_object as service,
+        )
+
         return service(
             garden_root=garden_root,
             domain=domain,
@@ -81,4 +92,5 @@ def register(mcp: FastMCP) -> None:
             object_dict=object_dict,
             identifier=identifier,
             overwrite=overwrite,
+            operation_id=operation_id,
         )

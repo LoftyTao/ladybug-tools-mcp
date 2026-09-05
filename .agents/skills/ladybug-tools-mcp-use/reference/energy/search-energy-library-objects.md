@@ -10,14 +10,14 @@ Use this when the user needs a Honeybee Energy standards-library identifier for 
 
 ## MCP Route
 
-1. Search for `energy_search_energy_library_objects`.
+1. Search for `EP_search_energy_library_objects`.
 2. Call it with `query` and optional `object_family` and `limit`.
 3. Use the returned `identifier` directly in Energy foundation tools.
 
 ## Code Mode Pattern
 
 ```python
-result = await call_tool("energy_search_energy_library_objects", {
+result = await call_tool("EP_search_energy_library_objects", {
     "query": "generic office lighting",
     "object_family": "schedule",
     "limit": 3
@@ -38,4 +38,3 @@ result = await call_tool("energy_search_energy_library_objects", {
 
 - Do not use this to find Garden-saved custom resources.
 - Do not invent broader Energy library families when a filter returns no match.
-- Keep schema evidence in LLM-Wiki.

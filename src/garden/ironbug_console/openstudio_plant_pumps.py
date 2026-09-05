@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ironbug.console_ir import ConsoleGraphNode
+from ironbug.console_ir import ConsoleGraph, ConsoleGraphNode
 
 from garden.ironbug_console.openstudio_writer_contracts import OpenStudioWrittenObject
 from garden.ironbug_console.openstudio_writer_utils import (
@@ -47,6 +47,7 @@ def _new_pump_variable_speed(
     openstudio: Any,
     model: Any,
     node: ConsoleGraphNode,
+    graph: ConsoleGraph,
 ) -> tuple[Any, OpenStudioWrittenObject]:
     name = str(node.fields.get("Name") or node.identifier)
     optional_pump = model.getPumpVariableSpeedByName(name)
@@ -124,6 +125,32 @@ def _new_pump_variable_speed(
         node,
         "DesignMinimumFlowRateFraction",
     )
+    for field_name, setter in (
+        ("PumpFlowRateSchedule", pump.setPumpFlowRateSchedule),
+        ("PumpRPMSchedule", pump.setPumpRPMSchedule),
+        ("MinimumPressureSchedule", pump.setMinimumPressureSchedule),
+        ("MaximumPressureSchedule", pump.setMaximumPressureSchedule),
+        ("MinimumRPMSchedule", pump.setMinimumRPMSchedule),
+        ("MaximumRPMSchedule", pump.setMaximumRPMSchedule),
+    ):
+        referenced = _referenced_model_object(
+            model,
+            graph,
+            node,
+            field_name,
+            getter_name="getScheduleByName",
+        )
+        if referenced is not None:
+            setter(referenced)
+    referenced_curve = _referenced_model_object(
+        model,
+        graph,
+        node,
+        "PumpCurve",
+        getter_name="getCurveByName",
+    )
+    if referenced_curve is not None:
+        pump.setPumpCurve(referenced_curve)
     return pump, OpenStudioWrittenObject(
         identifier=node.identifier,
         source_class=node.source_class,
@@ -131,3 +158,26 @@ def _new_pump_variable_speed(
         openstudio_type="OS:Pump:VariableSpeed",
         name=name,
     )
+
+
+def _referenced_model_object(
+    model: Any,
+    graph: ConsoleGraph,
+    node: ConsoleGraphNode,
+    field_name: str,
+    *,
+    getter_name: str,
+) -> Any | None:
+    identifier = node.fields.get(f"{field_name}Identifier")
+    if identifier is None:
+        return None
+    try:
+        referenced_node = graph.node_by_identifier(str(identifier))
+    except KeyError:
+        return None
+    name = referenced_node.fields.get("Name") or referenced_node.identifier
+    getter = getattr(model, getter_name, None)
+    if getter is None:
+        return None
+    optional = getter(str(name))
+    return optional.get() if optional.is_initialized() else None

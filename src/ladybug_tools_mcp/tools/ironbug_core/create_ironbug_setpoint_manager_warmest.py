@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_setpoint_manager_warmest.'
+'MCP tool for IB_setpoint_manager_warmest.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_setpoint_manager_warmest tool.'
+    'Register the IB_setpoint_manager_warmest tool.'
 
     @mcp.tool(
-        name='setpoint_manager_warmest',
+        name='IB_setpoint_manager_warmest',
         description=(
             'Create IB_SetpointManagerWarmest, the Ironbug and EnergyPlus SetpointManager:Warmest object. It resets central forced-air cooling supply-air temperature from the cooling demand of the warmest zone with minimum and maximum temperature limits. Use it as an AirLoopHVAC cooling supply-air setpoint manager, not as a thermostat, cooling coil, load result reader, or Energy simulation runner. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -30,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -69,6 +68,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug warmest-zone cooling setpoint manager."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

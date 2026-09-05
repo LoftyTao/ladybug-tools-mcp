@@ -106,15 +106,7 @@ def _artifact_target(
         "source": source,
         "created_at": utc_now_iso(),
     }
-    manifest.artifacts = [
-        item
-        for item in manifest.artifacts
-        if not (
-            item.get("artifact_type") == DRAGONFLY_MODEL_FILE_ARTIFACT_TYPE
-            and item.get("path") == path
-        )
-    ]
-    manifest.artifacts.append(target)
+    manifest.upsert_artifact(target)
     return target
 
 

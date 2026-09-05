@@ -6,19 +6,19 @@ Use this when the user wants louvers or aperture extruded borders on an existing
 
 - Search and pass a typed Face or Aperture target as `host_target`.
 - Use `parameters` for geometry inputs; do not put depth/count/distance as top-level fields unless the tool schema requires it.
-- Use explicit `honeybee_create_shade` only when the user provides shade `Face3D` geometry.
+- Use explicit `HB_create_shade` only when the user provides shade `Face3D` geometry.
 
 ## MCP Route
 
 1. Search the host Face or Aperture.
-2. Call `honeybee_create_shades_by_parameters`.
+2. Call `HB_create_shades_by_parameters`.
 3. Confirm with `children_scope=<host target>` or a narrow shade search.
 4. Validate after larger staged modeling tasks.
 
 ## Code Mode Pattern
 
 ```python
-shades = await call_tool("honeybee_create_shades_by_parameters", {
+shades = await call_tool("HB_create_shades_by_parameters", {
     "garden_root": garden_root,
     "host_target": aperture_target,
     "generation_mode": "louver_by_count",
@@ -47,5 +47,5 @@ shades = await call_tool("honeybee_create_shades_by_parameters", {
 
 - Do not guess a host from natural language. Search the model first.
 - Do not pass full search responses as `host_target`.
-- This wrapper does not expose a parametric `overhang` mode. Use `honeybee_create_shade` only when explicit Face3D shade geometry is available, or record the overhang as a service capability gap.
+- This wrapper does not expose a parametric `overhang` mode. Use `HB_create_shade` only when explicit Face3D shade geometry is available, or record the overhang as a service capability gap.
 - For room -> wall -> window -> shade workflows, use `subface-shade-stage-short-path.md` to keep the chain compact.

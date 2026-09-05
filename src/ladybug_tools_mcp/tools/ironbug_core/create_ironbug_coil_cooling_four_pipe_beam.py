@@ -1,25 +1,24 @@
-'MCP tool for detailed_hvac_coil_cooling_four_pipe_beam.'
+'MCP tool for IB_coil_cooling_four_pipe_beam.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_coil_cooling_four_pipe_beam tool.'
+    'Register the IB_coil_cooling_four_pipe_beam tool.'
 
     @mcp.tool(
-        name='coil_cooling_four_pipe_beam',
+        name='IB_coil_cooling_four_pipe_beam',
         description=(
             'Create IB_CoilCoolingFourPipeBeam, an Ironbug chilled-water '
             'cooling coil child for four-pipe beam terminals that maps to '
             'OpenStudio CoilCoolingFourPipeBeam and EnergyPlus four-pipe beam '
             'cooling fields. Use the returned target as the CoolingCoil child '
-            'for detailed_hvac_air_terminal_single_duct_constant_volume_four_pipe_beam. '
+            'for IB_air_terminal_single_duct_constant_volume_four_pipe_beam. '
             'This is not zone equipment and not a Honeybee Energy HVAC '
             'template. Returns target, summary_view, persistence_receipt, and '
             'report for downstream DetailedHVAC assembly.'
@@ -31,13 +30,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_coil_cooling_four_pipe_beam(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -108,6 +107,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_CoilCoolingFourPipeBeam as a reviewed four-pipe beam cooling coil child."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.store import save_base_honeybee_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the garden_save_base_honeybee_model tool.'
+    'Register the GD_save_base_honeybee_model tool.'
 
     @mcp.tool(
-        name='save_base_honeybee_model',
+        name='GD_save_base_honeybee_model',
         description=(
             "Persist the current Garden base Honeybee model back to Garden "
             "authoring truth as HBJSON. Use after Honeybee edits have changed the "
@@ -39,7 +38,7 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Required Garden root path containing garden.json, usually "
-                    "garden_create['garden_root']; save the current Honeybee "
+                    "GD_create['garden_root']; save the current Honeybee "
                     "base-model slot for this Garden."
                 )
             ),
@@ -95,6 +94,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Save the current Garden base Honeybee model."""
+        from garden.store import save_base_honeybee_model as service
+
         return service(
             garden_root=garden_root,
             message=message,

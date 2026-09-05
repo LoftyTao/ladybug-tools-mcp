@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_coil_cooling_water.'
+'MCP tool for IB_coil_cooling_water.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_coil_cooling_water tool.'
+    'Register the IB_coil_cooling_water tool.'
 
     @mcp.tool(
-        name='coil_cooling_water',
+        name='IB_coil_cooling_water',
         description=(
             'Create IB_CoilCoolingWater, an Ironbug chilled-water cooling coil component '
             'that maps downstream to EnergyPlus Coil:Cooling:Water and OpenStudio '
@@ -40,13 +39,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_coil_cooling_water(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -62,10 +61,6 @@ def register(mcp: FastMCP) -> None:
         availability_schedule_target: Annotated[
             dict[str, Any] | str | None,
             Field(description='Optional IB_Schedule target for AvailabilitySchedule; pass a target dict from a compatible detailed_hvac schedule tool or a same-model identifier. Schedule values above zero make the cooling coil available.'),
-        ] = None,
-        available_schedule_target: Annotated[
-            dict[str, Any] | str | None,
-            Field(description='Optional legacy AvailableSchedule target for Ironbug/OpenStudio source compatibility; prefer availability_schedule_target when both are available.'),
         ] = None,
         design_water_flow_rate: Annotated[
             float | str | None,
@@ -147,6 +142,8 @@ def register(mcp: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Create IB_CoilCoolingWater as a reviewed chilled-water coil component."""
 
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
         child_targets = [
             controller_water_coil_target,
         ]
@@ -157,8 +154,6 @@ def register(mcp: FastMCP) -> None:
             source_fields['Name'] = name
         if availability_schedule_target is not None:
             source_field_targets['AvailabilitySchedule'] = availability_schedule_target
-        if available_schedule_target is not None:
-            source_field_targets['AvailableSchedule'] = available_schedule_target
         if design_water_flow_rate is not None:
             source_fields['DesignWaterFlowRate'] = design_water_flow_rate
         if design_air_flow_rate is not None:

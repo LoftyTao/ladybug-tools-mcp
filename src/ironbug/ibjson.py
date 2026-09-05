@@ -87,7 +87,12 @@ def model_to_ibjson_string(model: IB_Model, *, indent: int | None = 2) -> str:
     """Serialize an ``IB_Model`` to an ibjson string."""
 
     model = _validate_model_root(model)
-    return model.model_dump_json(by_alias=True, exclude_none=True, indent=indent)
+    return model.model_dump_json(
+        by_alias=True,
+        exclude_none=True,
+        serialize_as_any=True,
+        indent=indent,
+    )
 
 
 def model_from_ibjson(path: str | Path) -> IB_Model:

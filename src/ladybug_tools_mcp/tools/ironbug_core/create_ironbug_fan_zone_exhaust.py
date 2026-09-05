@@ -1,22 +1,18 @@
-'MCP tool for detailed_hvac_fan_zone_exhaust.'
+'MCP tool for IB_fan_zone_exhaust.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_thermal_zone_equipment,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_fan_zone_exhaust tool.'
+    'Register the IB_fan_zone_exhaust tool.'
 
     @mcp.tool(
-        name='fan_zone_exhaust',
+        name='IB_fan_zone_exhaust',
         description=(
             'Create an Ironbug IB_FanZoneExhaust zone equipment object for EnergyPlus/OpenStudio Fan:ZoneExhaust. Use this for exhaust air removed directly from an Ironbug ThermalZone, not for air-loop supply fans or air terminals. Pass thermal_zone_target to add it to the zone equipment list. This authors Ironbug DetailedHVAC input only; run Energy simulation after the DetailedHVAC system is applied. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -39,13 +35,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_fan_zone_exhaust(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -141,6 +137,12 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_FanZoneExhaust as a reviewed Ironbug ZoneEquipments authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            add_ironbug_thermal_zone_equipment,
+        )
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

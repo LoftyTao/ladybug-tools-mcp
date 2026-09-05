@@ -1,22 +1,18 @@
-'MCP tool for detailed_hvac_zone_equipment_water_to_air_heat_pump.'
+'MCP tool for IB_zone_equipment_water_to_air_heat_pump.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_thermal_zone_equipment,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_water_to_air_heat_pump tool.'
+    'Register the IB_zone_equipment_water_to_air_heat_pump tool.'
 
     @mcp.tool(
-        name='zone_equipment_water_to_air_heat_pump',
+        name='IB_zone_equipment_water_to_air_heat_pump',
         description=(
             'Create IB_ZoneHVACWaterToAirHeatPump, the Ironbug and EnergyPlus ZoneHVAC:WaterToAirHeatPump object for room or thermal-zone equipment. Use it with a supply fan, water-to-air heating and cooling coils, optional outdoor air mixer behavior, and a supplemental heating coil; it is zone equipment with water-side coils, not a plant-loop object, water-to-water heat pump, or Energy HVAC template. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -40,13 +36,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_zone_hvac_water_to_air_heat_pump(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -206,6 +202,12 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_ZoneHVACWaterToAirHeatPump as a reviewed Ironbug ZoneEquipments authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            add_ironbug_thermal_zone_equipment,
+        )
 
         child_targets = [
             cooling_coil_target,

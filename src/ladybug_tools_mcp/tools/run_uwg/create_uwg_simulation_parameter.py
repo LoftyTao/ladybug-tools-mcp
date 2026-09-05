@@ -7,18 +7,17 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.run_uwg.parameters import create_uwg_simulation_parameter as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the uwg_create_simulation_parameter tool.'
+    'Register the DF_uwg_create_simulation_parameter tool.'
 
     @mcp.tool(
-        name='create_simulation_parameter',
+        name='DF_uwg_create_simulation_parameter',
         description=(
             "Create and optionally save a Dragonfly UWGSimulationParameter for "
-            "Alternative Weather workflows. Use this before uwg_dragonfly_model_to_uwg, "
-            "uwg_start_simulation, or uwg_run_simulation_wait when custom run period, "
+            "Alternative Weather workflows. Use this before DF_uwg_dragonfly_model_to_uwg, "
+            "DF_uwg_start_simulation, or DF_uwg_run_simulation_wait when custom run period, "
             "timestep, vegetation, reference EPW site, or boundary layer settings are "
             "needed. Returns target, summary_view, persistence_receipt, and report when "
             "saved; it does not run UWG."
@@ -35,7 +34,7 @@ def register(mcp: FastMCP) -> None:
     def create_uwg_simulation_parameter(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str | None,
@@ -75,6 +74,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create a UWG simulation parameter."""
+        from garden.run_uwg.parameters import create_uwg_simulation_parameter as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

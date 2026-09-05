@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.luminaires import create_radiance_luminaire as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_luminaire tool.'
+    'Register the RAD_create_luminaire tool.'
 
     @mcp.tool(
-        name="create_luminaire",
+        name="RAD_create_luminaire",
         description=(
             "Create a Honeybee Radiance Luminaire from IES LM-63 text or a "
             "Garden-contained IES file path. Supports LuminaireZone placement "
@@ -63,7 +62,7 @@ def register(mcp: FastMCP) -> None:
         ] = 1.0,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,
@@ -71,6 +70,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance Luminaire from IES content or path."""
+        from garden.radiance.luminaires import create_radiance_luminaire as service
+
         return service(
             ies_content=ies_content,
             ies_path=ies_path,

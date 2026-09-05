@@ -7,18 +7,18 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.metrics import summarize_radiance_glare_metrics as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_summarize_glare_metrics tool.'
+    'Register the RAD_summarize_glare_metrics tool.'
 
     @mcp.tool(
-        name="summarize_glare_metrics",
+        name="RAD_summarize_glare_metrics",
         description=(
-            "Summarize annual Radiance glare metrics from a completed glare or "
-            "view run into compact DGP and visual-discomfort statistics. Use "
-            "after radiance_poll_simulation and output listing confirm results "
+            "Summarize annual Radiance glare metrics from a completed "
+            "imageless-annual-glare or glare-capable run into compact DGP, GA, "
+            "and visual-discomfort statistics. Use "
+            "after RAD_poll_simulation and output listing confirm results "
             "exist. This reads glare metric artifacts; it does not run view "
             "recipes or convert HDR images. Returns target, summary_view, "
             "metrics, and report."
@@ -34,7 +34,7 @@ def register(mcp: FastMCP) -> None:
     def summarize_radiance_glare_metrics(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         run_target: Annotated[
             dict[str, Any] | None,
@@ -64,6 +64,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Summarize DGP/glare metrics."""
+        from garden.radiance.metrics import summarize_radiance_glare_metrics as service
+
         return service(
             garden_root=garden_root,
             run_target=run_target,

@@ -7,17 +7,16 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.store import get_base_fairyfly_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the therm_get_base_model tool.'
+    'Register the FF_get_base_model tool.'
 
     @mcp.tool(
-        name="get_base_model",
+        name="FF_get_base_model",
         description=(
             "Read the Garden base Fairyfly model target and minimal context. This is "
-            "not a validation tool; use therm_validate_model for validation flags or "
+            "not a validation tool; use FF_validate_model for validation flags or "
             "issue checks, and use THERM tools only after a model exists."
         ),
         tags={"fairyfly", "therm", "model", "summary", "garden"},
@@ -27,8 +26,10 @@ def register(mcp: FastMCP) -> None:
     def get_base_fairyfly_model(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
     ) -> dict[str, Any]:
         """Return the Garden base Fairyfly model target."""
+        from garden.store import get_base_fairyfly_model as service
+
         return service(garden_root=garden_root)

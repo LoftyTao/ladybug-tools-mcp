@@ -6,7 +6,7 @@ observe the failure produced by saving a base Honeybee Model before one exists.
 ## When To Use
 
 - The user explicitly asks to create an empty Garden and call
-  `garden_save_base_honeybee_model`.
+  `GD_save_base_honeybee_model`.
 - The user is validating error wording or diagnostics.
 - The prompt says not to auto-recover.
 
@@ -22,8 +22,8 @@ select a Honeybee Model first in that case.
 
 ## MCP Route
 
-1. Call `garden_create` if an empty Garden is not already available.
-2. Call `garden_save_base_honeybee_model` against that Garden.
+1. Call `GD_create` if an empty Garden is not already available.
+2. Call `GD_save_base_honeybee_model` against that Garden.
 3. Report the failure and compact diagnostic.
 4. Stop without creating a model unless the user asks for repair.
 

@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.honeybee_core.edit import edit_honeybee_door as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the honeybee_edit_door tool.'
+    'Register the HB_edit_door tool.'
 
     @mcp.tool(
-        name="edit_door",
+        name="HB_edit_door",
         description='Edit a Honeybee Door typed target for display name, user data, supported Face3D geometry, glass flag, Honeybee Energy door construction or VentilationOpening, and Honeybee Radiance modifier/dynamic states. Surface-adjacent interior Door geometry updates are paired automatically on the adjacent Door, but single-side is_glass changes are rejected when paired state would diverge. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
         tags={
             "door",
@@ -32,19 +31,19 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee door typed target from honeybee_search_model_objects; not a door identifier string. For Surface-adjacent interior doors, pass either side of the pair and geometry edits update the paired adjacent Door automatically.'
+                description='Required Honeybee door typed target from HB_search_model_objects; not a door identifier string. For Surface-adjacent interior doors, pass either side of the pair and geometry edits update the paired adjacent Door automatically.'
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
+                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         display_name: Annotated[
@@ -78,13 +77,13 @@ def register(mcp: FastMCP) -> None:
         modifier: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
+                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_search_library_objects.'
             ),
         ] = None,
         modifier_blk: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
+                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_search_library_objects.'
             ),
         ] = None,
         dynamic_group_identifier: Annotated[
@@ -99,6 +98,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Edit a Honeybee Door."""
+        from garden.honeybee_core.edit import edit_honeybee_door as service
+
         return service(
             garden_root=garden_root,
             target=target,

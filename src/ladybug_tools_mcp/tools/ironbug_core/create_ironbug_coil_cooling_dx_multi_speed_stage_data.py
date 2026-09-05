@@ -1,21 +1,20 @@
-'MCP tool for detailed_hvac_coil_cooling_dx_multi_speed_stage_data.'
+'MCP tool for IB_coil_cooling_dx_multi_speed_stage_data.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_coil_cooling_dx_multi_speed_stage_data tool.'
+    'Register the IB_coil_cooling_dx_multi_speed_stage_data tool.'
 
     @mcp.tool(
-        name='coil_cooling_dx_multi_speed_stage_data',
+        name='IB_coil_cooling_dx_multi_speed_stage_data',
         description=(
-            'Create IB_CoilCoolingDXMultiSpeedStageData, the per-speed performance data object used by IB_CoilCoolingDXMultiSpeed. Use the returned target as a stage in detailed_hvac_coil_cooling_dx_multi_speed, or provide equivalent inline stage fields there. This is performance data for a DX cooling coil speed, not a standalone coil or plant-loop object. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
+            'Create IB_CoilCoolingDXMultiSpeedStageData, the per-speed performance data object used by IB_CoilCoolingDXMultiSpeed. Use the returned target as a stage in IB_coil_cooling_dx_multi_speed, or provide equivalent inline stage fields there. This is performance data for a DX cooling coil speed, not a standalone coil or plant-loop object. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
         ),
         tags={'ironbug', 'detailed-hvac', 'hvac', 'component', 'coil', 'cooling', 'dx', 'multi-speed', 'stage-data', 'performance', 'curve', 'author'},
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_coil_cooling_dx_multi_speed_stage_data(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -161,6 +160,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_CoilCoolingDXMultiSpeedStageData as a reviewed Ironbug Loop Objs authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

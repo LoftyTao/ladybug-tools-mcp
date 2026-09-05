@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.conversion import honeybee_model_to_dragonfly as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_convert_honeybee_model_to_dragonfly tool.'
+    'Register the DF_convert_honeybee_model_to_dragonfly tool.'
 
     @mcp.tool(
-        name="convert_honeybee_model_to_dragonfly",
+        name="DF_convert_honeybee_model_to_dragonfly",
         description=(
             "Convert a Garden Honeybee model to a Dragonfly Model using Dragonfly "
             "Model.from_honeybee, save DFJSON, and optionally set base_dragonfly_model. "
@@ -27,7 +26,7 @@ def register(mcp: FastMCP) -> None:
     def honeybee_model_to_dragonfly(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         identifier: Annotated[
             str | None,
@@ -52,6 +51,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Convert a Honeybee model to Dragonfly."""
+        from garden.dragonfly_core.conversion import honeybee_model_to_dragonfly as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier or "dragonfly_from_honeybee",

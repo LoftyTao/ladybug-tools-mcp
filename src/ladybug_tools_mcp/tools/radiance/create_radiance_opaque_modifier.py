@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.modifiers import create_radiance_opaque_modifier as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_opaque_modifier tool.'
+    'Register the RAD_create_opaque_modifier tool.'
 
     @mcp.tool(
-        name="create_opaque_modifier",
+        name="RAD_create_opaque_modifier",
         description=(
             "Create an opaque Honeybee Radiance modifier using the SDK Plastic "
             "material with RGB reflectance. Use garden_root and "
@@ -54,7 +53,7 @@ def register(mcp: FastMCP) -> None:
         roughness: Annotated[float, Field(description="Plastic roughness fraction.")] = 0.0,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,
@@ -62,6 +61,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create an opaque Honeybee Radiance modifier."""
+        from garden.radiance.modifiers import create_radiance_opaque_modifier as service
+
         if isinstance(rgb_reflectance, list):
             if len(rgb_reflectance) != 3:
                 raise ValueError("rgb_reflectance list must have three values.")

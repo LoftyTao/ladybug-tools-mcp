@@ -26,6 +26,7 @@ _GRAPH_COLLECTION_KEYS = (
     "ProgramClnManagers",
     "Programs",
     "CustomOutputVariables",
+    "Rules",
     "SubPanels",
     "Generators",
     "WaterUseEquips",

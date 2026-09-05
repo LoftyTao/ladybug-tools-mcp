@@ -11,10 +11,10 @@ from flowerpot.registry import create_flowerpot as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the flowerpot_create tool.'
+    'Register the FP_create tool.'
 
     @mcp.tool(
-        name='create',
+        name='FP_create',
         description=(
             "Create or reuse an opaque Garden-local Flowerpot handoff record from "
             "existing Garden truth, a base Honeybee/Dragonfly model slot, or a "
@@ -37,7 +37,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         source: Annotated[

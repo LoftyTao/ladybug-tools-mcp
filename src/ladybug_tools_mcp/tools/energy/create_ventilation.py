@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.programtypes import create_ventilation as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_ventilation tool.'
+    'Register the EP_create_ventilation tool.'
 
     @mcp.tool(
-        name='create_ventilation',
-        description='Create a Honeybee Energy Ventilation load for purposeful design outdoor air using flow_per_person, flow_per_area, flow_per_zone, ACH, fractional schedule, and Sum/Max reconciliation. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to energy_create_program_type.ventilation or honeybee_edit_room.ventilation; set return_object_dict=false only when you want a low-token target/summary/receipt response. This is not infiltration, a VentilationFan, operable-window natural ventilation, or AirflowNetwork setup.',
+        name='EP_create_ventilation',
+        description='Create a Honeybee Energy Ventilation load for purposeful design outdoor air using flow_per_person, flow_per_area, flow_per_zone, ACH, fractional schedule, and Sum/Max reconciliation. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to EP_create_program_type.ventilation or HB_edit_room.ventilation; set return_object_dict=false only when you want a low-token target/summary/receipt response. This is not infiltration, a VentilationFan, operable-window natural ventilation, or AirflowNetwork setup.',
         tags={
             "author",
             "energy",
@@ -49,7 +48,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -60,6 +59,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy Ventilation object."""
+        from garden.energy.programtypes import create_ventilation as service
+
         return service(
             identifier=identifier,
             flow_per_person=flow_per_person,

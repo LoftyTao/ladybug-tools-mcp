@@ -21,10 +21,6 @@ from ladybug_tools_mcp.contracts.report import make_report
 REPORTING_FREQUENCIES = {"Detail", "Hourly", "Daily", "Monthly", "RunPeriod"}
 
 
-def _garden_root(garden_root: str) -> Path:
-    return Path(garden_root).expanduser().resolve()
-
-
 def _output_request_dict(variable_name: str, reporting_frequency: str) -> dict[str, str]:
     return {"VariableName": variable_name, "TimeStep": reporting_frequency}
 
@@ -239,7 +235,7 @@ def validate_ironbug_output_variable_requests(
 ) -> dict[str, Any]:
     """Validate CustomOutputVariables currently stored in an Ironbug model."""
 
-    garden_root_path = _garden_root(garden_root)
+    garden_root_path = Path(garden_root).expanduser().resolve()
     _, target, _, model = load_ironbug_model(
         garden_root_path,
         ironbug_model_target=ironbug_model_target,

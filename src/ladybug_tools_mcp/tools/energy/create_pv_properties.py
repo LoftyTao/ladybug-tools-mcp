@@ -4,23 +4,22 @@ from __future__ import annotations
 from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.ventilation import create_pv_properties as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_pv_properties tool.'
+    'Register the EP_create_pv_properties tool.'
 
     @mcp.tool(
-        name='create_pv_properties',
+        name='EP_create_pv_properties',
         description=(
             "Create Honeybee Energy PVProperties for shade-attached "
             "photovoltaic electricity generation on Honeybee Shades. Use this "
             "for rated efficiency, active area fraction, mounting_type, and "
             "PVWatts-style shade generation; mounting_type must be "
             "FixedOpenRack, FixedRoofMounted, OneAxis, OneAxisBacktracking, or "
-            "TwoAxis. Save the target for honeybee_edit_shade.pv_properties. "
+            "TwoAxis. Save the target for HB_edit_shade.pv_properties. "
             "Inverter efficiency and DC-to-AC sizing belong in "
-            "energy_create_electric_load_center. Ironbug photovoltaic "
+            "EP_create_electric_load_center. Ironbug photovoltaic "
             "generators use the ironbug_core tools."
         ),
         tags={
@@ -63,7 +62,7 @@ def register(mcp: FastMCP) -> None:
         ] = 0.4,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,
@@ -71,6 +70,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict:
         """Create PV properties."""
+        from garden.energy.ventilation import create_pv_properties as service
+
         return service(
             identifier=identifier,
             rated_efficiency=rated_efficiency,

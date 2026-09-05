@@ -1,20 +1,19 @@
-'MCP tool for detailed_hvac_pipe_indoor.'
+'MCP tool for IB_pipe_indoor.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 from ladybug_tools_mcp.tools.ironbug_core.target_identifiers import target_identifier
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_pipe_indoor tool.'
+    'Register the IB_pipe_indoor tool.'
 
     @mcp.tool(
-        name='pipe_indoor',
+        name='IB_pipe_indoor',
         description=(
             'Create IB_PipeIndoor, an EnergyPlus Pipe:Indoor plant-loop pipe with transport delay and heat transfer to a zone or scheduled indoor environment. Use it with an Energy construction name, ambient ThermalZone or schedules, pipe diameter, and pipe length; this is not a pass-through Pipe:Adiabatic, outdoor pipe, pump, duct, Honeybee geometry pipe, or Energy run. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -25,13 +24,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_pipe_indoor(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -125,6 +124,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug Pipe:Indoor plant-loop heat-transfer pipe."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

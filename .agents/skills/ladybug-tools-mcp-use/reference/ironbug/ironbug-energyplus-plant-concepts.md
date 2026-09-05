@@ -45,9 +45,9 @@ tools for topology:
 | Hot-water supply equipment | pumps, district heating water, boiler create tools |
 | Condenser supply equipment | condenser pumps, cooling tower / heat exchanger create tools |
 | Room-serving demand | cooling/heating water coils, FCUs, unit ventilators, reheat coils, radiant/baseboard coils tied to `IB_ThermalZone` |
-| Chilled-water loop topology | `detailed_hvac_plant_loop_chilled_water` |
-| Hot-water loop topology | `detailed_hvac_plant_loop_hot_water` |
-| Condenser-water loop topology | `detailed_hvac_plant_loop_condenser_water` |
+| Chilled-water loop topology | `IB_plant_loop_chilled_water` |
+| Hot-water loop topology | `IB_plant_loop_hot_water` |
+| Condenser-water loop topology | `IB_plant_loop_condenser_water` |
 | Loop temperature target | semantic loop `setpoint_c` or reviewed setpoint-manager parameters |
 | Energy runtime | apply Ironbug DetailedHVAC, then standard Ladybug Tools MCP Energy run/readback tools |
 
@@ -68,8 +68,8 @@ Agent playbook.
 
 This branch input shape is deterministic-contract-pass.
 
-For `detailed_hvac_plant_loop_chilled_water`, `detailed_hvac_plant_loop_hot_water`, and
-`detailed_hvac_plant_loop_condenser_water`, use the branch input shape to express
+For `IB_plant_loop_chilled_water`, `IB_plant_loop_hot_water`, and
+`IB_plant_loop_condenser_water`, use the branch input shape to express
 topology:
 
 - A flat list creates one serial branch, for example
@@ -92,7 +92,7 @@ chillers, towers, or coupled source paths.
 
 `IB_LoadProfilePlant` is useful for plant-only debug graphs when a known load
 schedule is the target. It is not accepted for current
-custom-HVAC matrix or Codex subagent case passes. Accepted Energy cases need a
+custom-HVAC matrix or direct main-Agent case passes. Accepted Energy cases need a
 real room-serving demand path tied to `IB_ThermalZone` and Honeybee/Dragonfly
 Rooms before Energy is run.
 

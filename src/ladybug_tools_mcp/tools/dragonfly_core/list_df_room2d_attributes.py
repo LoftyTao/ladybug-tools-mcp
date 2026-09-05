@@ -7,17 +7,16 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.queries import list_dragonfly_room2d_attributes as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the df_room2d_attributes tool."""
+    """Register the DF_room2d_attributes tool."""
 
     @mcp.tool(
-        name="room2d_attributes",
+        name="DF_room2d_attributes",
         description=(
             "List compact Dragonfly Room2D attributes supported by "
-            "df_room2ds_by_attribute, including value type hints and supported "
+            "DF_room2ds_by_attribute, including value type hints and supported "
             "operators. Use this before attribute grouping when the attribute "
             "name is uncertain. Returns attributes, summary_view, and report."
         ),
@@ -41,4 +40,6 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """List compact Room2D attributes supported by attribute grouping."""
+        from garden.dragonfly_core.queries import list_dragonfly_room2d_attributes as service
+
         return service(garden_root=garden_root, model_target=model_target)

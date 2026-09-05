@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.modifiers import create_radiance_mirror_modifier as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_mirror_modifier tool.'
+    'Register the RAD_create_mirror_modifier tool.'
 
     @mcp.tool(
-        name="create_mirror_modifier",
+        name="RAD_create_mirror_modifier",
         description=(
             "Create a Honeybee Radiance Mirror modifier with RGB reflectance "
             "for planar virtual-source reflections. Use garden_root and "
@@ -55,7 +54,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,
@@ -63,6 +62,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance Mirror modifier."""
+        from garden.radiance.modifiers import create_radiance_mirror_modifier as service
+
         return service(
             identifier=identifier,
             rgb_reflectance=rgb_reflectance,

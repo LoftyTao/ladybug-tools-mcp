@@ -31,6 +31,7 @@ _STRUCTURAL_KEYS = frozenset(
         "CustomAttributes",
         "CustomOutputVariables",
         "IBProperties",
+        "Rules",
     }
 )
 _TRACKING_ID_RE = re.compile(r"TrackingID:#\[(?P<identifier>[^\]]+)\]")

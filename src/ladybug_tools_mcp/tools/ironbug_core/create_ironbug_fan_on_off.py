@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_fan_on_off.'
+'MCP tool for IB_fan_on_off.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_fan_on_off tool.'
+    'Register the IB_fan_on_off tool.'
 
     @mcp.tool(
-        name='fan_on_off',
+        name='IB_fan_on_off',
         description=(
             'Create IB_FanOnOff, an Ironbug on/off or cycling HVAC fan component '
             'that maps downstream to EnergyPlus Fan:OnOff and OpenStudio FanOnOff. '
@@ -30,13 +29,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_fan_on_off(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -123,6 +122,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_FanOnOff as a reviewed Ironbug on/off fan component."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

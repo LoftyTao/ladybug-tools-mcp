@@ -4,21 +4,20 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.visualize.honeybee import compose_visualization_sets as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_compose_visualization_sets tool.'
+    'Register the LB_compose_visualization_sets tool.'
 
     @mcp.tool(
-        name='compose_visualization_sets',
+        name='LB_compose_visualization_sets',
         description=(
             "Compose multiple Ladybug Display VisualizationSets into one scene "
             "from visualization_set dictionaries or Garden-backed "
             "visualization_set_targets. Preferred Agent path is garden_root "
             "plus upstream targets and return_visualization_set=false, which "
             "returns a compact visualization_set_target for "
-            "visualization_set_to_html/svg/vtkjs. Target dicts use "
+            "LB_set_to_html/svg/vtkjs. Target dicts use "
             "target_type=visualization_set. For model and room preview "
             "overlays, set conflict_strategy=rename because wireframe "
             "identifiers often repeat. This tool composes display geometry; it "
@@ -40,7 +39,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         visualization_set_targets: Annotated[
             list[dict[str, Any]] | None,
@@ -75,6 +74,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Compose VisualizationSet dictionaries into one VisualizationSet."""
+        from garden.visualize.honeybee import compose_visualization_sets as service
+
         return service(
             visualization_sets=visualization_sets,
             garden_root=garden_root,

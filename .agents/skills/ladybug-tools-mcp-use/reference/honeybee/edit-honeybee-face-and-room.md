@@ -4,27 +4,27 @@ Use this when an existing Honeybee Face or Room must be edited in place through 
 
 ## Preconditions
 
-- Locate the Face or Room with `honeybee_search_model_objects`.
+- Locate the Face or Room with `HB_search_model_objects`.
 - Pass the selected `matches[i].target` to the edit tool as `target`.
 - Use Garden Properties Library targets or standards identifiers for energy properties when available.
 
 ## MCP Route
 
 1. Search the object with the narrowest filters available.
-2. Call `honeybee_edit_face` or `honeybee_edit_room`.
+2. Call `HB_edit_face` or `HB_edit_room`.
 3. Search the same object again if field confirmation is needed.
-4. Run `honeybee_validate_model` after edits that affect boundary conditions, constructions, adjacency, or energy properties.
+4. Run `HB_validate_model` after edits that affect boundary conditions, constructions, adjacency, or energy properties.
 
 ## Face Edit Pattern
 
 ```python
-faces = await call_tool("honeybee_search_model_objects", {
+faces = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "face",
     "identifier": "Tiny_House_Office_Right"
 })
 
-edited = await call_tool("honeybee_edit_face", {
+edited = await call_tool("HB_edit_face", {
     "garden_root": garden_root,
     "target": faces["matches"][0]["target"],
     "boundary_condition": {"type": "Ground"},
@@ -35,13 +35,13 @@ edited = await call_tool("honeybee_edit_face", {
 ## Room Edit Pattern
 
 ```python
-rooms = await call_tool("honeybee_search_model_objects", {
+rooms = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "room",
     "identifier": "room_1"
 })
 
-edited = await call_tool("honeybee_edit_room", {
+edited = await call_tool("HB_edit_room", {
     "garden_root": garden_root,
     "target": rooms["matches"][0]["target"],
     "program_type": "1980_2004::SmallOffice::OpenOffice",
@@ -51,8 +51,8 @@ edited = await call_tool("honeybee_edit_room", {
 
 ## Supported Stable Uses
 
-- `honeybee_edit_face`: update `display_name`, `user_data`, `modifier`, construction target, and non-Surface boundary-condition changes.
-- `honeybee_edit_room`: update `story`, `zone`, `program_type`, `construction_set`, `setpoint`, Honeybee Energy HVAC-template target, and Radiance `modifier_set`.
+- `HB_edit_face`: update `display_name`, `user_data`, `modifier`, construction target, and non-Surface boundary-condition changes.
+- `HB_edit_room`: update `story`, `zone`, `program_type`, `construction_set`, `setpoint`, Honeybee Energy HVAC-template target, and Radiance `modifier_set`.
 - Low-context property handoff: create material target, create construction target from it, then pass the construction target to the face edit.
 
 ## Success Criteria

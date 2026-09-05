@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.constructionsets import (
-    create_custom_window_gas_material as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_custom_window_gas_material tool.'
+    'Register the EP_create_custom_window_gas_material tool.'
 
     @mcp.tool(
-        name='create_custom_window_gas_material',
+        name='EP_create_custom_window_gas_material',
         description=(
             "Create a Honeybee Energy EnergyWindowMaterialGasCustom gap layer "
             "for window construction assemblies when built-in gas types are not "
@@ -54,7 +51,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -65,6 +62,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy EnergyWindowMaterialGasCustom object."""
+        from garden.energy.constructionsets import (
+            create_custom_window_gas_material as service,
+        )
+
         return service(
             identifier=identifier,
             thickness=thickness,

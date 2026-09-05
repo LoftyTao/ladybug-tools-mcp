@@ -7,16 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.envelope_parameters import (
-    apply_dragonfly_window_parameter as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_apply_window_parameter tool.'
+    'Register the DF_apply_window_parameter tool.'
 
     @mcp.tool(
-        name="apply_window_parameter",
+        name="DF_apply_window_parameter",
         description=(
             "Apply a Dragonfly WindowParameter artifact using public Dragonfly SDK set "
             "methods. Supports Room2D all outdoor, Room2D segment, Story outdoor, "
@@ -31,13 +28,13 @@ def register(mcp: FastMCP) -> None:
     def apply_dragonfly_window_parameter(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         window_parameter: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
-                    'Required parameter dict returned by dragonfly_create_window_parameter. '
+                    'Required parameter dict returned by DF_create_window_parameter. '
                     "Use create result['parameter'] or result['window_parameter']; do not "
                     "look for value.window_parameter."
                 )
@@ -55,7 +52,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
@@ -70,8 +67,12 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Apply a Dragonfly WindowParameter."""
+        from garden.dragonfly_core.envelope_parameters import (
+            apply_dragonfly_window_parameter as service,
+        )
+
         if window_parameter is None:
-            raise ValueError('dragonfly_apply_window_parameter requires window_parameter.')
+            raise ValueError('DF_apply_window_parameter requires window_parameter.')
         return service(
             garden_root=garden_root,
             window_parameter=window_parameter,

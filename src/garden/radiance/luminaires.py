@@ -17,7 +17,6 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
     save_honeybee_model,
-    with_honeybee_model_write_lock,
 )
 from garden.libraries.properties import (
     get_garden_properties_library_object,
@@ -241,7 +240,6 @@ def _model_luminaire_identifiers(model: Any) -> list[str]:
     return [luminaire.identifier for luminaire in model.properties.radiance.luminaires]
 
 
-@with_honeybee_model_write_lock
 def add_radiance_luminaire_to_model(
     *,
     garden_root: str,

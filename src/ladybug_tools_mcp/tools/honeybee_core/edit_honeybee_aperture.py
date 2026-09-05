@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.honeybee_core.edit import edit_honeybee_aperture as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the honeybee_edit_aperture tool.'
+    'Register the HB_edit_aperture tool.'
 
     @mcp.tool(
-        name="edit_aperture",
+        name="HB_edit_aperture",
         description='Edit a Honeybee Aperture/window typed target for display name, user data, supported Face3D geometry, operable flag, Honeybee Energy window construction or VentilationOpening, and Honeybee Radiance modifier/dynamic states. Surface-adjacent interior Apertures do not support single-side geometry or operability edits. Requires garden_root and an aperture target, not an identifier string. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
         tags={
             "aperture",
@@ -32,19 +31,19 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee aperture typed target from honeybee_search_model_objects; not an aperture identifier string.'
+                description='Required Honeybee aperture typed target from HB_search_model_objects; not an aperture identifier string.'
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
+                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         display_name: Annotated[
@@ -78,21 +77,13 @@ def register(mcp: FastMCP) -> None:
         modifier: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
+                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_search_library_objects.'
             ),
-        ] = None,
-        radiance_modifier_target: Annotated[
-            dict[str, Any] | str | None,
-            Field(description="Optional Honeybee Radiance modifier target accepted as a bounded legacy input; prefer modifier for new calls."),
-        ] = None,
-        radiance_modifier: Annotated[
-            dict[str, Any] | str | None,
-            Field(description="Optional Honeybee Radiance modifier input accepted as a bounded legacy input; prefer modifier for new calls."),
         ] = None,
         modifier_blk: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
+                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_search_library_objects.'
             ),
         ] = None,
         dynamic_group_identifier: Annotated[
@@ -107,10 +98,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Edit a Honeybee Aperture."""
-        if modifier is None and radiance_modifier_target is not None:
-            modifier = radiance_modifier_target
-        if modifier is None and radiance_modifier is not None:
-            modifier = radiance_modifier
+        from garden.honeybee_core.edit import edit_honeybee_aperture as service
+
         return service(
             garden_root=garden_root,
             target=target,

@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.runs import assign_building_loads as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the DES load assignment tool."""
 
     @mcp.tool(
-        name="assign_building_loads",
+        name="DF_des_assign_building_loads",
         description=(
             "Attach URBANopt building load results to the DES feature GeoJSON "
             "and scenario CSV artifacts before system-parameter sizing. The "
@@ -31,6 +30,8 @@ def register(mcp: FastMCP) -> None:
         scenario_csv_target: Annotated[dict[str, Any], Field(description="DES scenario CSV artifact target paired with the feature GeoJSON.")],
     ) -> dict[str, Any]:
         """Assign building loads for DES."""
+        from garden.dragonfly_des.runs import assign_building_loads as service
+
         return service(
             garden_root=garden_root,
             feature_geojson_target=feature_geojson_target,

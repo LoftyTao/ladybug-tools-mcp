@@ -7,18 +7,17 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.fairyfly.therm import list_fairyfly_therm_runs as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the therm_list_runs tool.'
+    'Register the FF_list_runs tool.'
 
     @mcp.tool(
-        name="list_runs",
+        name="FF_list_runs",
         description=(
             "List Fairyfly THERM run records stored in a Garden. Returns compact "
             "ledger entries, runtime_status values in summary_view, and report "
-            "for two-dimensional heat-transfer runs. Use therm_poll_simulation on a "
+            "for two-dimensional heat-transfer runs. Use FF_poll_simulation on a "
             "specific run before result reads."
         ),
         tags={"fairyfly", "therm", "runtime", "search", "ledger"},
@@ -28,7 +27,7 @@ def register(mcp: FastMCP) -> None:
     def list_fairyfly_therm_runs(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         status: Annotated[
             str | None,
@@ -36,4 +35,6 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """List Fairyfly THERM runs."""
+        from garden.fairyfly.therm import list_fairyfly_therm_runs as service
+
         return service(garden_root=garden_root, status=status)

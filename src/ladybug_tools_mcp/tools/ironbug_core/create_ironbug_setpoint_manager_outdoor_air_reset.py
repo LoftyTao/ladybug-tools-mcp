@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_setpoint_manager_outdoor_air_reset.'
+'MCP tool for IB_setpoint_manager_outdoor_air_reset.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_setpoint_manager_outdoor_air_reset tool.'
+    'Register the IB_setpoint_manager_outdoor_air_reset tool.'
 
     @mcp.tool(
-        name='setpoint_manager_outdoor_air_reset',
+        name='IB_setpoint_manager_outdoor_air_reset',
         description=(
             'Create IB_SetpointManagerOutdoorAirReset / EnergyPlus SetpointManager:OutdoorAirReset. The manager resets a node setpoint from outdoor low/high temperature breakpoints, optional second reset curve values, and an optional schedule. This authors Ironbug DetailedHVAC input only; it is not an economizer, outdoor-air controller, weather file reader, result reader, or Energy simulation runner. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_setpoint_manager_outdoor_air_reset(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json; for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json; for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -125,6 +124,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug SetpointManager:OutdoorAirReset target."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

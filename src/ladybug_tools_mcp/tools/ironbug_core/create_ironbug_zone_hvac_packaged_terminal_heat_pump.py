@@ -1,20 +1,18 @@
-'MCP tool for detailed_hvac_zone_equipment_pthp.'
+'MCP tool for IB_zone_equipment_pthp.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core import relationships as relationship_service
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_pthp tool.'
+    'Register the IB_zone_equipment_pthp tool.'
 
     @mcp.tool(
-        name='zone_equipment_pthp',
+        name='IB_zone_equipment_pthp',
         description=(
             'Create IB_ZoneHVACPackagedTerminalHeatPump, an Ironbug packaged terminal '
             'heat pump (PTHP) zone-equipment component that maps downstream to '
@@ -43,13 +41,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_zone_hvac_packaged_terminal_heat_pump(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -185,6 +183,10 @@ def register(mcp: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Create IB_ZoneHVACPackagedTerminalHeatPump as reviewed PTHP zone equipment."""
 
+        from garden.ironbug_core.create_tools import (
+            _create_source_backed_ironbug_zone_equipment,
+        )
+
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}
         source_properties: dict[str, Any] = {}
@@ -238,10 +240,40 @@ def register(mcp: FastMCP) -> None:
                 "supplemental_heating_coil_target must be provided together for "
                 "PTHP child binding."
             )
-        result = create_source_backed_ironbug_object(
+        child_bindings: list[tuple[Any, set[str]]] = []
+        if all(target is not None for target in child_targets):
+            child_bindings = [
+                (
+                    cooling_coil_target,
+                    {
+                        "IB_CoilCoolingDXSingleSpeed",
+                        "IB_CoilCoolingDXTwoSpeed",
+                        "IB_CoilCoolingDXMultiSpeed",
+                    },
+                ),
+                (
+                    heating_coil_target,
+                    {
+                        "IB_CoilHeatingDXSingleSpeed",
+                        "IB_CoilHeatingDXMultiSpeed",
+                        "IB_CoilHeatingElectric",
+                        "IB_CoilHeatingGas",
+                    },
+                ),
+                (
+                    fan_target,
+                    {"IB_FanOnOff", "IB_FanConstantVolume", "IB_FanSystemModel"},
+                ),
+                (
+                    supplemental_heating_coil_target,
+                    {"IB_CoilHeatingElectric", "IB_CoilHeatingGas"},
+                ),
+            ]
+        return _create_source_backed_ironbug_zone_equipment(
             garden_root=garden_root,
             ironbug_model_target=ironbug_model_target,
             source_class='IB_ZoneHVACPackagedTerminalHeatPump',
+            operation='create_ironbug_zone_hvac_packaged_terminal_heat_pump',
             identifier=identifier,
             display_name=display_name,
             source_fields=source_fields or None,
@@ -252,41 +284,8 @@ def register(mcp: FastMCP) -> None:
             ems_sensor_targets=ems_sensor_targets,
             ems_actuator_targets=ems_actuator_targets,
             ems_internal_variable_targets=ems_internal_variable_targets,
+            child_bindings=child_bindings,
+            children_binding_step="pthp_children",
+            thermal_zone_target=thermal_zone_target,
             overwrite=overwrite,
         )
-        binding_steps: list[str] = []
-        current_model_target = result["updated_model_target"]
-        current_target = result["target"]
-        if (
-            fan_target is not None
-            and heating_coil_target is not None
-            and cooling_coil_target is not None
-            and supplemental_heating_coil_target is not None
-        ):
-            children_result = relationship_service.set_ironbug_pthp_children(
-                garden_root=garden_root,
-                ironbug_model_target=current_model_target,
-                pthp_target=current_target,
-                fan_target=fan_target,
-                heating_coil_target=heating_coil_target,
-                cooling_coil_target=cooling_coil_target,
-                supplemental_heating_coil_target=supplemental_heating_coil_target,
-            )
-            current_model_target = children_result["updated_model_target"]
-            current_target = children_result["target"]
-            binding_steps.append("pthp_children")
-        if thermal_zone_target is not None:
-            zone_result = relationship_service.add_ironbug_thermal_zone_equipment(
-                garden_root=garden_root,
-                ironbug_model_target=current_model_target,
-                thermal_zone_target=thermal_zone_target,
-                zone_equipment_target=current_target,
-            )
-            current_model_target = zone_result["updated_model_target"]
-            binding_steps.append("thermal_zone_equipment")
-        current_target["model_target"] = current_model_target
-        result["target"] = current_target
-        result["object_target"] = current_target
-        result["updated_model_target"] = current_model_target
-        result["summary_view"]["binding_steps"] = binding_steps
-        return result

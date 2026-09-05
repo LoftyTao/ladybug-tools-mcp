@@ -1,22 +1,18 @@
-'MCP tool for detailed_hvac_zone_equipment_high_temperature_radiant.'
+'MCP tool for IB_zone_equipment_high_temperature_radiant.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_thermal_zone_equipment,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_high_temperature_radiant tool.'
+    'Register the IB_zone_equipment_high_temperature_radiant tool.'
 
     @mcp.tool(
-        name='zone_equipment_high_temperature_radiant',
+        name='IB_zone_equipment_high_temperature_radiant',
         description=(
             'Create IB_ZoneHVACHighTemperatureRadiant, the Ironbug and EnergyPlus ZoneHVAC:HighTemperatureRadiant zone heater for fuel/electric high-temperature radiant panels. Use it for ThermalZone radiant heating with power, fuel, combustion efficiency, radiant/latent/lost fractions, and heating setpoint schedule fields, not as a low-temperature hydronic slab, baseboard, air terminal, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -33,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -48,7 +44,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         availability_schedule_target: Annotated[
             dict[str, Any] | str | None,
-            Field(description='Optional IB_Schedule target for high-temperature radiant heater availability; pass a detailed_hvac_schedule_* target or same-model identifier.'),
+            Field(description='Optional IB_Schedule target for high-temperature radiant heater availability; pass an IB_schedule_* target or same-model identifier.'),
         ] = None,
         maximum_power_input: Annotated[
             float | str | None,
@@ -133,6 +129,12 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug ZoneHVAC:HighTemperatureRadiant zone-heater object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            add_ironbug_thermal_zone_equipment,
+        )
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

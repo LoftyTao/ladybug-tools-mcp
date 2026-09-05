@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.run_uwg.writer import dragonfly_model_to_uwg as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the uwg_dragonfly_model_to_uwg tool.'
+    'Register the DF_uwg_dragonfly_model_to_uwg tool.'
 
     @mcp.tool(
-        name='dragonfly_model_to_uwg',
+        name='DF_uwg_dragonfly_model_to_uwg',
         description=(
             "Write a UWG JSON artifact from a Dragonfly model, rural/airport "
             "Garden EPW weather target, and optional UWG simulation parameter. "
@@ -33,7 +32,7 @@ def register(mcp: FastMCP) -> None:
     def dragonfly_model_to_uwg(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
@@ -41,11 +40,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         weather_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Garden weather file target returned by energyplus_download_epw or a Garden-relative EPW path to morph with UWG.'),
+            Field(description='Garden weather file target returned by EP_import_local_weather or EP_search_weather_files, or a Garden-relative EPW path to morph with UWG.'),
         ] = None,
         simulation_parameter_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional uwg_simulation_parameter target returned by uwg_create_simulation_parameter."),
+            Field(description="Optional uwg_simulation_parameter target returned by DF_uwg_create_simulation_parameter."),
         ] = None,
         simulation_parameter: Annotated[
             dict[str, Any] | None,
@@ -61,6 +60,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Write a UWG JSON artifact."""
+        from garden.run_uwg.writer import dragonfly_model_to_uwg as service
+
         return service(
             garden_root=garden_root,
             model_target=model_target,

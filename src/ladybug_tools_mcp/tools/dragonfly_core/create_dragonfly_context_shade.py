@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.creation import create_dragonfly_context_shade as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_create_context_shade tool.'
+    'Register the DF_context_shade tool.'
 
     @mcp.tool(
-        name="context_shade",
+        name="DF_context_shade",
         description=(
             "Create a Dragonfly ContextShade in a Garden from one or more 3D "
             "shade faces, save it into the Dragonfly model, and return a "
@@ -29,7 +28,7 @@ def register(mcp: FastMCP) -> None:
     def create_dragonfly_context_shade(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         identifier: Annotated[
             str,
@@ -60,7 +59,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
@@ -107,6 +106,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Create a Dragonfly ContextShade."""
+        from garden.dragonfly_core.creation import create_dragonfly_context_shade as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

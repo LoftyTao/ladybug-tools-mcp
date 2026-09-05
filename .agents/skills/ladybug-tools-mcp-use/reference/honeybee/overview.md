@@ -23,7 +23,7 @@ Use this category when an Agent needs to author, search, edit, relate, validate,
 2. Search existing host objects when the request edits, removes, or attaches to them.
 3. Pass only `matches[i].target`, create result `target`, or model `target` into downstream tools.
 4. Call the focused create/edit/remove/operate/relate tool in Code Mode.
-5. Verify with narrow search, relationship inspection, or `honeybee_validate_model`.
+5. Verify with narrow search, relationship inspection, or `HB_validate_model`.
 6. Return compact targets, counts, validation status, and receipts.
 
 ## Stop Conditions

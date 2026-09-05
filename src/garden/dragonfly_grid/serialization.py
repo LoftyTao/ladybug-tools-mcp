@@ -12,7 +12,7 @@ from dragonfly_energy.opendss.substation import Substation
 from dragonfly_energy.opendss.transformer import Transformer
 from dragonfly_energy.reopt import FinancialParameter, GroundMountPV
 
-from garden.manifest import GardenManifest
+from garden.manifest import GardenManifest, write_json_file
 from garden.paths import slugify_name, to_posix_relative
 from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
 from ladybug_tools_mcp.contracts.report import make_report
@@ -65,13 +65,6 @@ def _object_from_dict(kind: str, record: dict[str, Any]) -> Any:
     return cls.from_dict(record)
 
 
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(payload, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
-
-
 def save_grid_object(
     *,
     garden_root: str | Path,
@@ -99,7 +92,7 @@ def save_grid_object(
         identifier=identifier,
         path=persisted_path,
     )
-    _write_json(object_path, object_dict)
+    write_json_file(object_path, object_dict, ensure_ascii=False)
     receipt = make_persistence_receipt(
         status="persisted",
         garden_id=manifest.garden_id,

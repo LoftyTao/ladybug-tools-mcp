@@ -11,20 +11,20 @@ Use this when the user wants Honeybee Face-level attributes filtered by face typ
 ## MCP Route
 
 1. Create a 2D LegendParameter.
-2. Call `visualization_honeybee_model_to_visualization_set` with `color_by="none"` and `face_attributes`.
+2. Call `LB_honeybee_model_to_visualization_set` with `color_by="none"` and `face_attributes`.
 3. Include filters such as `face_types=["Wall"]` and `boundary_conditions=["Outdoors"]` when needed.
-4. Export with `visualization_set_to_svg`.
+4. Export with `LB_set_to_svg`.
 
 ## Code Mode Pattern
 
 ```python
-legend = await call_tool("visualization_create_2d_legend_parameter", {
+legend = await call_tool("LB_create_2d_legend_parameter", {
     "title": "Exterior Wall Identifier",
     "orientation": "vertical",
     "position_2d": {"origin_x": "4%", "origin_y": "12%"},
     "color_set": "ecotect"
 })
-vis = await call_tool("visualization_honeybee_model_to_visualization_set", {
+vis = await call_tool("LB_honeybee_model_to_visualization_set", {
     "garden_root": garden_root,
     "color_by": "none",
     "face_attributes": [{
@@ -37,7 +37,7 @@ vis = await call_tool("visualization_honeybee_model_to_visualization_set", {
     "name": "agent_face_attribute_svg",
     "return_visualization_set": False
 })
-svg = await call_tool("visualization_set_to_svg", {
+svg = await call_tool("LB_set_to_svg", {
     "garden_root": garden_root,
     "visualization_set_target": vis["visualization_set_target"],
     "name": "agent_face_attribute_svg",

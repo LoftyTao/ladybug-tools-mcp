@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.libraries.properties import (
-    search_garden_properties_library_objects as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the library_search_garden_properties_objects tool.'
+    'Register the GD_library_search_garden_properties_objects tool.'
 
     @mcp.tool(
-        name="search_garden_properties_objects",
+        name="GD_library_search_garden_properties_objects",
         description=(
             "Search saved Garden Properties Library indexes for reusable Honeybee "
             "Energy and Honeybee Radiance object targets, including schedules, "
@@ -22,7 +19,7 @@ def register(mcp: FastMCP) -> None:
             "for Garden-saved reusable resources, not built-in standards-library "
             "search. Returns matches with domain, object_family, identifier, "
             "object_type, path, target, plus summary_view and report; pass "
-            "matches[*].target to library_get_garden_properties_object or downstream "
+            "matches[*].target to GD_library_get_garden_properties_object or downstream "
             "assignment workflows."
         ),
         tags={
@@ -37,7 +34,7 @@ def register(mcp: FastMCP) -> None:
     )
     def search_garden_properties_library_objects(
         garden_root: Annotated[
-            str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root'].")
+            str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root'].")
         ],
         query: Annotated[
             str,
@@ -72,6 +69,10 @@ def register(mcp: FastMCP) -> None:
         ] = 10,
     ) -> dict[str, Any]:
         """Search Garden Properties Library object indexes."""
+        from garden.libraries.properties import (
+            search_garden_properties_library_objects as service,
+        )
+
         return service(
             garden_root=garden_root,
             query=query,

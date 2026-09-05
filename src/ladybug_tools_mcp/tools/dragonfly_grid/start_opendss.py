@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_grid.runs import start_opendss as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the Grid OpenDSS start tool."""
 
     @mcp.tool(
-        name="start_opendss",
+        name="DF_grid_start_opendss",
         description=(
             "Start or block an OpenDSS run from a feature GeoJSON target and "
             "scenario CSV target. Missing OpenDSS returns a blocked run ledger "
@@ -31,6 +30,8 @@ def register(mcp: FastMCP) -> None:
         autosize: Annotated[bool, Field(description="Whether to request OpenDSS network upgrade/autosizing when runtime is ready.")] = False,
     ) -> dict[str, Any]:
         """Start or block an OpenDSS run."""
+        from garden.dragonfly_grid.runs import start_opendss as service
+
         return service(
             garden_root=garden_root,
             feature_geojson_target=feature_geojson_target,

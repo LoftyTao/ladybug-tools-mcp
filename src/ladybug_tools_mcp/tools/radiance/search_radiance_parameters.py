@@ -8,8 +8,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.manifest import GardenManifest
-from garden.radiance.run import _read_index
 from ladybug_tools_mcp.contracts.report import make_report
 
 
@@ -50,17 +48,17 @@ def _relative_run_parameter_match(
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_search_parameters tool.'
+    'Register the RAD_search_parameters tool.'
 
     @mcp.tool(
-        name="search_parameters",
+        name="RAD_search_parameters",
         description=(
             "Search Radiance parameter strings recorded on Garden Radiance "
             "runs and return compact radiance_parameters targets usable with "
             "start_radiance_*_run tools. This searches saved parameter "
             "records; it does not create parameters or inspect raw Radiance "
             "result files. If no stored parameters exist, call "
-            "radiance_create_parameters or pass a Radiance parameter string."
+            "RAD_create_parameters or pass a Radiance parameter string."
         ),
         tags={
             "parameters",
@@ -72,11 +70,15 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def search_radiance_parameters(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         query: Annotated[str | None, Field(description="Optional run_id, identifier, Garden path, or Radiance parameter text substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search stored Radiance parameter inputs."""
+        from garden.manifest import GardenManifest
+
+        from garden.radiance.run import _read_index
+
         garden_root_path = Path(garden_root).expanduser().resolve()
         manifest = GardenManifest.read(garden_root_path)
         query_text = (query or "").strip().lower()
@@ -111,7 +113,7 @@ def register(mcp: FastMCP) -> None:
                 "garden_target": manifest.target(),
                 "count": len(matches),
                 "query": query,
-                "recommended_tool": 'radiance_create_parameters',
+                "recommended_tool": 'RAD_create_parameters',
             },
             "report": make_report(
                 status="ok",

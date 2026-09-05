@@ -7,7 +7,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.assets import create_radiance_view as service
 
 
 VectorInput = list[float] | dict[str, float] | None
@@ -47,10 +46,10 @@ def _normalize_view_type(value: str) -> str:
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_view tool.'
+    'Register the RAD_create_view tool.'
 
     @mcp.tool(
-        name="create_view",
+        name="RAD_create_view",
         description=(
             "Create a Radiance View / Honeybee Radiance View for rpict "
             "daylight rendering from position, direction or look-at point, up "
@@ -123,7 +122,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
@@ -143,6 +142,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance View."""
+        from garden.radiance.assets import create_radiance_view as service
+
         if identifier is None:
             identifier = "view"
         if model_target is not None and not attach_to_model:

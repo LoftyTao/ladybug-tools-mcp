@@ -1,20 +1,19 @@
-'MCP tool for detailed_hvac_water_use_equipment.'
+'MCP tool for IB_water_use_equipment.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 from ladybug_tools_mcp.tools.ironbug_core.target_identifiers import target_identifier
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_water_use_equipment tool.'
+    'Register the IB_water_use_equipment tool.'
 
     @mcp.tool(
-        name='water_use_equipment',
+        name='IB_water_use_equipment',
         description=(
             'Create IB_WaterUseEquipment, the Ironbug and EnergyPlus WaterUse:Equipment fixture object for hot/cold water end uses and controlled mixing at the tap. It references a WaterUseEquipmentDefinition child, an optional flow-rate fraction schedule, and optional Honeybee Room/space placement; it is not a WaterUse:Connections group or water heater. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -31,7 +30,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -100,6 +99,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create Ironbug water-use equipment."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         child_targets = [
             water_use_load_target,

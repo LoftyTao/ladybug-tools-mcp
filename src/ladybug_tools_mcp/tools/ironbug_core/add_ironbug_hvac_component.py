@@ -7,21 +7,20 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core import add_ironbug_hvac_component as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_add_hvac_component_fallback tool.'
+    'Register the IB_add_hvac_component_fallback tool.'
 
     @mcp.tool(
-        name="add_hvac_component_fallback",
+        name="IB_add_hvac_component_fallback",
         description=(
             "Create a reviewed fallback Ironbug component only when "
-            'detailed_hvac_list_hvac_component_types returns the requested type and no '
+            'IB_list_hvac_component_types returns the requested type and no '
             "source-backed create_ironbug_* tool exists. Prefer exact source-backed "
-            'tools such as detailed_hvac_fan_on_off, '
-            'detailed_hvac_coil_cooling_water, or '
-            'detailed_hvac_pump_constant_speed. Returns target, summary_view, '
+            'tools such as IB_fan_on_off, '
+            'IB_coil_cooling_water, or '
+            'IB_pump_constant_speed. Returns target, summary_view, '
             "persistence_receipt, and report for .ibjson assembly."
         ),
         tags={"ironbug", "detailed-hvac", "component", "author"},
@@ -30,14 +29,14 @@ def register(mcp: FastMCP) -> None:
     def add_ironbug_hvac_component(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
                     "Required Ironbug model target named ironbug_model_target; "
-                    "pass detailed_hvac_create_model['target'], not ironbug_model."
+                    "pass IB_create_model['target'], not ironbug_model."
                 )
             ),
         ],
@@ -45,7 +44,7 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(
                 description=(
-                    'Component type id from detailed_hvac_list_hvac_component_types, '
+                    'Component type id from IB_list_hvac_component_types, '
                     "for example pump_constant_speed, boiler_hot_water, "
                     "coil_heating_water, or heat_exchanger_fluid_to_fluid; use "
                     "component_type, not component_type_id."
@@ -76,6 +75,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Add an Ironbug HVAC component."""
+
+        from garden.ironbug_core.assembly import add_ironbug_hvac_component as service
 
         return service(
             garden_root=garden_root,

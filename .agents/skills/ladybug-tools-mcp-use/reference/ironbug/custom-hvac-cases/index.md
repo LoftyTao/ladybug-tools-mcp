@@ -19,8 +19,8 @@ Each case skill is intentionally small and scenario-specific. It includes the ap
   claim that every case is Dragonfly-verified.
 - Rooms must already have enough Energy setup for simulation. Honeybee Rooms
   must have ProgramType and thermostat Setpoint; if missing, create a Setpoint
-  with `energy_create_setpoint(return_object_dict=false)` and pass that target into
-  `honeybee_edit_room.setpoint`. For Dragonfly-native hosts, confirm
+  with `EP_create_setpoint(return_object_dict=false)` and pass that target into
+  `HB_edit_room.setpoint`. For Dragonfly-native hosts, confirm
   conditioned Room2Ds before using `conditioned_only=true`. Reuse a prepared
   weather target when the test Garden already has one.
 - The case skill begins at Ironbug HVAC authoring. Do not expand it into
@@ -66,10 +66,14 @@ run only as the acceptance check for EUI/ERR/SQL evidence.
 ## Shared Acceptance
 
 Every case must create Ironbug HVAC through public `detailed_hvac_*` or
-source-backed Ironbug tools, apply with `detailed_hvac_apply_to_honeybee_model`,
+source-backed Ironbug tools, apply with `IB_apply_to_honeybee_model`,
 run standard Energy,
 read EUI, and return true `.err` / `.sql` paths. Python Console acceptance also
 requires runtime evidence with `simulation_input_kind="openstudio_osm"` and
 `csharp_ironbug_console_required=false`. Do not substitute `.ibjson`,
 validation, DetailedHVAC object creation, OpenStudio translation, or historical
 artifact evidence for a completed Energy run.
+
+After `EP_poll_simulation` completes, call `EP_list_run_outputs` and copy the
+returned output `path` values into the case's `.err` / `.sql` fields; keep the
+returned `run_target` for EUI and result reads.

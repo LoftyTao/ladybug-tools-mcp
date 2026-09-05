@@ -7,16 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.visualize.datacollection import (
-    data_collection_hourly_plot_to_visualization_set as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_data_collection_hourly_plot_to_visualization_set tool.'
+    'Register the LB_data_collection_hourly_plot_to_visualization_set tool.'
 
     @mcp.tool(
-        name='data_collection_hourly_plot_to_visualization_set',
+        name='LB_data_collection_hourly_plot_to_visualization_set',
         description=(
             "Create a Ladybug Display VisualizationSet hourly plot from one "
             "hourly Ladybug DataCollection using Ladybug HourlyPlot. Use this "
@@ -46,13 +43,13 @@ def register(mcp: FastMCP) -> None:
         data_collection_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Optional ladybug_data_collection target returned by an upstream tool such as energy_create_schedule_ruleset with garden_root and return_data=false.'
+                description='Optional ladybug_data_collection target returned by an upstream tool such as EP_create_schedule_ruleset with garden_root and return_data=false.'
             ),
         ] = None,
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         name: Annotated[
@@ -79,6 +76,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create an HourlyPlot VisualizationSet from a DataCollection."""
+        from garden.visualize.datacollection import (
+            data_collection_hourly_plot_to_visualization_set as service,
+        )
+
         return service(
             data_collection=data_collection,
             data_collection_target=data_collection_target,

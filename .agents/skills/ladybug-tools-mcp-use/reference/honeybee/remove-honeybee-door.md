@@ -4,7 +4,7 @@ Use this when the user wants to delete an existing Honeybee Door from a Garden m
 
 ## Preconditions
 
-- Locate the Door with `honeybee_search_model_objects(object_type="door")`.
+- Locate the Door with `HB_search_model_objects(object_type="door")`.
 - Pass the Door typed target as `target`.
 - For Surface-adjacent interior doors, one side is enough; the service removes the paired Door.
 
@@ -12,19 +12,19 @@ Use this when the user wants to delete an existing Honeybee Door from a Garden m
 
 1. Search for Door objects.
 2. Select the intended Door target.
-3. Call `honeybee_remove_door`.
+3. Call `HB_remove_door`.
 4. Search Door objects again or validate.
 
 ## Code Mode Pattern
 
 ```python
-doors = await call_tool("honeybee_search_model_objects", {
+doors = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "door",
     "identifier": "door_1"
 })
 
-removed = await call_tool("honeybee_remove_door", {
+removed = await call_tool("HB_remove_door", {
     "garden_root": garden_root,
     "target": doors["matches"][0]["target"]
 })

@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.validation import validate_dragonfly_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_validate_model tool.'
+    'Register the DF_validate_model tool.'
 
     @mcp.tool(
-        name="validate_model",
+        name="DF_validate_model",
         description=(
             "Validate an existing Dragonfly model already stored in a Garden base "
             "Dragonfly model or explicit model target. Returns validation_status "
@@ -29,17 +28,19 @@ def register(mcp: FastMCP) -> None:
     def validate_dragonfly_model(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
         ] = None,
     ) -> dict[str, Any]:
         """Validate a Dragonfly model."""
+        from garden.dragonfly_core.validation import validate_dragonfly_model as service
+
         return service(garden_root=garden_root, model_target=model_target)

@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.sky import create_sky_matrix as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_sky_matrix tool.'
+    'Register the RAD_create_sky_matrix tool.'
 
     @mcp.tool(
-        name='create_sky_matrix',
+        name='RAD_create_sky_matrix',
         description=(
             "Create a Garden sky_matrix target for Ladybug Radiance studies "
             "from a wea_file target, Garden weather_file target, Garden-"
@@ -35,7 +34,7 @@ def register(mcp: FastMCP) -> None:
     def create_sky_matrix(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str | None,
@@ -43,7 +42,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         wea_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Optional wea_file target from radiance_create_wea_from_weather_file or radiance_create_ashrae_clear_sky_wea.'),
+            Field(description='Optional wea_file target from RAD_create_wea_from_weather_file or RAD_create_ashrae_clear_sky_wea.'),
         ] = None,
         weather_target: Annotated[
             dict[str, Any] | None,
@@ -83,6 +82,8 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/radiance/sky",
     ) -> dict[str, Any]:
         """Create a SkyMatrix target."""
+        from garden.radiance.sky import create_sky_matrix as service
+
         if identifier is None:
             identifier = "sky_matrix"
         return service(

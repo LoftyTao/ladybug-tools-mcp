@@ -1,20 +1,19 @@
-'MCP tool for detailed_hvac_generator_pv_watts.'
+'MCP tool for IB_generator_pv_watts.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 from ladybug_tools_mcp.tools.ironbug_core.target_identifiers import target_identifier
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_generator_pv_watts tool.'
+    'Register the IB_generator_pv_watts tool.'
 
     @mcp.tool(
-        name='generator_pv_watts',
+        name='IB_generator_pv_watts',
         description=(
             'Create IB_GeneratorPVWatts, an OpenStudio/EnergyPlus Generator:PVWatts object placed on an OpenStudio shading surface. Use it for first-pass grid-connected PV production with DC capacity, module/array type, losses, tilt, azimuth, and ground coverage ratio; pair it with an ElectricLoadCenter:Inverter:PVWatts rather than a generic PV inverter. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -25,13 +24,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_generator_pv_watts(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -114,6 +113,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_GeneratorPVWatts as a reviewed Ironbug Electrical authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

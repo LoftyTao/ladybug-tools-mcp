@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_no_air_loop.'
+'MCP tool for IB_no_air_loop.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_no_air_loop tool.'
+    'Register the IB_no_air_loop tool.'
 
     @mcp.tool(
-        name='no_air_loop',
+        name='IB_no_air_loop',
         description=(
             'Create IB_NoAirLoop, an Ironbug air-loop placeholder for ThermalZones served only by zone equipment and no central AirLoopHVAC. Pass existing IB_ThermalZone targets or inline thermal-zone fields, then include this object in the HVACSystem AirLoops list; this is not a plant loop, ideal-air template, or room geometry tool. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -33,13 +32,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_no_air_loop(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -132,6 +131,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_NoAirLoop as a reviewed Ironbug Loops authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

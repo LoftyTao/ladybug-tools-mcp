@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.fairyfly.model import add_fairyfly_shape_to_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the therm_add_shape_to_model tool.'
+    'Register the FF_add_shape_to_model tool.'
 
     @mcp.tool(
-        name="add_shape_to_model",
+        name="FF_add_shape_to_model",
         description=(
             "Add a Fairyfly Shape to a Garden-backed Fairyfly Model from Ladybug "
             "Geometry 2D polygon input and a THERM material object_dict. The shape is "
@@ -27,7 +26,7 @@ def register(mcp: FastMCP) -> None:
     def add_fairyfly_shape_to_model(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         vertices_2d: Annotated[
             list[list[float]],
@@ -35,13 +34,13 @@ def register(mcp: FastMCP) -> None:
         ],
         material: Annotated[
             dict[str, Any],
-            Field(description='Fairyfly THERM material object_dict, such as therm_create_solid_material.object_dict.'),
+            Field(description='Fairyfly THERM material object_dict, such as FF_create_solid_material.object_dict.'),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Fairyfly Model target dict, usually therm_create_model['target']; "
+                    "Optional Fairyfly Model target dict, usually FF_create_model['target']; "
                     "defaults to the Garden base Fairyfly Model."
                 )
             ),
@@ -64,6 +63,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Add a Fairyfly Shape to a model."""
+        from garden.fairyfly.model import add_fairyfly_shape_to_model as service
+
         return service(
             garden_root=garden_root,
             vertices_2d=vertices_2d,

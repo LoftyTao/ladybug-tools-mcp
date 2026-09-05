@@ -7,16 +7,13 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.libraries.properties import (
-    normalize_garden_properties_library_storage as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the library_normalize_garden_properties_storage tool.'
+    'Register the GD_library_normalize_garden_properties_storage tool.'
 
     @mcp.tool(
-        name="normalize_garden_properties_storage",
+        name="GD_library_normalize_garden_properties_storage",
         description=(
             "Rewrite legacy Garden Properties Library records that stored MCP "
             "wrapper metadata beside object_dict into native Honeybee Energy or "
@@ -39,7 +36,7 @@ def register(mcp: FastMCP) -> None:
     )
     def normalize_garden_properties_library_storage(
         garden_root: Annotated[
-            str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root'].")
+            str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root'].")
         ],
         domain: Annotated[
             str | None,
@@ -70,11 +67,25 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = False,
+        operation_id: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional fixed write operation identifier. Reuse it only to "
+                    "retry the same normalization request after interruption."
+                )
+            ),
+        ] = None,
     ) -> dict:
         """Normalize wrapped Garden Properties Library storage files."""
+        from garden.libraries.properties import (
+            normalize_garden_properties_library_storage as service,
+        )
+
         return service(
             garden_root=garden_root,
             domain=domain,
             object_family=object_family,
             dry_run=dry_run,
+            operation_id=operation_id,
         )

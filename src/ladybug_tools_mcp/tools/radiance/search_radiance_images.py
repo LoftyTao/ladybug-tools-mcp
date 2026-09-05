@@ -7,8 +7,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.visual import list_radiance_hdr_images
-from garden.store import list_garden_artifacts
 from ladybug_tools_mcp.tools.radiance.list_radiance_artifact_files import (
     _normalize_artifact_type,
 )
@@ -31,10 +29,10 @@ def _run_id_from_target(value: Any) -> str | None:
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_search_images tool.'
+    'Register the RAD_search_images tool.'
 
     @mcp.tool(
-        name="search_images",
+        name="RAD_search_images",
         description=(
             "Search Garden-managed Radiance image artifacts such as HDR, "
             "falsecolor, and GIF outputs. Use this before image conversion or "
@@ -53,7 +51,7 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def search_radiance_images(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         run_id: Annotated[str | None, Field(description="Optional completed Radiance view run identifier for narrowing image results.")] = None,
         run_target: Annotated[
             dict[str, Any] | str | None,
@@ -67,6 +65,10 @@ def register(mcp: FastMCP) -> None:
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance images."""
+        from garden.radiance.visual import list_radiance_hdr_images
+
+        from garden.store import list_garden_artifacts
+
         if run_id is None:
             run_id = _run_id_from_target(run_target)
         query_text = (query or "").strip().lower()
@@ -130,6 +132,6 @@ def register(mcp: FastMCP) -> None:
                 "count": len(matches),
                 "query": query,
                 "file_type": file_type,
-                "recommended_hdr_tool": 'radiance_list_hdr_images',
+                "recommended_hdr_tool": 'RAD_list_hdr_images',
             },
         }

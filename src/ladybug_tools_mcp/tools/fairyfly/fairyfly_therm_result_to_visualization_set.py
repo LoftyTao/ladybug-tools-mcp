@@ -7,17 +7,16 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.fairyfly.display import fairyfly_therm_result_to_visualization_set as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the therm_result_to_visualization_set tool.'
+    'Register the FF_result_to_visualization_set tool.'
 
     @mcp.tool(
-        name="result_to_visualization_set",
+        name="FF_result_to_visualization_set",
         description=(
             "Create a Ladybug Display VisualizationSet from Fairyfly THERM "
-            "temperature or heat-flux results. Poll therm_poll_simulation before "
+            "temperature or heat-flux results. Poll FF_poll_simulation before "
             "visualizing results from a run_target. If the THMZ has no result "
             "arrays, returns no_results instead of creating an empty view. "
             "Returns visualization_set_target when saved and does not start THERM."
@@ -29,15 +28,15 @@ def register(mcp: FastMCP) -> None:
     def fairyfly_therm_result_to_visualization_set(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         thmz_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Optional fairyfly_thmz target returned by therm_write_model_to_thmz.'),
+            Field(description='Optional fairyfly_thmz target returned by FF_write_model_to_thmz.'),
         ] = None,
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Optional completed fairyfly_therm_run target returned by therm_start_simulation. Poll before visualizing results.'),
+            Field(description='Optional completed fairyfly_therm_run target returned by FF_start_simulation. Poll before visualizing results.'),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -59,6 +58,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a VisualizationSet from a Fairyfly THERM result."""
+        from garden.fairyfly.display import fairyfly_therm_result_to_visualization_set as service
+
         return service(
             garden_root=garden_root,
             thmz_target=thmz_target,

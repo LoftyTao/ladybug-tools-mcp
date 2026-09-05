@@ -7,17 +7,16 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.sky import create_climate_based_sky as service
 from ladybug_tools_mcp.tools.radiance.create_cie_standard_sky import (
     _normalize_time_zone,
 )
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_climate_based_sky tool.'
+    'Register the RAD_create_climate_based_sky tool.'
 
     @mcp.tool(
-        name='create_climate_based_sky',
+        name='RAD_create_climate_based_sky',
         description=(
             "Create a Garden radiance_sky_file target backed by a Radiance "
             "gendaylit command. Use this for a single-timestep climate-based "
@@ -38,7 +37,7 @@ def register(mcp: FastMCP) -> None:
     def create_climate_based_sky(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str | None,
@@ -118,6 +117,8 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/radiance/sky",
     ) -> dict[str, Any]:
         """Create a climate-based Radiance sky file."""
+        from garden.radiance.sky import create_climate_based_sky as service
+
         if identifier is None:
             identifier = "climate_based_sky"
         return service(

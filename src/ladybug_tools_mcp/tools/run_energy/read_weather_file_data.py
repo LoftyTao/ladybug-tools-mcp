@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.run_energy.weather_data import read_weather_file_data as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energyplus_read_weather_file_data tool.'
+    'Register the EP_read_weather_file_data tool.'
 
     @mcp.tool(
-        name='read_weather_file_data',
+        name='EP_read_weather_file_data',
         description=(
             "Read a Garden-managed EPW weather_file, including UWG morphed "
             "EPW outputs, into a Ladybug DataCollection target with the "
@@ -37,12 +36,12 @@ def register(mcp: FastMCP) -> None:
     def read_weather_file_data(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         weather_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Optional Garden weather_file target returned by energyplus_download_epw, energyplus_search_weather_files, uwg_run_simulation_wait, or uwg_poll_simulation. Provide exactly one of weather_target or epw_path.'
+                description='Optional Garden weather_file target returned by EP_import_local_weather, EP_search_weather_files, DF_uwg_run_simulation_wait, or DF_uwg_poll_simulation. Provide exactly one of weather_target or epw_path.'
             ),
         ] = None,
         epw_path: Annotated[
@@ -87,6 +86,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Read EPW weather data as a Ladybug DataCollection target."""
+        from garden.run_energy.weather_data import read_weather_file_data as service
+
         return service(
             garden_root=garden_root,
             weather_target=weather_target,

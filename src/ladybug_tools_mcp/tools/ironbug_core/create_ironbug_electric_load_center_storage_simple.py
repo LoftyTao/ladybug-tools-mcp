@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_electric_load_center_storage_simple.'
+'MCP tool for IB_electric_load_center_storage_simple.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_electric_load_center_storage_simple tool.'
+    'Register the IB_electric_load_center_storage_simple tool.'
 
     @mcp.tool(
-        name='electric_load_center_storage_simple',
+        name='IB_electric_load_center_storage_simple',
         description=(
             'Create IB_ElectricLoadCenterStorageSimple, an EnergyPlus/OpenStudio ElectricLoadCenter:Storage:Simple object for simplified electrical storage or battery behavior. Use it as the electrical storage target on ElectricLoadCenter:Distribution; the AC/DC role depends on the distribution buss type. This tool authors simple electrical storage input only; it does not create distribution panels, converters, inverters, or run simulation. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_electric_load_center_storage_simple(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -109,6 +108,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_ElectricLoadCenterStorageSimple as reviewed simple electrical storage data."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

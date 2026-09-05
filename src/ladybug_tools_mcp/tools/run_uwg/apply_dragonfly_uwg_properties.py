@@ -7,14 +7,13 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.uwg_properties import apply_dragonfly_uwg_properties as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the uwg_apply_dragonfly_properties tool.'
+    'Register the DF_uwg_apply_dragonfly_properties tool.'
 
     @mcp.tool(
-        name='apply_dragonfly_properties',
+        name='DF_uwg_apply_dragonfly_properties',
         description=(
             "Apply SDK-backed Dragonfly UWG properties to a Dragonfly model, "
             "Building, or ContextShade target. Requires host_target; "
@@ -42,7 +41,7 @@ def register(mcp: FastMCP) -> None:
     def apply_dragonfly_uwg_properties(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         host_target: Annotated[
             dict[str, Any],
@@ -144,6 +143,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Apply Dragonfly UWG properties."""
+        from garden.dragonfly_core.uwg_properties import apply_dragonfly_uwg_properties as service
+
         return service(
             garden_root=garden_root,
             host_target=host_target,

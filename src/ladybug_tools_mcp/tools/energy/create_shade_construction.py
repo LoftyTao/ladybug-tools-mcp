@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.constructionsets import (
-    create_shade_construction as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_shade_construction tool.'
+    'Register the EP_create_shade_construction tool.'
 
     @mcp.tool(
-        name='create_shade_construction',
+        name='EP_create_shade_construction',
         description=(
             "Create a Honeybee Energy ShadeConstruction for outdoor Honeybee "
             "Shade energy properties. This sets reflectance and specular "
@@ -50,7 +47,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -61,6 +58,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy ShadeConstruction object."""
+        from garden.energy.constructionsets import (
+            create_shade_construction as service,
+        )
+
         return service(
             identifier=identifier,
             solar_reflectance=solar_reflectance,

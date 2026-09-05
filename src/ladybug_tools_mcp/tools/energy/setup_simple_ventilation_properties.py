@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.ventilation import (
-    setup_simple_ventilation_properties as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_setup_simple_ventilation_properties tool.'
+    'Register the EP_setup_simple_ventilation_properties tool.'
 
     @mcp.tool(
-        name='setup_simple_ventilation_properties',
+        name='EP_setup_simple_ventilation_properties',
         description="Apply simple operable-window natural ventilation properties to Honeybee Rooms in a Garden model. Use this for VentilationOpening, window_vent_control, operable windows, cross ventilation, and ventilative cooling controls; it does not generate AirflowNetwork cracks and does not create VentilationFan objects. Returns the updated Honeybee model target in target and summary_view.target plus persistence_receipt and report.",
         tags={
             "cross-ventilation",
@@ -31,7 +28,7 @@ def register(mcp: FastMCP) -> None:
     def setup_simple_ventilation_properties(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
@@ -43,7 +40,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         room_targets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description='Optional room_targets list of Honeybee Room typed targets from honeybee_search_model_objects. Use this or room_identifiers; not room_target.'),
+            Field(description='Optional room_targets list of Honeybee Room typed targets from HB_search_model_objects. Use this or room_identifiers; not room_target.'),
         ] = None,
         fraction_area_operable: Annotated[
             float,
@@ -95,6 +92,10 @@ def register(mcp: FastMCP) -> None:
         ] = -100,
     ) -> dict[str, Any]:
         """Apply simple natural ventilation properties."""
+        from garden.energy.ventilation import (
+            setup_simple_ventilation_properties as service,
+        )
+
         return service(
             garden_root=garden_root,
             model_target=model_target,

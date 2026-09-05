@@ -7,17 +7,16 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.fairyfly.materials import create_fairyfly_solid_material as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the therm_create_solid_material tool.'
+    'Register the FF_create_solid_material tool.'
 
     @mcp.tool(
-        name="create_solid_material",
+        name="FF_create_solid_material",
         description=(
             "Create a Fairyfly THERM SolidMaterial payload for use with "
-            "therm_add_shape_to_model. This returns an inline object_dict, not a "
+            "FF_add_shape_to_model. This returns an inline object_dict, not a "
             "Garden target, and it does not attach the material to a model by itself."
         ),
         tags={"fairyfly", "therm", "material", "author", "thermal"},
@@ -70,6 +69,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict:
         """Create a Fairyfly SolidMaterial payload."""
+        from garden.fairyfly.materials import create_fairyfly_solid_material as service
+
         return service(
             name=name,
             conductivity=conductivity,

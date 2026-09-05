@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.honeybee_core.creation import create_honeybee_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the honeybee_create_model tool.'
+    'Register the HB_create_model tool.'
 
     @mcp.tool(
-        name="create_model",
-        description='Create an empty Honeybee Model in a Garden and optionally set it as the base Honeybee model with set_base. A Honeybee Model is the upstream container for Rooms, Faces, Apertures, Doors, and Shades; this does not create an EnergyPlus IDF, OpenStudio OSM, epJSON file, or Radiance scene. Returns compact target/model_target fields for downstream calls; object_dict is a compact target when saved and a full model body only when save_back=false and include_body=true. Normal authoring workflows should create the model first, then call honeybee_create_room for rooms. Use add_objects only when you already have complete Honeybee object dictionaries. Requires garden_root and identifier; do not pass arguments null or {}.',
+        name="HB_create_model",
+        description='Create an empty Honeybee Model in a Garden and optionally set it as the base Honeybee model with set_base. A Honeybee Model is the upstream container for Rooms, Faces, Apertures, Doors, and Shades; this does not create an EnergyPlus IDF, OpenStudio OSM, epJSON file, or Radiance scene. Returns compact target/model_target fields for downstream calls; object_dict is a compact target when saved and a full model body only when save_back=false and include_body=true. Normal authoring workflows should create the model first, then call HB_create_room for rooms. Use add_objects only when you already have complete Honeybee object dictionaries. Requires garden_root and identifier; do not pass arguments null or {}.',
         tags={
             "author",
             "honeybee",
@@ -24,7 +23,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         identifier: Annotated[
@@ -69,11 +68,13 @@ def register(mcp: FastMCP) -> None:
         add_objects: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description='Optional complete Honeybee object dictionaries to add while creating the model. Supports only full Room, Face, Aperture, Door, and Shade dictionaries; do not pass typed targets, program/load/construction dicts, or natural-language specs here. For normal modeling, omit add_objects and call honeybee_create_room next.'
+                description='Optional complete Honeybee object dictionaries to add while creating the model. Supports only full Room, Face, Aperture, Door, and Shade dictionaries; do not pass typed targets, program/load/construction dicts, or natural-language specs here. For normal modeling, omit add_objects and call HB_create_room next.'
             ),
         ] = None,
     ) -> dict[str, Any]:
         """Create a Honeybee Model."""
+        from garden.honeybee_core.creation import create_honeybee_model as service
+
         if unit_system is not None:
             normalized_unit_system = unit_system.strip().lower()
             if normalized_unit_system in {"metric", "si"}:

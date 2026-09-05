@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.honeybee_core.edit import edit_honeybee_room as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the honeybee_edit_room tool.'
+    'Register the HB_edit_room tool.'
 
     @mcp.tool(
-        name="edit_room",
-        description='Edit a Honeybee Room display name, story, zone, multiplier, floor-area flag, Honeybee Energy ProgramType/ConstructionSet/HVAC-template/ventilation/setpoint properties, and Honeybee Radiance ModifierSet in a Garden model. Use target from honeybee_search_model_objects matches[i].target or honeybee_create_room.target; an exact same-model room identifier string is accepted only with the intended model_target. This is not Ironbug ThermalZone or DetailedHVAC component placement. Returns target, summary_view.updated_fields, persistence_receipt, and report for later search, validation, EnergyPlus translation, or Radiance workflows.',
+        name="HB_edit_room",
+        description='Edit a Honeybee Room display name, story, zone, multiplier, floor-area flag, Honeybee Energy ProgramType/ConstructionSet/HVAC-template/ventilation/setpoint properties, and Honeybee Radiance ModifierSet in a Garden model. Use target from HB_search_model_objects matches[i].target or HB_create_room.target; an exact same-model room identifier string is accepted only with the intended model_target. This is not Ironbug ThermalZone or DetailedHVAC component placement. Returns target, summary_view.updated_fields, persistence_receipt, and report for later search, validation, EnergyPlus translation, or Radiance workflows.',
         tags={
             "construction-set",
             "edit",
@@ -32,7 +31,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         target: Annotated[
@@ -40,8 +39,8 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Required Honeybee room typed target dict from "
-                    'honeybee_search_model_objects matches[i].target or '
-                    'honeybee_create_room.target. Also accepts an exact '
+                    'HB_search_model_objects matches[i].target or '
+                    'HB_create_room.target. Also accepts an exact '
                     "same-model room identifier string when model_target "
                     "selects the intended Honeybee Model."
                 )
@@ -50,7 +49,7 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
+                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         display_name: Annotated[
@@ -76,19 +75,19 @@ def register(mcp: FastMCP) -> None:
         program_type: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Energy ProgramType dict, Garden target, or exact standards library identifier from energy_search_energy_library_objects matches[i].identifier, for example Generic Office Program. The parameter name is program_type, not energy_properties_program_type.'
+                description='Optional Honeybee Energy ProgramType dict, Garden target, or exact standards library identifier from EP_search_energy_library_objects matches[i].identifier, for example Generic Office Program. The parameter name is program_type, not energy_properties_program_type.'
             ),
         ] = None,
         construction_set: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Energy ConstructionSet dict, Garden target, or exact standards library identifier to attach or replace. Prefer energy_create_construction_set.target for custom sets.'
+                description='Optional Honeybee Energy ConstructionSet dict, Garden target, or exact standards library identifier to attach or replace. Prefer EP_create_construction_set.target for custom sets.'
             ),
         ] = None,
         hvac: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Optional Honeybee Energy HVAC dict or Garden Properties Library hvac target from energy_create_ideal_air_system or energy_search_hvac_templates. Do not hand-write fake HVAC dicts.'
+                description='Optional Honeybee Energy HVAC dict or Garden Properties Library hvac target from EP_create_ideal_air_system or EP_search_hvac_templates. Do not hand-write fake HVAC dicts.'
             ),
         ] = None,
         ventilation: Annotated[
@@ -100,13 +99,13 @@ def register(mcp: FastMCP) -> None:
         zone_ventilation_fans: Annotated[
             dict[str, Any] | list[dict[str, Any]] | None,
             Field(
-                description='Optional zone ventilation fan collection update for Room.properties.energy.fans. Accepts a Garden Properties Library zone_ventilation_fan target, a list of fan dicts/targets for replace_all, or {operation: replace_all|add|clear, fans:[...]} from energy_create_zone_ventilation_fan. This is fan-assisted/mechanical zone ventilation, not operable-window natural ventilation.'
+                description='Optional zone ventilation fan collection update for Room.properties.energy.fans. Accepts a Garden Properties Library zone_ventilation_fan target, a list of fan dicts/targets for replace_all, or {operation: replace_all|add|clear, fans:[...]} from EP_create_zone_ventilation_fan. This is fan-assisted/mechanical zone ventilation, not operable-window natural ventilation.'
             ),
         ] = None,
         setpoint: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Optional Honeybee Energy Setpoint dict or Garden Properties Library load target from energy_create_setpoint.target. The parameter name is setpoint, not energy_properties_setpoint. Do not pass a bare number; create a Setpoint with energy_create_setpoint(heating_setpoint=..., cooling_setpoint=..., garden_root=..., return_object_dict=false) and pass its target. Agents may pass a lightweight Setpoint dict with schedule identifiers instead of expanded schedule JSON.'
+                description='Optional Honeybee Energy Setpoint dict or Garden Properties Library load target from EP_create_setpoint.target. The parameter name is setpoint, not energy_properties_setpoint. Do not pass a bare number; create a Setpoint with EP_create_setpoint(heating_setpoint=..., cooling_setpoint=..., garden_root=..., return_object_dict=false) and pass its target. Agents may pass a lightweight Setpoint dict with schedule identifiers instead of expanded schedule JSON.'
             ),
         ] = None,
         modifier_set: Annotated[
@@ -117,6 +116,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Edit a Honeybee Room."""
+        from garden.honeybee_core.edit import edit_honeybee_room as service
+
         return service(
             garden_root=garden_root,
             target=target,

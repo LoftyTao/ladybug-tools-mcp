@@ -1,21 +1,20 @@
-'MCP tool for detailed_hvac_schedule_rule.'
+'MCP tool for IB_schedule_rule.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_schedule_rule tool.'
+    'Register the IB_schedule_rule tool.'
 
     @mcp.tool(
-        name='schedule_rule',
+        name='IB_schedule_rule',
         description=(
-            'Create IB_ScheduleRule, a rule child for IB_ScheduleRuleset with one constant value or 24 hourly values, weekday/weekend/day flags, and an optional start/end date range. Use it inside detailed_hvac_schedule_ruleset; it is not a standalone annual schedule, Schedule:File, ScheduleTypeLimits object, or Energy run. Returns target, summary_view, persistence_receipt, and report.'
+            'Create IB_ScheduleRule, a rule child for IB_ScheduleRuleset with one constant value or 24 hourly values, weekday/weekend/day flags, and an optional start/end date range. Use it inside IB_schedule_ruleset; it is not a standalone annual schedule, Schedule:File, ScheduleTypeLimits object, or Energy run. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
         ),
         tags={'ironbug', 'detailed-hvac', 'schedule', 'schedule-rule', 'schedule-day', 'weekday', 'weekend', 'date-range', 'author'},
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_schedule_rule(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -151,6 +150,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug ScheduleRule child."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

@@ -7,7 +7,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.run import start_radiance_view_run as service
 
 
 def _view_filter_from_target(view_target: dict[str, Any] | None) -> str | None:
@@ -20,15 +19,15 @@ def _view_filter_from_target(view_target: dict[str, Any] | None) -> str | None:
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_start_view_simulation tool.'
+    'Register the RAD_start_view_simulation tool.'
 
     @mcp.tool(
-        name="start_view_simulation",
+        name="RAD_start_view_simulation",
         description=(
             "Start a background Radiance daylight view recipe for a Honeybee "
             "model with attached Views. Use for point-in-time-view and rpict "
             "image calculations with view_filter or view_target from "
-            "radiance_create_view. Poll with radiance_poll_simulation before "
+            "RAD_create_view. Poll with RAD_poll_simulation before "
             "reading HDR or image artifacts. Returns run_target, "
             "radiance_run_target, runtime_status through summary_view.status, "
             "poll_next, and report. Treat failed runtime_status as requiring "
@@ -43,7 +42,7 @@ def register(mcp: FastMCP) -> None:
         timeout=60,
     )
     def start_radiance_view_run(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model and should already have Views attached."),
@@ -54,7 +53,7 @@ def register(mcp: FastMCP) -> None:
         ] = "point_in_time",
         radiance_sky_file: Annotated[
             dict[str, Any] | None,
-            Field(description='Radiance sky file target from radiance_create_cie_standard_sky, radiance_create_climate_based_sky, radiance_create_sky, or radiance_create_sky_file. Required for point_in_time view runs.'),
+            Field(description='Radiance sky file target from RAD_create_cie_standard_sky, RAD_create_climate_based_sky, RAD_create_sky, or RAD_create_sky_file. Required for point_in_time view runs.'),
         ] = None,
         view_filter: Annotated[
             str,
@@ -78,7 +77,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         radiance_parameters: Annotated[
             str | dict[str, Any] | None,
-            Field(description="Optional Radiance parameters string or dictionary returned by radiance_create_parameters."),
+            Field(description="Optional Radiance parameters string or dictionary returned by RAD_create_parameters."),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -92,6 +91,8 @@ def register(mcp: FastMCP) -> None:
         silent: Annotated[bool, Field(description="Run the Radiance recipe silently.")] = True,
     ) -> dict[str, Any]:
         """Start a Radiance view run."""
+        from garden.radiance.run import start_radiance_view_run as service
+
         if radiance_sky_file is None:
             raise ValueError("Provide radiance_sky_file for Radiance view runs.")
         if view_filter == "*":

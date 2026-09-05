@@ -7,7 +7,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.parameters import create_radiance_parameters as service
 
 
 RAW_RADIANCE_FLAGS = (
@@ -53,16 +52,16 @@ def _raw_radiance_options(values: dict[str, Any]) -> str | None:
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_parameters tool.'
+    'Register the RAD_create_parameters tool.'
 
     @mcp.tool(
-        name="create_parameters",
+        name="RAD_create_parameters",
         description=(
             "Create recommended Radiance command parameters for rtrace grid, "
             "rpict view, or rfluxmtx annual/matrix daylight recipes. Pass the "
             "returned radiance_parameters string or target to "
-            "radiance_start_grid_simulation, radiance_start_view_simulation, "
-            "or radiance_start_matrix_simulation. This stores recipe "
+            "RAD_start_grid_simulation, RAD_start_view_simulation, "
+            "or RAD_start_matrix_simulation. This stores recipe "
             "parameters only; it does not create sensors, skies, views, or "
             "runs. Returns target, summary_view, and report."
         ),
@@ -114,6 +113,8 @@ def register(mcp: FastMCP) -> None:
         c: Annotated[int | float | str | None, Field(description="Optional raw Radiance -c sample count override for matrix recipes.")] = None,
     ) -> dict[str, Any]:
         """Create recommended Radiance parameters."""
+        from garden.radiance.parameters import create_radiance_parameters as service
+
         raw_options = _raw_radiance_options(
             {
                 "ab": ab,

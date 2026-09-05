@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from honeybee.aperture import Aperture
-from honeybee.boundarycondition import Surface, boundary_conditions
+from honeybee.boundarycondition import Outdoors, Surface, boundary_conditions
 from honeybee.door import Door
 from honeybee.face import Face
+from honeybee.facetype import Floor, RoofCeiling
 from honeybee.model import Model
 from honeybee.room import Room
 from honeybee.shade import Shade
@@ -40,7 +41,6 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
     save_honeybee_model,
-    with_honeybee_model_write_lock,
 )
 from garden.honeybee_core.postprocess import (
     apply_honeybee_postprocess,
@@ -70,9 +70,10 @@ def _save_receipt(
     object_target: dict[str, Any] | None = None,
     change_details: dict[str, Any] | None = None,
     warnings: list[str] | None = None,
+    status: str = "persisted",
 ) -> dict[str, Any]:
     return make_persistence_receipt(
-        status="persisted",
+        status=status,
         garden_id=garden_id,
         model_target=model_target,
         persisted_path=persisted_path,
@@ -105,7 +106,6 @@ def _ensure_unique_object_identifier(model: Model, identifier: str) -> None:
     )
 
 
-@with_honeybee_model_write_lock
 def create_honeybee_model(
     *,
     garden_root: str,
@@ -198,7 +198,6 @@ def _resolve_object_target_for_model(
     return normalize_honeybee_object_target(value)
 
 
-@with_honeybee_model_write_lock
 def create_honeybee_room(
     *,
     garden_root: str,
@@ -278,7 +277,6 @@ def create_honeybee_room(
     )
 
 
-@with_honeybee_model_write_lock
 def create_honeybee_face(
     *,
     garden_root: str,
@@ -329,7 +327,6 @@ def create_honeybee_face(
     )
 
 
-@with_honeybee_model_write_lock
 def create_honeybee_aperture(
     *,
     garden_root: str,
@@ -390,7 +387,6 @@ def create_honeybee_aperture(
     )
 
 
-@with_honeybee_model_write_lock
 def create_honeybee_apertures_by_parameters(
     *,
     garden_root: str,
@@ -406,8 +402,15 @@ def create_honeybee_apertures_by_parameters(
     tolerance: float = 0.01,
     rect_split: bool = True,
     postprocess_strategy: str | None = None,
+    _skylight_mode: bool = False,
 ) -> dict[str, Any]:
     """Create Honeybee Apertures on a host Face with SDK parameter methods."""
+    operation = (
+        "create_honeybee_skylights_by_ratio"
+        if _skylight_mode
+        else "create_honeybee_apertures_by_parameters"
+    )
+    object_label = "skylight" if _skylight_mode else "aperture"
     garden_root, manifest, model_target, model = _load_target_model(
         garden_root,
         model_target,
@@ -416,17 +419,49 @@ def create_honeybee_apertures_by_parameters(
     host = ensure_face_host(find_object(model, host_target))
     before_ids = {aperture.identifier for aperture in host.apertures}
     before_model_ids = _model_object_identifiers(model)
+    reuse_existing = False
 
     if generation_mode == "by_ratio":
         if ratio is None:
             raise ValueError("ratio is required when generation_mode is 'by_ratio'.")
         if not 0 < ratio < 1:
             raise ValueError("ratio must be greater than 0 and less than 1.")
-        host.apertures_by_ratio(
-            ratio,
-            tolerance=tolerance,
-            rect_split=rect_split,
-        )
+        if _skylight_mode:
+            if tolerance <= 0:
+                raise ValueError("tolerance must be greater than 0.")
+            if not isinstance(host.type, (RoofCeiling, Floor)):
+                raise ValueError(
+                    "host_target must identify a Honeybee Face of type RoofCeiling or Floor. "
+                    f"Got {host.type}."
+                )
+            if not isinstance(host.boundary_condition, Outdoors):
+                raise ValueError(
+                    "Skylights require a RoofCeiling or Floor Face with an Outdoors "
+                    "boundary condition; the selected Face is not eligible."
+                )
+            existing_apertures = list(host.apertures)
+            existing_doors = list(host.doors)
+            if existing_doors:
+                raise ValueError(
+                    "Cannot create skylights on a Face with existing Door sub-faces; "
+                    "remove or resolve the doors first."
+                )
+            if existing_apertures:
+                validate_face_sub_faces(host)
+                if abs(float(host.aperture_ratio) - ratio) > tolerance:
+                    raise ValueError(
+                        "Existing Apertures conflict with ratio; resolve them explicitly "
+                        "before requesting a different aperture ratio."
+                    )
+                reuse_existing = True
+
+    if generation_mode == "by_ratio":
+        if not reuse_existing:
+            host.apertures_by_ratio(
+                ratio,
+                tolerance=tolerance,
+                rect_split=rect_split,
+            )
     elif generation_mode == "by_width_height":
         if aperture_width is None:
             raise ValueError(
@@ -477,10 +512,10 @@ def create_honeybee_apertures_by_parameters(
             for target, aperture in zip(targets, existing_apertures, strict=True)
         ]
         warning = (
-            "No new Honeybee apertures were created because the host face already "
-            "has apertures. Returning existing aperture targets."
+            f"No new Honeybee {object_label}s were created because the host Face "
+            "already has apertures. Returning existing aperture targets."
         )
-        return {
+        response = {
             "target": targets[0],
             "aperture_target": targets[0],
             "targets": targets,
@@ -499,7 +534,7 @@ def create_honeybee_apertures_by_parameters(
                 garden_id=manifest.garden_id,
                 model_target=model_target,
                 persisted_path=str(model_target.get("path", "")),
-                operation="create_honeybee_apertures_by_parameters",
+                operation=operation,
                 object_target=host_target,
                 change_details={
                     "created_targets": [],
@@ -507,13 +542,18 @@ def create_honeybee_apertures_by_parameters(
                     "generation_mode": generation_mode,
                 },
                 warnings=[warning],
+                status="no_change" if reuse_existing else "persisted",
             ),
             "report": make_report(
                 status="ok",
-                message="Existing Honeybee apertures returned.",
+                message=f"Existing Honeybee {object_label}s returned.",
                 warnings=[warning],
             ),
         }
+        if reuse_existing:
+            response["model_target"] = model_target
+            response["runtime_status"] = "no_change"
+        return response
     if identifier_prefix:
         existing_ids = set(before_model_ids)
         for index, aperture in enumerate(created_apertures, start=1):
@@ -547,7 +587,7 @@ def create_honeybee_apertures_by_parameters(
         model=model,
         garden_id=manifest.garden_id,
         model_identifier=str(model_target["model_identifier"]),
-        operation="create_honeybee_apertures_by_parameters",
+        operation=operation,
         target=host_target,
         object_type="aperture",
         strategy=postprocess_strategy,
@@ -577,7 +617,7 @@ def create_honeybee_apertures_by_parameters(
                 garden_id=manifest.garden_id,
                 model_target=updated_target,
                 persisted_path=persisted_path,
-                operation="create_honeybee_apertures_by_parameters",
+                operation=operation,
                 object_target=host_target,
                 change_details={
                     "created_targets": targets,
@@ -587,7 +627,7 @@ def create_honeybee_apertures_by_parameters(
             "report": make_report(
                 status="ok",
                 message=(
-                    f"Created {len(created_apertures)} Honeybee aperture(s) on face: "
+                    f"Created {len(created_apertures)} Honeybee {object_label}(s) on face: "
                     f"{host.identifier}"
                 ),
             ),
@@ -596,7 +636,30 @@ def create_honeybee_apertures_by_parameters(
     )
 
 
-@with_honeybee_model_write_lock
+def create_honeybee_skylights_by_ratio(
+    *,
+    garden_root: str,
+    host_target: dict[str, Any],
+    ratio: float,
+    model_target: dict[str, Any] | None = None,
+    tolerance: float = 0.01,
+    identifier_prefix: str | None = None,
+    postprocess_strategy: str | None = None,
+) -> dict[str, Any]:
+    """Create or reuse ratio-based skylights on a RoofCeiling or Floor Face."""
+    return create_honeybee_apertures_by_parameters(
+        garden_root=garden_root,
+        host_target=host_target,
+        generation_mode="by_ratio",
+        ratio=ratio,
+        model_target=model_target,
+        identifier_prefix=identifier_prefix,
+        tolerance=tolerance,
+        postprocess_strategy=postprocess_strategy,
+        _skylight_mode=True,
+    )
+
+
 def create_honeybee_shades_by_parameters(
     *,
     garden_root: str,
@@ -773,7 +836,6 @@ def create_honeybee_shades_by_parameters(
     )
 
 
-@with_honeybee_model_write_lock
 def create_honeybee_door(
     *,
     garden_root: str,
@@ -1063,7 +1125,6 @@ def _adjacent_surface_face(model: Model, host: Face) -> Face | None:
     )
 
 
-@with_honeybee_model_write_lock
 def create_honeybee_shade(
     *,
     garden_root: str,

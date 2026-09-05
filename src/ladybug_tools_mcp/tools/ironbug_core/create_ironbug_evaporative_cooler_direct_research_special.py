@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_evaporative_cooler_direct_research_special.'
+'MCP tool for IB_evaporative_cooler_direct_research_special.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_evaporative_cooler_direct_research_special tool.'
+    'Register the IB_evaporative_cooler_direct_research_special tool.'
 
     @mcp.tool(
-        name='evaporative_cooler_direct_research_special',
+        name='IB_evaporative_cooler_direct_research_special',
         description=(
             'Create IB_EvaporativeCoolerDirectResearchSpecial, an EnergyPlus/OpenStudio direct evaporative cooler for an Ironbug air loop or outdoor-air path. Use it for direct adiabatic cooling with design effectiveness, primary-air-flow modifier curves, water pump power, drift/blowdown water use, and drybulb/wetbulb operating limits; this is not a hydronic fluid cooler, cooling tower, chiller, or Energy run. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_evaporative_cooler_direct_research_special(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -47,17 +46,9 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | str | None,
             Field(description='Optional schedule target that defines when the direct evaporative cooler can operate.'),
         ] = None,
-        available_schedule_target: Annotated[
-            dict[str, Any] | str | None,
-            Field(description='Optional legacy Ironbug AvailableSchedule target; use availability_schedule_target for new calls.'),
-        ] = None,
         cooler_design_effectiveness: Annotated[
             float | None,
             Field(description='Direct evaporative cooler design effectiveness applied to wetbulb depression at design air flow.'),
-        ] = None,
-        cooler_effectiveness: Annotated[
-            str | float | int | bool | None,
-            Field(description='Optional legacy cooler effectiveness field; prefer cooler_design_effectiveness for EnergyPlus ResearchSpecial input.'),
         ] = None,
         recirculating_water_pump_power_consumption: Annotated[
             float | str | None,
@@ -134,6 +125,8 @@ def register(mcp: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Create IB_EvaporativeCoolerDirectResearchSpecial as a reviewed Ironbug LoopObjs / AirLoopObjects authoring object."""
 
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}
         source_properties: dict[str, Any] = {}
@@ -141,12 +134,8 @@ def register(mcp: FastMCP) -> None:
             source_fields['Name'] = name
         if availability_schedule_target is not None:
             source_field_targets['AvailabilitySchedule'] = availability_schedule_target
-        if available_schedule_target is not None:
-            source_field_targets['AvailableSchedule'] = available_schedule_target
         if cooler_design_effectiveness is not None:
             source_fields['CoolerDesignEffectiveness'] = cooler_design_effectiveness
-        if cooler_effectiveness is not None:
-            source_fields['CoolerEffectiveness'] = cooler_effectiveness
         if recirculating_water_pump_power_consumption is not None:
             source_fields['RecirculatingWaterPumpPowerConsumption'] = recirculating_water_pump_power_consumption
         if primary_air_design_flow_rate is not None:

@@ -24,7 +24,6 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
     save_honeybee_model,
-    with_honeybee_model_write_lock,
 )
 from garden.honeybee_core.postprocess import (
     apply_honeybee_postprocess,
@@ -38,7 +37,6 @@ from garden.honeybee_core.targets import (
 Transformable = Model | Room | Face | Aperture | Door | Shade
 
 
-@with_honeybee_model_write_lock
 def move_object(
     *,
     garden_root: str,
@@ -59,7 +57,6 @@ def move_object(
     )
 
 
-@with_honeybee_model_write_lock
 def rotate_object(
     *,
     garden_root: str,
@@ -90,7 +87,6 @@ def rotate_object(
     )
 
 
-@with_honeybee_model_write_lock
 def scale_object(
     *,
     garden_root: str,
@@ -115,7 +111,6 @@ def scale_object(
     )
 
 
-@with_honeybee_model_write_lock
 def mirror_object(
     *,
     garden_root: str,

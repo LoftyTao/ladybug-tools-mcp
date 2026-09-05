@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.modifiers import create_radiance_glass_modifier as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_glass_modifier tool.'
+    'Register the RAD_create_glass_modifier tool.'
 
     @mcp.tool(
-        name="create_glass_modifier",
+        name="RAD_create_glass_modifier",
         description=(
             "Create a Honeybee Radiance Glass modifier for daylight and view "
             "workflows. The SDK glass interface uses transmittance or "
@@ -80,7 +79,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,
@@ -88,6 +87,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance Glass modifier."""
+        from garden.radiance.modifiers import create_radiance_glass_modifier as service
+
         if rgb_transmittance is None:
             rgb_transmittance = transmittance
         if rgb_transmissivity is None:

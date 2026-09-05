@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_output_variable.'
+'MCP tool for IB_output_variable.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_output_variable tool.'
+    'Register the IB_output_variable tool.'
 
     @mcp.tool(
-        name='output_variable',
+        name='IB_output_variable',
         description=(
             'Create IB_OutputVariable, an Ironbug reporting request for a specific EnergyPlus Output:Variable name and reporting frequency. Attach it to source-backed component tools through output_variable_names or component custom output-variable hooks when you need simulation outputs; this is not an Energy result reader, SQL query, or EMS output-variable definition. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_output_variable(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -61,6 +60,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_OutputVariable as a reviewed Ironbug Root authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

@@ -62,6 +62,30 @@ _CURVE_SPECS: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...]]] = {
         ),
         ("MinimumValueofx", "MaximumValueofx"),
     ),
+    "IB_CurveDoubleExponentialDecay": (
+        "CurveDoubleExponentialDecay",
+        "OS:Curve:DoubleExponentialDecay",
+        (
+            "Coefficient1C1",
+            "Coefficient2C2",
+            "Coefficient3C3",
+            "Coefficient4C4",
+            "Coefficient5C5",
+        ),
+        ("MinimumValueofx", "MaximumValueofx"),
+    ),
+    "IB_CurveExponentialDecay": (
+        "CurveExponentialDecay",
+        "OS:Curve:ExponentialDecay",
+        ("Coefficient1C1", "Coefficient2C2", "Coefficient3C3"),
+        ("MinimumValueofx", "MaximumValueofx"),
+    ),
+    "IB_CurveExponentialSkewNormal": (
+        "CurveExponentialSkewNormal",
+        "OS:Curve:ExponentialSkewNormal",
+        ("Coefficient1C1", "Coefficient2C2", "Coefficient3C3", "Coefficient4C4"),
+        ("MinimumValueofx", "MaximumValueofx"),
+    ),
     "IB_CurveFanPressureRise": (
         "CurveFanPressureRise",
         "OS:Curve:FanPressureRise",
@@ -78,6 +102,18 @@ _CURVE_SPECS: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...]]] = {
             "MaximumValueofQfan",
         ),
     ),
+    "IB_CurveFunctionalPressureDrop": (
+        "CurveFunctionalPressureDrop",
+        "OS:Curve:Functional:PressureDrop",
+        (
+            "Diameter",
+            "MinorLossCoefficient",
+            "Length",
+            "Roughness",
+            "FixedFrictionFactor",
+        ),
+        (),
+    ),
     "IB_CurveLinear": (
         "CurveLinear",
         "OS:Curve:Linear",
@@ -90,6 +126,45 @@ _CURVE_SPECS: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...]]] = {
         ("Coefficient1Constant", "Coefficient2x", "Coefficient3xPOW2"),
         ("MinimumValueofx", "MaximumValueofx"),
     ),
+    "IB_CurveQuadLinear": (
+        "CurveQuadLinear",
+        "OS:Curve:QuadLinear",
+        (
+            "Coefficient1Constant",
+            "Coefficient2w",
+            "Coefficient3x",
+            "Coefficient4y",
+            "Coefficient5z",
+        ),
+        (
+            "MinimumValueofw",
+            "MaximumValueofw",
+            "MinimumValueofx",
+            "MaximumValueofx",
+            "MinimumValueofy",
+            "MaximumValueofy",
+            "MinimumValueofz",
+            "MaximumValueofz",
+        ),
+    ),
+    "IB_CurveQuadraticLinear": (
+        "CurveQuadraticLinear",
+        "OS:Curve:QuadraticLinear",
+        (
+            "Coefficient1Constant",
+            "Coefficient2x",
+            "Coefficient3xPOW2",
+            "Coefficient4y",
+            "Coefficient5xTIMESY",
+            "Coefficient6xPOW2TIMESY",
+        ),
+        (
+            "MinimumValueofx",
+            "MaximumValueofx",
+            "MinimumValueofy",
+            "MaximumValueofy",
+        ),
+    ),
     "IB_CurveQuartic": (
         "CurveQuartic",
         "OS:Curve:Quartic",
@@ -100,6 +175,42 @@ _CURVE_SPECS: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...]]] = {
             "Coefficient4xPOW3",
             "Coefficient5xPOW4",
         ),
+        ("MinimumValueofx", "MaximumValueofx"),
+    ),
+    "IB_CurveQuintLinear": (
+        "CurveQuintLinear",
+        "OS:Curve:QuintLinear",
+        (
+            "Coefficient1Constant",
+            "Coefficient2v",
+            "Coefficient3w",
+            "Coefficient4x",
+            "Coefficient5y",
+            "Coefficient6z",
+        ),
+        (
+            "MinimumValueofv",
+            "MaximumValueofv",
+            "MinimumValueofw",
+            "MaximumValueofw",
+            "MinimumValueofx",
+            "MaximumValueofx",
+            "MinimumValueofy",
+            "MaximumValueofy",
+            "MinimumValueofz",
+            "MaximumValueofz",
+        ),
+    ),
+    "IB_CurveRectangularHyperbola1": (
+        "CurveRectangularHyperbola1",
+        "OS:Curve:RectangularHyperbola1",
+        ("Coefficient1C1", "Coefficient2C2", "Coefficient3C3"),
+        ("MinimumValueofx", "MaximumValueofx"),
+    ),
+    "IB_CurveRectangularHyperbola2": (
+        "CurveRectangularHyperbola2",
+        "OS:Curve:RectangularHyperbola2",
+        ("Coefficient1C1", "Coefficient2C2", "Coefficient3C3"),
         ("MinimumValueofx", "MaximumValueofx"),
     ),
     "IB_CurveSigmoid": (
@@ -177,8 +288,12 @@ def _write_curve(
         _set_if_present(getattr(curve, f"set{field_name}"), node, field_name)
     for field_name in limit_fields:
         _set_if_present(getattr(curve, f"set{field_name}"), node, field_name)
-    _set_if_present(curve.setMinimumCurveOutput, node, "MinimumCurveOutput")
-    _set_if_present(curve.setMaximumCurveOutput, node, "MaximumCurveOutput")
+    minimum_curve_output_setter = getattr(curve, "setMinimumCurveOutput", None)
+    if minimum_curve_output_setter is not None:
+        _set_if_present(minimum_curve_output_setter, node, "MinimumCurveOutput")
+    maximum_curve_output_setter = getattr(curve, "setMaximumCurveOutput", None)
+    if maximum_curve_output_setter is not None:
+        _set_if_present(maximum_curve_output_setter, node, "MaximumCurveOutput")
     return OpenStudioWrittenObject(
         identifier=node.identifier,
         source_class=node.source_class,

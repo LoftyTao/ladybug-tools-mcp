@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.geometry import reset_dragonfly_story_adjacency as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_reset_story_adjacency tool.'
+    'Register the DF_reset_story_adjacency tool.'
 
     @mcp.tool(
-        name="reset_story_adjacency",
+        name="DF_reset_story_adjacency",
         description=(
             "Reset Surface boundary conditions on a Dragonfly Story using "
             "Story.reset_adjacency, save the updated DFJSON, and return compact "
@@ -27,7 +26,7 @@ def register(mcp: FastMCP) -> None:
     def reset_dragonfly_story_adjacency(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         story_target: Annotated[
             dict[str, Any] | None,
@@ -46,13 +45,15 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
         ] = None,
     ) -> dict[str, Any]:
         """Reset Dragonfly Story adjacency."""
+        from garden.dragonfly_core.geometry import reset_dragonfly_story_adjacency as service
+
         return service(
             garden_root=garden_root,
             story_target=story_target,

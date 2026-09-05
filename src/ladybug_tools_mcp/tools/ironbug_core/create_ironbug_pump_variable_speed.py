@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_pump_variable_speed.'
+'MCP tool for IB_pump_variable_speed.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_pump_variable_speed tool.'
+    'Register the IB_pump_variable_speed tool.'
 
     @mcp.tool(
-        name='pump_variable_speed',
+        name='IB_pump_variable_speed',
         description=(
             'Create an Ironbug IB_PumpVariableSpeed component for an EnergyPlus/OpenStudio Pump:VariableSpeed on a plant or condenser loop. Use this hydronic pump when plant flow varies with load, VFD control, part-load coefficients, or pressure/RPM schedules. This authors Ironbug DetailedHVAC input only; run Energy simulation after the DetailedHVAC system is applied. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -39,13 +38,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_pump_variable_speed(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -212,6 +211,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_PumpVariableSpeed as a reviewed Ironbug Loop Objs authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

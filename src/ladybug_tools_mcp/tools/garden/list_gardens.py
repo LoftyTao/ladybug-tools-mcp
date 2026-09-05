@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.store import list_gardens as list_gardens_service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the garden_list tool.'
+    'Register the GD_list tool.'
 
     @mcp.tool(
-        name='list',
-        description="List existing Ladybug Tools Garden project workspaces by finding folders that contain garden.json. Use this when a user asks to find saved Gardens, choose a project workspace, or continue prior work. Results are sorted with the most recent Gardens first and may include root paths, descriptions, and base-model summaries. Returns matches with reusable garden_target objects plus summary_view cleanup guidance; pass a selected match path as garden_root to garden_get or downstream tools.",
+        name='GD_list',
+        description="List existing Ladybug Tools Garden project workspaces by finding folders that contain garden.json. Use this when a user asks to find saved Gardens, choose a project workspace, or continue prior work. Results are sorted with the most recent Gardens first and may include root paths, descriptions, and base-model summaries. Returns matches with reusable garden_target objects plus summary_view cleanup guidance; pass a selected match path as garden_root to GD_get or downstream tools.",
         tags={
             "garden",
             "project",
@@ -39,6 +38,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """List Gardens under a root directory."""
+        from garden.store import list_gardens as list_gardens_service
+
         return list_gardens_service(
             root_dir=root_dir,
             include_paths=include_paths,

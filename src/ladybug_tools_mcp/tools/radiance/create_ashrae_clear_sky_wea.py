@@ -7,19 +7,18 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.sky import create_ashrae_clear_sky_wea as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_ashrae_clear_sky_wea tool.'
+    'Register the RAD_create_ashrae_clear_sky_wea tool.'
 
     @mcp.tool(
-        name='create_ashrae_clear_sky_wea',
+        name='RAD_create_ashrae_clear_sky_wea',
         description=(
             "Create a Radiance WEA file from ASHRAE Clear Sky conditions for "
             "a Garden location. Use this for clear-sky daylight or irradiance "
             "setup when the workflow needs synthetic WEA weather for "
-            "radiance_create_sky_matrix. This writes WEA data for Radiance "
+            "RAD_create_sky_matrix. This writes WEA data for Radiance "
             "sky workflows; it does not download EPW files or run EnergyPlus. "
             "Returns target, wea_target, summary_view, persistence_receipt, "
             "and report."
@@ -36,7 +35,7 @@ def register(mcp: FastMCP) -> None:
     def create_ashrae_clear_sky_wea(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str | None,
@@ -96,6 +95,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create a clear-sky WEA target."""
+        from garden.radiance.sky import create_ashrae_clear_sky_wea as service
+
         if identifier is None:
             identifier = city or "ashrae_clear_sky_wea"
         if location is None:

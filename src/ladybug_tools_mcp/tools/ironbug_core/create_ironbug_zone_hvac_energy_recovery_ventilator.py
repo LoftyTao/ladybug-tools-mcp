@@ -1,24 +1,22 @@
-'MCP tool for detailed_hvac_zone_equipment_energy_recovery_ventilator.'
+'MCP tool for IB_zone_equipment_energy_recovery_ventilator.'
+
+import math
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_thermal_zone_equipment,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_energy_recovery_ventilator tool.'
+    'Register the IB_zone_equipment_energy_recovery_ventilator tool.'
 
     @mcp.tool(
-        name='zone_equipment_energy_recovery_ventilator',
+        name='IB_zone_equipment_energy_recovery_ventilator',
         description=(
-            'Create IB_ZoneHVACEnergyRecoveryVentilator, the Ironbug and EnergyPlus ZoneHVAC:EnergyRecoveryVentilator zone equipment with heat-exchanger, supply-fan, and exhaust-fan children plus supply/exhaust ventilation flow fields. Use it for room-level energy-recovery ventilation attached to an IB_ThermalZone, not as an air-loop outdoor-air system, standalone heat exchanger, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
+            'Create IB_ZoneHVACEnergyRecoveryVentilator, the Ironbug and EnergyPlus ZoneHVAC:EnergyRecoveryVentilator zone equipment with heat-exchanger, supply-fan, exhaust-fan, and optional controller children plus supply/exhaust ventilation flow fields. Use it for room-level energy-recovery ventilation attached to an IB_ThermalZone, not as an air-loop outdoor-air system, standalone heat exchanger, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
         ),
         tags={'ironbug', 'detailed-hvac', 'hvac', 'component', 'zone-equipment', 'energy-recovery', 'heat-recovery', 'ventilation', 'fan', 'thermal-zone', 'author'},
@@ -33,7 +31,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -48,23 +46,23 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         availability_schedule_target: Annotated[
             dict[str, Any] | str | None,
-            Field(description='Optional IB_Schedule target for ZoneHVAC:EnergyRecoveryVentilator availability; pass a detailed_hvac_schedule_* target or same-model identifier.'),
+            Field(description='Optional IB_Schedule target for ZoneHVAC:EnergyRecoveryVentilator availability; pass an IB_schedule_* target or same-model identifier.'),
         ] = None,
         supply_air_flow_rate: Annotated[
             float | str | None,
-            Field(description='Optional supply air flow rate for the zone energy-recovery ventilator; accepts numeric values or autosizing strings supported by the Ironbug source field.'),
+            Field(description='Optional supply air flow rate in m3/s; omit it or use Autosize when a defensible design flow is unavailable, and avoid applying whole-building flow to one room.'),
         ] = None,
         exhaust_air_flow_rate: Annotated[
             float | str | None,
-            Field(description='Optional exhaust air flow rate for the zone energy-recovery ventilator; accepts numeric values or autosizing strings supported by the Ironbug source field.'),
+            Field(description='Optional exhaust air flow rate in m3/s; omit it or use Autosize when a defensible design flow is unavailable, and keep it consistent with the served-room ventilation basis.'),
         ] = None,
         ventilation_rateper_unit_floor_area: Annotated[
             float | None,
-            Field(description='Optional VentilationRateperUnitFloorArea value; maps to Ironbug IB_ZoneHVACEnergyRecoveryVentilator field VentilationRateperUnitFloorArea.'),
+            Field(ge=0, description='Optional ventilation rate in m3/s-m2; maps to VentilationRateperUnitFloorArea.'),
         ] = None,
         ventilation_rateper_occupant: Annotated[
             float | None,
-            Field(description='Optional VentilationRateperOccupant value; maps to Ironbug IB_ZoneHVACEnergyRecoveryVentilator field VentilationRateperOccupant.'),
+            Field(ge=0, description='Optional ventilation rate in m3/s-person; maps to VentilationRateperOccupant.'),
         ] = None,
         thermal_zone_target: Annotated[
             dict[str, Any] | str | None,
@@ -116,6 +114,7 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Optional IB_Fan target used as the zone energy-recovery ventilator supply fan child."
+                    " OpenStudio accepts IB_FanOnOff or IB_FanSystemModel here."
                 )
             ),
         ] = None,
@@ -124,6 +123,18 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Optional IB_Fan target used as the zone energy-recovery ventilator exhaust fan child."
+                    " OpenStudio accepts IB_FanOnOff or IB_FanSystemModel here."
+                )
+            ),
+        ] = None,
+        controller_target: Annotated[
+            dict[str, Any] | str | None,
+            Field(
+                description=(
+                    "Optional IB_ZoneHVACEnergyRecoveryVentilatorController target "
+                    "used as the zone energy-recovery ventilator controller child; "
+                    "pass a target returned by "
+                    "IB_zone_hvac_energy_recovery_ventilator_controller."
                 )
             ),
         ] = None,
@@ -134,10 +145,39 @@ def register(mcp: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Create an Ironbug ZoneHVAC:EnergyRecoveryVentilator zone-equipment object."""
 
+        from garden.ironbug_core.create_tools import (
+            create_source_backed_ironbug_object,
+            validate_ironbug_erv_autosizing,
+        )
+
+        from garden.ironbug_core.relationships import (
+            add_ironbug_thermal_zone_equipment,
+        )
+
+        for field_name, value in {
+            "supply_air_flow_rate": supply_air_flow_rate,
+            "exhaust_air_flow_rate": exhaust_air_flow_rate,
+        }.items():
+            if isinstance(value, (int, float)) and (
+                not math.isfinite(value) or value < 0
+            ):
+                raise ValueError(f"{field_name} must be finite and non-negative.")
+
+        validate_ironbug_erv_autosizing(
+            garden_root=garden_root,
+            ironbug_model_target=ironbug_model_target,
+            supply_air_flow_rate=supply_air_flow_rate,
+            exhaust_air_flow_rate=exhaust_air_flow_rate,
+            heating_exchanger_target=heating_exchanger_target,
+            supply_fan_target=supply_fan_target,
+            exhaust_fan_target=exhaust_fan_target,
+        )
+
         child_targets = [
             heating_exchanger_target,
             supply_fan_target,
             exhaust_fan_target,
+            controller_target,
         ]
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}
@@ -190,4 +230,5 @@ def register(mcp: FastMCP) -> None:
             binding_summary["thermal_zone_bound"] = False
         created["updated_model_target"] = latest_model_target
         created["summary_view"] = {**created["summary_view"], **binding_summary}
+        created["summary_view"]["controller_bound"] = controller_target is not None
         return created

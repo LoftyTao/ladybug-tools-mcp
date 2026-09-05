@@ -84,6 +84,8 @@ from garden.ironbug_console.openstudio_writer_utils import (
 )
 from garden.ironbug_console.openstudio_zone_equipment import (
     _ZONE_HVAC_EQUIPMENT_SOURCE_CLASSES,
+    _new_erv_controller,
+    _write_energy_recovery_ventilator,
     _write_baseboard_convective_water,
     _write_baseboard_radiant_convective_water,
     _write_four_pipe_fan_coil,
@@ -97,6 +99,10 @@ from garden.ironbug_console.openstudio_zone_equipment import (
     _write_unit_ventilator_cooling_heating,
     _write_unit_ventilator_cooling_only,
     _write_unit_ventilator_heating_only,
+)
+from garden.ironbug_console.openstudio_tables import (
+    _write_table_independent_variable,
+    _write_table_lookup,
 )
 
 
@@ -172,6 +178,14 @@ def write_first_family_to_openstudio_model(
                 )
         elif node.source_class in _CURVE_SPECS:
             written_objects.append(_write_curve(openstudio, model, node))
+        elif node.source_class == "IB_TableIndependentVariable":
+            written_objects.append(
+                _write_table_independent_variable(openstudio, model, node)
+            )
+        elif node.source_class == "IB_TableLookup":
+            written_objects.append(
+                _write_table_lookup(openstudio, model, graph, node)
+            )
         elif node.source_class == "IB_SizingZone":
             written_objects.append(_write_sizing_zone(model, graph, node))
         elif node.source_class == "IB_SizingSystem":
@@ -193,6 +207,22 @@ def write_first_family_to_openstudio_model(
                 written_objects,
                 _write_ptac(openstudio, model, graph, node),
             )
+        elif node.source_class == "IB_ZoneHVACEnergyRecoveryVentilator":
+            _append_written(
+                written_objects,
+                _write_energy_recovery_ventilator(openstudio, model, graph, node),
+            )
+        elif (
+            node.source_class
+            == "IB_ZoneHVACEnergyRecoveryVentilatorController"
+        ):
+            _controller, controller_summaries = _new_erv_controller(
+                openstudio,
+                model,
+                graph,
+                node,
+            )
+            _append_written(written_objects, controller_summaries)
         elif node.source_class == "IB_ZoneHVACPackagedTerminalHeatPump":
             _append_written(
                 written_objects,

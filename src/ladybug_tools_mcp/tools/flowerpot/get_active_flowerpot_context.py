@@ -24,10 +24,10 @@ def get_active_flowerpot_context(
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the flowerpot_get_active_context tool.'
+    'Register the FP_get_active_context tool.'
 
     @mcp.tool(
-        name="get_active_context",
+        name="FP_get_active_context",
         description=(
             "Read the Garden-local active Flowerpot context file for prompts about "
             "Grasshopper, current model, active model, 当前模型, or 正在编辑的模型. Use "
@@ -50,7 +50,7 @@ def register(mcp: FastMCP) -> None:
     def _tool(
         garden_root: Annotated[
             str | None,
-            Field(description="Optional Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Optional Garden root path containing garden.json, usually GD_create['garden_root']."),
         ] = None,
         platform: Annotated[
             str,

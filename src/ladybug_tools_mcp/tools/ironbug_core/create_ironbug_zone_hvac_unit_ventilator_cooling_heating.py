@@ -1,23 +1,18 @@
-'MCP tool for detailed_hvac_zone_equipment_unit_ventilator_cooling_heating.'
+'MCP tool for IB_zone_equipment_unit_ventilator_cooling_heating.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_thermal_zone_equipment,
-    set_ironbug_unit_ventilator_cooling_heating_children,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_unit_ventilator_cooling_heating tool.'
+    'Register the IB_zone_equipment_unit_ventilator_cooling_heating tool.'
 
     @mcp.tool(
-        name='zone_equipment_unit_ventilator_cooling_heating',
+        name='IB_zone_equipment_unit_ventilator_cooling_heating',
         description=(
             'Create IB_ZoneHVACUnitVentilator_CoolingHeating, the Ironbug and EnergyPlus ZoneHVAC:UnitVentilator variant with cooling coil, heating coil, fan, outdoor-air controls, and optional ThermalZone placement. Use it for room-level unit ventilators that provide both cooling and heating, not as a unit heater, fan coil, air terminal, standalone coil, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -34,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -160,6 +155,10 @@ def register(mcp: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Create an Ironbug ZoneHVAC:UnitVentilator cooling/heating object."""
 
+        from garden.ironbug_core.create_tools import (
+            _create_source_backed_ironbug_zone_equipment,
+        )
+
         child_targets = (cooling_coil_target, heating_coil_target, fan_target)
         if any(item is not None for item in child_targets) and not all(
             item is not None for item in child_targets
@@ -193,11 +192,34 @@ def register(mcp: FastMCP) -> None:
             source_fields['HeatingConvergenceTolerance'] = heating_convergence_tolerance
         if cooling_convergence_tolerance is not None:
             source_fields['CoolingConvergenceTolerance'] = cooling_convergence_tolerance
-        created = create_source_backed_ironbug_object(
+        child_bindings = (
+            [
+                (cooling_coil_target, {"IB_CoilCoolingWater"}),
+                (
+                    heating_coil_target,
+                    {"IB_CoilHeatingWater", "IB_CoilHeatingElectric", "IB_CoilHeatingGas"},
+                ),
+                (
+                    fan_target,
+                    {
+                        "IB_FanOnOff",
+                        "IB_FanConstantVolume",
+                        "IB_FanVariableVolume",
+                        "IB_FanSystemModel",
+                    },
+                ),
+            ]
+            if all(item is not None for item in child_targets)
+            else []
+        )
+        return _create_source_backed_ironbug_zone_equipment(
             garden_root=garden_root,
             ironbug_model_target=ironbug_model_target,
             source_class='IB_ZoneHVACUnitVentilator_CoolingHeating',
+            operation='create_ironbug_zone_hvac_unit_ventilator_cooling_heating',
             identifier=identifier,
+            thermal_zone_target=thermal_zone_target,
+            child_bindings=child_bindings,
             display_name=display_name,
             source_fields=source_fields or None,
             source_field_targets=source_field_targets or None,
@@ -209,37 +231,3 @@ def register(mcp: FastMCP) -> None:
             ems_internal_variable_targets=ems_internal_variable_targets,
             overwrite=overwrite,
         )
-        latest_model_target = created["updated_model_target"]
-        binding_summary: dict[str, Any] = {}
-        if all(item is not None for item in child_targets):
-            children = set_ironbug_unit_ventilator_cooling_heating_children(
-                garden_root=garden_root,
-                ironbug_model_target=latest_model_target,
-                unit_ventilator_target=created["target"],
-                cooling_coil_target=cooling_coil_target,
-                heating_coil_target=heating_coil_target,
-                fan_target=fan_target,
-            )
-            latest_model_target = children["updated_model_target"]
-            created["target"] = children["target"]
-            binding_summary["children_bound"] = True
-        else:
-            binding_summary["children_bound"] = False
-        if thermal_zone_target is not None:
-            zone = add_ironbug_thermal_zone_equipment(
-                garden_root=garden_root,
-                ironbug_model_target=latest_model_target,
-                thermal_zone_target=thermal_zone_target,
-                zone_equipment_target=created["target"],
-            )
-            latest_model_target = zone["updated_model_target"]
-            created["target"]["model_target"] = latest_model_target
-            binding_summary["thermal_zone_bound"] = True
-            binding_summary["thermal_zone_identifier"] = zone["summary_view"][
-                "thermal_zone_identifier"
-            ]
-        else:
-            binding_summary["thermal_zone_bound"] = False
-        created["updated_model_target"] = latest_model_target
-        created["summary_view"] = {**created["summary_view"], **binding_summary}
-        return created

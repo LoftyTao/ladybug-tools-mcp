@@ -7,17 +7,16 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.fairyfly.results import read_fairyfly_therm_result as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the therm_read_result tool.'
+    'Register the FF_read_result tool.'
 
     @mcp.tool(
-        name="read_result",
+        name="FF_read_result",
         description=(
             "Read compact temperature or heat-flux statistics from a Fairyfly "
-            "THERM THMZ file. Poll therm_poll_simulation before reading THERM "
+            "THERM THMZ file. Poll FF_poll_simulation before reading THERM "
             "results from a run_target. If the THMZ has no result arrays, "
             "returns status no_results with a clear diagnostic instead of fake values. "
             "Returns therm_result_target, summary_view, and report when values exist; "
@@ -30,15 +29,15 @@ def register(mcp: FastMCP) -> None:
     def read_fairyfly_therm_result(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         thmz_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Optional fairyfly_thmz target returned by therm_write_model_to_thmz.'),
+            Field(description='Optional fairyfly_thmz target returned by FF_write_model_to_thmz.'),
         ] = None,
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Optional completed fairyfly_therm_run target returned by therm_start_simulation. Poll before reading result data.'),
+            Field(description='Optional completed fairyfly_therm_run target returned by FF_start_simulation. Poll before reading result data.'),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -54,6 +53,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Read Fairyfly THERM temperature or heat-flux result statistics."""
+        from garden.fairyfly.results import read_fairyfly_therm_result as service
+
         return service(
             garden_root=garden_root,
             thmz_target=thmz_target,

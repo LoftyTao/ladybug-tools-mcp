@@ -618,28 +618,6 @@ def _open_worker_process(action=None, session=False):
     )
 
 
-def _run_worker_once(action, request):
-    process = _open_worker_process(action=action)
-    stdout, stderr = process.communicate(
-        json.dumps(request, ensure_ascii=False).encode("utf-8")
-    )
-    stdout = _decode_text(stdout)
-    stderr = _decode_text(stderr)
-
-    if process.returncode != 0:
-        message = stderr.strip() or stdout.strip() or (
-            "Worker exited with code %s." % process.returncode
-        )
-        raise RuntimeError(message)
-    if not stdout.strip():
-        raise RuntimeError("Worker returned an empty response.")
-
-    response = json.loads(stdout)
-    if "error" in response:
-        raise RuntimeError(str(response["error"]))
-    return response
-
-
 def _worker_python_executable():
     candidates = _worker_python_candidates()
     for python_exe in candidates:

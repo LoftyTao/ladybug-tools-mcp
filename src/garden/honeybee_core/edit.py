@@ -58,7 +58,6 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
     save_honeybee_model,
-    with_honeybee_model_write_lock,
 )
 from garden.honeybee_core.postprocess import (
     apply_honeybee_postprocess,
@@ -397,10 +396,6 @@ def _modifier_from_input(data: dict[str, Any] | str) -> Modifier:
         return dict_to_modifier(data)
     except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
         raise ValueError(f"Invalid Honeybee Radiance modifier input. {exc}") from exc
-
-
-def _modifier_from_dict(data: dict[str, Any]) -> Modifier:
-    return _modifier_from_input(data)
 
 
 def _construction_from_dict(data: dict[str, Any]) -> Any:
@@ -773,7 +768,6 @@ def _apply_radiance_hot_swaps(
     )
 
 
-@with_honeybee_model_write_lock
 def edit_honeybee_model(
     *,
     garden_root: str,
@@ -868,7 +862,6 @@ def edit_honeybee_model(
     )
 
 
-@with_honeybee_model_write_lock
 def edit_honeybee_face(
     *,
     garden_root: str,
@@ -1024,7 +1017,6 @@ def edit_honeybee_face(
     )
 
 
-@with_honeybee_model_write_lock
 def edit_honeybee_room(
     *,
     garden_root: str,
@@ -1222,7 +1214,6 @@ def edit_honeybee_room(
     )
 
 
-@with_honeybee_model_write_lock
 def edit_honeybee_shade(
     *,
     garden_root: str,
@@ -1388,7 +1379,6 @@ def edit_honeybee_shade(
     )
 
 
-@with_honeybee_model_write_lock
 def edit_honeybee_aperture(
     *,
     garden_root: str,
@@ -1552,7 +1542,6 @@ def edit_honeybee_aperture(
     )
 
 
-@with_honeybee_model_write_lock
 def edit_honeybee_door(
     *,
     garden_root: str,

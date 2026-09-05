@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.editing import add_dragonfly_stories_to_building as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_add_stories_to_building tool.'
+    'Register the DF_add_stories_to_building tool.'
 
     @mcp.tool(
-        name="add_stories_to_building",
+        name="DF_add_stories_to_building",
         description=(
             "Add Dragonfly Story draft targets to an existing Building using Dragonfly "
             "Building.add_stories, then save the DFJSON model. The existing Building is "
@@ -29,7 +28,7 @@ def register(mcp: FastMCP) -> None:
     def add_dragonfly_stories_to_building(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         building_identifier: Annotated[
             str,
@@ -37,7 +36,7 @@ def register(mcp: FastMCP) -> None:
         ],
         story_targets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="Required list of Dragonfly Story targets returned by dragonfly_create_story or Dragonfly object search."),
+            Field(description="Required list of Dragonfly Story targets returned by DF_story or Dragonfly object search."),
         ] = None,
         story_identifiers: Annotated[
             list[str] | None,
@@ -53,13 +52,15 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
         ] = None,
     ) -> dict[str, Any]:
         """Add Dragonfly Stories to a Building."""
+        from garden.dragonfly_core.editing import add_dragonfly_stories_to_building as service
+
         return service(
             garden_root=garden_root,
             building_identifier=building_identifier,

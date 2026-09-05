@@ -1,18 +1,10 @@
-'MCP tool for detailed_hvac_thermal_zone.'
+'MCP tool for IB_thermal_zone.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_thermal_zone_equipment,
-    set_ironbug_thermal_zone_air_terminal,
-    set_ironbug_thermal_zone_return_plenum,
-    set_ironbug_thermal_zone_sizing_zone,
-    set_ironbug_thermal_zone_supply_plenum,
-)
 
 
 def _target_sequence(
@@ -37,10 +29,10 @@ def _single_target_from_sequence(
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_thermal_zone tool.'
+    'Register the IB_thermal_zone tool.'
 
     @mcp.tool(
-        name='thermal_zone',
+        name='IB_thermal_zone',
         description=(
             'Create IB_ThermalZone, an Ironbug DetailedHVAC thermal-zone '
             'target for equipment placement, air-terminal binding, sizing-zone '
@@ -62,13 +54,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_thermal_zone(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -407,7 +399,7 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Optional single IB_AirTerminal target for the source "
                     "property AirTerminal; pass a target dict from a compatible "
-                    "detailed_hvac_air_terminal_* tool or a same-model identifier."
+                    "IB_air_terminal_* tool or a same-model identifier."
                 )
             ),
         ] = None,
@@ -417,8 +409,8 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Optional list of IB_ZoneEquipment targets for the source "
                     "property ZoneEquipments; pass target dicts from compatible "
-                    "detailed_hvac_zone_equipment_* tools, "
-                    "detailed_hvac_zone_equipment_group, or same-model identifiers."
+                    "IB_zone_equipment_* tools, "
+                    "IB_zone_equipment_group, or same-model identifiers."
                 )
             ),
         ] = None,
@@ -428,6 +420,16 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_ThermalZone as a reviewed DetailedHVAC placement target."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            add_ironbug_thermal_zone_equipment,
+            set_ironbug_thermal_zone_air_terminal,
+            set_ironbug_thermal_zone_return_plenum,
+            set_ironbug_thermal_zone_sizing_zone,
+            set_ironbug_thermal_zone_supply_plenum,
+        )
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

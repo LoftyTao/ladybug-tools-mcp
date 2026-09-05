@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.schedules import create_schedule_day as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_schedule_day tool.'
+    'Register the EP_create_schedule_day tool.'
 
     @mcp.tool(
-        name='create_schedule_day',
+        name='EP_create_schedule_day',
         description='Create a Honeybee Energy ScheduleDay, the single-day profile used inside ScheduleRule or ScheduleRuleset objects. If times is omitted, values must contain exactly one all-day constant value. If times is provided, values and times must have the same length and each time is the Ladybug value-begins-at time, not the EnergyPlus time-until convention. Returns object_dict plus summary_view only; this lightweight day schedule is not saved to Garden and has no target.',
         tags={
             "energy",
@@ -43,6 +42,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy ScheduleDay."""
+        from garden.energy.schedules import create_schedule_day as service
+
         return service(
             identifier=identifier, values=values, times=times, interpolate=interpolate
         )

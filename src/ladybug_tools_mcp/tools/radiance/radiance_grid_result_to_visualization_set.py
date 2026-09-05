@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.visual import radiance_grid_result_to_visualization_set as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the radiance_grid_result_to_visualization_set tool."""
+    """Register the RAD_grid_result_to_visualization_set tool."""
 
     @mcp.tool(
-        name="grid_result_to_visualization_set",
+        name="RAD_grid_result_to_visualization_set",
         description=(
             "Create a Ladybug Display VisualizationSet target from Radiance "
             "SensorGrid result folders using "
@@ -33,7 +32,7 @@ def register(mcp: FastMCP) -> None:
         timeout=60,
     )
     def radiance_grid_result_to_visualization_set(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         run_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional completed radiance_run target with SensorGrid result outputs. Poll the run before converting result data."),
@@ -92,6 +91,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a VisualizationSet from Radiance grid results."""
+        from garden.radiance.visual import radiance_grid_result_to_visualization_set as service
+
         return service(
             garden_root=garden_root,
             run_target=run_target,

@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.honeybee_core.edit import edit_honeybee_face as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the honeybee_edit_face tool.'
+    'Register the HB_edit_face tool.'
 
     @mcp.tool(
-        name="edit_face",
+        name="HB_edit_face",
         description='Edit a Honeybee Face typed target for display name, user data, Face3D geometry, face type, non-Surface boundary condition, Honeybee Energy construction/AFNCrack, and Honeybee Radiance modifier or black modifier. Geometry edits are for supported Face targets and must respect hosted sub-face and shade constraints; this is not direct EnergyPlus surface authoring. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
         tags={
             "boundary-condition",
@@ -31,19 +30,19 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee face typed target from honeybee_search_model_objects; not a face identifier string.'
+                description='Required Honeybee face typed target from HB_search_model_objects; not a face identifier string.'
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
+                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         display_name: Annotated[
@@ -84,17 +83,19 @@ def register(mcp: FastMCP) -> None:
         modifier: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
+                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_search_library_objects.'
             ),
         ] = None,
         modifier_blk: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
+                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_search_library_objects.'
             ),
         ] = None,
     ) -> dict[str, Any]:
         """Edit a Honeybee Face."""
+        from garden.honeybee_core.edit import edit_honeybee_face as service
+
         return service(
             garden_root=garden_root,
             target=target,

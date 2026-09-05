@@ -17,7 +17,14 @@ Validate, or Visualization tools after restore.
 
 - Confirm `garden_root`.
 - For version creation, finish the user-level write first.
-- For restore, inspect available versions with `garden_list_versions`.
+- A Garden created without Git remains usable for authoring and simulation.
+  Once Git is available, the first `GD_get_version_status`,
+  `GD_create_version`, `GD_list_versions`, or `GD_restore_version` call
+  initializes Garden-local `.git/`; do not recreate the Garden or create `.git`
+  manually.
+- An empty Garden with no `models/` or `libraries/` can go directly to
+  `GD_create_version`; do not create placeholder directories.
+- For restore, inspect available versions with `GD_list_versions`.
 - If dirty authoring truth exists before restore, ask whether to version the
   current state first.
 
@@ -27,15 +34,18 @@ Create one version after a completed user request:
 
 1. Finish modeling, edit, library, or validation work.
 2. If an Energy run is accepted as the final answer, read EUI or ERR/SQL
-   evidence first, then call `garden_create_version` once for that accepted
+   evidence first, then call `GD_create_version` once for that accepted
    scenario.
 3. Use a short `subject` and compact structured `summary`.
+   For an empty Garden, use the same call with a subject such as
+   `init: Garden`; the first version contains the existing authoring truth
+   without requiring model or library directories.
 
 Restore:
 
-1. Call `garden_list_versions`.
+1. Call `GD_list_versions`.
 2. Choose by `subject`, `summary`, `version_id`, or returned `target`.
-3. Call `garden_restore_version`.
+3. Call `GD_restore_version`.
 4. Confirm restored state with search, validation, or visualization.
 
 ## Arguments
@@ -44,7 +54,7 @@ Create:
 
 ```json
 {
-  "name": "garden_create_version",
+  "name": "GD_create_version",
   "arguments": {
     "garden_root": "<exact garden root>",
     "subject": "feat: add office windows",
@@ -58,14 +68,17 @@ Create:
 }
 ```
 
+For an empty Garden, use `subject: "init: Garden"` and a compact summary such
+as `{ "operation": "initialize_garden" }`.
+
 Restore by id:
 
 ```json
 {
-  "name": "garden_restore_version",
+  "name": "GD_restore_version",
   "arguments": {
     "garden_root": "<exact garden root>",
-    "version_id": "<version id from garden_list_versions>",
+    "version_id": "<version id from GD_list_versions>",
     "summary": {
       "operation": "undo_user_request"
     },
@@ -78,7 +91,7 @@ Restore by target:
 
 ```json
 {
-  "name": "garden_restore_version",
+  "name": "GD_restore_version",
   "arguments": {
     "garden_root": "<exact garden root>",
     "version_target": {
@@ -93,15 +106,17 @@ Restore by target:
 
 ## Success Criteria
 
-- `garden_create_version` returns `version_id`, `version_target`,
+- `GD_create_version` returns `version_id`, `version_target`,
   `summary_view`, and `persistence_receipt`.
-- `garden_list_versions` returns compact history in `matches` / `versions`.
-- `garden_restore_version` returns `restored_from_version` and `new_version`.
+- `GD_list_versions` returns compact history in `matches` / `versions`.
+- `GD_restore_version` returns `restored_from_version` and `new_version`.
 - Restore creates new history; it does not rewrite old history.
 
 ## Stop Conditions
 
 - Do not request or manufacture Git diffs.
+- If Git is unavailable, stop version, history, and restore operations and
+  report that Git must be installed; continue other Garden workflows.
 - Do not place HBJSON, DFJSON, full library objects, or model snapshots in
   `summary`.
 - Do not clean `models/` or `libraries/` to unblock restore.

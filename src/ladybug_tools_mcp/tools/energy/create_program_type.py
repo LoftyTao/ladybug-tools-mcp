@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.programtypes import create_program_type as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_program_type tool.'
+    'Register the EP_create_program_type tool.'
 
     @mcp.tool(
-        name='create_program_type',
+        name='EP_create_program_type',
         description="Create a Honeybee Energy ProgramType, the room program bundle for occupancy, lighting, equipment, service hot water, infiltration, ventilation, and setpoints. ProgramType is an upstream Honeybee Energy abstraction that later expands to multiple EnergyPlus loads and schedules; it is not one EnergyPlus object. Prefer Garden Properties Library targets from load creation tools with garden_root and return_object_dict=false. Returns object_dict, or target plus persistence_receipt when saved.",
         tags={
             "energy",
@@ -82,7 +81,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -93,6 +92,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy ProgramType object."""
+        from garden.energy.programtypes import create_program_type as service
+
         return service(
             identifier=identifier,
             base_program_type=base_program_type,

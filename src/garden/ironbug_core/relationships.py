@@ -63,10 +63,6 @@ class _ResolvedObject:
     save: Callable[[Any], None]
 
 
-def _garden_root(garden_root: str) -> Path:
-    return Path(garden_root).expanduser().resolve()
-
-
 def _object_identifier(obj: Any) -> str:
     if isinstance(obj, dict):
         identifier = obj.get("identifier")
@@ -187,7 +183,7 @@ def _require_source(resolved: _ResolvedObject, allowed: set[str]) -> None:
 
 
 def _load_for_update(garden_root: str, ironbug_model_target: dict[str, Any]):
-    garden_root_path = _garden_root(garden_root)
+    garden_root_path = Path(garden_root).expanduser().resolve()
     manifest, target, _, model = load_ironbug_model(
         garden_root_path,
         ironbug_model_target=ironbug_model_target,

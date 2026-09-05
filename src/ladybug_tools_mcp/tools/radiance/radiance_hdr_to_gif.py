@@ -7,18 +7,17 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.visual import radiance_hdr_to_gif as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the radiance_hdr_to_gif tool."""
+    """Register the RAD_hdr_to_gif tool."""
 
     @mcp.tool(
-        name="hdr_to_gif",
+        name="RAD_hdr_to_gif",
         description=(
             "Convert a Radiance HDR image artifact to a GIF image artifact for "
             "lightweight preview or sharing. Pass image_target from "
-            "radiance_list_hdr_images or radiance_search_images. This converts "
+            "RAD_list_hdr_images or RAD_search_images. This converts "
             "an existing HDR artifact; it does not render a new view, create "
             "falsecolor output, or read grid results. Returns target, "
             "image_target, artifact_path, summary_view, and report."
@@ -33,7 +32,7 @@ def register(mcp: FastMCP) -> None:
         timeout=60,
     )
     def radiance_hdr_to_gif(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         run_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional completed point-in-time view radiance_run target. Poll the run before converting HDR artifacts."),
@@ -84,6 +83,8 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/radiance/images",
     ) -> dict[str, Any]:
         """Create a GIF artifact from HDR input."""
+        from garden.radiance.visual import radiance_hdr_to_gif as service
+
         return service(
             garden_root=garden_root,
             run_target=run_target,

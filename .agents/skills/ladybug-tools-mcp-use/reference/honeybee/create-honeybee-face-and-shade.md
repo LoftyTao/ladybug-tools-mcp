@@ -5,21 +5,21 @@ Use this when the user needs an orphaned Honeybee Face, a detached Shade, or a h
 ## Preconditions
 
 - A Garden exists and has a base Honeybee Model.
-- For hosted objects, first locate the host with `honeybee_search_model_objects` and pass only `matches[i].target`.
+- For hosted objects, first locate the host with `HB_search_model_objects` and pass only `matches[i].target`.
 - For orphaned objects, provide complete SDK-compatible `Face3D` geometry.
 
 ## MCP Route
 
 1. Create or confirm the base Honeybee Model.
-2. For orphaned geometry, call `honeybee_create_face` or `honeybee_create_shade`.
+2. For orphaned geometry, call `HB_create_face` or `HB_create_shade`.
 3. For hosted shades, search the host face/aperture/door and pass its typed target to the shade tool.
 4. Search the relevant object type to confirm persistence.
-5. Run `honeybee_validate_model` after multi-object writes.
+5. Run `HB_validate_model` after multi-object writes.
 
 ## Code Mode Pattern
 
 ```python
-face = await call_tool("honeybee_create_face", {
+face = await call_tool("HB_create_face", {
     "garden_root": garden_root,
     "identifier": "south_wall",
     "geometry": {
@@ -28,7 +28,7 @@ face = await call_tool("honeybee_create_face", {
     }
 })
 
-shade = await call_tool("honeybee_create_shade", {
+shade = await call_tool("HB_create_shade", {
     "garden_root": garden_root,
     "identifier": "south_overhang",
     "geometry": {
@@ -47,6 +47,6 @@ shade = await call_tool("honeybee_create_shade", {
 ## Stop Conditions
 
 - Do not pass a full search response as `host_target`; use `matches[i].target`.
-- `honeybee_create_face` does not accept `face_type` or `boundary_condition`; use room/model edit paths when semantic face properties must be assigned.
+- `HB_create_face` does not accept `face_type` or `boundary_condition`; use room/model edit paths when semantic face properties must be assigned.
 - Do not write duplicate identifiers. Search before retrying after an uncertain failure.
 - Avoid parallel writes to the same model. Chain dependent create/search/validate calls in one Code Mode block.

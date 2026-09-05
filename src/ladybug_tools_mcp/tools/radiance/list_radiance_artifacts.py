@@ -10,14 +10,13 @@ from pydantic import Field
 from ladybug_tools_mcp.tools.radiance.list_radiance_artifact_files import (
     _normalize_artifact_type,
 )
-from garden.store import list_garden_artifacts as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_list_artifacts tool.'
+    'Register the RAD_list_artifacts tool.'
 
     @mcp.tool(
-        name="list_artifacts",
+        name="RAD_list_artifacts",
         description=(
             "List Garden-managed Radiance artifact records and compact "
             "artifact_paths. Use this to find saved Radiance files without "
@@ -35,12 +34,14 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def list_radiance_artifacts(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         artifact_type: Annotated[str | None, Field(description="Optional formal Radiance artifact target_type filter. Omit to list every registered Radiance artifact.")] = None,
         query: Annotated[str | None, Field(description="Optional artifact name or Garden-relative path substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """List Radiance artifacts."""
+        from garden.store import list_garden_artifacts as service
+
         result = service(
             garden_root=garden_root,
             artifact_type=_normalize_artifact_type(artifact_type),

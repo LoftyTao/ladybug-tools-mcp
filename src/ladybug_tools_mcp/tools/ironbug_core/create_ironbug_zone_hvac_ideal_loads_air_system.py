@@ -1,22 +1,18 @@
-'MCP tool for detailed_hvac_zone_equipment_ideal_loads_air_system.'
+'MCP tool for IB_zone_equipment_ideal_loads_air_system.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_thermal_zone_equipment,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_ideal_loads_air_system tool.'
+    'Register the IB_zone_equipment_ideal_loads_air_system tool.'
 
     @mcp.tool(
-        name='zone_equipment_ideal_loads_air_system',
+        name='IB_zone_equipment_ideal_loads_air_system',
         description=(
             'Create IB_ZoneHVACIdealLoadsAirSystem, the Ironbug and EnergyPlus ZoneHVAC:IdealLoadsAirSystem zone equipment for ideal heating/cooling loads, outdoor-air controls, humidity controls, and heat-recovery assumptions. Use it as an ideal air system on an IB_ThermalZone, not as a real fan/coil loop, HVAC template, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -33,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -48,7 +44,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         availability_schedule_target: Annotated[
             dict[str, Any] | str | None,
-            Field(description='Optional IB_Schedule target for IdealLoadsAirSystem availability; pass a detailed_hvac_schedule_* target or same-model identifier.'),
+            Field(description='Optional IB_Schedule target for IdealLoadsAirSystem availability; pass an IB_schedule_* target or same-model identifier.'),
         ] = None,
         maximum_heating_supply_air_temperature: Annotated[
             float | None,
@@ -173,6 +169,12 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug ZoneHVAC:IdealLoadsAirSystem zone-equipment object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            add_ironbug_thermal_zone_equipment,
+        )
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

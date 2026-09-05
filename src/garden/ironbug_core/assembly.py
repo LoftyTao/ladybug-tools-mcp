@@ -47,10 +47,6 @@ from ladybug_tools_mcp.contracts.report import make_report
 COMPONENT_LIBRARY_KEY = "ironbug_component_library"
 
 
-def _garden_root(garden_root: str) -> Path:
-    return Path(garden_root).expanduser().resolve()
-
-
 def _fields(**values: Any) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
 
@@ -528,7 +524,7 @@ def _plant_loop_target(
 
 
 def _dump_source_object(value: BaseModel) -> dict[str, Any]:
-    return value.model_dump(by_alias=True, exclude_none=True)
+    return value.model_dump(by_alias=True, exclude_none=True, serialize_as_any=True)
 
 
 def _hydrate_source_object(data: dict[str, Any]) -> Any:
@@ -564,11 +560,52 @@ def _hydrate_source_object(data: dict[str, Any]) -> Any:
     return getattr(hvac, source_type).model_construct(**payload)
 
 
+def _refresh_embedded_component_copies(model: Any) -> Any:
+    """Refresh copied component references from the canonical component library."""
+
+    payload = _dump_source_object(model)
+    library = (payload.get("user_data") or {}).get(COMPONENT_LIBRARY_KEY, {})
+    canonical = {
+        (str(record.get("source_class") or ""), str(identifier)): record["data"]
+        for identifier, record in library.items()
+        if isinstance(record, dict) and isinstance(record.get("data"), dict)
+    }
+    if not canonical:
+        return model
+
+    def sync(value: Any, root: tuple[str, str] | None = None) -> Any:
+        if isinstance(value, list):
+            return [sync(item, root) for item in value]
+        if not isinstance(value, dict):
+            return value
+        key = (str(value.get("type") or ""), str(value.get("identifier") or ""))
+        if key in canonical and key != root:
+            refreshed = sync(canonical[key], key)
+            old_user_data = value.get("user_data")
+            if isinstance(old_user_data, dict):
+                refreshed["user_data"] = {
+                    **old_user_data,
+                    **dict(refreshed.get("user_data") or {}),
+                }
+            return refreshed
+        return {name: sync(item, root) for name, item in value.items()}
+
+    for identifier, record in library.items():
+        if isinstance(record, dict) and isinstance(record.get("data"), dict):
+            key = (str(record.get("source_class") or ""), str(identifier))
+            record["data"] = sync(record["data"], key)
+    payload = {
+        name: value if name == "user_data" else sync(value)
+        for name, value in payload.items()
+    }
+    return _hydrate_source_object(payload)
+
+
 def _load_model_for_update(
     garden_root: str,
     ironbug_model_target: dict[str, Any],
 ) -> tuple[Path, GardenManifest, dict[str, Any], Any]:
-    garden_root_path = _garden_root(garden_root)
+    garden_root_path = Path(garden_root).expanduser().resolve()
     manifest, target, _, model = load_ironbug_model(
         garden_root_path,
         ironbug_model_target=ironbug_model_target,
@@ -587,6 +624,7 @@ def _save_update(
     operation: str,
     change_summary: dict[str, Any],
 ) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    model = _refresh_embedded_component_copies(model)
     updated_target, persisted_path = save_ironbug_model(
         garden_root_path,
         manifest,

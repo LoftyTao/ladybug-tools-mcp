@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_heat_exchanger_fluid_to_fluid.'
+'MCP tool for IB_heat_exchanger_fluid_to_fluid.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_heat_exchanger_fluid_to_fluid tool.'
+    'Register the IB_heat_exchanger_fluid_to_fluid tool.'
 
     @mcp.tool(
-        name='heat_exchanger_fluid_to_fluid',
+        name='IB_heat_exchanger_fluid_to_fluid',
         description=(
             'Create IB_HeatExchangerFluidToFluid, an EnergyPlus HeatExchanger:FluidToFluid dual-loop hydronic plant heat exchanger that couples one loop supply side to another loop demand side. Use it for waterside economizer, plate/hydronic, primary-secondary, condenser-water, or ground-source loop exchange with model type, UA, control mode, and temperature limits; this is not an air-side or ground-geometry exchanger. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -39,13 +38,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_heat_exchanger_fluid_to_fluid(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -140,6 +139,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_HeatExchangerFluidToFluid as a reviewed Ironbug LoopObjs / PlantLoopObjects authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

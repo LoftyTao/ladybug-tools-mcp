@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.runs import start_modelica_simulation as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the Modelica simulation candidate start tool."""
 
     @mcp.tool(
-        name="start_modelica_simulation",
+        name="DF_des_start_modelica_simulation",
         description=(
             "Candidate boundary for starting a Modelica Docker run from a DES "
             "modelica_project_target. It records a Garden run ledger and returns "
@@ -31,6 +30,8 @@ def register(mcp: FastMCP) -> None:
         run_id: Annotated[str | None, Field(description="Optional stable run id; omit to let the Garden create one.") ] = None,
     ) -> dict[str, Any]:
         """Start a candidate Modelica simulation."""
+        from garden.dragonfly_des.runs import start_modelica_simulation as service
+
         return service(
             garden_root=garden_root,
             modelica_project_target=modelica_project_target,

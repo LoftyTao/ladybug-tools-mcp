@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.honeybee_core.edit import edit_honeybee_shade as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the honeybee_edit_shade tool.'
+    'Register the HB_edit_shade tool.'
 
     @mcp.tool(
-        name="edit_shade",
+        name="HB_edit_shade",
         description='Edit a Honeybee Shade typed target for display name, user data, supported Face3D geometry, detached flag on orphaned shades, Honeybee Energy ShadeConstruction/transmittance schedule/PVProperties, and Honeybee Radiance modifier/dynamic states. Hosted shades keep their parent relationship and cannot be made detached by setting is_detached=true. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
         tags={
             "detached-shade",
@@ -32,19 +31,19 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee shade typed target from honeybee_search_model_objects; not a shade identifier string.'
+                description='Required Honeybee shade typed target from HB_search_model_objects; not a shade identifier string.'
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
+                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         display_name: Annotated[
@@ -79,19 +78,19 @@ def register(mcp: FastMCP) -> None:
         pv_properties: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Optional Honeybee Energy PVProperties dictionary or Garden Properties Library pv_properties target from energy_create_pv_properties to attach or replace.'
+                description='Optional Honeybee Energy PVProperties dictionary or Garden Properties Library pv_properties target from EP_create_pv_properties to attach or replace.'
             ),
         ] = None,
         modifier: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
+                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_search_library_objects.'
             ),
         ] = None,
         modifier_blk: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from radiance_search_library_objects.'
+                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_search_library_objects.'
             ),
         ] = None,
         dynamic_group_identifier: Annotated[
@@ -106,6 +105,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Edit a Honeybee Shade."""
+        from garden.honeybee_core.edit import edit_honeybee_shade as service
+
         return service(
             garden_root=garden_root,
             target=target,

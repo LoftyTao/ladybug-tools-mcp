@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_energy_management_system_actuator.'
+'MCP tool for IB_energy_management_system_actuator.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_energy_management_system_actuator tool.'
+    'Register the IB_energy_management_system_actuator tool.'
 
     @mcp.tool(
-        name='energy_management_system_actuator',
+        name='IB_energy_management_system_actuator',
         description=(
             'Create IB_EnergyManagementSystemActuator, an EnergyPlus EMS actuator mapping an Erl variable to an actuated component unique name, component type, and control type. Use actuator names and control types from EnergyPlus EDD output; this tool does not discover available actuators, execute EMS programs, or run simulation. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_energy_management_system_actuator(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -81,6 +80,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_EnergyManagementSystemActuator as a reviewed Ironbug EMS authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         custom_attributes: dict[str, Any] = {}
         source_fields: dict[str, Any] = {}

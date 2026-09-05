@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_electric_load_center_storage_li_ion_nmc_battery.'
+'MCP tool for IB_electric_load_center_storage_li_ion_nmc_battery.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_electric_load_center_storage_li_ion_nmc_battery tool.'
+    'Register the IB_electric_load_center_storage_li_ion_nmc_battery tool.'
 
     @mcp.tool(
-        name='electric_load_center_storage_li_ion_nmc_battery',
+        name='IB_electric_load_center_storage_li_ion_nmc_battery',
         description=(
             'Create IB_ElectricLoadCenterStorageLiIonNMCBattery, an EnergyPlus/OpenStudio ElectricLoadCenter:Storage:LiIonNMCBattery object for detailed lithium-ion NMC battery storage. Use it as the electrical storage target on ElectricLoadCenter:Distribution when cell/string, voltage, capacity, thermal, and internal-resistance inputs are known. This tool authors battery storage input only; it does not create distribution panels, converters, inverters, or run simulation. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_electric_load_center_storage_li_ion_nmc_battery(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -157,6 +156,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_ElectricLoadCenterStorageLiIonNMCBattery as reviewed lithium-ion NMC battery data."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

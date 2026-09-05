@@ -10,7 +10,7 @@ This is an Agent-facing routing layer. It does not add a new MCP launch tool and
 
 - `workspace_id` in older upstream onboarding notes maps to the current Garden context in this MCP.
 - Garden is the primary product concept for persistent project context. The stable context value is usually `garden_root`, a Garden target, or a known current Flowerpot context that can resolve to a Garden.
-- The current public tools are `garden_list`, `garden_create`, and `garden_get`, not `workspace_list`, `workspace_create`, or `workspace_get`.
+- The current public tools are `GD_list`, `GD_create`, and `GD_get`, not `workspace_list`, `workspace_create`, or `workspace_get`.
 
 ## Entry Signals
 
@@ -47,14 +47,14 @@ Store one of these labels in the conversation state before handing off to the Ga
 When the host exposes old FastMCP tools, first confirm that Garden discovery is available through Tool Search:
 
 ```text
-search query="garden_list garden_create garden_get create choose existing recent Garden"
+search query="GD_list GD_create GD_get create choose existing recent Garden"
 ```
 
 The expected MCP tools are:
 
-- `garden_list`
-- `garden_create`
-- `garden_get`
+- `GD_list`
+- `GD_create`
+- `GD_get`
 
 If using Code Mode, do the same check through the outer `search` tool only when the tool names are unknown. Do not call `search` or `get_schema` inside `execute`.
 
@@ -110,11 +110,11 @@ Do not start modeling, resource creation, or Grasshopper collaboration immediate
 
 The first Garden-gate reply should be a short binary choice: create a new Garden or continue an existing one. Do not jump straight into asking for a Garden name before the user has picked one of those two directions.
 
-When the user chooses the existing-Garden path, call `garden_list` without `root_dir` when no stable Garden root has already been established, so discovery uses the system's default Gardens root. If the user has named a specific parent folder, pass that folder as `root_dir`. Show the five most recent Gardens from `matches[:5]`. The service sorts `matches` by recent `created_at` / `updated_at` values and includes `summary_view.count`. In onboarding, only read from the default Gardens root or the user-specified query root; do not search test folders or cache folders as reusable Garden sources.
+When the user chooses the existing-Garden path, call `GD_list` without `root_dir` when no stable Garden root has already been established, so discovery uses the system's default Gardens root. If the user has named a specific parent folder, pass that folder as `root_dir`. Show the five most recent Gardens from `matches[:5]`. The service sorts `matches` by recent `created_at` / `updated_at` values and includes `summary_view.count`. In onboarding, only read from the default Gardens root or the user-specified query root; do not search test folders or cache folders as reusable Garden sources.
 
-When the user chooses the new-Garden path, ask for the new Garden name and then call `garden_create`.
+When the user chooses the new-Garden path, ask for the new Garden name and then call `GD_create`.
 
-If more than ten Gardens exist, suggest cleanup and offer to help. Do not delete or clean anything without explicit user confirmation. For cleanup, first clarify whether the user wants to inspect old Gardens, archive them outside MCP, or run `garden_cleanup_workspace` on selected non-authoring scopes. Do not make the user type a path when recent Garden matches are available.
+If more than ten Gardens exist, suggest cleanup and offer to help. Do not delete or clean anything without explicit user confirmation. For cleanup, first clarify whether the user wants to inspect old Gardens, archive them outside MCP, or run `GD_cleanup_workspace` on selected non-authoring scopes. Do not make the user type a path when recent Garden matches are available.
 
 Chinese trigger example:
 
@@ -142,25 +142,25 @@ Chinese trigger example:
 
 ```text
 好的，我们将从一个新的花园 (Garden) 开始。请告诉我您希望这个 Garden 使用的名称，我会为您创建它。
-通常情况下，Garden 会被存放在 `D:\Desktop\Codex\rec-ladybug-tools-mcp\gardens` 下；如果您不希望存放在这里，也可以直接告诉我您希望使用的保存位置，我会按您的要求创建。
+通常情况下，Garden 会被存放在 `D:/Ladybug-Tools-MCP/gardens` 下；如果您不希望存放在这里，也可以直接告诉我您希望使用的保存位置，我会按您的要求创建。
 ```
 
 English trigger example:
 
 ```text
 Great. We will start with a brand-new Garden. Please tell me the name you want to use for this Garden, and I will create it for you.
-By default, the Garden will be stored under `D:\Desktop\Codex\rec-ladybug-tools-mcp\gardens`. If you do not want to use that location, you can simply tell me where you want it to be saved instead, and I will create it there for you.
+By default, the Garden will be stored under `D:/Ladybug-Tools-MCP/gardens`. If you do not want to use that location, you can simply tell me where you want it to be saved instead, and I will create it there for you.
 ```
 
 ## Existing-Garden Branch Response
 
-When the user chooses the existing-Garden path, respond with a short fixed template in the user's trigger language, then call `garden_list` and show the five most recent Gardens from `matches[:5]`. Read only from the default save location or the user-specified save location; do not read reusable Gardens from test folders or cache folders. If none fits, offer to switch to the new-Garden path.
+When the user chooses the existing-Garden path, respond with a short fixed template in the user's trigger language, then call `GD_list` and show the five most recent Gardens from `matches[:5]`. Read only from the default save location or the user-specified save location; do not read reusable Gardens from test folders or cache folders. If none fits, offer to switch to the new-Garden path.
 
 Chinese trigger example:
 
 ```text
 好的，我将先为您查找已有的花园 (Garden)。我会先列出最近使用的 5 个 Garden 供您选择；如果没有合适的，我们再创建一个新的。
-这些可复用的 Garden 将只从默认保存位置 `D:\Desktop\Codex\rec-ladybug-tools-mcp\gardens` 或您指定的保存位置中读取，不会从测试目录或缓存目录中读取。
+这些可复用的 Garden 将只从默认保存位置 `D:/Ladybug-Tools-MCP/gardens` 或您指定的保存位置中读取，不会从测试目录或缓存目录中读取。
 
 1. XXX
 2. XXX
@@ -173,7 +173,7 @@ English trigger example:
 
 ```text
 Great. I will first look up your existing Gardens. I will show the five most recently used Gardens for you to choose from; if none fits, we can create a new one instead.
-These reusable Gardens will be read only from the default save location `D:\Desktop\Codex\rec-ladybug-tools-mcp\gardens` or another save location you specify, not from test folders or cache folders.
+These reusable Gardens will be read only from the default save location `D:/Ladybug-Tools-MCP/gardens` or another save location you specify, not from test folders or cache folders.
 
 1. XXX
 2. XXX

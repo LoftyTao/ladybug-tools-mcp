@@ -16,7 +16,7 @@ Use this candidate path when a user asks to turn screenshots, cited standards, t
 4. Save reusable resources directly to the Garden Properties Library when create tools support `garden_root`.
 5. Search the saved resources back from the Garden library.
 6. Apply the resource pack to a small Honeybee model when useful.
-7. Validate with `honeybee_validate_model`.
+7. Validate with `HB_validate_model`.
 8. Create one Garden version after the resource-preparation task completes.
 
 ## Extraction Levels

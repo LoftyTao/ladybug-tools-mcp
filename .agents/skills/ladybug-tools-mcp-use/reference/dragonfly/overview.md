@@ -1,6 +1,6 @@
 # Dragonfly Skill Overview
 
-Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_grid_*`, `df_uwg_*`, `df_urbanopt_*`, Dragonfly base-model Garden helpers, and Ironbug-to-Dragonfly bridge tools. The AX1 core authoring/search/attribute/visualization path is Agent-verified through Codex-native MCP. AX7 Electric Grid authoring and runtime-blocked ledger handling are Agent-verified through Codex-native MCP. The broader Dragonfly namespace remains deterministic-contract-pass until the remaining cross-test suite is retained.
+Use this category for Dragonfly-facing workflows: `DF_*`, `DF_des_*`, `DF_grid_*`, `DF_uwg_*`, `DF_urbanopt_*`, Dragonfly base-model Garden helpers, and Ironbug-to-Dragonfly bridge tools. Core authoring/search/attribute/visualization, UWG local-weather morphing, URBANopt Energy completion, and Electric Grid authoring have direct MCP evidence. DES sys-param and Modelica numeric completion remain blocked until `LB_get_runtime_config.summary_view.engines.des_gmt.available=true`.
 
 ## Preconditions
 
@@ -28,12 +28,15 @@ Use this category for Dragonfly-facing workflows: `df_*`, `df_des_*`, `df_grid_*
 
 ## Stop Conditions
 
-- For URBANopt Energy, keep to the `df_urbanopt_*` path; for Electric Grid, keep to `df_grid_*`; stop before crossing these runtime families without a user request.
+- For URBANopt Energy, keep to the `DF_urbanopt_*` path; for Electric Grid, keep to `DF_grid_*`; stop before crossing these runtime families without a user request.
 - Stop when a Honeybee-only operation would require conversion and the user has not authorized conversion.
 - Stop when UWG is blocked or still running; return the run target and current status.
+- Before rerunning AX6/AX7 numeric runtime branches, use `LB_get_runtime_config` and the retained completion/preflight summaries to inspect Energy output health, local-bundle log evidence, and runtime diagnostics. Start DES/GMT, OpenDSS, RNM, REopt, Modelica, or fully offline branches only when their reported prerequisites are ready; otherwise return the blocked status and missing conditions.
+- Before claiming the full Dragonfly cross-test suite is closed, inspect `overall_status` and each passing axis's retained reports, worker status, and terminal next action. For AX6/AX7, require healthy Energy outputs, local-bundle simulation-log evidence, empty online-fetch markers, and ready runtime diagnostics; otherwise return `partial` with the missing conditions.
 
 ## References
 
 - `dragonfly-authoring.md`
+- `df-uwg-weather.md`
 - `urbanopt-energy.md`
 - `df-grid-electric.md`

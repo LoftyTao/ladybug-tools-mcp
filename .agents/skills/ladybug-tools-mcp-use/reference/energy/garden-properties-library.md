@@ -12,13 +12,13 @@ Use this when a reusable Honeybee Energy or Honeybee Radiance SDK object should 
 
 1. Create the final reusable object with a direct create tool when possible.
 2. Reuse the returned `target`.
-3. Confirm or discover later with `library_get_garden_properties_object` or `library_search_garden_properties_objects`.
-4. Use `library_save_garden_properties_object` only when the object already exists as a complete SDK `object_dict` and no direct saving create tool is available.
+3. Confirm or discover later with `GD_library_get_garden_properties_object` or `GD_library_search_garden_properties_objects`.
+4. Use `GD_library_save_garden_properties_object` only when the object already exists as a complete SDK `object_dict` and no direct saving create tool is available.
 
 ## Code Mode Pattern
 
 ```python
-schedule = await call_tool("energy_create_schedule_ruleset", {
+schedule = await call_tool("EP_create_schedule_ruleset", {
     "garden_root": garden_root,
     "identifier": "Office Occupancy",
     "default_day_schedule": schedule_day["object_dict"],
@@ -30,7 +30,7 @@ schedule = await call_tool("energy_create_schedule_ruleset", {
 Fallback save path:
 
 ```python
-saved = await call_tool("library_save_garden_properties_object", {
+saved = await call_tool("GD_library_save_garden_properties_object", {
     "garden_root": garden_root,
     "domain": "honeybee_energy",
     "object_family": "schedule",

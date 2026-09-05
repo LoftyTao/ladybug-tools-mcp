@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.constructionsets import (
-    create_air_boundary_construction as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_air_boundary_construction tool.'
+    'Register the EP_create_air_boundary_construction tool.'
 
     @mcp.tool(
-        name='create_air_boundary_construction',
+        name='EP_create_air_boundary_construction',
         description="Create a Honeybee Energy AirBoundaryConstruction for air-boundary Faces, the EnergyPlus-adjacent construction used for interior air mixing across a face instead of an opaque heat-transfer layer. Returns object_dict plus summary_view, or a Garden Properties Library target with persistence_receipt when garden_root is provided and return_object_dict=false.",
         tags={
             "energy",
@@ -44,7 +41,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -55,6 +52,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy AirBoundaryConstruction object."""
+        from garden.energy.constructionsets import (
+            create_air_boundary_construction as service,
+        )
+
         return service(
             identifier=identifier,
             air_mixing_per_area=air_mixing_per_area,

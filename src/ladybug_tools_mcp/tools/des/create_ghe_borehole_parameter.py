@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.authoring import create_ghe_borehole_parameter as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the DES GHE borehole parameter tool."""
 
     @mcp.tool(
-        name="create_ghe_borehole_parameter",
+        name="DF_des_create_ghe_borehole_parameter",
         description=(
             "Create a Dragonfly DES BoreholeParameter for GHE field sizing, "
             "including depth, spacing, buried depth, and borehole diameter. Use the "
@@ -25,7 +24,7 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def create_ghe_borehole_parameter(
-        garden_root: Annotated[str, Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root'].")],
+        garden_root: Annotated[str, Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root'].")],
         identifier: Annotated[str, Field(description="Stable identifier for the saved BoreholeParameter target.")],
         min_depth: Annotated[float | None, Field(description="Optional minimum borehole depth in meters; omitted values use the Dragonfly Energy SDK default.")] = None,
         max_depth: Annotated[float | None, Field(description="Optional maximum borehole depth in meters; omitted values use the Dragonfly Energy SDK default.")] = None,
@@ -35,6 +34,8 @@ def register(mcp: FastMCP) -> None:
         diameter: Annotated[float | None, Field(description="Optional borehole diameter in meters; omitted values use the Dragonfly Energy SDK default.")] = None,
     ) -> dict[str, Any]:
         """Create a Dragonfly DES BoreholeParameter."""
+        from garden.dragonfly_des.authoring import create_ghe_borehole_parameter as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

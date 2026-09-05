@@ -7,21 +7,20 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.run_uwg.run import run_uwg as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the uwg_run_simulation_wait tool.'
+    'Register the DF_uwg_run_simulation_wait tool.'
 
     @mcp.tool(
-        name="run_simulation_wait",
+        name="DF_uwg_run_simulation_wait",
         description=(
             "Run a blocking Dragonfly Urban Weather Generator Alternative Weather "
             "morphing workflow from a rural or airport EPW to an urban EPW. It records "
             "a uwg_run ledger and registers the morphed EPW as a Garden weather_file "
             "target. Returns run_target, uwg_run_target, runtime_status through "
             "summary_view.status, and report. Treat a failed runtime_status as requiring "
-            "report review. Prefer uwg_start_simulation unless the user asks to wait."
+            "report review. Prefer DF_uwg_start_simulation unless the user asks to wait."
         ),
         tags={
             "dragonfly",
@@ -33,18 +32,18 @@ def register(mcp: FastMCP) -> None:
         timeout=3600,
     )
     def run_uwg(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional Dragonfly model target with target_type=dragonfly_model. Defaults to the Garden base Dragonfly model."),
         ] = None,
         weather_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Garden weather file target returned by energyplus_download_epw or a Garden-relative EPW path to morph with UWG.'),
+            Field(description='Garden weather file target returned by EP_import_local_weather or EP_search_weather_files, or a Garden-relative EPW path to morph with UWG.'),
         ] = None,
         simulation_parameter_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional uwg_simulation_parameter target returned by uwg_create_simulation_parameter."),
+            Field(description="Optional uwg_simulation_parameter target returned by DF_uwg_create_simulation_parameter."),
         ] = None,
         simulation_parameter: Annotated[
             dict[str, Any] | None,
@@ -68,6 +67,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Run UWG synchronously."""
+        from garden.run_uwg.run import run_uwg as service
+
         return service(
             garden_root=garden_root,
             model_target=model_target,

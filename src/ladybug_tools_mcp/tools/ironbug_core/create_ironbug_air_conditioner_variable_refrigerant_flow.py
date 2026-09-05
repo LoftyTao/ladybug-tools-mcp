@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_air_conditioner_variable_refrigerant_flow.'
+'MCP tool for IB_air_conditioner_variable_refrigerant_flow.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_air_conditioner_variable_refrigerant_flow tool.'
+    'Register the IB_air_conditioner_variable_refrigerant_flow tool.'
 
     @mcp.tool(
-        name='air_conditioner_variable_refrigerant_flow',
+        name='IB_air_conditioner_variable_refrigerant_flow',
         description=(
             'Create IB_AirConditionerVariableRefrigerantFlow, a VRF heat-pump system that serves zone terminal units through refrigerant flow, from the Ironbug Loops / VRF source mirror. Use terminals_targets for IB_ZoneHVACTerminalUnitVariableRefrigerantFlow objects; do not connect this VRF system with plant-loop water-coil tools. Apply DetailedHVAC to Honeybee or Dragonfly after the VRF graph is complete. This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
         ),
@@ -23,13 +22,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_air_conditioner_variable_refrigerant_flow(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -75,7 +74,7 @@ def register(mcp: FastMCP) -> None:
         terminals_targets: Annotated[
             list[dict[str, Any] | str] | None,
             Field(
-                description="Optional IB_ZoneHVACTerminalUnitVariableRefrigerantFlow targets served by this VRF system; pass detailed_hvac_zone_equipment_terminal_unit_variable_refrigerant_flow targets or same-model identifiers."
+                description="Optional IB_ZoneHVACTerminalUnitVariableRefrigerantFlow targets served by this VRF system; pass IB_zone_equipment_terminal_unit_variable_refrigerant_flow targets or same-model identifiers."
             ),
         ] = None,
         availability_schedule_target: Annotated[
@@ -482,6 +481,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_AirConditionerVariableRefrigerantFlow as a reviewed Ironbug Loops / VRF authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

@@ -500,7 +500,7 @@ def list_dragonfly_room2d_attributes(
     garden_root: str,
     model_target: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """List compact Room2D attributes supported by df_room2ds_by_attribute."""
+    """List compact Room2D attributes supported by DF_room2ds_by_attribute."""
     garden_root_path = _garden_root(garden_root)
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
     attributes = [dict(record) for record in ROOM2D_ATTRIBUTE_CATALOG]

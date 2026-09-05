@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_coil_cooling_dx_two_stage_with_humidity_control_mode.'
+'MCP tool for IB_coil_cooling_dx_two_stage_with_humidity_control_mode.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_coil_cooling_dx_two_stage_with_humidity_control_mode tool.'
+    'Register the IB_coil_cooling_dx_two_stage_with_humidity_control_mode tool.'
 
     @mcp.tool(
-        name='coil_cooling_dx_two_stage_with_humidity_control_mode',
+        name='IB_coil_cooling_dx_two_stage_with_humidity_control_mode',
         description=(
             'Create IB_CoilCoolingDXTwoStageWithHumidityControlMode, an OpenStudio/EnergyPlus Coil:Cooling:DX:TwoStageWithHumidityControlMode object for staged DX cooling with optional enhanced dehumidification mode. Use IB_CoilPerformanceDXCooling targets for normal and dehumidification stage performance. This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
         ),
@@ -23,13 +22,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_coil_cooling_dx_two_stage_with_humidity_control_mode(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -152,6 +151,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_CoilCoolingDXTwoStageWithHumidityControlMode as a reviewed Ironbug Loop Objs authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         child_targets = [
             coil_performance_n1_target,

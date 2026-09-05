@@ -1,71 +1,55 @@
 # Web View Mode
 
-Use this when the user wants a vtk.js preview panel that follows Garden modeling edits without manually exporting a new vtk.js file after every step.
+Use this when the user wants a local vtk.js sidebar that follows Garden modeling edits without manually exporting a new vtk.js file after every step.
 
 ## Preconditions
 
 - A Garden exists or will be created in the same Code Mode block.
-- Web View Mode is a FastMCP App preview session. It is separate from formal reusable VisualizationSet/vtk.js artifacts.
-- The MCP host must advertise the Apps UI extension for an iframe to render. Check `web_view_start_mode["app"]["client_supports_ui_extension"]`; if it is `false`, the session can still record previews and `viewer.url` gives a local-only fallback URL for hosts such as current Codex.
-- Continue using normal model tools after the mode starts.
+- Start Web View Mode before significant model edits and keep the selected `garden_root` unchanged.
+- The local sidebar is the user-facing viewer; it is separate from formal reusable VisualizationSet/vtk.js artifacts.
 
 ## MCP Route
 
-1. Call `web_view_start_mode` with `garden_root` to open or refresh the host App panel.
-2. Continue Honeybee, Dragonfly, or Fairyfly writes through their normal Code Mode tools.
-3. Let significant writes create session-managed preview steps.
-4. Use `web_view_stop_mode` only when the user asks to stop automatic previews.
-5. Use `visualization_set_to_vtkjs` only when the user explicitly wants a reusable artifact.
+1. For a blank project, call `GD_create` first and pass its returned `garden_root`; for an existing Garden, pass its literal `garden_root`.
+2. Call `GD_web_view_start_mode` once with that `garden_root`.
+3. Open `mode["viewer"]["url"]` in the local sidebar and check `mode["viewer"]["local_only"] is True` and `mode["viewer"]["poll_interval_ms"] == 1500`.
+4. Continue Honeybee, Dragonfly, Fairyfly, or VisualizationSet operations through their normal Code Mode tools.
+5. When the user asks to stop, call `GD_web_view_stop_mode` with the same `garden_root`.
+6. Use `LB_set_to_vtkjs` only when the user explicitly wants a reusable artifact.
 
 ## Code Mode Pattern
 
 ```python
-garden = await call_tool("garden_create", {
-    "name": "Agent Web View Demo Mode",
-    "root_dir": garden_root
+mode = await call_tool("GD_web_view_start_mode", {
+    "garden_root": garden_root,
+    "name": "Local Web View"
 })
-mode = await call_tool("web_view_start_mode", {
-    "garden_root": garden["garden_root"],
-    "name": "Agent Demo Mode"
-})
-model = await call_tool("honeybee_create_model", {
-    "garden_root": garden["garden_root"],
-    "identifier": "agent_web_view_demo_model",
-    "set_base": True
-})
-room = await call_tool("honeybee_create_room", {
-    "garden_root": garden["garden_root"],
-    "identifier": "agent_web_view_demo_room",
-    "x_dim": 6,
-    "y_dim": 4,
-    "height": 3
-})
+return {
+    "viewer_url": mode["viewer"]["url"],
+    "local_only": mode["viewer"]["local_only"],
+    "poll_interval_ms": mode["viewer"]["poll_interval_ms"],
+}
 ```
 
 ## Preview Behavior
 
-- `web_view_start_mode` starts the session and returns `app.resource_uri`, `viewer`, `session`, `session_path`, and `summary_view`.
-- `app.client_supports_ui_extension=false` means the MCP client did not advertise `io.modelcontextprotocol/ui`; do not describe that as a rendered App. Open or share `viewer.url` when present to use the local fallback viewer.
-- The App resource is `ui://web_view/ladybug-tools/vtkjs-preview.html`.
-- The App polls MCP preview state and reads active `.vtkjs` bytes through App-only backend tools.
-- The fallback URL is local-only, bound to `127.0.0.1`, and reads the same Garden session state and `.vtkjs` payloads without requiring a separate frontend project runtime.
-- Significant Honeybee, Dragonfly, and deterministic-pass Fairyfly writes create session steps under `tmp/web_view/session.json`.
-- Preview files live under `tmp/web_view/previews/`.
-- Search/read tools do not create preview steps.
-- Automatic previews are session state, not registered `visualization_vtkjs` Garden artifacts.
+- `GD_web_view_start_mode` returns `viewer`, `session`, `session_path`, and `summary_view`; the local sidebar URL is `viewer.url`.
+- `viewer.local_only` is `True` and `viewer.poll_interval_ms` is `1500`.
+- Significant model edits and visualization operations create session-managed previews; the viewer detects them by silent polling.
+- Before replacing a scene, the viewer saves its camera and restores it after loading the new scene.
+- Session previews are separate from registered `visualization_vtkjs` Garden artifacts.
 
 ## Success Criteria
 
 - Web View Mode starts before significant model writes.
 - Ordinary tool returns remain normal; do not expect a `web_view` field on every write result.
-- If `client_supports_ui_extension=true`, the FastMCP App follows the latest active step automatically.
-- If `client_supports_ui_extension=false`, `viewer.url` should be reachable in the local host browser and follows the same latest active step.
+- `viewer.url` opens in the local sidebar and follows the latest active step automatically.
+- After an edit, the scene refreshes without a manual export or refresh action and the camera remains unchanged.
 - For existing Dragonfly Gardens, inventory and reuse existing targets instead of rebuilding the district.
 
 ## Stop Conditions
 
+- Stop and report if `viewer.url` is missing, `viewer.local_only` is not `True`, or `viewer.poll_interval_ms` is not `1500`; do not construct a URL yourself.
 - Do not invent `open_browser`, `refresh_viewer`, `publish_preview`, or `start_web_view_server` tools.
-- Do not call `visualization_set_to_vtkjs` after every edit just to refresh demo mode.
-- Do not inspect `tmp/web_view` from inside Code Mode; return compact MCP tool results.
-- Do not treat the fallback URL as a public share link; it is a local Agent/Codex handoff only.
-- Keep Web View test commands, run metrics, and retained evidence in LLM-Wiki.
+- Do not call `LB_set_to_vtkjs` after every edit just to refresh the viewer.
+- Treat `viewer.url` as a local host URL, not a public share link.

@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from garden.run_energy.annual import run_energy
+from garden.run_energy.annual import run_energy_worker
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -16,7 +16,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("Usage: python -m garden.run_energy.worker REQUEST_JSON")
     request_path = Path(args[0]).expanduser().resolve()
     kwargs = json.loads(request_path.read_text(encoding="utf-8"))
-    run_energy(**kwargs)
+    run_energy_worker(**kwargs)
     return 0
 
 

@@ -7,17 +7,16 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.semantic_loops import create_ironbug_semantic_water_loop
 
 TargetRef = dict[str, Any] | str
 BranchTargetRef = TargetRef | list[TargetRef]
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_plant_loop_condenser_water tool.'
+    'Register the IB_plant_loop_condenser_water tool.'
 
     @mcp.tool(
-        name="plant_loop_condenser_water",
+        name="IB_plant_loop_condenser_water",
         description=(
             "Create a reviewed condenser-water Ironbug loop from pump, heat "
             "rejection, and connected equipment targets. This is a public "
@@ -35,13 +34,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_condenser_water_loop(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -194,6 +193,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create a condenser-water Ironbug loop."""
+
+        from garden.ironbug_core.semantic_loops import create_ironbug_semantic_water_loop
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

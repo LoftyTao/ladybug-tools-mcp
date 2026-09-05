@@ -34,9 +34,9 @@ Use the single-room four-pipe FCU pattern:
    `cooling_coil_target`, `heating_coil_target`, and `thermal_zone_target`.
    Set `capacity_control_method="CyclingFan"` and autosize supply-air,
    cold-water, and hot-water flow rates.
-4. Chilled-water loop with pump + `detailed_hvac_district_cooling`, cooling
+4. Chilled-water loop with pump + `IB_district_cooling`, cooling
    coil as demand.
-5. Hot-water loop with pump + `detailed_hvac_district_heating_water`, heating
+5. Hot-water loop with pump + `IB_district_heating_water`, heating
    coil as demand.
 6. Use numeric hot-water coil readiness fields rather than `"Autosize"` for the
    UA/water-flow fields that the tool exposes as numeric-only. Apply, run
@@ -46,45 +46,44 @@ Use the single-room four-pipe FCU pattern:
 
 ```python
 # Inside Ladybug Tools MCP Code Mode execute.
-garden_root = "D:/path/to/prepared-garden"
+garden_root = "<selected Garden root>"
 case_id = "district_fcu_single"
 rooms = ["Room1"]
 
-base = await call_tool("garden_get_base_honeybee_model", {"garden_root": garden_root})
-ironbug = await call_tool("detailed_hvac_create_model", {
+base = await call_tool("GD_get_base_honeybee_model", {"garden_root": garden_root})
+ironbug = await call_tool("IB_create_model", {
     "garden_root": garden_root,
     "identifier": case_id,
-    "include_hvac_system": True,
     "overwrite": True,
 })
 
 # Create the source-backed Ironbug components listed in MCP Tool Chain above.
 # Keep the returned targets and pass those targets into later create/apply calls.
 
-applied = await call_tool("detailed_hvac_apply_to_honeybee_model", {
+applied = await call_tool("IB_apply_to_honeybee_model", {
     "garden_root": garden_root,
     "ironbug_model_target": ironbug["target"],
     "honeybee_model_target": base["target"],
     "room_identifiers": rooms,
     "detailed_hvac_identifier": case_id + "_detailed_hvac",
 })
-run = await call_tool("energyplus_start_simulation", {
+run = await call_tool("EP_start_simulation", {
     "garden_root": garden_root,
     "model_target": applied["updated_model_target"],
     "weather_target": "<prepared Garden weather_file target>",
     "run_id": case_id + "_run",
 })
-status = await call_tool("energyplus_poll_simulation", {
+status = await call_tool("EP_poll_simulation", {
     "garden_root": garden_root,
     "run_target": run["target"],
     "wait_seconds": 60,
     "poll_interval": 2,
 })
-outputs = await call_tool("energyplus_list_run_outputs", {
+outputs = await call_tool("EP_list_run_outputs", {
     "garden_root": garden_root,
     "run_target": run["target"],
 })
-eui = await call_tool("energyplus_read_eui", {
+eui = await call_tool("EP_read_eui", {
     "garden_root": garden_root,
     "run_target": run["target"],
 })
@@ -120,14 +119,14 @@ pumps, and scheduled setpoints.
 ```jsonc
 {
   "case_id": "district_fcu_single",
-  "garden_root": "D:/path/to/prepared-garden",
+  "garden_root": "<selected Garden root>",
   "rooms": ["Room1"],
-  "ironbug_model_target": "<detailed_hvac_create_model.target>",
-  "detailed_hvac_target": "<detailed_hvac_apply_to_honeybee_model.detailed_hvac_target>",
+  "ironbug_model_target": "<IB_create_model.target>",
+  "detailed_hvac_target": "<IB_apply_to_honeybee_model.detailed_hvac_target>",
   "energy_status": "completed",
   "eui": 123.456,
-  "err_path": "runs/energy/district_fcu_single_run/annual_energy_use/run/eplusout.err",
-  "sql_path": "runs/energy/district_fcu_single_run/annual_energy_use/run/eplusout.sql",
+  "err_path": "<extract eplusout.err from outputs>",
+  "sql_path": "<extract eplusout.sql from outputs>",
   "python_ironbug_console_runtime": "<runtime dict from Energy run>",
   "blocker": null
 }
@@ -143,8 +142,6 @@ Python-only matrix acceptance, the run must be under
 run fails, return the precise blocker and any available ERR/SQL paths instead
 of rebuilding the whole graph.
 
-Keep detailed evidence records in LLM-Wiki rather than copying them into this
-Skill.
 
 On Windows/OpenStudio, avoid very long Garden roots for full Energy proofs. If
 OpenStudio says a seed model or EPW is missing while the file exists, retry

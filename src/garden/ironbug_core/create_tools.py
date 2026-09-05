@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import math
 import re
+from pathlib import Path
 from typing import Any
 
 from ironbug import hvac
@@ -19,10 +20,6 @@ from garden.ironbug_core.assembly import (
 from garden.ironbug_core.model_io import load_ironbug_model
 from garden.ironbug_core.targets import make_ironbug_model_object_target
 from ladybug_tools_mcp.contracts.report import make_report
-
-
-def _garden_root(garden_root: str) -> Path:
-    return Path(garden_root).expanduser().resolve()
 
 
 def _class_for_source(source_class: str) -> type[Any]:
@@ -152,6 +149,123 @@ def _source_type_accepts(source_class: str, expected_type: str) -> bool:
         if hasattr(hvac, base_name):
             pending.extend(getattr(getattr(hvac, base_name), "SOURCE_BASES", ()))
     return False
+
+
+def validate_ironbug_table_lookup_dimensions(
+    *,
+    garden_root: str,
+    ironbug_model_target: dict[str, Any],
+    variable_targets: list[Any],
+    output_values: list[float],
+) -> None:
+    """Validate table dimensions against the current Garden model."""
+
+    if not variable_targets:
+        raise ValueError("IB_TableLookup variable_targets must not be empty.")
+    if not output_values:
+        raise ValueError("IB_TableLookup output_values must not be empty.")
+    try:
+        numeric_output_values = [float(value) for value in output_values]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "IB_TableLookup output_values must contain only numbers."
+        ) from exc
+    if not all(math.isfinite(value) for value in numeric_output_values):
+        raise ValueError("IB_TableLookup output_values must be finite numbers.")
+
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    _, model_target, _, model = load_ironbug_model(
+        garden_root_path,
+        ironbug_model_target=ironbug_model_target,
+    )
+    from garden.ironbug_core.relationships import _resolve_object
+
+    dimensions: list[int] = []
+    for reference in variable_targets:
+        resolved = _resolve_object(model, model_target, reference)
+        source_class = str(
+            getattr(resolved.obj, "SOURCE_CLASS", resolved.obj.__class__.__name__)
+        )
+        if source_class != "IB_TableIndependentVariable":
+            raise ValueError(
+                "IB_TableLookup variable_targets accepts only "
+                f"IB_TableIndependentVariable targets, got {source_class}."
+            )
+        values = getattr(resolved.obj, "Values", None)
+        if not isinstance(values, list | tuple) or len(values) < 2:
+            raise ValueError(
+                "IB_TableIndependentVariable targets must contain at least two Values."
+            )
+        numeric_values = [float(value) for value in values]
+        if not all(math.isfinite(value) for value in numeric_values):
+            raise ValueError(
+                "IB_TableIndependentVariable Values must be finite numbers."
+            )
+        if any(right <= left for left, right in zip(numeric_values, numeric_values[1:])):
+            raise ValueError(
+                "IB_TableIndependentVariable Values must be strictly ascending."
+            )
+        dimensions.append(len(numeric_values))
+
+    expected_output_count = math.prod(dimensions)
+    if len(output_values) != expected_output_count:
+        raise ValueError(
+            "IB_TableLookup output_values count must equal the product of its "
+            f"independent-variable dimensions ({expected_output_count}); "
+            f"got {len(output_values)}."
+        )
+
+
+def validate_ironbug_erv_autosizing(
+    *,
+    garden_root: str,
+    ironbug_model_target: dict[str, Any],
+    supply_air_flow_rate: float | str | None,
+    exhaust_air_flow_rate: float | str | None,
+    heating_exchanger_target: Any | None,
+    supply_fan_target: Any | None,
+    exhaust_fan_target: Any | None,
+) -> None:
+    """Reject ERV autosizing when its required child flow fields are fixed."""
+
+    def is_autosized(value: Any) -> bool:
+        return value is None or (
+            isinstance(value, str) and value.strip().lower() == "autosize"
+        )
+
+    if not (is_autosized(supply_air_flow_rate) or is_autosized(exhaust_air_flow_rate)):
+        return
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    _, model_target, _, model = load_ironbug_model(
+        garden_root_path,
+        ironbug_model_target=ironbug_model_target,
+    )
+    from garden.ironbug_core.relationships import _resolve_object
+
+    checks = []
+    if is_autosized(supply_air_flow_rate):
+        checks.append((supply_fan_target, "MaximumFlowRate", "supply fan"))
+    if is_autosized(exhaust_air_flow_rate):
+        checks.append((exhaust_fan_target, "MaximumFlowRate", "exhaust fan"))
+    if checks:
+        checks.append(
+            (heating_exchanger_target, "NominalSupplyAirFlowRate", "heat exchanger")
+        )
+    for reference, default_field, label in checks:
+        if reference is None:
+            continue
+        obj = _resolve_object(model, model_target, reference).obj
+        field_name = (
+            "DesignMaximumAirFlowRate"
+            if getattr(obj, "SOURCE_CLASS", "") == "IB_FanSystemModel"
+            else default_field
+        )
+        value = (getattr(obj, "CustomAttributes", {}) or {}).get(field_name)
+        if not is_autosized(value):
+            raise ValueError(
+                "Autosized ERV airflow requires autosized child airflow; "
+                f"{label} {field_name} is fixed."
+            )
 
 
 def _expected_source_types(source_class: str, property_name: str) -> tuple[str, bool]:
@@ -574,26 +688,7 @@ def _store_system_object(
 ) -> tuple[dict[str, Any], bool]:
     identifier = str(obj.identifier)
     if source_class == "IB_HVACSystem":
-        replaced = model.HVACSystem is not None
-        if replaced and not overwrite:
-            raise ValueError(
-                "Ironbug model already has an HVACSystem. The default "
-                "create_ironbug_model path initializes one; create AirLoop, "
-                "PlantLoop, and VRF objects directly so they append to the "
-                "existing HVACSystem, or create the model with "
-                "include_hvac_system=False before calling create_ironbug_hvac_system."
-            )
-        model.HVACSystem = obj
-        return (
-            make_ironbug_model_object_target(
-                model_target=model_target,
-                object_type="hvac_system",
-                object_path="HVACSystem",
-                source_class=source_class,
-                identifier=identifier,
-            ),
-            replaced,
-        )
+        raise ValueError("IB_HVACSystem is initialized by create_ironbug_model.")
     if source_class == "IB_EnergyManagementSystem":
         replaced = model.EnergyManagementSystem is not None
         if replaced and not overwrite:
@@ -632,10 +727,8 @@ def _store_system_object(
         )
     if model.HVACSystem is None:
         raise ValueError(
-            "Ironbug model has no HVACSystem. Create one with "
-            "create_ironbug_hvac_system first, or create the model with "
-            "include_hvac_system=True so AirLoop, PlantLoop, and VRF objects "
-            "can append to it."
+            "Ironbug model has no HVACSystem. Recreate it with "
+            "create_ironbug_model."
         )
     if source_class == "IB_AirLoopHVAC":
         air_loops, index, replaced = _replace_or_append_by_identifier(
@@ -691,10 +784,12 @@ def _store_system_object(
     )
 
 
-def create_source_backed_ironbug_object(
+def _prepare_source_backed_ironbug_object(
     *,
-    garden_root: str,
-    ironbug_model_target: dict[str, Any],
+    garden_root_path: Path,
+    manifest: Any,
+    target: dict[str, Any],
+    model: Any,
     source_class: str,
     identifier: str,
     display_name: str | None = None,
@@ -716,13 +811,6 @@ def create_source_backed_ironbug_object(
     inline_source_property_children: dict[str, Any] | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    """Create one source-backed Ironbug object in a Garden-managed model."""
-
-    garden_root_path = _garden_root(garden_root)
-    manifest, target, _, model = load_ironbug_model(
-        garden_root_path,
-        ironbug_model_target=ironbug_model_target,
-    )
     if output_reporting_frequency not in {"Detail", "Hourly", "Daily", "Monthly", "RunPeriod"}:
         raise ValueError(
             f"Unsupported Ironbug output reporting frequency: {output_reporting_frequency}"
@@ -824,19 +912,135 @@ def create_source_backed_ironbug_object(
         source_class=source_class,
         overwrite=overwrite,
     )
+    return {
+        "garden_root_path": garden_root_path,
+        "manifest": manifest,
+        "model_target": target,
+        "model": model,
+        "object_target": object_target,
+        "replaced": replaced,
+        "merged_source_fields": merged_source_fields,
+        "merged_source_properties": merged_source_properties,
+        "source_data_members": source_data_members,
+        "ems_sensor_objects": ems_sensor_objects,
+        "ems_actuator_objects": ems_actuator_objects,
+        "ems_internal_variable_objects": ems_internal_variable_objects,
+        "output_variable_names": output_variable_names,
+        "output_reporting_frequency": output_reporting_frequency,
+        "source_class": source_class,
+        "identifier": identifier,
+    }
+
+
+def _create_source_backed_ironbug_zone_equipment(
+    *,
+    garden_root: str,
+    ironbug_model_target: dict[str, Any],
+    source_class: str,
+    operation: str,
+    identifier: str,
+    thermal_zone_target: Any | None,
+    child_bindings: list[tuple[Any, set[str]]],
+    children_binding_step: str = "zone_equipment_children",
+    display_name: str | None = None,
+    source_fields: dict[str, Any] | None = None,
+    source_properties: dict[str, Any] | None = None,
+    source_data_members: dict[str, Any] | None = None,
+    custom_attributes: dict[str, Any] | None = None,
+    ib_properties: dict[str, Any] | None = None,
+    output_variable_names: list[str] | None = None,
+    output_reporting_frequency: str = "Hourly",
+    ems_sensor_targets: list[Any] | None = None,
+    ems_actuator_targets: list[Any] | None = None,
+    ems_internal_variable_targets: list[Any] | None = None,
+    source_field_targets: dict[str, Any | None] | None = None,
+    source_property_targets: dict[str, Any | None] | None = None,
+    inline_source_property_children: dict[str, Any] | None = None,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Create and bind one source-backed zone-equipment graph in one save."""
+
+    from garden.ironbug_core.relationships import (
+        _object_identifier,
+        _require_source,
+        _resolve_object,
+    )
+
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest, model_target, _, model = load_ironbug_model(
+        garden_root_path,
+        ironbug_model_target=ironbug_model_target,
+    )
+    resolved_children: list[Any] = []
+    for child_target, allowed_source_classes in child_bindings:
+        if child_target is None:
+            raise ValueError(f"{source_class} child targets must be provided together.")
+        child = _resolve_object(model, model_target, child_target)
+        _require_source(child, allowed_source_classes)
+        resolved_children.append(child.obj)
+
+    resolved_zone = None
+    if thermal_zone_target is not None:
+        resolved_zone = _resolve_object(model, model_target, thermal_zone_target)
+        _require_source(resolved_zone, {"IB_ThermalZone"})
+
+    prepared = _prepare_source_backed_ironbug_object(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        target=model_target,
+        model=model,
+        source_class=source_class,
+        identifier=identifier,
+        display_name=display_name,
+        source_fields=source_fields,
+        source_properties=source_properties,
+        source_data_members=source_data_members,
+        custom_attributes=custom_attributes,
+        ib_properties=ib_properties,
+        output_variable_names=output_variable_names,
+        output_reporting_frequency=output_reporting_frequency,
+        ems_sensor_targets=ems_sensor_targets,
+        ems_actuator_targets=ems_actuator_targets,
+        ems_internal_variable_targets=ems_internal_variable_targets,
+        source_field_targets=source_field_targets,
+        source_property_targets=source_property_targets,
+        inline_source_property_children=inline_source_property_children,
+        overwrite=overwrite,
+    )
+    equipment = _resolve_object(model, model_target, prepared["object_target"])
+    _require_source(equipment, {source_class})
+    equipment.obj.Children = resolved_children
+    equipment.save(equipment.obj)
+    binding_steps: list[str] = []
+    if child_bindings:
+        binding_steps.append(children_binding_step)
+
+    if resolved_zone is not None:
+        equipment_identifier = _object_identifier(equipment.obj)
+        existing_equipment = [
+            item
+            for item in (resolved_zone.obj.ZoneEquipments or [])
+            if _object_identifier(item) != equipment_identifier
+        ]
+        resolved_zone.obj.ZoneEquipments = [*existing_equipment, equipment.obj]
+        resolved_zone.save(resolved_zone.obj)
+        binding_steps.append("thermal_zone_equipment")
+
     updated_target, persisted_path, receipt = _save_update(
         garden_root_path=garden_root_path,
         manifest=manifest,
-        target=target,
+        target=model_target,
         model=model,
-        operation="create_source_backed_ironbug_object",
+        operation=operation,
         change_summary={
             "source_class": source_class,
             "identifier": identifier,
-            "replaced": replaced,
+            "replaced": prepared["replaced"],
             "library_key": COMPONENT_LIBRARY_KEY,
+            "binding_steps": binding_steps,
         },
     )
+    object_target = prepared["object_target"]
     object_target["model_target"] = updated_target
     return {
         "target": object_target,
@@ -845,19 +1049,193 @@ def create_source_backed_ironbug_object(
         "summary_view": {
             "identifier": identifier,
             "source_class": source_class,
-            "replaced": replaced,
-            "source_fields": sorted((merged_source_fields or {}).keys()),
-            "source_properties": sorted((merged_source_properties or {}).keys()),
+            "replaced": prepared["replaced"],
+            "source_fields": sorted(prepared["merged_source_fields"].keys()),
+            "source_properties": sorted(prepared["merged_source_properties"].keys()),
             "source_data_members": sorted((source_data_members or {}).keys()),
             "output_variable_count": len(output_variable_names or []),
-            "ems_sensor_count": len(ems_sensor_objects or []),
-            "ems_actuator_count": len(ems_actuator_objects or []),
-            "ems_internal_variable_count": len(ems_internal_variable_objects or []),
+            "ems_sensor_count": len(prepared["ems_sensor_objects"] or []),
+            "ems_actuator_count": len(prepared["ems_actuator_objects"] or []),
+            "ems_internal_variable_count": len(prepared["ems_internal_variable_objects"] or []),
+            "binding_steps": binding_steps,
         },
         "persistence_receipt": receipt,
         "report": make_report(
-            status="updated" if replaced else "created",
+            status="updated" if prepared["replaced"] else "created",
             message=f"Created Ironbug source-backed object: {source_class}/{identifier}",
             details={"persisted_path": persisted_path},
         ),
     }
+
+
+def create_source_backed_ironbug_object(
+    *,
+    garden_root: str,
+    ironbug_model_target: dict[str, Any],
+    source_class: str,
+    identifier: str,
+    display_name: str | None = None,
+    source_fields: dict[str, Any] | None = None,
+    source_properties: dict[str, Any] | None = None,
+    source_data_members: dict[str, Any] | None = None,
+    custom_attributes: dict[str, Any] | None = None,
+    ib_properties: dict[str, Any] | None = None,
+    children: list[dict[str, Any]] | None = None,
+    output_variable_names: list[str] | None = None,
+    output_reporting_frequency: str = "Hourly",
+    ems_sensor_targets: list[Any] | None = None,
+    ems_actuator_targets: list[Any] | None = None,
+    ems_internal_variable_targets: list[Any] | None = None,
+    child_targets: list[Any | None] | None = None,
+    ib_property_targets: dict[str, Any | None] | None = None,
+    source_field_targets: dict[str, Any | None] | None = None,
+    source_property_targets: dict[str, Any | None] | None = None,
+    inline_source_property_children: dict[str, Any] | None = None,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Create one source-backed Ironbug object in a Garden-managed model."""
+
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest, target, _, model = load_ironbug_model(
+        garden_root_path,
+        ironbug_model_target=ironbug_model_target,
+    )
+    prepared = _prepare_source_backed_ironbug_object(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        target=target,
+        model=model,
+        source_class=source_class,
+        identifier=identifier,
+        display_name=display_name,
+        source_fields=source_fields,
+        source_properties=source_properties,
+        source_data_members=source_data_members,
+        custom_attributes=custom_attributes,
+        ib_properties=ib_properties,
+        children=children,
+        output_variable_names=output_variable_names,
+        output_reporting_frequency=output_reporting_frequency,
+        ems_sensor_targets=ems_sensor_targets,
+        ems_actuator_targets=ems_actuator_targets,
+        ems_internal_variable_targets=ems_internal_variable_targets,
+        child_targets=child_targets,
+        ib_property_targets=ib_property_targets,
+        source_field_targets=source_field_targets,
+        source_property_targets=source_property_targets,
+        inline_source_property_children=inline_source_property_children,
+        overwrite=overwrite,
+    )
+    updated_target, persisted_path, receipt = _save_update(
+        garden_root_path=prepared["garden_root_path"],
+        manifest=prepared["manifest"],
+        target=prepared["model_target"],
+        model=prepared["model"],
+        operation="create_source_backed_ironbug_object",
+        change_summary={
+            "source_class": source_class,
+            "identifier": identifier,
+            "replaced": prepared["replaced"],
+            "library_key": COMPONENT_LIBRARY_KEY,
+        },
+    )
+    object_target = prepared["object_target"]
+    object_target["model_target"] = updated_target
+    return {
+        "target": object_target,
+        "object_target": object_target,
+        "updated_model_target": updated_target,
+        "summary_view": {
+            "identifier": identifier,
+            "source_class": source_class,
+            "replaced": prepared["replaced"],
+            "source_fields": sorted(prepared["merged_source_fields"].keys()),
+            "source_properties": sorted(prepared["merged_source_properties"].keys()),
+            "source_data_members": sorted((source_data_members or {}).keys()),
+            "output_variable_count": len(output_variable_names or []),
+            "ems_sensor_count": len(prepared["ems_sensor_objects"] or []),
+            "ems_actuator_count": len(prepared["ems_actuator_objects"] or []),
+            "ems_internal_variable_count": len(prepared["ems_internal_variable_objects"] or []),
+        },
+        "persistence_receipt": receipt,
+        "report": make_report(
+            status="updated" if prepared["replaced"] else "created",
+            message=f"Created Ironbug source-backed object: {source_class}/{identifier}",
+            details={"persisted_path": persisted_path},
+        ),
+    }
+
+
+def create_source_backed_ironbug_ptac(
+    *,
+    garden_root: str,
+    ironbug_model_target: dict[str, Any],
+    identifier: str,
+    fan_target: Any,
+    heating_coil_target: Any,
+    cooling_coil_target: Any,
+    thermal_zone_target: Any,
+    display_name: str | None = None,
+    source_fields: dict[str, Any] | None = None,
+    source_properties: dict[str, Any] | None = None,
+    output_variable_names: list[str] | None = None,
+    output_reporting_frequency: str = "Hourly",
+    ems_sensor_targets: list[Any] | None = None,
+    ems_actuator_targets: list[Any] | None = None,
+    ems_internal_variable_targets: list[Any] | None = None,
+    source_field_targets: dict[str, Any | None] | None = None,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Create a complete PTAC graph in one Garden write."""
+    required_targets = {
+        "fan_target": fan_target,
+        "heating_coil_target": heating_coil_target,
+        "cooling_coil_target": cooling_coil_target,
+        "thermal_zone_target": thermal_zone_target,
+    }
+    missing_targets = [name for name, target in required_targets.items() if target is None]
+    if missing_targets:
+        raise ValueError(f"PTAC requires all graph targets; missing: {', '.join(missing_targets)}.")
+    return _create_source_backed_ironbug_zone_equipment(
+        garden_root=garden_root,
+        ironbug_model_target=ironbug_model_target,
+        source_class="IB_ZoneHVACPackagedTerminalAirConditioner",
+        operation="create_ironbug_zone_hvac_packaged_terminal_air_conditioner",
+        identifier=identifier,
+        thermal_zone_target=thermal_zone_target,
+        child_bindings=[
+            (
+                cooling_coil_target,
+                {
+                    "IB_CoilCoolingDXSingleSpeed",
+                    "IB_CoilCoolingDXTwoSpeed",
+                    "IB_CoilCoolingDXMultiSpeed",
+                    "IB_CoilCoolingWater",
+                },
+            ),
+            (
+                heating_coil_target,
+                {
+                    "IB_CoilHeatingElectric",
+                    "IB_CoilHeatingGas",
+                    "IB_CoilHeatingWater",
+                    "IB_CoilHeatingSteam",
+                },
+            ),
+            (
+                fan_target,
+                {"IB_FanOnOff", "IB_FanConstantVolume", "IB_FanSystemModel"},
+            ),
+        ],
+        children_binding_step="ptac_children",
+        display_name=display_name,
+        source_fields=source_fields,
+        source_properties=source_properties,
+        output_variable_names=output_variable_names,
+        output_reporting_frequency=output_reporting_frequency,
+        ems_sensor_targets=ems_sensor_targets,
+        ems_actuator_targets=ems_actuator_targets,
+        ems_internal_variable_targets=ems_internal_variable_targets,
+        source_field_targets=source_field_targets,
+        overwrite=overwrite,
+    )

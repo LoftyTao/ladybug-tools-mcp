@@ -115,6 +115,12 @@ def _new_heating_water(
         "UFactorTimesAreaValue",
     )
     _set_if_present(
+        coil.setPerformanceInputMethod,
+        node,
+        "PerformanceInputMethod",
+        cast=str,
+    )
+    _set_if_present(
         coil.setRatedInletWaterTemperature,
         node,
         "RatedInletWaterTemperature",

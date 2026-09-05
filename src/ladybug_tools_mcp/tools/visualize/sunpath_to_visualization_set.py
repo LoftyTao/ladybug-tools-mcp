@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.visualize.sky import sunpath_to_visualization_set as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_sunpath_to_visualization_set tool.'
+    'Register the LB_sunpath_to_visualization_set tool.'
 
     @mcp.tool(
-        name='sunpath_to_visualization_set',
+        name='LB_sunpath_to_visualization_set',
         description=(
             "Create a Ladybug Display Sunpath VisualizationSet from a "
             "Location, Garden weather_file target, or Garden-relative EPW "
@@ -34,7 +33,7 @@ def register(mcp: FastMCP) -> None:
     def sunpath_to_visualization_set(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         location: Annotated[
             dict[str, Any] | None,
@@ -110,6 +109,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Sunpath VisualizationSet."""
+        from garden.visualize.sky import sunpath_to_visualization_set as service
+
         return service(
             garden_root=garden_root,
             location=location,

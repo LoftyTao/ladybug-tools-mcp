@@ -9,7 +9,6 @@ from garden.energy.ventilation import _save_model_change, _selected_rooms
 from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
-    with_honeybee_model_write_lock,
 )
 
 
@@ -25,7 +24,6 @@ def _daylighting_control_summary(control: Any) -> dict[str, Any]:
     }
 
 
-@with_honeybee_model_write_lock
 def setup_daylighting_control_to_center(
     *,
     garden_root: str,

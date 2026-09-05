@@ -7,16 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.envelope_parameters import (
-    create_dragonfly_shading_parameter as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_create_shading_parameter tool.'
+    'Register the DF_create_shading_parameter tool.'
 
     @mcp.tool(
-        name="create_shading_parameter",
+        name="DF_create_shading_parameter",
         description=(
             "Create a compact SDK-backed Dragonfly ShadingParameter artifact for "
             "outdoor wall application. Supports parameter_type overhang and "
@@ -31,7 +28,7 @@ def register(mcp: FastMCP) -> None:
     def create_dragonfly_shading_parameter(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         parameter_type: Annotated[
             str,
@@ -47,6 +44,10 @@ def register(mcp: FastMCP) -> None:
         ] = 0,
     ) -> dict[str, Any]:
         """Create a Dragonfly ShadingParameter artifact."""
+        from garden.dragonfly_core.envelope_parameters import (
+            create_dragonfly_shading_parameter as service,
+        )
+
         return service(
             garden_root=garden_root,
             parameter_type=parameter_type,

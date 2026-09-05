@@ -15,6 +15,7 @@ from garden.paths import (
     resolve_garden_root,
     to_posix_relative,
 )
+from garden.versions import ensure_garden_git_repository, is_git_available
 from garden.honeybee_core.model_io import (
     load_honeybee_model,
     save_honeybee_model,
@@ -26,19 +27,6 @@ from garden.dragonfly_core.model_io import (
     save_dragonfly_model,
 )
 
-
-FIRST_STAGE_DIRS = [
-    "models/honeybee",
-    "models/dragonfly",
-    "models/fairyfly",
-    "models/ironbug",
-    "libraries/honeybee_energy",
-    "libraries/honeybee_radiance",
-    "imports/weather",
-    "flowerpots",
-    "artifacts",
-    "tmp",
-]
 
 CLEANUP_SCOPE_PATHS = {
     "artifacts": "artifacts",
@@ -127,44 +115,42 @@ def _normalize_cleanup_scopes(cleanup_scopes: list[str]) -> list[str]:
     return normalized
 
 
-def _is_directory_empty(path: Path) -> bool:
-    for item in path.iterdir():
-        if item.is_file():
-            return False
-        if item.is_dir() and not _is_directory_empty(item):
-            return False
-    return True
-
-
 def create_garden(
     *,
     name: str,
     root_dir: str | None = None,
     description: str | None = None,
 ) -> dict[str, Any]:
-    """Create a Garden root, manifest, first-stage directories, and .gitignore."""
+    """Create a Garden manifest and initialize Git when available."""
     garden_root = resolve_garden_root(name, root_dir)
     garden_root.mkdir(parents=True, exist_ok=True)
-    for rel_path in FIRST_STAGE_DIRS:
-        (garden_root / rel_path).mkdir(parents=True, exist_ok=True)
+    git_available = is_git_available()
+    repository_created = (
+        ensure_garden_git_repository(garden_root) if git_available else False
+    )
 
     manifest_path = garden_root / "garden.json"
-    if manifest_path.exists():
+    manifest_created = not manifest_path.exists()
+    if not manifest_created:
         manifest = GardenManifest.read(garden_root)
-        status = "no_change"
-        message = f"Garden already exists: {manifest.name}"
     else:
         manifest = GardenManifest.new(name=name, description=description or "")
         manifest.write(garden_root)
-        status = "persisted"
-        message = f"Created Garden: {name}"
 
     gitignore_path = _write_garden_gitignore(garden_root)
+    status = "persisted" if manifest_created or repository_created else "no_change"
+    message = (
+        f"Created Garden: {name}"
+        if manifest_created
+        else f"Garden already exists: {manifest.name}"
+    )
+    repository_initialized = (garden_root / ".git").exists()
     created_resources = [
         "garden.json",
-        *FIRST_STAGE_DIRS,
         to_posix_relative(gitignore_path, garden_root),
     ]
+    if repository_initialized:
+        created_resources.append(".git/")
     receipt = make_persistence_receipt(
         status=status,
         garden_id=manifest.garden_id,
@@ -180,11 +166,28 @@ def create_garden(
         "target": manifest.target(),
         "garden_target": manifest.target(),
         "garden_root": str(garden_root),
-        "summary_view": _summary_for_manifest(manifest, garden_root),
+        "summary_view": {
+            **_summary_for_manifest(manifest, garden_root),
+            "version_control": {
+                "git_available": git_available,
+                "repository_initialized": repository_initialized,
+            },
+        },
         "persistence_receipt": receipt,
-        "report": make_report(status="ok", message=message),
+        "report": make_report(
+            status="ok",
+            message=message,
+            warnings=(
+                []
+                if git_available
+                else [
+                    "Git is not available on PATH. This Garden was created without "
+                    "version management; install Git, then call a Garden version tool "
+                    "to initialize its repository."
+                ]
+            ),
+        ),
     }
-
 
 def list_garden_models(
     *,
@@ -616,10 +619,6 @@ def cleanup_garden_workspace(
         if not target_path.is_dir():
             skipped.append({"scope": scope, "path": relative_path, "reason": "scope_is_not_directory"})
             continue
-        if _is_directory_empty(target_path):
-            skipped.append({"scope": scope, "path": relative_path, "reason": "already_empty"})
-            continue
-
         removed.append(
             {
                 "scope": scope,
@@ -631,7 +630,6 @@ def cleanup_garden_workspace(
             continue
 
         shutil.rmtree(target_path)
-        target_path.mkdir(parents=True, exist_ok=True)
         cleaned_paths.append({"scope": scope, "path": relative_path})
 
     receipt_status = "no_change" if dry_run or not cleaned_paths else "persisted"

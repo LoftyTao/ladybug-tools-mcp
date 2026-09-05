@@ -24,7 +24,6 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
     save_honeybee_model,
-    with_honeybee_model_write_lock,
 )
 from garden.honeybee_core.targets import normalize_honeybee_object_target
 from garden.ironbug_core.assembly import _component_library, _hydrate_source_object
@@ -62,19 +61,23 @@ def build_detailed_hvac_specification(
             {
                 "$type": NO_AIR_LOOP_TYPE,
                 "ThermalZones": [
-                    {
-                        "CustomAttributes": [
-                            {
-                                "Field": {"FullName": "Name"},
-                                "Value": room_identifier,
-                            }
-                        ]
-                    }
+                    _minimal_no_air_loop_thermal_zone(room_identifier)
                     for room_identifier in normalized_room_ids
                 ],
             }
         ]
     }
+
+
+def _minimal_no_air_loop_thermal_zone(room_identifier: str) -> dict[str, Any]:
+    custom_attributes = _thermal_zone_name_attributes({}, room_identifier)
+    return _with_console_type(
+        {
+            "CustomAttributes": _console_custom_attributes(custom_attributes),
+            "SizingZone": _with_console_type({}, ironbug_hvac.IB_SizingZone),
+        },
+        ironbug_hvac.IB_ThermalZone,
+    )
 
 
 def build_chiller_condenser_loop_detailed_hvac_specification(
@@ -233,7 +236,6 @@ def create_ironbug_detailed_hvac(
     }
 
 
-@with_honeybee_model_write_lock
 def apply_ironbug_detailed_hvac_to_honeybee_model(
     *,
     garden_root: str,
@@ -757,6 +759,26 @@ def _ensure_explicit_room_linked_thermal_zones(
 
 def _component_thermal_zones(model: IB_Model) -> list[Any]:
     zones: list[Any] = []
+    seen: set[str] = set()
+
+    def add_zone(zone: Any) -> None:
+        identifier = (
+            zone.get("identifier")
+            if isinstance(zone, dict)
+            else getattr(zone, "identifier", "")
+        )
+        identifier = str(identifier or "")
+        key = identifier or f"object:{id(zone)}"
+        if key in seen:
+            return
+        seen.add(key)
+        zones.append(zone)
+
+    from garden.ironbug_core.readiness import _iter_active_model_objects, _source_class
+
+    for obj in _iter_active_model_objects(model):
+        if _source_class(obj) == "IB_ThermalZone":
+            add_zone(obj)
     for record in _component_library(model).values():
         if not isinstance(record, dict):
             continue
@@ -764,9 +786,9 @@ def _component_thermal_zones(model: IB_Model) -> list[Any]:
             continue
         data = record.get("data")
         if isinstance(data, dict):
-            zones.append(_hydrate_source_object(dict(data)))
+            add_zone(_hydrate_source_object(dict(data)))
         elif data is not None:
-            zones.append(data)
+            add_zone(data)
     return zones
 
 
@@ -1134,17 +1156,22 @@ def _ironbug_graph_simulation_readiness_issues(
         garden_root=garden_root,
         ironbug_model_target=ironbug_model_target,
     )
-    return [
-        {
+    result = []
+    for issue in readiness.get("report", {}).get("issues", []):
+        if issue.get("severity") != "error":
+            continue
+        item = {
             "code": str(issue.get("code") or ""),
             "message": str(issue.get("message") or issue.get("code") or ""),
             "source_class": issue.get("source_class"),
             "identifier": issue.get("identifier"),
             "repair_tool": issue.get("repair_tool"),
         }
-        for issue in readiness.get("report", {}).get("issues", [])
-        if issue.get("severity") == "error"
-    ]
+        for key in ("room_identifier", "thermal_zone_identifier", "component_identifier"):
+            if issue.get(key) is not None:
+                item[key] = issue[key]
+        result.append(item)
+    return result
 
 
 def _ironbug_thermal_zone_room_binding_issues(
@@ -1153,42 +1180,120 @@ def _ironbug_thermal_zone_room_binding_issues(
     selected_room_identifiers: list[str],
 ) -> list[dict[str, Any]]:
     selected = set(selected_room_identifiers)
-    room_serving_zone_names: list[str] = []
-    for zone in _component_thermal_zones(ironbug_model):
-        if getattr(zone, "AirTerminal", None) is None and not (
-            getattr(zone, "ZoneEquipments", None) or []
-        ):
+    zones = _component_thermal_zones(ironbug_model)
+    issues: list[dict[str, Any]] = []
+
+    for room_identifier in sorted(selected):
+        matches = [
+            zone
+            for zone in zones
+            if room_identifier in _thermal_zone_names(zone)
+        ]
+        if not matches:
+            issues.append(
+                {
+                    "code": "ironbug_thermal_zone_room_binding_missing",
+                    "message": (
+                        f"Honeybee Room {room_identifier} requires an IB_ThermalZone "
+                        "with the same Name or identifier."
+                    ),
+                    "source_class": "IB_ThermalZone",
+                    "identifier": room_identifier,
+                    "room_identifier": room_identifier,
+                    "thermal_zone_identifier": None,
+                    "repair_tool": "IB_thermal_zone",
+                }
+            )
             continue
-        room_serving_zone_names.append(_thermal_zone_room_name(zone))
-    if not room_serving_zone_names:
-        return []
-    unmatched = sorted(name for name in room_serving_zone_names if name not in selected)
-    if not unmatched:
-        return []
-    missing = sorted(selected.difference(room_serving_zone_names))
-    return [
-        {
-            "code": "ironbug_thermal_zone_room_binding_mismatch",
-            "message": (
-                "Room-serving IB_ThermalZone Name/identifier values must match "
-                "the selected Honeybee Room identifiers before EnergyPlus. "
-                f"Unmatched Ironbug zones: {', '.join(unmatched)}. "
-                f"Missing selected rooms: {', '.join(missing) if missing else 'none'}."
-            ),
-            "source_class": "IB_ThermalZone",
-            "identifier": ", ".join(unmatched),
-            "repair_tool": "detailed_hvac_thermal_zone",
-        }
-    ]
+        if len(matches) > 1:
+            identifiers = sorted(
+                {
+                    str(getattr(zone, "identifier", ""))
+                    for zone in matches
+                    if getattr(zone, "identifier", None)
+                }
+            )
+            issues.append(
+                {
+                    "code": "ironbug_thermal_zone_room_binding_mismatch",
+                    "message": (
+                        f"Honeybee Room {room_identifier} matches multiple "
+                        f"IB_ThermalZone objects: {', '.join(identifiers)}."
+                    ),
+                    "source_class": "IB_ThermalZone",
+                    "identifier": ", ".join(identifiers) or room_identifier,
+                    "room_identifier": room_identifier,
+                    "thermal_zone_identifier": identifiers,
+                    "repair_tool": "IB_thermal_zone",
+                }
+            )
+            continue
+        zone = matches[0]
+        zone_identifier = str(getattr(zone, "identifier", "") or room_identifier)
+        if not _thermal_zone_has_service_path(zone):
+            issues.append(
+                {
+                    "code": "ironbug_thermal_zone_has_no_air_terminal_or_equipment",
+                    "message": (
+                        f"IB_ThermalZone {zone_identifier} matched Honeybee Room "
+                        f"{room_identifier} but has no AirTerminal or ZoneEquipments "
+                        "service path."
+                    ),
+                    "source_class": "IB_ThermalZone",
+                    "identifier": zone_identifier,
+                    "room_identifier": room_identifier,
+                    "thermal_zone_identifier": zone_identifier,
+                    "repair_tool": "set_ironbug_thermal_zone_air_terminal",
+                }
+            )
+
+    for zone in zones:
+        if not _thermal_zone_has_service_path(zone):
+            continue
+        names = _thermal_zone_names(zone)
+        if names.isdisjoint(selected):
+            zone_identifier = str(getattr(zone, "identifier", "") or "")
+            issues.append(
+                {
+                    "code": "ironbug_thermal_zone_room_binding_mismatch",
+                    "message": (
+                        "Room-serving IB_ThermalZone Name/identifier values must match "
+                        "the selected Honeybee Room identifiers. "
+                        f"Unmatched Ironbug zone: {zone_identifier or ', '.join(sorted(names))}."
+                    ),
+                    "source_class": "IB_ThermalZone",
+                    "identifier": zone_identifier or ", ".join(sorted(names)),
+                    "room_identifier": None,
+                    "thermal_zone_identifier": zone_identifier or None,
+                    "repair_tool": "IB_thermal_zone",
+                }
+            )
+
+    return issues
+
+def _thermal_zone_names(zone: Any) -> set[str]:
+    if isinstance(zone, dict):
+        identifier = zone.get("identifier") or zone.get("Name")
+        attributes = zone.get("CustomAttributes") or {}
+    else:
+        identifier = getattr(zone, "identifier", None)
+        attributes = getattr(zone, "CustomAttributes", None) or {}
+    name = attributes.get("Name") if isinstance(attributes, dict) else None
+    return {str(value) for value in (identifier, name) if value}
 
 
-def _thermal_zone_room_name(zone: Any) -> str:
-    attributes = getattr(zone, "CustomAttributes", None) or {}
-    if isinstance(attributes, dict):
-        name = attributes.get("Name")
-        if name:
-            return str(name)
-    return str(getattr(zone, "identifier", ""))
+def _thermal_zone_has_service_path(zone: Any) -> bool:
+    if isinstance(zone, dict):
+        air_terminal = zone.get("AirTerminal")
+        zone_equipments = zone.get("ZoneEquipments")
+    else:
+        air_terminal = getattr(zone, "AirTerminal", None)
+        zone_equipments = getattr(zone, "ZoneEquipments", None)
+    if air_terminal:
+        return True
+    if isinstance(zone_equipments, (list, tuple)):
+        return any(bool(equipment) for equipment in zone_equipments)
+    return bool(zone_equipments)
 
 
 def _issues_with_codes(

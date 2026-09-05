@@ -10,14 +10,14 @@ Use this when a VisualizationSet attribute or chart workflow needs a reusable `L
 
 ## MCP Route
 
-1. Call `visualization_create_2d_legend_parameter`.
-2. If needed, call `visualization_edit_2d_legend_parameter` with the returned `object_dict`.
+1. Call `LB_create_2d_legend_parameter`.
+2. If needed, call `LB_edit_2d_legend_parameter` with the returned `object_dict`.
 3. Pass the resulting `object_dict` into `room_attributes_`, `face_attributes_`, or result visualization specs.
 
 ## Code Mode Pattern
 
 ```python
-legend = await call_tool("visualization_create_2d_legend_parameter", {
+legend = await call_tool("LB_create_2d_legend_parameter", {
     "title": "Room Identifier",
     "orientation": "horizontal",
     "position_2d": {"origin_x": "5%", "origin_y": "88%"},

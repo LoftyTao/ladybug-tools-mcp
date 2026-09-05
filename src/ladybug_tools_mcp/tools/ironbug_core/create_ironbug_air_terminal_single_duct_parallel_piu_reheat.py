@@ -1,22 +1,18 @@
-'MCP tool for detailed_hvac_air_terminal_single_duct_parallel_piu_reheat.'
+'MCP tool for IB_air_terminal_single_duct_parallel_piu_reheat.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    set_ironbug_thermal_zone_air_terminal,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_air_terminal_single_duct_parallel_piu_reheat tool.'
+    'Register the IB_air_terminal_single_duct_parallel_piu_reheat tool.'
 
     @mcp.tool(
-        name='air_terminal_single_duct_parallel_piu_reheat',
+        name='IB_air_terminal_single_duct_parallel_piu_reheat',
         description=(
             'Create IB_AirTerminalSingleDuctParallelPIUReheat, an Ironbug '
             'single-duct parallel powered induction unit (PIU) reheat air '
@@ -36,13 +32,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_air_terminal_single_duct_parallel_piu_reheat(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -151,7 +147,7 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Optional IB_CoilHeatingBasic child target or same-model "
                     "identifier for Parameter 'HeatingCoil' on the parallel PIU "
-                    "terminal; use a detailed_hvac_coil_heating_* target."
+                    "terminal; use an IB_coil_heating_* target."
                 )
             ),
         ] = None,
@@ -170,6 +166,12 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_AirTerminalSingleDuctParallelPIUReheat as a reviewed parallel PIU terminal."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            set_ironbug_thermal_zone_air_terminal,
+        )
 
         child_targets = [
             heating_coil_target,

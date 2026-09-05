@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.runs import poll_urbanopt_simulation as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the URBANopt poll tool."""
 
     @mcp.tool(
-        name="poll_urbanopt_simulation",
+        name="DF_des_poll_urbanopt_simulation",
         description=(
             "Read the compact Garden ledger for an URBANopt DES run. Use it "
             "after the start tool to check runtime_status, poll_next, and the "
@@ -30,4 +29,6 @@ def register(mcp: FastMCP) -> None:
         run_id: Annotated[str | None, Field(description="URBANopt run id to poll when run_target is not available.") ] = None,
     ) -> dict[str, Any]:
         """Poll an URBANopt run."""
+        from garden.dragonfly_des.runs import poll_urbanopt_simulation as service
+
         return service(garden_root=garden_root, run_target=run_target, run_id=run_id)

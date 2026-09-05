@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.programtypes import create_setpoint as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_setpoint tool.'
+    'Register the EP_create_setpoint tool.'
 
     @mcp.tool(
-        name='create_setpoint',
-        description='Create a Honeybee Energy Setpoint thermostat/humidistat resource from heating and cooling schedules, or from numeric Celsius heating_setpoint and cooling_setpoint values that become constant schedules. Use it as the program-type thermostat companion to ventilation, infiltration, and service hot water demand loads; it does not size outdoor air or ACH. Schedules accept object_dicts, Garden schedule targets, or standards identifiers. Use garden_root to save a Garden Properties Library load target and pass target to energy_create_program_type.setpoint or honeybee_edit_room.setpoint; set return_object_dict=false only when you want a low-token target/summary/receipt response. This is zone thermostat/humidistat control data, not HVAC supply-air temperature or a DetailedHVAC setpoint manager.',
+        name='EP_create_setpoint',
+        description='Create a Honeybee Energy Setpoint thermostat/humidistat resource from heating and cooling schedules, or from numeric Celsius heating_setpoint and cooling_setpoint values that become constant schedules. Use it as the program-type thermostat companion to ventilation, infiltration, and service hot water demand loads; it does not size outdoor air or ACH. Schedules accept object_dicts, Garden schedule targets, or standards identifiers. Use garden_root to save a Garden Properties Library load target and pass target to EP_create_program_type.setpoint or HB_edit_room.setpoint; set return_object_dict=false only when you want a low-token target/summary/receipt response. This is zone thermostat/humidistat control data, not HVAC supply-air temperature or a DetailedHVAC setpoint manager.',
         tags={
             "author",
             "energy",
@@ -75,7 +74,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -86,6 +85,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy Setpoint object."""
+        from garden.energy.programtypes import create_setpoint as service
+
         return service(
             identifier=identifier,
             heating_schedule=heating_schedule,

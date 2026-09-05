@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_zone_equipment_group.'
+'MCP tool for IB_zone_equipment_group.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_group tool.'
+    'Register the IB_zone_equipment_group tool.'
 
     @mcp.tool(
-        name='zone_equipment_group',
+        name='IB_zone_equipment_group',
         description=(
             'Create IB_ZoneEquipmentGroup, an Ironbug zone-equipment aggregate '
             'for grouping multiple IB_ZoneEquipment targets before placement '
@@ -33,13 +32,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_zone_equipment_group(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -58,7 +57,7 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Optional list of IB_ZoneEquipment targets for the source "
                     "property ZoneEquipments (List<IB_ZoneEquipment>); pass "
-                    "target dicts from compatible detailed_hvac_zone_equipment_* "
+                    "target dicts from compatible IB_zone_equipment_* "
                     "tools or same-model identifiers. Do not pass air-terminal "
                     "targets here."
                 )
@@ -70,6 +69,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_ZoneEquipmentGroup as a reviewed zone-equipment aggregate."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

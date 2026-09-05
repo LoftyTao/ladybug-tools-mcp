@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_water_heater_mixed.'
+'MCP tool for IB_water_heater_mixed.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_water_heater_mixed tool.'
+    'Register the IB_water_heater_mixed tool.'
 
     @mcp.tool(
-        name='water_heater_mixed',
+        name='IB_water_heater_mixed',
         description=(
             'Create IB_WaterHeaterMixed, the Ironbug and EnergyPlus WaterHeater:Mixed single-node water tank for service hot water, storage, tankless, or indirect plant-loop use. It can take schedules, fuel/capacity fields, ambient zone or schedule inputs, a part-load curve, and optional WaterHeater:Sizing child; it is not a heat-pump water heater compound object or a water-use fixture. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -30,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -235,6 +234,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug mixed service-water heater tank."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         child_targets = [
             sizing_target,

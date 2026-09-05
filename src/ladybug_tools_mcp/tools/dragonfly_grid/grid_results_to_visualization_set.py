@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_grid.display import grid_results_to_visualization_set as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the Grid results VisualizationSet handoff tool."""
 
     @mcp.tool(
-        name="results_to_visualization_set",
+        name="DF_grid_results_to_visualization_set",
         description=(
             "Create a compact Ladybug Display VisualizationSet target for "
             "registered Dragonfly Grid OpenDSS result artifacts. Use shared "
@@ -30,6 +29,8 @@ def register(mcp: FastMCP) -> None:
         return_visualization_set: Annotated[bool, Field(description="Return the full VisualizationSet dict; keep false for compact target handoff.")] = False,
     ) -> dict[str, Any]:
         """Create a VisualizationSet target for Electric Grid result artifacts."""
+        from garden.dragonfly_grid.display import grid_results_to_visualization_set as service
+
         return service(
             garden_root=garden_root,
             result_targets=result_targets,

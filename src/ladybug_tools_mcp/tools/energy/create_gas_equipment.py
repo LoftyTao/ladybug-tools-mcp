@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.programtypes import create_gas_equipment as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_gas_equipment tool.'
+    'Register the EP_create_gas_equipment tool.'
 
     @mcp.tool(
-        name='create_gas_equipment',
-        description='Create a Honeybee Energy GasEquipment internal-gains load from fuel equipment power density and an optional fractional schedule. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to energy_create_program_type.gas_equipment; set return_object_dict=false only when you want a low-token target/summary/receipt response. This represents gas/process equipment gains, not a boiler, furnace, or HVAC heating system.',
+        name='EP_create_gas_equipment',
+        description='Create a Honeybee Energy GasEquipment internal-gains load from fuel equipment power density and an optional fractional schedule. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to EP_create_program_type.gas_equipment; set return_object_dict=false only when you want a low-token target/summary/receipt response. This represents gas/process equipment gains, not a boiler, furnace, or HVAC heating system.',
         tags={
             "author",
             "energy",
@@ -53,7 +52,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -64,6 +63,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy GasEquipment object."""
+        from garden.energy.programtypes import create_gas_equipment as service
+
         return service(
             identifier=identifier,
             watts_per_area=watts_per_area,

@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.versions import create_garden_version as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the garden_create_version tool.'
+    'Register the GD_create_version tool.'
 
     @mcp.tool(
-        name='create_version',
+        name='GD_create_version',
         description=(
             "Create a compact Garden version checkpoint after a user or Agent "
             "workflow changes Garden authoring truth. Use once at the end of a "
@@ -38,7 +37,7 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Required Garden root path containing garden.json, usually "
-                    "garden_create['garden_root']; this must be the Garden whose "
+                    "GD_create['garden_root']; this must be the Garden whose "
                     "authoring truth should receive the version checkpoint."
                 )
             ),
@@ -84,6 +83,8 @@ def register(mcp: FastMCP) -> None:
         ] = "agent",
     ) -> dict[str, Any]:
         """Create a Garden version."""
+        from garden.versions import create_garden_version as service
+
         if isinstance(summary, str):
             summary = {"note": summary}
         if details is not None:

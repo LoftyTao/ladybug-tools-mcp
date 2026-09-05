@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.runs import write_modelica_project as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the Modelica project write candidate tool."""
 
     @mcp.tool(
-        name="write_modelica_project",
+        name="DF_des_write_modelica_project",
         description=(
             "Candidate boundary for writing a Modelica project from DES artifact "
             "targets. It uses the system_params JSON, feature GeoJSON, and "
@@ -33,6 +32,8 @@ def register(mcp: FastMCP) -> None:
         run_id: Annotated[str | None, Field(description="Optional stable run id; omit to let the Garden create one.") ] = None,
     ) -> dict[str, Any]:
         """Write a candidate DES Modelica project."""
+        from garden.dragonfly_des.runs import write_modelica_project as service
+
         return service(
             garden_root=garden_root,
             system_parameter_json_target=system_parameter_json_target,

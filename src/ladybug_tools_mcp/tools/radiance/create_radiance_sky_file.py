@@ -7,19 +7,18 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.sky import create_cie_standard_sky as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_sky_file tool.'
+    'Register the RAD_create_sky_file tool.'
 
     @mcp.tool(
-        name="create_sky_file",
+        name="RAD_create_sky_file",
         description=(
             "Create a Garden Radiance .sky file target for point-in-time grid "
             "or view recipes. Pass a Radiance sky definition or sky dictionary "
-            "from radiance_create_sky, radiance_create_cie_standard_sky, or "
-            "radiance_create_climate_based_sky. This persists a sky include "
+            "from RAD_create_sky, RAD_create_cie_standard_sky, or "
+            "RAD_create_climate_based_sky. This persists a sky include "
             "for recipes; it does not create WEA weather, sky matrices, or "
             "runs. Returns target, sky_file_target, summary_view, "
             "persistence_receipt, and report."
@@ -34,7 +33,7 @@ def register(mcp: FastMCP) -> None:
         timeout=60,
     )
     def create_radiance_sky_file(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         identifier: Annotated[str, Field(description="Stable identifier for the point-in-time Radiance .sky artifact and target.")] = "radiance_sky_file",
         month: Annotated[int, Field(description="Month number for date/time mode.")] = 6,
         day: Annotated[int, Field(description="Day of month for date/time mode.")] = 21,
@@ -44,6 +43,8 @@ def register(mcp: FastMCP) -> None:
         output_subdir: Annotated[str, Field(description="Garden-relative output folder.")] = "artifacts/radiance/sky",
     ) -> dict[str, Any]:
         """Create a Radiance sky file."""
+        from garden.radiance.sky import create_cie_standard_sky as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

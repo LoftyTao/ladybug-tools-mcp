@@ -7,17 +7,16 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.creation import create_dragonfly_room2d as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_create_room2d tool.'
+    'Register the DF_room2d tool.'
 
     @mcp.tool(
-        name="room2d",
+        name="DF_room2d",
         description=(
             "Create a Dragonfly Room2D draft object in a Garden from 2D floor vertices. "
-            "Use Room2D targets with dragonfly_create_story, then dragonfly_create_building, "
+            "Use Room2D targets with DF_story, then DF_building, "
             "when assembling a building story room2d model. Returns target, summary_view, "
             "persistence_receipt, and report; this is Dragonfly floor-plate authoring, "
             "not Honeybee Room creation."
@@ -28,7 +27,7 @@ def register(mcp: FastMCP) -> None:
     def create_dragonfly_room2d(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         identifier: Annotated[
             str,
@@ -77,7 +76,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
@@ -129,6 +128,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Create a Dragonfly Room2D."""
+        from garden.dragonfly_core.creation import create_dragonfly_room2d as service
+
         result = service(
             garden_root=garden_root,
             identifier=identifier,

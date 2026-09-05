@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.queries import query_dragonfly_room2ds_by_attribute as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_query_room2ds_by_attribute tool."""
+    """Register the DF_room2ds_by_attribute tool."""
 
     @mcp.tool(
-        name="room2ds_by_attribute",
+        name="DF_room2ds_by_attribute",
         description=(
             "Return Dragonfly Room2D targets and compact values for one SDK "
             "attribute, such as floor_area, volume, or floor_height. This is a "
@@ -54,6 +53,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Query Dragonfly Room2Ds by one attribute."""
+        from garden.dragonfly_core.queries import query_dragonfly_room2ds_by_attribute as service
+
         return service(
             garden_root=garden_root,
             attribute=attribute,

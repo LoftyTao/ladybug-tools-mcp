@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.creation import create_dragonfly_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_create_model tool.'
+    'Register the DF_model tool.'
 
     @mcp.tool(
-        name="model",
+        name="DF_model",
         description=(
             "Create an empty Dragonfly model in a Garden and optionally set it as the "
             "base Dragonfly model with set_base; not set_as_base. Returns target and "
@@ -28,7 +27,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         identifier: Annotated[
@@ -97,6 +96,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Create a Dragonfly Model."""
+        from garden.dragonfly_core.creation import create_dragonfly_model as service
+
         if unit_system is not None:
             normalized_unit_system = unit_system.strip().lower()
             if normalized_unit_system in {"metric", "si"}:

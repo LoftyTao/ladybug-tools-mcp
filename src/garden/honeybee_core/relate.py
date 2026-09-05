@@ -20,12 +20,10 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
     save_honeybee_model,
-    with_honeybee_model_write_lock,
 )
 from garden.honeybee_core.targets import make_honeybee_object_target
 
 
-@with_honeybee_model_write_lock
 def relate_honeybee_model(
     *,
     garden_root: str,

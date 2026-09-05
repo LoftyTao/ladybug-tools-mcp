@@ -7,7 +7,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.run import start_radiance_grid_run as service
 
 
 def _requires_radiance_sky_file(calculation_type: str) -> bool:
@@ -15,16 +14,16 @@ def _requires_radiance_sky_file(calculation_type: str) -> bool:
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_start_grid_simulation tool.'
+    'Register the RAD_start_grid_simulation tool.'
 
     @mcp.tool(
-        name="start_grid_simulation",
+        name="RAD_start_grid_simulation",
         description=(
             "Start a background Radiance daylight grid recipe for a Honeybee "
             "model with attached SensorGrids. Use for point-in-time-grid, "
-            "daylight-factor, and rtrace calculations. Provide a sky_file "
+            "daylight-factor, Sky View, and rtrace calculations. Provide a sky_file "
             "target for point-in-time runs and poll with "
-            "radiance_poll_simulation before reading artifacts. Returns "
+            "RAD_poll_simulation before reading artifacts. Returns "
             "run_target, radiance_run_target, runtime_status through "
             "summary_view.status, poll_next, and report. Treat failed "
             "runtime_status as requiring report review."
@@ -38,18 +37,18 @@ def register(mcp: FastMCP) -> None:
         timeout=60,
     )
     def start_radiance_grid_run(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model and should already have SensorGrids attached."),
         ] = None,
         calculation_type: Annotated[
             str,
-            Field(description="Grid calculation type: point_in_time or daylight_factor."),
+            Field(description="Grid calculation type: point_in_time, daylight_factor, or sky_view."),
         ] = "point_in_time",
         radiance_sky_file: Annotated[
             dict[str, Any] | None,
-            Field(description='Radiance sky file target from radiance_create_cie_standard_sky, radiance_create_climate_based_sky, radiance_create_sky, or radiance_create_sky_file. Required for point_in_time runs.'),
+            Field(description='Radiance sky file target from RAD_create_cie_standard_sky, RAD_create_climate_based_sky, RAD_create_sky, or RAD_create_sky_file. Required for point_in_time runs.'),
         ] = None,
         grid_filter: Annotated[
             str,
@@ -71,9 +70,13 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(description="Optional daylight-factor grid-metrics input when needed by the recipe."),
         ] = None,
+        cloudy_sky: Annotated[
+            str,
+            Field(description="Sky View sky condition: uniform or cloudy."),
+        ] = "uniform",
         radiance_parameters: Annotated[
             str | dict[str, Any] | None,
-            Field(description="Optional Radiance parameters string or dictionary returned by radiance_create_parameters."),
+            Field(description="Optional Radiance parameters string or dictionary returned by RAD_create_parameters."),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -87,6 +90,8 @@ def register(mcp: FastMCP) -> None:
         silent: Annotated[bool, Field(description="Run the Radiance recipe silently.")] = True,
     ) -> dict[str, Any]:
         """Start a Radiance grid run."""
+        from garden.radiance.run import start_radiance_grid_run as service
+
         if _requires_radiance_sky_file(calculation_type) and radiance_sky_file is None:
             raise ValueError("Provide radiance_sky_file for point_in_time Radiance grid runs.")
         if grid_filter == "*" and isinstance(sensor_grid_target, dict):
@@ -105,6 +110,7 @@ def register(mcp: FastMCP) -> None:
             metric=metric,
             min_sensor_count=min_sensor_count,
             grid_metrics=grid_metrics,
+            cloudy_sky=cloudy_sky,
             radiance_parameters=radiance_parameters,
             run_id=run_id,
             workers=workers,

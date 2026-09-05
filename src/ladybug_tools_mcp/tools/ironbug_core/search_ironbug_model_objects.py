@@ -7,22 +7,23 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core import search_ironbug_model_objects as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_search_model_objects tool.'
+    'Register the IB_search_model_objects tool.'
 
     @mcp.tool(
-        name="search_model_objects",
+        name="IB_search_model_objects",
         description=(
             "Search compact objects inside a Garden-managed Ironbug .ibjson model. "
             "Use object_type=model, hvac_system, component, air_loop, plant_loop, vrf, "
             "energy_management_system, electric_load_center, or all. Returns matches "
-            "with typed ironbug_model_object targets and compact summaries only; "
+            "with typed ironbug_model_object targets and compact summaries only. "
+            "Component summaries include reference_owners, "
+            "active_graph_memberships, and is_orphan for safe cleanup decisions; "
             "there is no include_body parameter. The result list field is matches, "
             "not ironbug_model_objects. This is not a Garden-wide model discovery "
-            'tool; always pass ironbug_model_target from detailed_hvac_create_model.'
+            'tool; always pass ironbug_model_target from IB_create_model.'
         ),
         tags={"ironbug", "detailed-hvac", "model", "search"},
         annotations={"readOnlyHint": True},
@@ -31,14 +32,14 @@ def register(mcp: FastMCP) -> None:
     def search_ironbug_model_objects(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
                     "Required Ironbug target argument named ironbug_model_target; "
-                    'pass the target returned by detailed_hvac_create_model, not ironbug_model. '
+                    'pass the target returned by IB_create_model, not ironbug_model. '
                     "This is required even when object_type='model'."
                 )
             ),
@@ -67,6 +68,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Search Ironbug model objects and return typed targets."""
+
+        from garden.ironbug_core.models import search_ironbug_model_objects as service
 
         return service(
             garden_root=garden_root,

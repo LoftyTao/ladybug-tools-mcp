@@ -15,6 +15,8 @@ from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import to_posix_relative
 from garden.run_energy.annual import (
     _capture_recipe_stdio,
+    _ENERGY_RUN_LEDGER,
+    _run_index_path,
     _normalize_run_id,
     _output_record,
     _outputs_map,
@@ -22,6 +24,7 @@ from garden.run_energy.annual import (
     _upsert_record,
 )
 from garden.run_energy.config import WEATHER_TARGET_TYPE
+from garden.run_ledger import serialized_run_start
 
 IDF_FILE_RECIPE = "energyplus_idf"
 OSM_FILE_RECIPE = "openstudio_osm"
@@ -197,23 +200,63 @@ def _response(
             "outputs": _outputs_map(record),
         },
         "report": make_report(
-            status="ok" if status == "completed" else "error",
-            message=completed_message if status == "completed" else failed_message,
+            status="error" if status == "failed" else "ok",
+            message=(
+                completed_message if status == "completed"
+                else failed_message if status == "failed"
+                else f"Existing Energy file run returned with status: {status}."
+            ),
             warnings=warnings,
         ),
     }
 
 
-def run_osm_file(
+def _missing_file_outputs(names: tuple[str, ...]) -> list[dict[str, Any]]:
+    return [{"name": name, "path": None, "exists": False} for name in names]
+
+
+def _clear_idf_native_outputs(garden_root: Path, run_dir: Path) -> None:
+    """Remove known EnergyPlus results while preserving user supplied inputs."""
+    garden_root = garden_root.resolve()
+    run_dir = run_dir.resolve()
+    run_dir.relative_to(garden_root)
+    for path in (*_energyplus_output_paths(run_dir).values(), run_dir / "eui.json"):
+        path = path.resolve()
+        path.relative_to(garden_root)
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _mark_file_setup_failed(
+    garden_root: Path,
+    record: dict[str, Any],
+    error: str,
+    output_names: tuple[str, ...],
+) -> None:
+    warnings = list(record.get("warnings") or [])
+    warnings.append(error)
+    record.update(
+        {
+            "status": "failed",
+            "completed_at": utc_now_iso(),
+            "warnings": warnings,
+            "outputs": _missing_file_outputs(output_names),
+        }
+    )
+    _upsert_record(garden_root, record)
+
+
+@serialized_run_start
+def _prepare_osm_file_run(
     *,
     garden_root: str,
     osm_path: str,
-    weather_target: dict[str, Any] | None = None,
-    epw_path: str | None = None,
-    run_id: str | None = None,
-    silent: bool = True,
+    weather_target: dict[str, Any] | None,
+    epw_path: str | None,
+    run_id: str | None,
+    silent: bool,
 ) -> dict[str, Any]:
-    """Create a persistent workflow.osw beside an OSM and run it."""
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     resolved_osm = _resolve_garden_file(
@@ -230,25 +273,225 @@ def run_osm_file(
         required=True,
     )
     assert resolved_epw is not None
-    workflow_path = _write_workflow_osw(osm_path=resolved_osm, epw_path=resolved_epw)
     run_dir = (resolved_osm.parent / "run").resolve()
     run_dir.relative_to(garden_root_path)
-
+    if resolved_epw.is_relative_to(run_dir):
+        raise ValueError("The EPW must be outside the OpenStudio run folder being replaced.")
     resolved_run_id = _normalize_run_id(run_id)
+    existing = _ENERGY_RUN_LEDGER.get(
+        _run_index_path(garden_root_path), resolved_run_id
+    )
+    if existing is not None:
+        return {
+            "manifest": manifest,
+            "record": existing,
+            "workflow_path": None,
+            "reused": True,
+        }
     target = _run_target(
         manifest.garden_id,
         resolved_run_id,
         recipe=OSM_FILE_RECIPE,
     )
+    run_folder = to_posix_relative(run_dir, garden_root_path)
+    _ENERGY_RUN_LEDGER.prepare_folder(
+        _run_index_path(garden_root_path),
+        run_folder,
+        recipe=OSM_FILE_RECIPE,
+    )
+    run_dir.mkdir(parents=True, exist_ok=True)
+    record: dict[str, Any] = {
+        "run_id": resolved_run_id,
+        "target": target,
+        "recipe": OSM_FILE_RECIPE,
+        "status": "running",
+        "created_at": utc_now_iso(),
+        "input_file_path": to_posix_relative(resolved_osm, garden_root_path),
+        "source_file_path": to_posix_relative(resolved_osm, garden_root_path),
+        "weather_target": weather_target,
+        "weather_source": weather_source,
+        "epw_path": to_posix_relative(resolved_epw, garden_root_path),
+        "run_folder": run_folder,
+        "outputs": _missing_file_outputs(OSM_OUTPUT_NAMES),
+        "warnings": [],
+        "silent": silent,
+    }
+    _upsert_record(garden_root_path, record)
+    try:
+        _clear_idf_native_outputs(garden_root_path, run_dir)
+        for name in ("in.osm", "in.idf"):
+            (run_dir / name).unlink(missing_ok=True)
+        workflow_path = _write_workflow_osw(
+            osm_path=resolved_osm,
+            epw_path=resolved_epw,
+        )
+    except Exception as exc:
+        _mark_file_setup_failed(
+            garden_root_path,
+            record,
+            str(exc),
+            OSM_OUTPUT_NAMES,
+        )
+        return {
+            "manifest": manifest,
+            "record": record,
+            "workflow_path": None,
+            "reused": False,
+        }
+    record["workflow_path"] = to_posix_relative(workflow_path, garden_root_path)
+    _upsert_record(garden_root_path, record)
+    return {
+        "manifest": manifest,
+        "record": record,
+        "workflow_path": workflow_path,
+        "reused": False,
+    }
+
+
+@serialized_run_start
+def _prepare_idf_file_run(
+    *,
+    garden_root: str,
+    idf_path: str,
+    weather_target: dict[str, Any] | None,
+    epw_path: str | None,
+    expand_objects: bool,
+    run_id: str | None,
+    silent: bool,
+) -> dict[str, Any]:
+    garden_root_path = _garden_root(garden_root)
+    manifest = GardenManifest.read(garden_root_path)
+    resolved_idf = _resolve_garden_file(
+        garden_root_path,
+        idf_path,
+        field_name="idf_path",
+        suffix=".idf",
+    )
+    resolved_epw, weather_source = _resolve_epw_path(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        weather_target=weather_target,
+        epw_path=epw_path,
+        required=False,
+    )
+    run_dir = (
+        resolved_idf.parent
+        if resolved_idf.name.lower() == "in.idf"
+        else resolved_idf.parent / "run"
+    ).resolve()
+    run_dir.relative_to(garden_root_path)
+    resolved_run_id = _normalize_run_id(run_id)
+    existing = _ENERGY_RUN_LEDGER.get(
+        _run_index_path(garden_root_path), resolved_run_id
+    )
+    if existing is not None:
+        return {
+            "manifest": manifest,
+            "record": existing,
+            "resolved_epw": resolved_epw,
+            "run_input": None,
+            "reused": True,
+        }
+    target = _run_target(
+        manifest.garden_id,
+        resolved_run_id,
+        recipe=IDF_FILE_RECIPE,
+    )
+    run_folder = to_posix_relative(run_dir, garden_root_path)
+    _ENERGY_RUN_LEDGER.prepare_folder(
+        _run_index_path(garden_root_path),
+        run_folder,
+        recipe=IDF_FILE_RECIPE,
+    )
+    run_dir.mkdir(parents=True, exist_ok=True)
+    record: dict[str, Any] = {
+        "run_id": resolved_run_id,
+        "target": target,
+        "recipe": IDF_FILE_RECIPE,
+        "status": "running",
+        "created_at": utc_now_iso(),
+        "input_file_path": to_posix_relative(resolved_idf, garden_root_path),
+        "source_file_path": to_posix_relative(resolved_idf, garden_root_path),
+        "weather_target": weather_target,
+        "weather_source": weather_source,
+        "epw_path": (
+            to_posix_relative(resolved_epw, garden_root_path)
+            if resolved_epw is not None
+            else None
+        ),
+        "run_folder": run_folder,
+        "outputs": _missing_file_outputs(IDF_OUTPUT_NAMES),
+        "warnings": [],
+        "expand_objects": expand_objects,
+        "silent": silent,
+    }
+    _upsert_record(garden_root_path, record)
+    try:
+        _clear_idf_native_outputs(garden_root_path, run_dir)
+        run_input = _idf_run_input(resolved_idf)
+    except Exception as exc:
+        _mark_file_setup_failed(
+            garden_root_path,
+            record,
+            str(exc),
+            IDF_OUTPUT_NAMES,
+        )
+        return {
+            "manifest": manifest,
+            "record": record,
+            "resolved_epw": resolved_epw,
+            "run_input": None,
+            "reused": False,
+        }
+    record["run_input_path"] = to_posix_relative(run_input, garden_root_path)
+    _upsert_record(garden_root_path, record)
+    return {
+        "manifest": manifest,
+        "record": record,
+        "resolved_epw": resolved_epw,
+        "run_input": run_input,
+        "reused": False,
+    }
+
+
+def run_osm_file(
+    *,
+    garden_root: str,
+    osm_path: str,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    run_id: str | None = None,
+    silent: bool = True,
+) -> dict[str, Any]:
+    """Create a persistent workflow.osw beside an OSM and run it."""
+    prepared = _prepare_osm_file_run(
+        garden_root=garden_root,
+        osm_path=osm_path,
+        weather_target=weather_target,
+        epw_path=epw_path,
+        run_id=run_id,
+        silent=silent,
+    )
+    garden_root_path = _garden_root(garden_root)
+    manifest = prepared["manifest"]
+    record = prepared["record"]
+    if prepared["reused"] or record.get("status") != "running":
+        return _response(
+            manifest=manifest,
+            record=record,
+            warnings=list(record.get("warnings") or []),
+            completed_message="OSM file simulation completed.",
+            failed_message="OSM file simulation failed; run record was saved.",
+        )
+
     warnings: list[str] = []
-    started_at = utc_now_iso()
     status = "completed"
     osm_result: str | None = None
     idf_result: str | None = None
     try:
-        with _capture_recipe_stdio(run_dir):
+        with _capture_recipe_stdio((_garden_root(garden_root) / record["run_folder"]).parent):
             osm_result, idf_result = run_osw(
-                str(workflow_path),
+                str(prepared["workflow_path"]),
                 measures_only=False,
                 silent=silent,
             )
@@ -256,42 +499,39 @@ def run_osm_file(
         status = "failed"
         warnings.append(str(exc))
 
+    run_dir = (garden_root_path / str(record["run_folder"])).resolve()
     known_outputs = _energyplus_output_paths(run_dir)
     output_paths: dict[str, Path | None] = {
-        "osm": _existing_file(Path(osm_result).resolve())
-        if osm_result
-        else _existing_file(run_dir / "in.osm"),
-        "idf": _existing_file(Path(idf_result).resolve())
-        if idf_result
-        else _existing_file(run_dir / "in.idf"),
+        "osm": (
+            _existing_file(Path(osm_result).resolve())
+            if osm_result
+            else _existing_file(run_dir / "in.osm")
+        ),
+        "idf": (
+            _existing_file(Path(idf_result).resolve())
+            if idf_result
+            else _existing_file(run_dir / "in.idf")
+        ),
         **{name: _existing_file(path) for name, path in known_outputs.items()},
     }
     output_paths["eui"] = _eui_output(output_paths.get("sql"), run_dir)
+    if status == "completed" and not all(output_paths.get(name) for name in ("sql", "err")):
+        status = "failed"
+        warnings.append("OpenStudio did not produce the required SQL and ERR output files.")
     outputs = _file_outputs(
         garden_root=garden_root_path,
         run_dir=run_dir,
         output_paths=output_paths,
         output_names=OSM_OUTPUT_NAMES,
     )
-    run_folder = to_posix_relative(run_dir, garden_root_path)
-    record = {
-        "run_id": resolved_run_id,
-        "target": target,
-        "recipe": OSM_FILE_RECIPE,
-        "status": status,
-        "created_at": started_at,
-        "completed_at": utc_now_iso(),
-        "input_file_path": to_posix_relative(resolved_osm, garden_root_path),
-        "source_file_path": to_posix_relative(resolved_osm, garden_root_path),
-        "workflow_path": to_posix_relative(workflow_path, garden_root_path),
-        "weather_target": weather_target,
-        "weather_source": weather_source,
-        "epw_path": to_posix_relative(resolved_epw, garden_root_path),
-        "run_folder": run_folder,
-        "outputs": outputs,
-        "warnings": warnings,
-        "silent": silent,
-    }
+    record.update(
+        {
+            "status": status,
+            "completed_at": utc_now_iso(),
+            "outputs": outputs,
+            "warnings": warnings,
+        }
+    )
     _upsert_record(garden_root_path, record)
     return _response(
         manifest=manifest,
@@ -313,41 +553,41 @@ def run_idf_file(
     silent: bool = True,
 ) -> dict[str, Any]:
     """Run an edited IDF file using Grasshopper-style run folder behavior."""
-    garden_root_path = _garden_root(garden_root)
-    manifest = GardenManifest.read(garden_root_path)
-    resolved_idf = _resolve_garden_file(
-        garden_root_path,
-        idf_path,
-        field_name="idf_path",
-        suffix=".idf",
-    )
-    resolved_epw, weather_source = _resolve_epw_path(
-        garden_root=garden_root_path,
-        manifest=manifest,
+    prepared = _prepare_idf_file_run(
+        garden_root=garden_root,
+        idf_path=idf_path,
         weather_target=weather_target,
         epw_path=epw_path,
-        required=False,
+        expand_objects=expand_objects,
+        run_id=run_id,
+        silent=silent,
     )
-    run_input = _idf_run_input(resolved_idf)
-    run_dir = run_input.parent.resolve()
-    run_dir.relative_to(garden_root_path)
+    garden_root_path = _garden_root(garden_root)
+    manifest = prepared["manifest"]
+    record = prepared["record"]
+    if prepared["reused"] or record.get("status") != "running":
+        return _response(
+            manifest=manifest,
+            record=record,
+            warnings=list(record.get("warnings") or []),
+            completed_message="IDF file simulation completed.",
+            failed_message="IDF file simulation failed; run record was saved.",
+        )
 
-    resolved_run_id = _normalize_run_id(run_id)
-    target = _run_target(
-        manifest.garden_id,
-        resolved_run_id,
-        recipe=IDF_FILE_RECIPE,
-    )
     warnings: list[str] = []
-    started_at = utc_now_iso()
     status = "completed"
     result_paths: tuple[str | None, str | None, str | None, str | None, str | None]
     result_paths = (None, None, None, None, None)
+    run_input = prepared["run_input"]
     try:
-        with _capture_recipe_stdio(run_dir):
+        with _capture_recipe_stdio(
+            garden_root_path / str(record["run_folder"])
+        ):
             result_paths = run_idf(
                 str(run_input),
-                str(resolved_epw) if resolved_epw is not None else None,
+                str(prepared["resolved_epw"])
+                if prepared["resolved_epw"] is not None
+                else None,
                 expand_objects=expand_objects,
                 silent=silent,
             )
@@ -356,45 +596,54 @@ def run_idf_file(
         warnings.append(str(exc))
 
     sql, zsz, rdd, html, err = result_paths
+    run_dir = (garden_root_path / str(record["run_folder"])).resolve()
     fallback_outputs = _energyplus_output_paths(run_dir)
     output_paths: dict[str, Path | None] = {
         "idf": _existing_file(run_input),
-        "sql": _existing_file(Path(sql).resolve()) if sql else _existing_file(fallback_outputs["sql"]),
-        "zsz": _existing_file(Path(zsz).resolve()) if zsz else _existing_file(fallback_outputs["zsz"]),
-        "rdd": _existing_file(Path(rdd).resolve()) if rdd else _existing_file(fallback_outputs["rdd"]),
-        "html": _existing_file(Path(html).resolve()) if html else _existing_file(fallback_outputs["html"]),
-        "err": _existing_file(Path(err).resolve()) if err else _existing_file(fallback_outputs["err"]),
+        "sql": (
+            _existing_file(Path(sql).resolve())
+            if sql
+            else _existing_file(fallback_outputs["sql"])
+        ),
+        "zsz": (
+            _existing_file(Path(zsz).resolve())
+            if zsz
+            else _existing_file(fallback_outputs["zsz"])
+        ),
+        "rdd": (
+            _existing_file(Path(rdd).resolve())
+            if rdd
+            else _existing_file(fallback_outputs["rdd"])
+        ),
+        "html": (
+            _existing_file(Path(html).resolve())
+            if html
+            else _existing_file(fallback_outputs["html"])
+        ),
+        "err": (
+            _existing_file(Path(err).resolve())
+            if err
+            else _existing_file(fallback_outputs["err"])
+        ),
     }
     output_paths["eui"] = _eui_output(output_paths.get("sql"), run_dir)
+    if status == "completed" and not all(output_paths.get(name) for name in ("sql", "err")):
+        status = "failed"
+        warnings.append("EnergyPlus did not produce the required SQL and ERR output files.")
     outputs = _file_outputs(
         garden_root=garden_root_path,
         run_dir=run_dir,
         output_paths=output_paths,
         output_names=IDF_OUTPUT_NAMES,
     )
-    record = {
-        "run_id": resolved_run_id,
-        "target": target,
-        "recipe": IDF_FILE_RECIPE,
-        "status": status,
-        "created_at": started_at,
-        "completed_at": utc_now_iso(),
-        "input_file_path": to_posix_relative(resolved_idf, garden_root_path),
-        "source_file_path": to_posix_relative(resolved_idf, garden_root_path),
-        "run_input_path": to_posix_relative(run_input, garden_root_path),
-        "weather_target": weather_target,
-        "weather_source": weather_source,
-        "epw_path": (
-            to_posix_relative(resolved_epw, garden_root_path)
-            if resolved_epw is not None
-            else None
-        ),
-        "run_folder": to_posix_relative(run_dir, garden_root_path),
-        "outputs": outputs,
-        "warnings": warnings,
-        "expand_objects": expand_objects,
-        "silent": silent,
-    }
+    record.update(
+        {
+            "status": status,
+            "completed_at": utc_now_iso(),
+            "outputs": outputs,
+            "warnings": warnings,
+        }
+    )
     _upsert_record(garden_root_path, record)
     return _response(
         manifest=manifest,

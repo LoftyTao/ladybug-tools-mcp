@@ -11,14 +11,14 @@ Use this when the user wants an existing VisualizationSet exported as a 2D SVG a
 ## MCP Route
 
 1. Create or retrieve a compact VisualizationSet target.
-2. Call `visualization_set_to_svg`.
+2. Call `LB_set_to_svg`.
 3. Pass `garden_root`, `visualization_set_target`, and optional `name`, `width`, `height`, `view`, and legend flags.
 4. Return `artifact_receipt.artifact_path`.
 
 ## Code Mode Pattern
 
 ```python
-svg = await call_tool("visualization_set_to_svg", {
+svg = await call_tool("LB_set_to_svg", {
     "garden_root": garden_root,
     "visualization_set_target": vis["visualization_set_target"],
     "name": "agent_room_face_svg",

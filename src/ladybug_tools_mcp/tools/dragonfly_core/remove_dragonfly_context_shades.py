@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.editing import remove_dragonfly_context_shades as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_remove_context_shades tool."""
+    """Register the DF_remove_context_shades tool."""
 
     @mcp.tool(
-        name="remove_context_shades",
+        name="DF_remove_context_shades",
         description=(
             "Remove ContextShades from a Garden Dragonfly Model using ContextShade "
             "object targets or identifiers. Returns target, model_target, summary_view, "
@@ -27,7 +26,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[str, Field(description="Required Garden root path containing garden.json.")],
         object_targets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="Optional ContextShade object targets from df_search_objects."),
+            Field(description="Optional ContextShade object targets from DF_search_objects."),
         ] = None,
         context_shade_identifiers: Annotated[
             list[str] | None,
@@ -39,6 +38,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Remove Dragonfly ContextShades."""
+        from garden.dragonfly_core.editing import remove_dragonfly_context_shades as service
+
         return service(
             garden_root=garden_root,
             object_targets=object_targets,

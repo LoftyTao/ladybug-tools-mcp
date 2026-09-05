@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_ground_heat_exchanger_horizontal_trench.'
+'MCP tool for IB_ground_heat_exchanger_horizontal_trench.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_ground_heat_exchanger_horizontal_trench tool.'
+    'Register the IB_ground_heat_exchanger_horizontal_trench tool.'
 
     @mcp.tool(
-        name='ground_heat_exchanger_horizontal_trench',
+        name='IB_ground_heat_exchanger_horizontal_trench',
         description=(
             'Create IB_GroundHeatExchangerHorizontalTrench, an OpenStudio/EnergyPlus GroundHeatExchanger:HorizontalTrench plant-loop ground heat exchanger for buried pipe trenches. Use it for geothermal/source-loop trench length, pipe spacing, burial depth, soil/pipe thermal properties, and ground-temperature inputs; this is not a vertical borehole field, fluid-to-fluid heat exchanger, heat pump, or Energy run. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -37,13 +36,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_ground_heat_exchanger_horizontal_trench(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -170,6 +169,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_GroundHeatExchangerHorizontalTrench as a reviewed Ironbug LoopObjs / PlantLoopObjects authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

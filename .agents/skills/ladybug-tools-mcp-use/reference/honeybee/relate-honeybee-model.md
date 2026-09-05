@@ -10,14 +10,14 @@ Use this when a Honeybee Model needs adjacency solving, intersection, or relatio
 
 ## MCP Route
 
-1. Call `honeybee_relate_model` with the intended `relation_mode`.
-2. Call `honeybee_validate_model`.
+1. Call `HB_relate_model` with the intended `relation_mode`.
+2. Call `HB_validate_model`.
 3. If validation fails, inspect issues before choosing another repair mode.
 
 ## Default Relation Pattern
 
 ```python
-await call_tool("honeybee_relate_model", {
+await call_tool("HB_relate_model", {
     "garden_root": garden_root,
     "relation_mode": "solve_adjacency"
 })
@@ -30,7 +30,7 @@ Default behavior intersects rooms before solving adjacency. It can clone a singl
 Use `explicit_relate_full` only when the user asks for overwrite, cleanup, mismatched subface repair, or broad adjacency repair.
 
 ```python
-await call_tool("honeybee_relate_model", {
+await call_tool("HB_relate_model", {
     "garden_root": garden_root,
     "relation_mode": "explicit_relate_full"
 })

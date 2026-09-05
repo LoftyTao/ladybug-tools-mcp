@@ -7,18 +7,17 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.sky import create_cie_standard_sky as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_sky tool.'
+    'Register the RAD_create_sky tool.'
 
     @mcp.tool(
-        name="create_sky",
+        name="RAD_create_sky",
         description=(
             "Create a Radiance sky definition artifact from standard sky "
             "inputs for point-in-time daylight workflows. Use "
-            "radiance_create_sky_file when a recipe needs a persisted sky file "
+            "RAD_create_sky_file when a recipe needs a persisted sky file "
             "target. This creates sky input data only; it does not create WEA "
             "weather, sky matrices, or simulation runs. Returns target, "
             "sky_target, summary_view, persistence_receipt, and report."
@@ -33,7 +32,7 @@ def register(mcp: FastMCP) -> None:
         timeout=60,
     )
     def create_radiance_sky(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         identifier: Annotated[str, Field(description="Stable identifier for the point-in-time Radiance .sky artifact and target.")] = "radiance_sky",
         month: Annotated[int, Field(description="Month number for date/time mode.")] = 6,
         day: Annotated[int, Field(description="Day of month for date/time mode.")] = 21,
@@ -46,6 +45,8 @@ def register(mcp: FastMCP) -> None:
         output_subdir: Annotated[str, Field(description="Garden-relative output folder for Radiance .sky artifacts.")] = "artifacts/radiance/sky",
     ) -> dict[str, Any]:
         """Create a CIE standard Radiance sky file."""
+        from garden.radiance.sky import create_cie_standard_sky as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.model_files import export_dragonfly_model_file as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_export_model_file tool."""
+    """Register the DF_export_model_file tool."""
 
     @mcp.tool(
-        name="export_model_file",
+        name="DF_export_model_file",
         description=(
             "Export a Garden Dragonfly model to a compact Garden file artifact "
             "as DFJSON or geoJSON. This is the MCP artifact/target form of "
@@ -59,6 +58,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Export a Dragonfly model file."""
+        from garden.dragonfly_core.model_files import export_dragonfly_model_file as service
+
         return service(
             garden_root=garden_root,
             model_target=model_target,

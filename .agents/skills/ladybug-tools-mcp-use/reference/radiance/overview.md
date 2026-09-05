@@ -16,6 +16,7 @@ Use this category when the Agent needs Honeybee Radiance modifiers, luminaires, 
 - Create sky, WEA, or SkyMatrix targets.
 - Create SensorGrid or View assets and attach them to a Honeybee Model.
 - Start and poll grid, view, or matrix Radiance runs.
+- Run native LEED, EN 17037, WELL, or BREEAM daylight compliance recipes.
 - Visualize sunpath, sky dome, radiation dome, HDR, or SensorGrid results.
 
 ## Usual MCP Route
@@ -43,4 +44,5 @@ Use this category when the Agent needs Honeybee Radiance modifiers, luminaires, 
 - `create-radiance-sky-wea.md`
 - `create-radiance-sensor-view.md`
 - `run-radiance-simulation.md`
+- `daylight-compliance-recipes.md`
 - `visualize-sunpath-sky-dome.md`

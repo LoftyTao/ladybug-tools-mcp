@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import glob
+import json
 import os
+import socket
+from contextlib import contextmanager
 from pathlib import Path
 import re
+import shutil
 from typing import Any
+from urllib.parse import urlparse
 
 from dragonfly_energy.config import folders as dragonfly_energy_folders
 from garden.fairyfly.availability import therm_engine_config
+from honeybee.config import folders as hb_folders
 from honeybee_energy.config import folders as energy_folders
+from ladybug.config import folders as lb_folders
 from honeybee_radiance.config import folders as radiance_folders
 from ladybug_tools_mcp.contracts.report import make_report
 
@@ -19,7 +26,7 @@ REQUIRED_RUNTIME_VERSIONS: dict[str, str] = {
     "radiance": "5.4",
     "openstudio": "3.10.0",
     "energyplus": "25.1.0",
-    "urbanopt": "1.2.0",
+    "urbanopt": "1.4.0",
     "therm": "8.1.30.0",
     "ironbug_console": "1.22.0.0",
 }
@@ -36,6 +43,23 @@ RUNTIME_SEARCH_ROOTS: list[Path] = [
     Path("/Applications"),
     Path("/usr/local"),
 ]
+
+URBANOPT_GRID_LOCAL_SERVICE_CONFIGS: dict[str, dict[str, str]] = {
+    "rnm": {
+        "env_var": "LADYBUG_MCP_RNM_USE_LOCALHOST",
+        "default_local_endpoint": "http://0.0.0.0:8080/api/v2/",
+        "default_online_endpoint": "https://rnm.urbanopt.net/api/v2/",
+        "urbanopt_gem_localhost_parameter": "use_localhost",
+    },
+    "reopt": {
+        "env_var": "LADYBUG_MCP_REOPT_USE_LOCALHOST",
+        "default_local_endpoint": "http://127.0.0.1:8000/v3/",
+        "default_online_endpoint": "https://developer.nrel.gov/api/reopt/v3/",
+        "urbanopt_gem_localhost_parameter": "use_localhost",
+    },
+}
+
+URBANOPT_PYTHON_CONFIG_ENV_VAR = "LADYBUG_MCP_URBANOPT_PYTHON_CONFIG"
 
 
 _ENGINE_HELP: dict[str, dict[str, str | list[str]]] = {
@@ -78,6 +102,22 @@ _ENGINE_HELP: dict[str, dict[str, str | list[str]]] = {
             "workflow commands when needed."
         ),
         "required_for": ["Dragonfly district-scale URBANopt workflows"],
+    },
+    "des_gmt": {
+        "documentation_url": "https://github.com/ladybug-tools/dragonfly-energy",
+        "compatibility_url": "https://github.com/ladybug-tools/lbt-grasshopper/wiki/1.4-Compatibility-Matrix",
+        "install_hint": (
+            "Dragonfly DES sys-param and Modelica workflows require the local "
+            "geojson-modelica-translator uo_des command, ThermalNetwork command, "
+            "and Modelica Buildings Library resources. Install them out of band "
+            "with the Ladybug Tools / Grasshopper DES setup path or "
+            "`dragonfly_energy install all-des`; MCP validation does not run this "
+            "installer or download dependencies."
+        ),
+        "required_for": [
+            "Dragonfly DES system-parameter sizing",
+            "Dragonfly DES Modelica project generation",
+        ],
     },
     "therm": {
         "documentation_url": "https://windows.lbl.gov/therm-software-downloads",
@@ -396,6 +436,14 @@ def _existing_path(value: str | None) -> dict[str, Any]:
     return {"path": value, "exists": exists}
 
 
+def _version_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (tuple, list)):
+        return ".".join(str(item) for item in value)
+    return str(value)
+
+
 def _version_value(getter) -> str | None:
     try:
         return getter()
@@ -502,10 +550,449 @@ def _urbanopt_setup_candidates(cli_path: str | None) -> list[dict[str, Any]]:
     ]
 
 
-def _urbanopt_runtime_gemfile(cli_path: str | None) -> str | None:
+def _urbanopt_cli_runtime_gemfile(cli_path: str | None) -> str | None:
+    if not cli_path:
+        return None
+    return str(Path(cli_path) / "gems" / "Gemfile")
+
+
+def _urbanopt_openstudio_runtime_gemfile(cli_path: str | None) -> str | None:
     if not cli_path:
         return None
     return str(Path(cli_path) / "openstudio-runtime-gems" / "Gemfile")
+
+
+def _urbanopt_cli_gem_bundle(cli_path: str | None) -> Path | None:
+    if not cli_path:
+        return None
+    return _first_existing_glob(str(Path(cli_path) / "gems" / "ruby" / "*"))
+
+
+def _explicit_urbanopt_python_config_path() -> Path | None:
+    value = os.environ.get(URBANOPT_PYTHON_CONFIG_ENV_VAR)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return Path(value).expanduser()
+
+
+def _python_config_record(path: Path | None, source: str | None = None) -> dict[str, Any]:
+    record = _existing_path(str(path) if path else None)
+    if source:
+        record["source"] = source
+    return record
+
+
+def _urbanopt_opendss_python_deps(cli_gem_bundle: Path | None) -> dict[str, Any]:
+    explicit_config = _explicit_urbanopt_python_config_path()
+    config_source = (
+        f"env:{URBANOPT_PYTHON_CONFIG_ENV_VAR}"
+        if explicit_config is not None
+        else "cli_bundle_python_deps"
+    )
+    if cli_gem_bundle is None:
+        config_path = explicit_config
+        return {
+            "path": None,
+            "path_exists": False,
+            "initialized": bool(config_path and config_path.is_file()),
+            "python_config": _python_config_record(config_path, config_source if config_path else None),
+            "dependencies_file": _existing_path(None),
+            "dependencies": [],
+            "install_command": "uo install_python",
+            "installer": _urbanopt_python_deps_installer(None),
+            "offline_runtime_pack": _urbanopt_python_deps_offline_pack(
+                config_path,
+                source="explicit_python_config" if explicit_config is not None else "cli_bundle_python_deps",
+            ),
+        }
+    matches = sorted(
+        (cli_gem_bundle / "gems").glob("urbanopt-cli-*/example_files/python_deps")
+    )
+    deps_path = matches[0] if matches else (
+        cli_gem_bundle
+        / "gems"
+        / f"urbanopt-cli-{REQUIRED_RUNTIME_VERSIONS['urbanopt']}"
+        / "example_files"
+        / "python_deps"
+    )
+    config_path = explicit_config or (deps_path / "python_config.json")
+    dependencies_file = deps_path / "dependencies.json"
+    dependencies: list[dict[str, Any]] = []
+    if dependencies_file.is_file():
+        try:
+            loaded = json.loads(dependencies_file.read_text(encoding="utf-8"))
+            if isinstance(loaded, list):
+                dependencies = [item for item in loaded if isinstance(item, dict)]
+        except json.JSONDecodeError:
+            dependencies = []
+    dependency_network_sources = _urbanopt_dependency_network_sources(dependencies)
+    return {
+        "path": str(deps_path),
+        "path_exists": deps_path.is_dir(),
+        "initialized": config_path.is_file(),
+        "python_config": _python_config_record(config_path, config_source),
+        "dependencies_file": _existing_path(str(dependencies_file)),
+        "dependencies": dependencies,
+        "dependencies_require_network": bool(dependency_network_sources),
+        "dependency_network_sources": dependency_network_sources,
+        "install_command": "uo install_python",
+        "installer": _urbanopt_python_deps_installer(deps_path),
+        "offline_runtime_pack": _urbanopt_python_deps_offline_pack(
+            config_path,
+            source="explicit_python_config" if explicit_config is not None else "cli_bundle_python_deps",
+        ),
+        "note": (
+            "OpenDSS/DISCO/GMT Python dependencies are initialized only when "
+            "python_config.json exists. This report is read-only, requires an "
+            "local runtime pack for MCP validation, and does not run "
+            "uo install_python."
+        ),
+    }
+
+
+def _urbanopt_dependency_network_sources(
+    dependencies: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    sources: list[dict[str, str]] = []
+    for dependency in dependencies:
+        name = dependency.get("name")
+        if not isinstance(name, str):
+            continue
+        name_lower = name.lower()
+        source_type: str | None = None
+        if name_lower.startswith("git+https://"):
+            source_type = "git_https"
+        elif name_lower.startswith("git+http://"):
+            source_type = "git_http"
+        elif name_lower.startswith("https://"):
+            source_type = "https"
+        elif name_lower.startswith("http://"):
+            source_type = "http"
+        if source_type:
+            sources.append({"name": name, "source_type": source_type})
+    return sources
+
+
+def _urbanopt_python_deps_offline_pack(
+    config_path: Path | None,
+    *,
+    source: str = "cli_bundle_python_deps",
+) -> dict[str, Any]:
+    required_keys = ["python_path", "pip_path", "ditto_path"]
+    config_valid = False
+    configured_paths: dict[str, Any] = {
+        key: _existing_path(None) for key in required_keys
+    }
+    if config_path and config_path.is_file():
+        try:
+            loaded = json.loads(config_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                config_valid = True
+                for key in required_keys:
+                    value = loaded.get(key)
+                    configured_paths[key] = _existing_path(value if isinstance(value, str) else None)
+        except json.JSONDecodeError:
+            config_valid = False
+    missing = [
+        key for key in required_keys
+        if not configured_paths[key].get("exists")
+    ]
+    ready = bool(config_path and config_path.is_file() and config_valid and not missing)
+    return {
+        "required": True,
+        "source": source,
+        "ready": ready,
+        "python_config": _python_config_record(
+            config_path,
+            f"env:{URBANOPT_PYTHON_CONFIG_ENV_VAR}"
+            if source == "explicit_python_config"
+            else source,
+        ),
+        "config_valid": config_valid,
+        "required_config_keys": required_keys,
+        "configured_paths": configured_paths,
+        "missing_required_paths": missing,
+        "online_installer_allowed": False,
+        "mcp_local_runtime_required": True,
+        "ready_condition": (
+            "python_config.json exists from a pre-provisioned local runtime pack "
+            "and python_path, pip_path, and ditto_path all point to local files"
+        ),
+    }
+
+
+def _urbanopt_python_deps_installer(deps_path: Path | None) -> dict[str, Any]:
+    if deps_path is None:
+        return {
+            "script": _existing_path(None),
+            "requires_network": False,
+            "network_indicators": [],
+            "mcp_validation_allowed": False,
+        }
+    script = deps_path / ("install_python.ps1" if os.name == "nt" else "install_python.sh")
+    indicators: list[str] = []
+    if script.is_file():
+        content = script.read_text(encoding="utf-8", errors="ignore")
+        for marker in ("repo.anaconda.com/miniconda", "Invoke-WebRequest", "curl ", "wget "):
+            if marker in content:
+                indicators.append(marker)
+    return {
+        "script": _existing_path(str(script)),
+        "requires_network": bool(indicators),
+        "network_indicators": indicators,
+        "mcp_validation_allowed": False,
+    }
+
+
+def _urbanopt_network_policy() -> dict[str, Any]:
+    return {
+        "mode": "local_runtime_required",
+        "runtime_validation_allows_network": True,
+        "full_network_isolation_required": False,
+        "online_install_allowed": False,
+        "online_api_allowed": False,
+        "local_bundle_required": True,
+        "installer_commands_allowed": [],
+        "required_local_paths": [
+            f"URBANopt CLI {REQUIRED_RUNTIME_VERSIONS['urbanopt']} gem bundle",
+            "local-initialized OpenDSS/DISCO/GMT python_config.json",
+            "local RNM localhost service",
+            "local REopt localhost service",
+        ],
+    }
+
+
+def _first_urbanopt_gem_file(
+    cli_gem_bundle: Path | None,
+    pattern: str,
+) -> Path | None:
+    if cli_gem_bundle is None:
+        return None
+    matches = sorted((cli_gem_bundle / "gems").glob(pattern))
+    return matches[0] if matches else None
+
+
+def _read_optional_text(path: Path | None) -> str:
+    if path is None or not path.is_file():
+        return ""
+    return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _ruby_call_arguments(text: str, marker: str) -> str:
+    start = text.find(marker)
+    if start < 0:
+        return ""
+    open_index = text.find("(", start + len(marker))
+    if open_index < 0:
+        return ""
+    depth = 1
+    index = open_index + 1
+    in_string: str | None = None
+    escaped = False
+    while index < len(text) and index <= open_index + 4000:
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == in_string:
+                in_string = None
+        elif char in {"'", '"'}:
+            in_string = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return text[open_index + 1 : index]
+        index += 1
+    return text[open_index + 1 : index]
+
+
+def _urbanopt_grid_source_evidence(
+    recipe: str,
+    cli_gem_bundle: Path | None,
+) -> dict[str, Any]:
+    if cli_gem_bundle is None:
+        cli_path = _normalized_path(getattr(dragonfly_energy_folders, "urbanopt_cli_path", None))
+        cli_gem_bundle = _urbanopt_cli_gem_bundle(cli_path)
+
+    config = URBANOPT_GRID_LOCAL_SERVICE_CONFIGS[recipe]
+    cli_callsite = _first_urbanopt_gem_file(
+        cli_gem_bundle,
+        "urbanopt-cli-*/lib/uo_cli.rb",
+    )
+    cli_text = _read_optional_text(cli_callsite)
+    cli_text_lower = cli_text.lower()
+    cli_exposes_localhost = "localhost" in cli_text_lower or "use_localhost" in cli_text_lower
+
+    if recipe == "rnm":
+        gem_client = _first_urbanopt_gem_file(
+            cli_gem_bundle,
+            "urbanopt-rnm-us-*/lib/urbanopt/rnm/api_client.rb",
+        )
+        gem_text = _read_optional_text(gem_client)
+        local_endpoint = config["default_local_endpoint"]
+        online_endpoint = config["default_online_endpoint"]
+        localhost_branch_detected = (
+            "use_localhost" in gem_text
+            and local_endpoint in gem_text
+            and online_endpoint in gem_text
+        )
+        passes_localhost = bool(
+            re.search(r"runner\.run\s*\(\s*(true|use_local)", cli_text)
+            or re.search(r"runner\.run\s+true", cli_text)
+        )
+        localhost_submit_url_valid = localhost_branch_detected
+        localhost_submit_url_issue = None
+        mcp_adapter = {
+            "available": localhost_branch_detected,
+            "mode": "direct_gem_call",
+            "forces_localhost": True,
+            "patches_localhost_submit_url": False,
+            "patched_local_submit_url": None,
+        }
+    else:
+        gem_client = _first_urbanopt_gem_file(
+            cli_gem_bundle,
+            "urbanopt-reopt-*/lib/urbanopt/reopt/reopt_lite_api.rb",
+        )
+        gem_text = _read_optional_text(gem_client)
+        local_endpoint = config["default_local_endpoint"]
+        online_endpoint = config["default_online_endpoint"]
+        localhost_branch_detected = (
+            "use_localhost" in gem_text
+            and "127.0.0.1:8000/v3" in gem_text
+            and online_endpoint in gem_text
+        )
+        reopt_call_arguments = _ruby_call_arguments(cli_text, "REoptPostProcessor.new")
+        passes_localhost = bool(
+            re.search(r"(?:^|,)\s*true\s*(?:,|$)", reopt_call_arguments)
+        )
+        localhost_submit_url_valid = "http//:127.0.0.1" not in gem_text
+        localhost_submit_url_issue = (
+            "URBANopt REopt reopt_lite_api.rb uses malformed localhost URL "
+            "for the localhost job submit URI"
+            if not localhost_submit_url_valid
+            else None
+        )
+        mcp_adapter = {
+            "available": localhost_branch_detected,
+            "mode": "ruby_preload_patch",
+            "forces_localhost": True,
+            "patches_localhost_submit_url": True,
+            "patched_local_submit_url": "http://127.0.0.1:8000/v3/job/",
+        }
+
+    return {
+        "gem_client": {
+            "path": str(gem_client) if gem_client else None,
+            "exists": bool(gem_client and gem_client.is_file()),
+            "localhost_branch_detected": localhost_branch_detected,
+            "localhost_parameter": config["urbanopt_gem_localhost_parameter"],
+            "local_endpoint": local_endpoint,
+            "online_endpoint": online_endpoint,
+            "localhost_submit_url_valid": localhost_submit_url_valid,
+            "localhost_submit_url_issue": localhost_submit_url_issue,
+            "api_backed": True,
+        },
+        "cli_callsite": {
+            "path": str(cli_callsite) if cli_callsite else None,
+            "exists": bool(cli_callsite and cli_callsite.is_file()),
+            "exposes_localhost_switch": cli_exposes_localhost,
+            "passes_localhost": passes_localhost,
+            "default_invocation_uses_localhost": passes_localhost,
+        },
+        "mcp_adapter": mcp_adapter,
+    }
+
+
+def _urbanopt_grid_local_service_config(
+    recipe: str,
+    cli_gem_bundle: Path | None = None,
+) -> dict[str, Any]:
+    config = URBANOPT_GRID_LOCAL_SERVICE_CONFIGS[recipe]
+    env_var = config["env_var"]
+    env_value = os.environ.get(env_var)
+    configured = _truthy_env_value(env_value)
+    source_evidence = _urbanopt_grid_source_evidence(recipe, cli_gem_bundle)
+    gem_client = source_evidence["gem_client"]
+    cli_callsite = source_evidence["cli_callsite"]
+    mcp_adapter = source_evidence.get("mcp_adapter", {})
+    mcp_adapter_ready = (
+        bool(gem_client["localhost_branch_detected"])
+        and (
+            bool(gem_client["localhost_submit_url_valid"])
+            or bool(mcp_adapter.get("patches_localhost_submit_url"))
+        )
+        and bool(mcp_adapter.get("available"))
+    )
+    local_service_reachable = (
+        configured
+        and mcp_adapter_ready
+        and _local_endpoint_reachable(config["default_local_endpoint"])
+    )
+    missing: list[str] = []
+    if not configured:
+        missing.append("local_service_configuration")
+    if not mcp_adapter_ready:
+        missing.append("mcp_localhost_adapter")
+    elif configured and not local_service_reachable:
+        missing.append("local_service_unreachable")
+    return {
+        "recipe": recipe,
+        "local_service_required": True,
+        "configured": configured,
+        "configuration_env_var": env_var,
+        "configuration_source": f"env:{env_var}" if configured else None,
+        "ready": configured and mcp_adapter_ready and local_service_reachable and not missing,
+        "missing": missing,
+        "mcp_adapter_ready": mcp_adapter_ready,
+        "local_service_reachable": local_service_reachable,
+        "local_service_health_endpoint": config["default_local_endpoint"],
+        "mcp_local_runtime_required": True,
+        "online_api_blocked": True,
+        "default_online_endpoint": config["default_online_endpoint"],
+        "default_local_endpoint": config["default_local_endpoint"],
+        "urbanopt_gem_localhost_supported": bool(
+            gem_client["localhost_branch_detected"]
+        ),
+        "urbanopt_gem_localhost_parameter": config["urbanopt_gem_localhost_parameter"],
+        "urbanopt_cli_default_uses_localhost": bool(
+            cli_callsite["default_invocation_uses_localhost"]
+        ),
+        "urbanopt_cli_exposes_localhost_switch": bool(
+            cli_callsite["exposes_localhost_switch"]
+        ),
+        "urbanopt_source_evidence": source_evidence,
+        "ready_condition": (
+            "A compatible local service is explicitly selected, the MCP adapter "
+            "routes URBANopt through the gem localhost branch, and local-service "
+            "tests cover the workflow."
+        ),
+    }
+
+
+def _local_endpoint_reachable(endpoint: str) -> bool:
+    parsed = urlparse(endpoint)
+    host = parsed.hostname
+    port = parsed.port
+    if not host or port is None:
+        return False
+    if host in {"0.0.0.0", "::"}:
+        host = "127.0.0.1"
+    try:
+        with socket.create_connection((host, port), timeout=0.25):
+            return True
+    except OSError:
+        return False
+
+
+def _truthy_env_value(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _urbanopt_sdk_search() -> dict[str, Any]:
@@ -555,12 +1042,19 @@ def _urbanopt_path_updates(cli_path: str | None) -> dict[str, Any]:
     if gem_home and gem_home.is_dir():
         env["GEM_HOME"] = str(gem_home)
         env["GEM_PATH"] = str(gem_home)
-    runtime_gemfile = base / "openstudio-runtime-gems" / "Gemfile"
-    if runtime_gemfile.is_file():
-        env["UO_GEMFILE_PATH"] = str(runtime_gemfile)
-    runtime_gems = base / "openstudio-runtime-gems"
-    if runtime_gems.is_dir():
-        env["UO_BUNDLE_INSTALL_PATH"] = str(runtime_gems)
+        env["UO_CLI_GEM_BUNDLE_PATH"] = str(gem_home)
+        env["BUNDLE_RETRY"] = "0"
+        env["BUNDLE_DISABLE_VERSION_CHECK"] = "true"
+        env["UO_BUNDLE_INSTALL_PATH"] = str(gem_home)
+    cli_runtime_gemfile = base / "gems" / "Gemfile"
+    if cli_runtime_gemfile.is_file():
+        env["BUNDLE_GEMFILE"] = str(cli_runtime_gemfile)
+        env["UO_CLI_GEMFILE_PATH"] = str(cli_runtime_gemfile)
+    openstudio_runtime_gemfile = base / "openstudio-runtime-gems" / "Gemfile"
+    if openstudio_runtime_gemfile.is_file():
+        env["UO_OPENSTUDIO_RUNTIME_GEMFILE_PATH"] = str(openstudio_runtime_gemfile)
+        env["UO_GEMFILE_PATH"] = str(openstudio_runtime_gemfile)
+        env["UO_BUNDLE_INSTALL_PATH"] = str(openstudio_runtime_gemfile.parent)
     if openstudio_ruby.is_dir():
         env["RUBYLIB"] = str(openstudio_ruby)
         env["RUBY_DLL_PATH"] = str(openstudio_ruby)
@@ -574,18 +1068,24 @@ def _urbanopt_config() -> dict[str, Any]:
     selected, reason = _select_candidate(candidates, configured_path=configured_path)
     cli_path = selected.get("path") if selected else configured_path
     sdk_gemfile_path = _normalized_path(getattr(folders, "urbanopt_gemfile_path", None))
-    runtime_gemfile_path = _urbanopt_runtime_gemfile(cli_path)
+    cli_runtime_gemfile_path = _urbanopt_cli_runtime_gemfile(cli_path)
+    openstudio_runtime_gemfile_path = _urbanopt_openstudio_runtime_gemfile(cli_path)
+    cli_gem_bundle = _urbanopt_cli_gem_bundle(cli_path)
     if sdk_gemfile_path and Path(sdk_gemfile_path).expanduser().is_file():
         gemfile_path = sdk_gemfile_path
         gemfile_source = "sdk_config"
     else:
-        gemfile_path = runtime_gemfile_path
-        gemfile_source = "cli_runtime"
+        gemfile_path = cli_runtime_gemfile_path
+        gemfile_source = "cli_bundle"
     env_path = getattr(folders, "urbanopt_env_path", None)
     detected_version = selected.get("version") if selected else None
     cli = _path_record(cli_path)
     gemfile = _sourced_path_record(gemfile_path, gemfile_source)
-    runtime_gemfile = _sourced_path_record(runtime_gemfile_path, "cli_runtime")
+    cli_runtime_gemfile = _sourced_path_record(cli_runtime_gemfile_path, "cli_bundle")
+    openstudio_runtime_gemfile = _sourced_path_record(
+        openstudio_runtime_gemfile_path,
+        "openstudio_runtime",
+    )
     setup_candidates = _urbanopt_setup_candidates(cli_path)
     path_updates = _urbanopt_path_updates(cli_path)
     record = {
@@ -607,7 +1107,13 @@ def _urbanopt_config() -> dict[str, Any]:
         "candidates": candidates,
         "cli": cli,
         "gemfile": gemfile,
-        "runtime_gemfile": runtime_gemfile,
+        "cli_runtime_gemfile": cli_runtime_gemfile,
+        "openstudio_runtime_gemfile": openstudio_runtime_gemfile,
+        "cli_gem_bundle": _sourced_path_record(cli_gem_bundle, "cli_runtime"),
+        "network_policy": _urbanopt_network_policy(),
+        "rnm_service": _urbanopt_grid_local_service_config("rnm", cli_gem_bundle),
+        "reopt_service": _urbanopt_grid_local_service_config("reopt", cli_gem_bundle),
+        "opendss_python_deps": _urbanopt_opendss_python_deps(cli_gem_bundle),
         "setup_env": {
             "configured": _path_record(env_path),
             "candidates": setup_candidates,
@@ -625,6 +1131,203 @@ def _urbanopt_config() -> dict[str, Any]:
     }
     _apply_runtime_requirement("urbanopt", record)
     record.update(_ENGINE_HELP["urbanopt"])
+    return record
+
+
+def _dist_info_record(package_path: Path, package_name: str, required_version: str | None) -> dict[str, Any]:
+    candidates = sorted(package_path.glob(f"{package_name}-*.dist-info")) if package_path.is_dir() else []
+    selected = None
+    if required_version:
+        expected = package_path / f"{package_name}-{required_version}.dist-info"
+        if expected.is_dir():
+            selected = expected
+    if selected is None and candidates:
+        selected = candidates[0]
+    version = _version_from_name(selected.name) if selected else None
+    return {
+        "package_name": package_name,
+        "required_version": required_version,
+        "path": str(selected) if selected else str(package_path / f"{package_name}-{required_version or '*'}.dist-info"),
+        "installed": bool(selected and selected.is_dir()),
+        "version": version,
+        "version_status": _version_status(version, required_version),
+        "candidates": [str(candidate) for candidate in candidates],
+    }
+
+
+def _load_json_dict(path: Path) -> dict[str, Any]:
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _urbanopt_python_deps_config_path() -> Path | None:
+    explicit_config = _explicit_urbanopt_python_config_path()
+    if explicit_config is not None:
+        return explicit_config
+    cli_path = _normalized_path(getattr(dragonfly_energy_folders, "urbanopt_cli_path", None))
+    cli_gem_bundle = _urbanopt_cli_gem_bundle(cli_path)
+    if cli_gem_bundle is None:
+        return None
+    matches = sorted(
+        (cli_gem_bundle / "gems").glob("urbanopt-cli-*/example_files/python_deps/python_config.json")
+    )
+    if matches:
+        return matches[0]
+    fallback = (
+        cli_gem_bundle
+        / "gems"
+        / f"urbanopt-cli-{REQUIRED_RUNTIME_VERSIONS['urbanopt']}"
+        / "example_files"
+        / "python_deps"
+        / "python_config.json"
+    )
+    return fallback
+
+
+def _config_path_value(config: dict[str, Any], key: str) -> Path | None:
+    value = config.get(key)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return Path(value).expanduser()
+
+
+def _urbanopt_des_gmt_candidate() -> dict[str, Any]:
+    config_path = _urbanopt_python_deps_config_path()
+    config = _load_json_dict(config_path) if config_path else {}
+    python_path = _config_path_value(config, "python_path")
+    package_path = python_path.parent / "Lib" / "site-packages" if python_path else None
+    return {
+        "source": "urbanopt_offline_runtime_pack",
+        "config": _existing_path(str(config_path) if config_path else None),
+        "scripts_path": python_path.parent if python_path else Path(""),
+        "package_path": package_path,
+        "uo_des": _config_path_value(config, "gmt_path"),
+        "thermalnetwork": _config_path_value(config, "ghe_path"),
+    }
+
+
+def _des_gmt_config() -> dict[str, Any]:
+    scripts_path = Path(str(getattr(hb_folders, "python_scripts_path", "") or "")).expanduser()
+    package_path = Path(str(getattr(hb_folders, "python_package_path", "") or "")).expanduser()
+    exe_name = "uo_des.exe" if os.name == "nt" else "uo_des"
+    thermalnetwork_name = "thermalnetwork.exe" if os.name == "nt" else "thermalnetwork"
+    uo_des = scripts_path / exe_name
+    thermalnetwork = scripts_path / thermalnetwork_name
+    gmt_version = _version_string(getattr(dragonfly_energy_folders, "UO_GMT_VERSION", None))
+    tn_version = _version_string(getattr(dragonfly_energy_folders, "UO_TN_VERSION", None))
+    mbl_version = _version_string(getattr(dragonfly_energy_folders, "MBL_VERSION", None))
+    resources_path = Path(str(getattr(lb_folders, "ladybug_tools_folder", "") or "")).expanduser() / "resources"
+    mbl_dir = resources_path / "mbl"
+    version_file = mbl_dir / "version.txt"
+    installed_mbl_version = version_file.read_text(encoding="utf-8").strip() if version_file.is_file() else None
+    packages = {
+        "geojson_modelica_translator": _dist_info_record(
+            package_path,
+            "geojson_modelica_translator",
+            gmt_version,
+        ),
+        "thermalnetwork": _dist_info_record(
+            package_path,
+            "ThermalNetwork",
+            tn_version,
+        ),
+    }
+    source = "ladybug_tools_python"
+    urbanopt_candidate = _urbanopt_des_gmt_candidate()
+    if (
+        not (uo_des.is_file() and thermalnetwork.is_file() and all(package["installed"] for package in packages.values()))
+        and urbanopt_candidate["uo_des"] is not None
+        and urbanopt_candidate["uo_des"].is_file()
+        and urbanopt_candidate["thermalnetwork"] is not None
+        and urbanopt_candidate["thermalnetwork"].is_file()
+    ):
+        candidate_packages = {
+            "geojson_modelica_translator": _dist_info_record(
+                urbanopt_candidate["package_path"] or Path(""),
+                "geojson_modelica_translator",
+                gmt_version,
+            ),
+            "thermalnetwork": _dist_info_record(
+                urbanopt_candidate["package_path"] or Path(""),
+                "ThermalNetwork",
+                tn_version,
+            ),
+        }
+        if all(package["installed"] for package in candidate_packages.values()):
+            source = "urbanopt_offline_runtime_pack"
+            scripts_path = urbanopt_candidate["scripts_path"]
+            package_path = urbanopt_candidate["package_path"]
+            uo_des = urbanopt_candidate["uo_des"]
+            thermalnetwork = urbanopt_candidate["thermalnetwork"]
+            packages = candidate_packages
+    mbl = {
+        "path": str(mbl_dir),
+        "exists": mbl_dir.is_dir(),
+        "required_version": mbl_version,
+        "version": installed_mbl_version,
+        "version_status": _version_status(installed_mbl_version, mbl_version),
+        "version_file": _existing_path(str(version_file)),
+    }
+    available = (
+        uo_des.is_file()
+        and thermalnetwork.is_file()
+        and all(package["installed"] for package in packages.values())
+        and mbl["exists"]
+        and mbl["version_status"] == "compatible"
+    )
+    record = {
+        "name": "des_gmt",
+        "kind": "dragonfly_des_dependency_runtime",
+        "available": available,
+        "source": source,
+        "path": str(scripts_path),
+        "path_exists": scripts_path.is_dir(),
+        "exe": _existing_path(str(uo_des)),
+        "exe_exists": uo_des.is_file(),
+        "thermalnetwork_exe": _existing_path(str(thermalnetwork)),
+        "python_package_path": str(package_path),
+        "python_package_path_exists": package_path.is_dir(),
+        "urbanopt_offline_runtime_pack": {
+            "config": urbanopt_candidate["config"],
+            "uo_des": _existing_path(
+                str(urbanopt_candidate["uo_des"])
+                if urbanopt_candidate["uo_des"] is not None
+                else None
+            ),
+            "thermalnetwork": _existing_path(
+                str(urbanopt_candidate["thermalnetwork"])
+                if urbanopt_candidate["thermalnetwork"] is not None
+                else None
+            ),
+            "python_package_path": (
+                str(urbanopt_candidate["package_path"])
+                if urbanopt_candidate["package_path"] is not None
+                else None
+            ),
+            "python_package_path_exists": (
+                urbanopt_candidate["package_path"].is_dir()
+                if urbanopt_candidate["package_path"] is not None
+                else False
+            ),
+        },
+        "packages": packages,
+        "modelica_buildings_library": mbl,
+        "missing": [
+            name
+            for name, missing in {
+                "uo_des": not uo_des.is_file(),
+                "thermalnetwork": not thermalnetwork.is_file(),
+                "geojson_modelica_translator": not packages["geojson_modelica_translator"]["installed"],
+                "thermalnetwork_package": not packages["thermalnetwork"]["installed"],
+                "modelica_buildings_library": not (mbl["exists"] and mbl["version_status"] == "compatible"),
+            }.items()
+            if missing
+        ],
+    }
+    record.update(_ENGINE_HELP["des_gmt"])
     return record
 
 
@@ -682,6 +1385,7 @@ def get_ladybug_tools_config() -> dict[str, Any]:
         "openstudio": openstudio,
         "energyplus": energyplus,
         "urbanopt": _urbanopt_config(),
+        "des_gmt": _des_gmt_config(),
         "therm": therm_engine_config(),
         "ironbug_console": _ironbug_console_config(),
     }
@@ -709,6 +1413,7 @@ def get_ladybug_tools_config() -> dict[str, Any]:
         if not engine.get("path_exists")
         or ("exe_exists" in engine and not engine.get("exe_exists"))
         or ("bin_path_exists" in engine and not engine.get("bin_path_exists"))
+        or (name == "des_gmt" and not engine.get("available"))
     ]
     incompatible = [
         name
@@ -767,3 +1472,176 @@ def apply_ladybug_tools_runtime_to_path() -> list[str]:
     if new_parts:
         os.environ["PATH"] = os.pathsep.join([*new_parts, *current_parts])
     return prepend
+
+
+def urbanopt_cli_gem_bundle_path(runtime: dict[str, Any] | None) -> Path | None:
+    """Return the URBANopt CLI bundle path used by project-local Bundler config."""
+    if not isinstance(runtime, dict):
+        return None
+    direct = runtime.get("cli_gem_bundle")
+    if isinstance(direct, dict):
+        path_value = direct.get("path")
+        if isinstance(path_value, str) and path_value:
+            return Path(path_value).expanduser()
+    path_updates = runtime.get("path_updates")
+    if isinstance(path_updates, dict):
+        env = path_updates.get("env")
+        if isinstance(env, dict):
+            for key in ("UO_CLI_GEM_BUNDLE_PATH", "GEM_HOME"):
+                value = env.get(key)
+                if isinstance(value, str) and value:
+                    return Path(value).expanduser()
+    return None
+
+
+def urbanopt_cli_runtime_gemfile_path(runtime: dict[str, Any] | None) -> Path | None:
+    """Return the URBANopt CLI Gemfile used for ``bundle exec uo`` commands."""
+    if not isinstance(runtime, dict):
+        return None
+    direct = runtime.get("cli_runtime_gemfile")
+    if isinstance(direct, dict):
+        path_value = direct.get("path")
+        if isinstance(path_value, str) and path_value:
+            return Path(path_value).expanduser()
+    path_updates = runtime.get("path_updates")
+    if isinstance(path_updates, dict):
+        env = path_updates.get("env")
+        if isinstance(env, dict):
+            for key in ("BUNDLE_GEMFILE", "UO_CLI_GEMFILE_PATH"):
+                value = env.get(key)
+                if isinstance(value, str) and value:
+                    return Path(value).expanduser()
+    cli_path = runtime.get("path")
+    if isinstance(cli_path, str) and cli_path:
+        candidate = Path(cli_path).expanduser() / "gems" / "Gemfile"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def write_urbanopt_bundle_config(project_dir: str | Path, runtime: dict[str, Any] | None) -> Path | None:
+    """Use the installed OpenStudio runtime bundle for building simulations."""
+    if urbanopt_cli_gem_bundle_path(runtime) is None:
+        return None
+    runtime_file = (runtime or {}).get("openstudio_runtime_gemfile", {}).get("path")
+    if not runtime_file:
+        raise ValueError("URBANopt OpenStudio runtime Gemfile is unavailable.")
+    bundle_path = Path(runtime_file).parent
+    if not (bundle_path / "Gemfile.lock").is_file():
+        raise ValueError("URBANopt OpenStudio runtime Gemfile.lock is unavailable.")
+    config_dir = Path(project_dir).expanduser().resolve() / ".bundle"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config_dir / "config"
+    bundle_value = str(bundle_path).replace("\\", "/")
+    config_path.write_text(f'---\nBUNDLE_PATH: "{bundle_value}"\n', encoding="utf-8")
+    _write_urbanopt_runner_bundle_config(project_dir, bundle_path)
+    return config_path
+
+
+def _write_urbanopt_runner_bundle_config(
+    project_dir: str | Path,
+    bundle_path: Path,
+) -> Path | None:
+    project_path = Path(project_dir).expanduser().resolve()
+    gemfile_path = project_path / "Gemfile"
+    if not gemfile_path.is_file():
+        return None
+    runner_conf = project_path / "runner.conf"
+    if not runner_conf.is_file():
+        return None
+    try:
+        runner_config = json.loads(runner_conf.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(runner_config, dict):
+        return None
+    # Keep the native lockfile newer than the Gemfile to avoid dependency resolution.
+    sources = [bundle_path / "Gemfile", *bundle_path.glob("*.gemspec"), bundle_path / "Gemfile.lock"]
+    for source in sources:
+        shutil.copyfile(source, project_path / source.name)
+    runner_config["gemfile_path"] = str(gemfile_path).replace("\\", "/")
+    runner_config["bundle_install_path"] = str(bundle_path).replace("\\", "/")
+    runner_conf.write_text(
+        json.dumps(runner_config, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return runner_conf
+
+
+@contextmanager
+def urbanopt_runtime_env(runtime: dict[str, Any] | None):
+    """Temporarily expose URBANopt CLI env discovered by LB_get_runtime_config."""
+    if not isinstance(runtime, dict):
+        yield
+        return
+    path_updates = runtime.get("path_updates")
+    if not isinstance(path_updates, dict):
+        yield
+        return
+    env_updates = path_updates.get("env")
+    prepend = path_updates.get("prepend")
+    env_updates = env_updates if isinstance(env_updates, dict) else {}
+    prepend = prepend if isinstance(prepend, list) else []
+    original: dict[str, str | None] = {}
+    try:
+        for key, value in env_updates.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                continue
+            original.setdefault(key, os.environ.get(key))
+            if key.upper() == "PATH":
+                parts = [part for part in value.split(os.pathsep) if part]
+                current = os.environ.get("PATH", "")
+                os.environ["PATH"] = os.pathsep.join([*parts, current]) if current else value
+            else:
+                os.environ[key] = value
+        path_parts = [str(part) for part in prepend if isinstance(part, str) and part]
+        if path_parts:
+            original.setdefault("PATH", os.environ.get("PATH"))
+            current = os.environ.get("PATH", "")
+            os.environ["PATH"] = (
+                os.pathsep.join([*path_parts, current])
+                if current
+                else os.pathsep.join(path_parts)
+            )
+        yield
+    finally:
+        for key, value in original.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+URBANOPT_SDK_OUTPUT_TYPES = ("osm", "idf", "sql", "zsz", "rdd", "html", "err")
+
+
+def iter_urbanopt_sdk_output_paths(value: Any):
+    """Yield (output_type, path) pairs from Dragonfly Energy URBANopt SDK results."""
+    if isinstance(value, dict):
+        for output_type, paths in value.items():
+            if isinstance(paths, (list, tuple)):
+                for path in paths:
+                    if path:
+                        yield str(output_type), path
+            elif paths:
+                yield str(output_type), paths
+        return
+    if isinstance(value, (list, tuple)):
+        looks_like_sdk_tuple = len(value) == len(URBANOPT_SDK_OUTPUT_TYPES) and any(
+            isinstance(item, (list, tuple)) for item in value
+        )
+        if looks_like_sdk_tuple:
+            for output_type, paths in zip(URBANOPT_SDK_OUTPUT_TYPES, value):
+                if isinstance(paths, (list, tuple)):
+                    for path in paths:
+                        if path:
+                            yield output_type, path
+                elif paths:
+                    yield output_type, paths
+            return
+        for path in value:
+            if path:
+                yield None, path
+        return
+    if value:
+        yield None, value

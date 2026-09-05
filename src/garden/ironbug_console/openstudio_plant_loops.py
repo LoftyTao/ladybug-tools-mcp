@@ -18,6 +18,7 @@ from garden.ironbug_console.openstudio_writer_context import OpenStudioWriterCon
 from garden.ironbug_console.openstudio_writer_utils import (
     _append_written,
     _is_autosize,
+    _set_if_present,
     _source_classes_for_identifiers,
 )
 
@@ -36,6 +37,14 @@ def _write_plant_loop(
     else:
         plant_loop = openstudio.model.PlantLoop(model)
         plant_loop.setName(name)
+
+    _set_if_present(plant_loop.setFluidType, node, "FluidType", cast=str)
+    _set_if_present(
+        plant_loop.setGlycolConcentration,
+        node,
+        "GlycolConcentration",
+        cast=int,
+    )
 
     written_objects: list[OpenStudioWrittenObject] = []
     setpoint_values: list[float] = []

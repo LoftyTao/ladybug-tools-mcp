@@ -14,6 +14,7 @@ from garden.ironbug_console.openstudio_writer_contracts import (
 )
 from garden.ironbug_console.openstudio_writer_utils import (
     _child_nodes_by_source_class,
+    _coerce_bool,
     _set_autosizable_if_present,
     _set_if_present,
 )
@@ -231,6 +232,7 @@ def _configure_vav_terminal_common(terminal: Any, node: ConsoleGraphNode) -> Non
         terminal.setControlForOutdoorAir,
         node,
         "ControlForOutdoorAir",
+        cast=_coerce_bool,
     )
 
 

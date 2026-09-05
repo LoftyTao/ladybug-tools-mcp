@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from garden.manifest import GardenManifest, utc_now_iso
+from garden.manifest import GardenManifest, utc_now_iso, write_json_file
 from garden.paths import slugify_name
 from ladybug_tools_mcp.contracts.report import make_report
 
@@ -101,13 +101,6 @@ def _validate_model_target(value: Any) -> None:
         )
 
 
-def _write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(data, handle, indent=2)
-        handle.write("\n")
-
-
 def write_active_context(
     *,
     garden_root: str,
@@ -147,7 +140,7 @@ def write_active_context(
         "report_status": report_status,
     }
     path = _context_path(str(garden_root_path), normalized_platform)
-    _write_json(path, context)
+    write_json_file(path, context)
 
     return {
         "active_context": context,

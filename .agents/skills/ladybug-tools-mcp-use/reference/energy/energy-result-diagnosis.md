@@ -30,7 +30,7 @@ Use this when the user asks why an Energy result looks high, low, or suspicious 
 - Window ratio or aperture area and key constructions.
 - Schedule/program assumptions relevant to the user question.
 - Validation status and run status.
-- ERR repair hints if `energyplus_read_errors` returns them. If the hint code
+- ERR repair hints if `EP_read_errors` returns them. If the hint code
   is `ironbug_heating_water_coil_ua_or_flow_not_numeric`, rebuild the affected
   Ironbug hot-water coil with numeric `u_factor_times_area_value` and
   `maximum_water_flow_rate`, then rebuild the owning FCU, terminal, or plant
@@ -50,4 +50,3 @@ Use this when the user asks why an Energy result looks high, low, or suspicious 
 - Do not claim a single run proves the unique cause.
 - Do not overstate IdealAir or template HVAC results as real equipment reports.
 - If schedule and program are ordinary, do not force them into the answer as a likely cause.
-- Keep campaign evidence, EUI values, and Garden version IDs in LLM-Wiki.

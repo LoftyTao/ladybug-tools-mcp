@@ -26,6 +26,14 @@ def _writer_order(graph: ConsoleGraph) -> tuple[ConsoleGraphNode, ...]:
     curves = [
         node for node in graph.nodes if node.source_class in _CURVE_SPECS
     ]
+    table_variables = [
+        node
+        for node in graph.nodes
+        if node.source_class == "IB_TableIndependentVariable"
+    ]
+    table_lookups = [
+        node for node in graph.nodes if node.source_class == "IB_TableLookup"
+    ]
     sizing_zones = [
         node for node in graph.nodes if node.source_class == "IB_SizingZone"
     ]
@@ -45,6 +53,7 @@ def _writer_order(graph: ConsoleGraph) -> tuple[ConsoleGraphNode, ...]:
             "IB_ZoneHVACFourPipeFanCoil",
             "IB_ZoneHVACWaterToAirHeatPump",
             "IB_ZoneHVACBaseboardRadiantConvectiveWater",
+            "IB_ZoneHVACEnergyRecoveryVentilator",
             "IB_ZoneHVACUnitHeater",
             "IB_ZoneHVACUnitVentilator_CoolingHeating",
             "IB_ZoneHVACUnitVentilator_CoolingOnly",
@@ -101,11 +110,14 @@ def _writer_order(graph: ConsoleGraph) -> tuple[ConsoleGraphNode, ...]:
             "IB_ZoneHVACFourPipeFanCoil",
             "IB_ZoneHVACWaterToAirHeatPump",
             "IB_ZoneHVACBaseboardRadiantConvectiveWater",
+            "IB_ZoneHVACEnergyRecoveryVentilator",
             "IB_ZoneHVACUnitHeater",
             "IB_ZoneHVACUnitVentilator_CoolingHeating",
             "IB_ZoneHVACUnitVentilator_CoolingOnly",
             "IB_ZoneHVACUnitVentilator_HeatingOnly",
             "IB_PlantLoop",
+            "IB_TableIndependentVariable",
+            "IB_TableLookup",
             *_CURVE_SPECS,
         }
         and not node.source_class.startswith("IB_EnergyManagementSystem")
@@ -117,6 +129,8 @@ def _writer_order(graph: ConsoleGraph) -> tuple[ConsoleGraphNode, ...]:
             *schedule_days,
             *schedule_rulesets,
             *schedule_files,
+            *table_variables,
+            *table_lookups,
             *curves,
             *others,
             *sizing_zones,

@@ -115,10 +115,6 @@ def _resolve_output_path(
     return path
 
 
-def _relative_path(garden_root: Path, path: Path) -> str:
-    return to_posix_relative(path.resolve(), garden_root)
-
-
 def _image_target(
     *,
     manifest: GardenManifest,
@@ -151,13 +147,7 @@ def _register_artifact(
         "source": source,
         "created_at": utc_now_iso(),
     }
-    manifest.artifacts = [
-        item
-        for item in manifest.artifacts
-        if not (item.get("artifact_type") == artifact_type and item.get("path") == path)
-    ]
-    manifest.artifacts.append(record)
-    return record
+    return manifest.upsert_artifact(record)
 
 
 def _save_image_artifact(
@@ -170,7 +160,7 @@ def _save_image_artifact(
     artifact_type: str,
     source: dict[str, Any],
 ) -> dict[str, Any]:
-    artifact_path = _relative_path(garden_root, path)
+    artifact_path = to_posix_relative(path, garden_root)
     artifact = _register_artifact(
         manifest,
         artifact_type=artifact_type,
@@ -263,7 +253,7 @@ def list_radiance_hdr_images(
         matches.append(
             {
                 "name": path.name,
-                "path": _relative_path(garden_root_path, path),
+                "path": to_posix_relative(path, garden_root_path),
                 "absolute_path": str(path),
                 "extension": ".hdr",
                 "size_bytes": path.stat().st_size,
@@ -413,8 +403,8 @@ def radiance_hdr_to_falsecolor(
         )
 
     source = {
-        "producer": "radiance_hdr_to_falsecolor",
-        "input_path": _relative_path(garden_root_path, input_path),
+        "producer": "RAD_hdr_to_falsecolor",
+        "input_path": to_posix_relative(input_path, garden_root_path),
         "run_id": record.get("run_id") if record else None,
         "command": command.to_radiance(),
     }
@@ -498,8 +488,8 @@ def radiance_hdr_to_gif(
         raise ValueError("ra_gif command completed without writing an output file.")
 
     source = {
-        "producer": "radiance_hdr_to_gif",
-        "input_path": _relative_path(garden_root_path, input_path),
+        "producer": "RAD_hdr_to_gif",
+        "input_path": to_posix_relative(input_path, garden_root_path),
         "run_id": record.get("run_id") if record else None,
         "command": command.to_radiance(),
     }
@@ -550,7 +540,7 @@ def _grid_folder_summary(garden_root: Path, folder: Path) -> dict[str, Any]:
     ]
     sensor_count = sum(int(grid.get("count", 0)) for grid in grids)
     return {
-        "path": _relative_path(garden_root, folder),
+        "path": to_posix_relative(folder, garden_root),
         "absolute_path": str(folder),
         "grid_count": len(grids),
         "sensor_count": sensor_count,
@@ -621,7 +611,14 @@ def _resolve_grid_data_path(
     else:
         if record is None:
             raise ValueError("Provide grid_data_path or run_target/run_id.")
-        path = _resolve_output_path(garden_root, record, output_name or "results")
+        default_output_name = (
+            "cumulative-sun-hours"
+            if record.get("recipe") == "direct-sun-hours"
+            else "results"
+        )
+        path = _resolve_output_path(
+            garden_root, record, output_name or default_output_name
+        )
         if result_subfolder:
             path = (path / result_subfolder).resolve()
             path.relative_to(garden_root)
@@ -686,7 +683,7 @@ def radiance_grid_result_to_visualization_set(
         record.get("model_target") if record else None
     )
     if not resolved_model_target:
-        raise ValueError("radiance_grid_result_to_visualization_set requires a model target.")
+        raise ValueError("RAD_grid_result_to_visualization_set requires a model target.")
     _, resolved_model_target = resolve_model_target(garden_root_path, resolved_model_target)
     model = load_honeybee_model(garden_root_path, resolved_model_target)
     safe_name = slugify_name(name)
@@ -740,7 +737,7 @@ def radiance_grid_result_to_visualization_set(
         visualization_set=visualization_set,
         name=safe_name,
         source={
-            "producer": "radiance_grid_result_to_visualization_set",
+            "producer": "RAD_grid_result_to_visualization_set",
             "run_id": record.get("run_id") if record else None,
             "grid_data_path": grid_summary["path"],
         },

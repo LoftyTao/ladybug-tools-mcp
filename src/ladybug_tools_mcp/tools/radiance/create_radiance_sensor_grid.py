@@ -7,7 +7,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.assets import create_radiance_sensor_grid as service
 
 VectorInput = list[float] | dict[str, float] | None
 
@@ -87,10 +86,10 @@ def _positions_from_rectangular_grid(
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_sensor_grid tool.'
+    'Register the RAD_create_sensor_grid tool.'
 
     @mcp.tool(
-        name="create_sensor_grid",
+        name="RAD_create_sensor_grid",
         description=(
             "Create a Honeybee Radiance SensorGrid from explicit sensor "
             "positions or rectangular workplane dimensions. With garden_root, "
@@ -171,7 +170,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
@@ -191,6 +190,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance SensorGrid."""
+        from garden.radiance.assets import create_radiance_sensor_grid as service
+
         if identifier is None:
             identifier = "sensor_grid"
         if model_target is not None and not attach_to_model:

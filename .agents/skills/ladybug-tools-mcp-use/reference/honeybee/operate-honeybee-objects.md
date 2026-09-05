@@ -4,22 +4,22 @@ Use this when the user wants to move, rotate, scale, or mirror an existing Honey
 
 ## Preconditions
 
-- Locate object targets with `honeybee_search_model_objects`; use `garden_get_base_honeybee_model` for whole-model transforms.
+- Locate object targets with `HB_search_model_objects`; use `GD_get_base_honeybee_model` for whole-model transforms.
 - Provide complete vector, angle, axis, origin, scale, or plane arguments.
 - Expect geometry transforms to require validation and sometimes relation repair.
 
 ## MCP Route
 
-1. Search for the operation tool: `honeybee_move_object`, `honeybee_rotate_object`, `honeybee_scale_object`, or `honeybee_mirror_object`.
+1. Search for the operation tool: `HB_move_object`, `HB_rotate_object`, `HB_scale_object`, or `HB_mirror_object`.
 2. Search or retrieve the typed target.
 3. Call the transform tool with `garden_root`, `target`, and the complete transform input.
 4. Inspect `report`, `persistence_receipt.warnings`, and any top-level postprocess result.
-5. Validate or run `honeybee_relate_model` if warnings mention relationship repair.
+5. Validate or run `HB_relate_model` if warnings mention relationship repair.
 
 ## Code Mode Patterns
 
 ```python
-await call_tool("honeybee_move_object", {
+await call_tool("HB_move_object", {
     "garden_root": garden_root,
     "target": face_target,
     "vector": {"type": "Vector3D", "x": 0.5, "y": 0, "z": 0}
@@ -27,7 +27,7 @@ await call_tool("honeybee_move_object", {
 ```
 
 ```python
-await call_tool("honeybee_mirror_object", {
+await call_tool("HB_mirror_object", {
     "garden_root": garden_root,
     "target": model_target,
     "plane": {"type": "Plane", "n": [1, 0, 0], "o": [0, 0, 0]}

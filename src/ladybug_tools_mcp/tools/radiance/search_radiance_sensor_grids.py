@@ -7,7 +7,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.store import list_garden_artifacts
 
 
 def _target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any]) -> dict[str, Any]:
@@ -25,10 +24,10 @@ def _target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_search_sensor_grids tool.'
+    'Register the RAD_search_sensor_grids tool.'
 
     @mcp.tool(
-        name="search_sensor_grids",
+        name="RAD_search_sensor_grids",
         description=(
             "Search Garden Radiance SensorGrid .pts artifacts and return "
             "compact radiance_sensor_grid targets for grid recipe handoff. "
@@ -46,11 +45,13 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def search_radiance_sensor_grids(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         query: Annotated[str | None, Field(description="Optional SensorGrid identifier or Garden-relative .pts path substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance SensorGrid artifacts."""
+        from garden.store import list_garden_artifacts
+
         listed = list_garden_artifacts(
             garden_root=garden_root,
             artifact_type="radiance_sensor_grid",

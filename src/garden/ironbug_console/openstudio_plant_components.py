@@ -103,7 +103,7 @@ def _new_plant_component(
     if node.source_class == "IB_PumpConstantSpeed":
         return _new_pump_constant_speed(openstudio, model, node)
     if node.source_class == "IB_PumpVariableSpeed":
-        return _new_pump_variable_speed(openstudio, model, node)
+        return _new_pump_variable_speed(openstudio, model, node, graph)
     if node.source_class == "IB_DistrictCooling":
         return _new_district_cooling(openstudio, model, node)
     if node.source_class == "IB_DistrictHeatingWater":

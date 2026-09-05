@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from statistics import fmean
 from typing import Any
@@ -15,7 +14,7 @@ from garden.fairyfly.targets import (
     make_fairyfly_u_factor_result_target,
     normalize_fairyfly_therm_run_target,
 )
-from garden.fairyfly.therm import FAIRYFLY_THERM_INDEX
+from garden.fairyfly.therm import _run_record_by_id
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import to_posix_relative
 from ladybug_tools_mcp.contracts.receipts import make_artifact_receipt
@@ -71,18 +70,8 @@ def _stats(values: list[float]) -> dict[str, Any]:
     }
 
 
-def _read_run_index(garden_root: Path) -> list[dict[str, Any]]:
-    path = garden_root / FAIRYFLY_THERM_INDEX
-    if not path.is_file():
-        return []
-    return list(json.loads(path.read_text(encoding="utf-8")).get("runs", []))
-
-
 def _run_record(garden_root: Path, run_id: str) -> dict[str, Any]:
-    for record in _read_run_index(garden_root):
-        if record.get("run_id") == run_id:
-            return record
-    raise ValueError(f"Fairyfly THERM run was not found: {run_id}")
+    return _run_record_by_id(garden_root, run_id)
 
 
 def _register_artifact(
@@ -100,16 +89,7 @@ def _register_artifact(
         "source": source,
         "created_at": utc_now_iso(),
     }
-    manifest.artifacts = [
-        item
-        for item in manifest.artifacts
-        if not (
-            item.get("artifact_type") == artifact_type
-            and item.get("path") == path
-        )
-    ]
-    manifest.artifacts.append(record)
-    return record
+    return manifest.upsert_artifact(record)
 
 
 def _normalize_data_type(data_type: str) -> tuple[str, str]:

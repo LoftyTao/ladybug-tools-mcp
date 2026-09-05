@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_coil_cooling_dx_multi_speed.'
+'MCP tool for IB_coil_cooling_dx_multi_speed.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_coil_cooling_dx_multi_speed tool.'
+    'Register the IB_coil_cooling_dx_multi_speed tool.'
 
     @mcp.tool(
-        name='coil_cooling_dx_multi_speed',
+        name='IB_coil_cooling_dx_multi_speed',
         description=(
             'Create IB_CoilCoolingDXMultiSpeed, an OpenStudio/EnergyPlus Coil:Cooling:DX:MultiSpeed object for unitary air-loop and air-to-air heat-pump assemblies. Provide IB_CoilCoolingDXMultiSpeedStageData targets or inline stage fields for the discrete cooling speeds. This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
         ),
@@ -23,13 +22,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_coil_cooling_dx_multi_speed(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -45,7 +44,7 @@ def register(mcp: FastMCP) -> None:
         stages_targets: Annotated[
             list[dict[str, Any] | str] | None,
             Field(
-                description="Optional IB_CoilCoolingDXMultiSpeedStageData targets from detailed_hvac_coil_cooling_dx_multi_speed_stage_data; maps to the Stages child list."
+                description="Optional IB_CoilCoolingDXMultiSpeedStageData targets from IB_coil_cooling_dx_multi_speed_stage_data; maps to the Stages child list."
             ),
         ] = None,
         availability_schedule_target: Annotated[
@@ -222,6 +221,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_CoilCoolingDXMultiSpeed as a reviewed Ironbug Loop Objs authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

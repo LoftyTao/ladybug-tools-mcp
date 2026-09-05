@@ -81,15 +81,7 @@ def create_uwg_simulation_parameter(
         "path": target["path"],
         "source": target,
     }
-    manifest.artifacts = [
-        item
-        for item in manifest.artifacts
-        if not (
-            item.get("artifact_type") == artifact["artifact_type"]
-            and item.get("identifier") == identifier_value
-        )
-    ]
-    manifest.artifacts.append(artifact)
+    manifest.upsert_artifact(artifact, key_fields=("artifact_type", "identifier"))
     manifest.write(garden_root_path)
     result.update(
         {

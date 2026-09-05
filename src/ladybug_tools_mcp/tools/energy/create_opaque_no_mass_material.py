@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.constructionsets import (
-    create_opaque_no_mass_material as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_opaque_no_mass_material tool.'
+    'Register the EP_create_opaque_no_mass_material tool.'
 
     @mcp.tool(
-        name='create_opaque_no_mass_material',
+        name='EP_create_opaque_no_mass_material',
         description=(
             "Create a Honeybee Energy EnergyMaterialNoMass opaque material "
             "from an R-value for walls, roofs, floors, or other opaque "
@@ -57,7 +54,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -68,6 +65,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy EnergyMaterialNoMass object."""
+        from garden.energy.constructionsets import (
+            create_opaque_no_mass_material as service,
+        )
+
         return service(
             identifier=identifier,
             r_value=r_value,

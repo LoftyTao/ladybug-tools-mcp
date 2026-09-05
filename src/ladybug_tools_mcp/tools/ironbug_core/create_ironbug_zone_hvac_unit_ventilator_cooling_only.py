@@ -1,23 +1,18 @@
-'MCP tool for detailed_hvac_zone_equipment_unit_ventilator_cooling_only.'
+'MCP tool for IB_zone_equipment_unit_ventilator_cooling_only.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_thermal_zone_equipment,
-    set_ironbug_unit_ventilator_cooling_only_children,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_unit_ventilator_cooling_only tool.'
+    'Register the IB_zone_equipment_unit_ventilator_cooling_only tool.'
 
     @mcp.tool(
-        name='zone_equipment_unit_ventilator_cooling_only',
+        name='IB_zone_equipment_unit_ventilator_cooling_only',
         description=(
             'Create IB_ZoneHVACUnitVentilator_CoolingOnly, the Ironbug and EnergyPlus ZoneHVAC:UnitVentilator variant with a cooling coil, fan, outdoor-air controls, and optional ThermalZone placement. Use it for room-level cooling-only unit ventilators, not as a unit heater, fan coil, air terminal, standalone coil, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -34,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -149,6 +144,13 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug ZoneHVAC:UnitVentilator cooling-only object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            add_ironbug_thermal_zone_equipment,
+            set_ironbug_unit_ventilator_cooling_only_children,
+        )
 
         child_targets = (cooling_coil_target, fan_target)
         if any(item is not None for item in child_targets) and not all(

@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.schedules import create_schedule_rule as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_schedule_rule tool.'
+    'Register the EP_create_schedule_rule tool.'
 
     @mcp.tool(
-        name='create_schedule_rule',
-        description='Create a Honeybee Energy ScheduleRule that applies one ScheduleDay to selected weekdays and optional Ladybug Date bounds. Use this for weekday/weekend, seasonal, or exception rules before assembling a ScheduleRuleset. Returns object_dict and summary_view for energy_create_schedule_ruleset.schedule_rules; this rule is not saved as its own Garden target.',
+        name='EP_create_schedule_rule',
+        description='Create a Honeybee Energy ScheduleRule that applies one ScheduleDay to selected weekdays and optional Ladybug Date bounds. Use this for weekday/weekend, seasonal, or exception rules before assembling a ScheduleRuleset. Returns object_dict and summary_view for EP_create_schedule_ruleset.schedule_rules; this rule is not saved as its own Garden target.',
         tags={
             "energy",
             "schedule",
@@ -27,7 +26,7 @@ def register(mcp: FastMCP) -> None:
         schedule_day: Annotated[
             dict[str, Any],
             Field(
-                description='ScheduleDay object_dict, usually returned by energy_create_schedule_day; ScheduleRule cannot consume a saved target because ScheduleDay is not persisted separately.'
+                description='ScheduleDay object_dict, usually returned by EP_create_schedule_day; ScheduleRule cannot consume a saved target because ScheduleDay is not persisted separately.'
             ),
         ],
         apply_sunday: Annotated[
@@ -65,6 +64,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy ScheduleRule."""
+        from garden.energy.schedules import create_schedule_rule as service
+
         return service(
             schedule_day=schedule_day,
             apply_sunday=apply_sunday,

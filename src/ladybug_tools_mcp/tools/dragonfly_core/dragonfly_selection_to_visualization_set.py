@@ -7,17 +7,16 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.display import dragonfly_selection_to_visualization_set as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_selection_to_visualization_set tool."""
+    """Register the DF_selection_to_visualization_set tool."""
 
     @mcp.tool(
-        name="selection_to_visualization_set",
+        name="DF_selection_to_visualization_set",
         description=(
             "Create a compact VisualizationSet preview from a dragonfly_selection "
-            "returned by df_search_objects or df_room2ds_by_attribute. This is the "
+            "returned by DF_search_objects or DF_room2ds_by_attribute. This is the "
             "preferred bridge from search/list screening into visual review. Set "
             "return_visualization_set=false to save the preview and return "
             "visualization_set_target for shared exporters. Returns summary_view, "
@@ -41,6 +40,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Dragonfly selection VisualizationSet."""
+        from garden.dragonfly_core.display import dragonfly_selection_to_visualization_set as service
+
         return service(
             garden_root=garden_root,
             selection=selection,

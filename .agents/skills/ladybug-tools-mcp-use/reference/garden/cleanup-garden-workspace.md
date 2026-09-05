@@ -18,7 +18,7 @@ or user-requested deliverables.
 
 - Confirm `garden_root`.
 - Confirm cleanup scopes from the allowed enum.
-- Prefer `_dry_run_=true` when the user is asking what would be removed.
+- Use `dry_run=true` when the user is asking what would be removed.
 
 Allowed cleanup scopes:
 
@@ -33,7 +33,7 @@ Allowed cleanup scopes:
 
 1. Search if needed:
    `search("cleanup garden workspace tmp artifacts without touching models")`.
-2. Call `garden_cleanup_workspace` with `garden_root` and `_cleanup_scopes`.
+2. Call `GD_cleanup_workspace` with `garden_root` and `cleanup_scopes`.
 3. Read `removed`, `skipped`, `summary_view`, and `persistence_receipt`.
 4. Report only the cleaned scopes and any skipped scopes.
 
@@ -41,10 +41,10 @@ Allowed cleanup scopes:
 
 ```json
 {
-  "name": "garden_cleanup_workspace",
+  "name": "GD_cleanup_workspace",
   "arguments": {
     "garden_root": "<exact garden root>",
-    "_cleanup_scopes": ["tmp"]
+    "cleanup_scopes": ["tmp"]
   }
 }
 ```
@@ -53,11 +53,11 @@ Dry run:
 
 ```json
 {
-  "name": "garden_cleanup_workspace",
+  "name": "GD_cleanup_workspace",
   "arguments": {
     "garden_root": "<exact garden root>",
-    "_cleanup_scopes": ["tmp", "artifacts", "flowerpots"],
-    "_dry_run_": true
+    "cleanup_scopes": ["tmp", "artifacts", "flowerpots"],
+    "dry_run": true
   }
 }
 ```
@@ -66,7 +66,8 @@ Dry run:
 
 - The response includes `report`, `summary_view`, `persistence_receipt`,
   `removed`, and `skipped`.
-- Cleaned non-authoring directories may be recreated as empty skeletons.
+- Cleaned non-authoring scope directories remain absent.
+- A later workflow recreates them on first write.
 - `garden.json`, `models/`, and `libraries/` remain unchanged.
 
 ## Stop Conditions

@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.constructionsets import create_opaque_material as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_opaque_material tool.'
+    'Register the EP_create_opaque_material tool.'
 
     @mcp.tool(
-        name='create_opaque_material',
+        name='EP_create_opaque_material',
         description="Create a Honeybee Energy EnergyMaterial opaque material layer with thermal mass for OpaqueConstruction assemblies. Returns object_dict plus summary_view. Use return_detail='summary' for key thickness, conductivity, density, heat capacity, R-value, and U-value fields or 'full' for a matrix of material property values. Use garden_root and return_object_dict=false to save the material target for construction tools.",
         tags={
             "energy",
@@ -51,7 +50,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -62,6 +61,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy EnergyMaterial object."""
+        from garden.energy.constructionsets import create_opaque_material as service
+
         return service(
             identifier=identifier,
             thickness=thickness,

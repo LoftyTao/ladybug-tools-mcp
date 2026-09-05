@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_grid.results import read_opendss_result as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the Grid OpenDSS result reader."""
 
     @mcp.tool(
-        name="read_opendss_result",
+        name="DF_grid_read_opendss_result",
         description=(
             "Read a registered Dragonfly Grid OpenDSS CSV result artifact into a "
             "compact preview. The result_target must be a Garden artifact with "
@@ -30,5 +29,7 @@ def register(mcp: FastMCP) -> None:
         max_rows: Annotated[int, Field(description="Maximum preview rows to return.")] = 25,
     ) -> dict[str, Any]:
         """Read a registered OpenDSS result artifact."""
+        from garden.dragonfly_grid.results import read_opendss_result as service
+
         return service(garden_root=garden_root, result_target=result_target, max_rows=max_rows)
 

@@ -7,19 +7,16 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.display import (
-    dragonfly_context_shade_to_visualization_set as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_context_shade_to_visualization_set tool."""
+    """Register the DF_context_shade_to_visualization_set tool."""
 
     @mcp.tool(
-        name="context_shade_to_visualization_set",
+        name="DF_context_shade_to_visualization_set",
         description=(
             "Create a compact VisualizationSet preview for one Dragonfly ContextShade "
-            "target. Use ContextShade targets from df_search_objects or creation tools. "
+            "target. Use ContextShade targets from DF_search_objects or creation tools. "
             "Set return_visualization_set=false to save the preview and return "
             "visualization_set_target for shared exporters. Returns summary_view, report, "
             "and optionally the VisualizationSet body."
@@ -42,6 +39,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Dragonfly ContextShade VisualizationSet."""
+        from garden.dragonfly_core.display import (
+            dragonfly_context_shade_to_visualization_set as service,
+        )
+
         return service(
             garden_root=garden_root,
             target=target,

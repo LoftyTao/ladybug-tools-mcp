@@ -7,20 +7,17 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.display import (
-    dragonfly_model_envelope_edges_to_visualization_set as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_model_envelope_edges_to_visualization_set tool."""
+    """Register the DF_model_envelope_edges_to_visualization_set tool."""
 
     @mcp.tool(
-        name="model_envelope_edges_to_visualization_set",
+        name="DF_model_envelope_edges_to_visualization_set",
         description=(
             "Create a Ladybug Display VisualizationSet showing Dragonfly model envelope "
             "edges using Dragonfly Display model_envelope_edges_to_vis_set. If Web View "
-            "mode is active, this tool refreshes the demo panel; call visualization_set_to_vtkjs "
+            "mode is active, this tool refreshes the demo panel; call LB_set_to_vtkjs "
             "only when the user asks for a saved vtk.js asset. If the SDK edge view is "
             "unavailable for the model geometry, this tool returns report.status=degraded "
             "and a wireframe model VisualizationSet target. It does not edit the DFJSON "
@@ -33,13 +30,13 @@ def register(mcp: FastMCP) -> None:
     def dragonfly_model_envelope_edges_to_visualization_set(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
@@ -66,6 +63,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Dragonfly envelope-edge VisualizationSet."""
+        from garden.dragonfly_core.display import (
+            dragonfly_model_envelope_edges_to_visualization_set as service,
+        )
+
         return service(
             garden_root=garden_root,
             model_target=model_target,

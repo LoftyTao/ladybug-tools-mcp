@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.geometry import clean_dragonfly_room2d_geometry as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_clean_room2d_geometry tool.'
+    'Register the DF_clean_room2d_geometry tool.'
 
     @mcp.tool(
-        name="clean_room2d_geometry",
+        name="DF_clean_room2d_geometry",
         description=(
             "Clean a model-embedded Dragonfly Room2D boundary using explicit SDK "
             "methods: remove_duplicate_vertices, remove_colinear_vertices, and "
@@ -28,7 +27,7 @@ def register(mcp: FastMCP) -> None:
     def clean_dragonfly_room2d_geometry(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         room2d_target: Annotated[
             dict[str, Any] | None,
@@ -52,7 +51,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
@@ -83,6 +82,8 @@ def register(mcp: FastMCP) -> None:
         ] = 1.0,
     ) -> dict[str, Any]:
         """Clean Dragonfly Room2D geometry."""
+        from garden.dragonfly_core.geometry import clean_dragonfly_room2d_geometry as service
+
         return service(
             garden_root=garden_root,
             room2d_target=room2d_target,

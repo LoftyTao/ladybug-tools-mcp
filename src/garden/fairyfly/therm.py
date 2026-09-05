@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
-from threading import get_ident
 from typing import Any
 
 from fairyfly_therm.run import run_thmz
@@ -21,11 +18,17 @@ from garden.fairyfly.targets import (
 )
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
+from garden.run_ledger import RunLedger, normalize_run_id, project_run
 from ladybug_tools_mcp.contracts.receipts import make_artifact_receipt
 from ladybug_tools_mcp.contracts.report import make_report
 
 FAIRYFLY_THERM_RUNS_DIR = Path("runs") / "fairyfly_therm"
 FAIRYFLY_THERM_INDEX = FAIRYFLY_THERM_RUNS_DIR / "index.json"
+_FAIRYFLY_THERM_RUN_LEDGER = RunLedger(
+    atomic=True,
+    recover_trailing_json=True,
+    sort_by_created_at=True,
+)
 
 
 def _garden_root(value: str) -> Path:
@@ -36,61 +39,26 @@ def _run_index_path(garden_root: Path) -> Path:
     return garden_root / FAIRYFLY_THERM_INDEX
 
 
-def _decode_index_payload(raw: str) -> dict[str, Any]:
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError as exc:
-        if exc.msg != "Extra data":
-            raise
-        payload, _ = json.JSONDecoder().raw_decode(raw)
-        if not isinstance(payload, dict):
-            raise
-        return payload
-
-
 def _read_index(garden_root: Path) -> list[dict[str, Any]]:
-    path = _run_index_path(garden_root)
-    if not path.is_file():
-        return []
-    return list(_decode_index_payload(path.read_text(encoding="utf-8")).get("runs", []))
-
-
-def _write_index(garden_root: Path, records: list[dict[str, Any]]) -> None:
-    path = _run_index_path(garden_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.{get_ident()}.tmp")
-    try:
-        tmp_path.write_text(
-            json.dumps({"runs": records}, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(tmp_path, path)
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
+    return _FAIRYFLY_THERM_RUN_LEDGER.list(_run_index_path(garden_root))
 
 
 def _upsert_record(garden_root: Path, record: dict[str, Any]) -> None:
-    records = [
-        item for item in _read_index(garden_root) if item.get("run_id") != record["run_id"]
-    ]
-    records.append(record)
-    records.sort(key=lambda item: str(item.get("created_at", "")))
-    _write_index(garden_root, records)
+    _FAIRYFLY_THERM_RUN_LEDGER.upsert(_run_index_path(garden_root), record)
 
 
 def _run_record_by_id(garden_root: Path, run_id: str) -> dict[str, Any]:
-    for record in _read_index(garden_root):
-        if record.get("run_id") == run_id:
-            return record
+    record = _FAIRYFLY_THERM_RUN_LEDGER.get(_run_index_path(garden_root), run_id)
+    if record is not None:
+        return record
     raise ValueError(f"Fairyfly THERM run was not found: {run_id}")
 
 
 def _normalize_run_id(value: str | None) -> str:
-    if value:
-        return slugify_name(value)
-    timestamp = utc_now_iso().replace(":", "").replace("-", "").replace("Z", "").lower()
-    return f"fairyfly_therm_{timestamp}"
+    fallback = value or (
+        f"fairyfly_therm_{utc_now_iso().replace(':', '').replace('-', '').replace('Z', '').lower()}"
+    )
+    return normalize_run_id(value, fallback)
 
 
 def _run_id_from_target_or_value(
@@ -129,7 +97,7 @@ def _public_run(record: dict[str, Any]) -> dict[str, Any]:
         "disabled_reason",
         "warnings",
     )
-    return {key: record.get(key) for key in keys if key in record}
+    return project_run(record, keys)
 
 
 def _register_artifact(
@@ -147,16 +115,7 @@ def _register_artifact(
         "source": source,
         "created_at": utc_now_iso(),
     }
-    manifest.artifacts = [
-        item
-        for item in manifest.artifacts
-        if not (
-            item.get("artifact_type") == artifact_type
-            and item.get("path") == path
-        )
-    ]
-    manifest.artifacts.append(record)
-    return record
+    return manifest.upsert_artifact(record)
 
 
 def _run_response(
@@ -180,7 +139,7 @@ def _run_response(
         "engine": record.get("engine"),
         "disabled_reason": record.get("disabled_reason"),
         "poll_next": {
-            "tool": "get_fairyfly_therm_run",
+            "tool": "FF_poll_simulation",
             "arguments": poll_arguments,
         },
     }

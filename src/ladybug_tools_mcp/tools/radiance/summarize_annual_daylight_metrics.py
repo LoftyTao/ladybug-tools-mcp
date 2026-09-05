@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.metrics import summarize_annual_daylight_metrics as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_summarize_annual_daylight_metrics tool.'
+    'Register the RAD_summarize_annual_daylight_metrics tool.'
 
     @mcp.tool(
-        name='summarize_annual_daylight_metrics',
+        name='RAD_summarize_annual_daylight_metrics',
         description=(
             "Summarize completed Honeybee Radiance annual daylight metrics such "
             "as sDA, ASE, DA, CDA, UDI, daylight autonomy, annual sunlight "
@@ -34,7 +33,7 @@ def register(mcp: FastMCP) -> None:
     def summarize_annual_daylight_metrics(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         run_target: Annotated[
             dict[str, Any] | None,
@@ -66,6 +65,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Summarize annual daylight metrics."""
+        from garden.radiance.metrics import summarize_annual_daylight_metrics as service
+
         return service(
             garden_root=garden_root,
             run_target=run_target,

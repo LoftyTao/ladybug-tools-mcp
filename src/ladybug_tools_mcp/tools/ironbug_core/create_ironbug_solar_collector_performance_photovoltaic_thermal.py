@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_solar_collector_performance_photovoltaic_thermal.'
+'MCP tool for IB_solar_collector_performance_photovoltaic_thermal.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_solar_collector_performance_photovoltaic_thermal tool.'
+    'Register the IB_solar_collector_performance_photovoltaic_thermal tool.'
 
     @mcp.tool(
-        name='solar_collector_performance_photovoltaic_thermal',
+        name='IB_solar_collector_performance_photovoltaic_thermal',
         description=(
             'Create IB_SolarCollectorPerformancePhotovoltaicThermal, the abstract Ironbug photovoltaic-thermal performance base target used by PVT collector variants. Prefer the Simple or BIPVT performance tools when you need EnergyPlus-ready parameters. This base wrapper is not a PV generator, flat-plate water performance object, collector surface, or Energy result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -30,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -49,6 +48,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug photovoltaic-thermal performance base target."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

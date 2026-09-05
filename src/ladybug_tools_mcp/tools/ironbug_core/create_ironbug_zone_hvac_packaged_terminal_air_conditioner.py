@@ -1,26 +1,24 @@
-'MCP tool for detailed_hvac_zone_equipment_ptac.'
+'MCP tool for IB_zone_equipment_ptac.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core import relationships as relationship_service
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_ptac tool.'
+    'Register the IB_zone_equipment_ptac tool.'
 
     @mcp.tool(
-        name='zone_equipment_ptac',
+        name='IB_zone_equipment_ptac',
         description=(
             'Create IB_ZoneHVACPackagedTerminalAirConditioner, an Ironbug packaged '
             'terminal air conditioner (PTAC) zone-equipment component that maps '
             'downstream to EnergyPlus ZoneHVAC:PackagedTerminalAirConditioner and '
-            'OpenStudio ZoneHVACPackagedTerminalAirConditioner. Bind a supply fan, '
-            'heating coil, cooling coil, and optional IB_ThermalZone placement through '
+            'OpenStudio ZoneHVACPackagedTerminalAirConditioner. Bind the required '
+            'supply fan, heating coil, cooling coil, and IB_ThermalZone placement through '
             'explicit targets. This authors Ironbug DetailedHVAC input, not a Honeybee '
             'Energy HVAC template. Returns target, updated_model_target, summary_view, '
             'persistence_receipt, and report for downstream DetailedHVAC assembly.'
@@ -41,13 +39,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_zone_hvac_packaged_terminal_air_conditioner(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -55,6 +53,22 @@ def register(mcp: FastMCP) -> None:
         identifier: Annotated[
             str,
             Field(description="Stable identifier for the new IB_ZoneHVACPackagedTerminalAirConditioner object."),
+        ],
+        fan_target: Annotated[
+            dict[str, Any] | str,
+            Field(description="Required IB_Fan target or same-model identifier used as the PTAC supply fan."),
+        ],
+        heating_coil_target: Annotated[
+            dict[str, Any] | str,
+            Field(description="Required IB_CoilHeatingBasic target or same-model identifier used as the PTAC heating coil."),
+        ],
+        cooling_coil_target: Annotated[
+            dict[str, Any] | str,
+            Field(description="Required IB_Coil target or same-model identifier used as the PTAC cooling coil."),
+        ],
+        thermal_zone_target: Annotated[
+            dict[str, Any] | str,
+            Field(description="Required IB_ThermalZone target or same-model identifier to receive this PTAC as zone equipment; this does not create Honeybee Room geometry."),
         ],
         display_name: Annotated[
             str | None,
@@ -132,28 +146,14 @@ def register(mcp: FastMCP) -> None:
                 description="Optional IB_EnergyManagementSystemInternalVariable targets for CustomInternalVariables."
             ),
         ] = None,
-        fan_target: Annotated[
-            dict[str, Any] | str | None,
-            Field(description="Optional IB_FanOnOff, IB_FanConstantVolume, or IB_FanSystemModel target or same-model identifier used as the PTAC supply fan."),
-        ] = None,
-        heating_coil_target: Annotated[
-            dict[str, Any] | str | None,
-            Field(description="Optional PTAC heating coil target or same-model identifier, such as IB_CoilHeatingElectric, IB_CoilHeatingGas, IB_CoilHeatingWater, or IB_CoilHeatingSteam."),
-        ] = None,
-        cooling_coil_target: Annotated[
-            dict[str, Any] | str | None,
-            Field(description="Optional PTAC cooling coil target or same-model identifier, such as IB_CoilCoolingDXSingleSpeed, IB_CoilCoolingDXTwoSpeed, IB_CoilCoolingDXMultiSpeed, or IB_CoilCoolingWater."),
-        ] = None,
-        thermal_zone_target: Annotated[
-            dict[str, Any] | str | None,
-            Field(description="Optional IB_ThermalZone target or same-model identifier to receive this PTAC as zone equipment; this does not create Honeybee Room geometry."),
-        ] = None,
         overwrite: Annotated[
             bool,
             Field(description="Replace an existing object with the same identifier."),
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_ZoneHVACPackagedTerminalAirConditioner as reviewed PTAC zone equipment."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_ptac
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}
@@ -182,18 +182,22 @@ def register(mcp: FastMCP) -> None:
             source_fields['FanPlacement'] = fan_placement
         if supply_air_fan_operating_mode_schedule_target is not None:
             source_field_targets['SupplyAirFanOperatingModeSchedule'] = supply_air_fan_operating_mode_schedule_target
-        child_targets = [fan_target, heating_coil_target, cooling_coil_target]
-        if any(target is not None for target in child_targets) and not all(
-            target is not None for target in child_targets
-        ):
+        required_targets = {
+            "fan_target": fan_target,
+            "heating_coil_target": heating_coil_target,
+            "cooling_coil_target": cooling_coil_target,
+            "thermal_zone_target": thermal_zone_target,
+        }
+        missing_targets = [name for name, target in required_targets.items() if target is None]
+        if missing_targets:
             raise ValueError(
-                "fan_target, heating_coil_target, and cooling_coil_target must be "
-                "provided together for PTAC child binding."
+                "PTAC requires fan_target, heating_coil_target, cooling_coil_target, "
+                "and thermal_zone_target; missing: "
+                f"{', '.join(missing_targets)}."
             )
-        result = create_source_backed_ironbug_object(
+        return create_source_backed_ironbug_ptac(
             garden_root=garden_root,
             ironbug_model_target=ironbug_model_target,
-            source_class='IB_ZoneHVACPackagedTerminalAirConditioner',
             identifier=identifier,
             display_name=display_name,
             source_fields=source_fields or None,
@@ -205,34 +209,8 @@ def register(mcp: FastMCP) -> None:
             ems_actuator_targets=ems_actuator_targets,
             ems_internal_variable_targets=ems_internal_variable_targets,
             overwrite=overwrite,
+            fan_target=fan_target,
+            heating_coil_target=heating_coil_target,
+            cooling_coil_target=cooling_coil_target,
+            thermal_zone_target=thermal_zone_target,
         )
-        binding_steps: list[str] = []
-        current_model_target = result["updated_model_target"]
-        current_target = result["target"]
-        if fan_target is not None and heating_coil_target is not None and cooling_coil_target is not None:
-            children_result = relationship_service.set_ironbug_ptac_children(
-                garden_root=garden_root,
-                ironbug_model_target=current_model_target,
-                ptac_target=current_target,
-                fan_target=fan_target,
-                heating_coil_target=heating_coil_target,
-                cooling_coil_target=cooling_coil_target,
-            )
-            current_model_target = children_result["updated_model_target"]
-            current_target = children_result["target"]
-            binding_steps.append("ptac_children")
-        if thermal_zone_target is not None:
-            zone_result = relationship_service.add_ironbug_thermal_zone_equipment(
-                garden_root=garden_root,
-                ironbug_model_target=current_model_target,
-                thermal_zone_target=thermal_zone_target,
-                zone_equipment_target=current_target,
-            )
-            current_model_target = zone_result["updated_model_target"]
-            binding_steps.append("thermal_zone_equipment")
-        current_target["model_target"] = current_model_target
-        result["target"] = current_target
-        result["object_target"] = current_target
-        result["updated_model_target"] = current_model_target
-        result["summary_view"]["binding_steps"] = binding_steps
-        return result

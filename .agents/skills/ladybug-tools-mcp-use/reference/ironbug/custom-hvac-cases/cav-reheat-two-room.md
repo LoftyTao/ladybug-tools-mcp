@@ -41,45 +41,44 @@ Then:
 
 ```python
 # Inside Ladybug Tools MCP Code Mode execute.
-garden_root = "D:/path/to/prepared-garden"
+garden_root = "<selected Garden root>"
 case_id = "cav_reheat_two_room"
 rooms = ["Room1", "Room2"]
 
-base = await call_tool("garden_get_base_honeybee_model", {"garden_root": garden_root})
-ironbug = await call_tool("detailed_hvac_create_model", {
+base = await call_tool("GD_get_base_honeybee_model", {"garden_root": garden_root})
+ironbug = await call_tool("IB_create_model", {
     "garden_root": garden_root,
     "identifier": case_id,
-    "include_hvac_system": True,
     "overwrite": True,
 })
 
 # Create the source-backed Ironbug components listed in MCP Tool Chain above.
 # Keep the returned targets and pass those targets into later create/apply calls.
 
-applied = await call_tool("detailed_hvac_apply_to_honeybee_model", {
+applied = await call_tool("IB_apply_to_honeybee_model", {
     "garden_root": garden_root,
     "ironbug_model_target": ironbug["target"],
     "honeybee_model_target": base["target"],
     "room_identifiers": rooms,
     "detailed_hvac_identifier": case_id + "_detailed_hvac",
 })
-run = await call_tool("energyplus_start_simulation", {
+run = await call_tool("EP_start_simulation", {
     "garden_root": garden_root,
     "model_target": applied["updated_model_target"],
     "weather_target": "<prepared Garden weather_file target>",
     "run_id": case_id + "_run",
 })
-status = await call_tool("energyplus_poll_simulation", {
+status = await call_tool("EP_poll_simulation", {
     "garden_root": garden_root,
     "run_target": run["target"],
     "wait_seconds": 60,
     "poll_interval": 2,
 })
-outputs = await call_tool("energyplus_list_run_outputs", {
+outputs = await call_tool("EP_list_run_outputs", {
     "garden_root": garden_root,
     "run_target": run["target"],
 })
-eui = await call_tool("energyplus_read_eui", {
+eui = await call_tool("EP_read_eui", {
     "garden_root": garden_root,
     "run_target": run["target"],
 })
@@ -134,17 +133,17 @@ Writer evidence must include at least:
 ```jsonc
 {
   "case_id": "cav_reheat_two_room",
-  "garden_root": "D:/path/to/prepared-garden",
+  "garden_root": "<selected Garden root>",
   "rooms": ["Room1", "Room2"],
-  "ironbug_model_target": "<detailed_hvac_create_model.target>",
-  "detailed_hvac_target": "<detailed_hvac_apply_to_honeybee_model.detailed_hvac_target>",
+  "ironbug_model_target": "<IB_create_model.target>",
+  "detailed_hvac_target": "<IB_apply_to_honeybee_model.detailed_hvac_target>",
   "energy_status": "completed",
   "eui": 123.456,
-  "err_path": "runs/energy/cav_reheat_two_room_run/annual_energy_use/run/eplusout.err",
-  "sql_path": "runs/energy/cav_reheat_two_room_run/annual_energy_use/run/eplusout.sql",
+  "err_path": "<extract eplusout.err from outputs>",
+  "sql_path": "<extract eplusout.sql from outputs>",
   "python_ironbug_console_runtime": {
     "status": "translated",
-    "runtime_model_path": "runs/energy/cav_reheat_two_room_run/pyironbug.osm",
+    "runtime_model_path": "<returned runtime_model_path>",
     "compiler_stage": "detailed_hvac_specification_to_openstudio_model",
     "compiler_output_kind": "openstudio_model",
     "simulation_input_kind": "openstudio_osm",

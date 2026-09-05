@@ -20,25 +20,25 @@ ROOM_SERVING_CLASSES = {
 PUMP_SOURCE_CLASSES = {"IB_PumpConstantSpeed", "IB_PumpVariableSpeed"}
 FAN_SOURCE_PREFIX = "IB_Fan"
 PUBLIC_REPAIR_TOOLS = {
-    "connect_ironbug_water_coil_to_plant_loop": "detailed_hvac_plant_loop_chilled_water",
-    "create_ironbug_air_loop_hvac": "detailed_hvac_air_loop_hvac",
+    "connect_ironbug_water_coil_to_plant_loop": "IB_plant_loop_chilled_water",
+    "create_ironbug_air_loop_hvac": "IB_air_loop_hvac",
     "create_ironbug_air_terminal_single_duct_constant_volume_no_reheat": (
-        "detailed_hvac_air_terminal_single_duct_constant_volume_no_reheat"
+        "IB_air_terminal_single_duct_constant_volume_no_reheat"
     ),
-    "create_ironbug_chilled_water_loop": "detailed_hvac_plant_loop_chilled_water",
-    "create_ironbug_coil_heating_water": "detailed_hvac_coil_heating_water",
-    "create_ironbug_controller_outdoor_air": "detailed_hvac_controller_outdoor_air",
-    "create_ironbug_hot_water_loop": "detailed_hvac_plant_loop_hot_water",
-    "create_ironbug_pump_constant_speed": "detailed_hvac_pump_constant_speed",
-    "create_ironbug_thermal_zone": "detailed_hvac_thermal_zone",
+    "create_ironbug_chilled_water_loop": "IB_plant_loop_chilled_water",
+    "create_ironbug_coil_heating_water": "IB_coil_heating_water",
+    "create_ironbug_controller_outdoor_air": "IB_controller_outdoor_air",
+    "create_ironbug_hot_water_loop": "IB_plant_loop_hot_water",
+    "create_ironbug_pump_constant_speed": "IB_pump_constant_speed",
+    "create_ironbug_thermal_zone": "IB_thermal_zone",
     "create_ironbug_zone_hvac_four_pipe_fan_coil": (
-        "detailed_hvac_zone_equipment_four_pipe_fan_coil"
+        "IB_zone_equipment_four_pipe_fan_coil"
     ),
     "set_ironbug_controller_mechanical_ventilation": (
-        "detailed_hvac_controller_mechanical_ventilation"
+        "IB_controller_mechanical_ventilation"
     ),
     "set_ironbug_thermal_zone_air_terminal": (
-        "detailed_hvac_air_terminal_single_duct_constant_volume_no_reheat"
+        "IB_air_terminal_single_duct_constant_volume_no_reheat"
     ),
 }
 
@@ -153,9 +153,91 @@ def _iter_model_objects(model: Any) -> Iterable[Any]:
 
 
 def _iter_active_model_objects(model: Any) -> Iterable[Any]:
-    """Iterate objects reachable from the active exported model graph."""
+    """Iterate active graph objects and library records they reference."""
 
-    yield from _iter_nested(model)
+    root_objects = list(_iter_nested(model))
+    yield from root_objects
+    try:
+        library = _component_library(model)
+    except ValueError:
+        return
+    records = {
+        str(identifier): record
+        for identifier, record in library.items()
+        if isinstance(record, dict) and isinstance(record.get("data"), dict)
+    }
+    root_identifiers = {
+        _identifier(obj)
+        for obj in root_objects
+        if _identifier(obj) and _identifier(obj) in records
+    }
+    has_active_root = any(
+        _source_class(obj) not in {"IB_Model", "IB_HVACSystem"}
+        and (_identifier(obj) or _source_class(obj).startswith("IB_"))
+        for obj in root_objects
+    )
+
+    def zone_service_ids(data: Any) -> set[str]:
+        zone_equipments = _field(data, "ZoneEquipments", [])
+        if zone_equipments is None:
+            zone_equipments = []
+        elif not isinstance(zone_equipments, (list, tuple)):
+            zone_equipments = [zone_equipments]
+        services = [
+            _field(data, "AirTerminal"),
+            *zone_equipments,
+        ]
+        identifiers: set[str] = set()
+        for service in services:
+            if isinstance(service, str):
+                identifiers.add(service)
+                continue
+            identifiers.update(
+                identifier
+                for nested in _iter_nested(service)
+                if (identifier := _identifier(nested))
+            )
+        return identifiers
+
+    linked_zone_ids = {
+        identifier
+        for identifier, record in records.items()
+        if record.get("source_class") == "IB_ThermalZone"
+        and zone_service_ids(record["data"])
+    }
+    active_ids = set(root_identifiers)
+    if has_active_root:
+        active_ids.update(
+            identifier
+            for identifier in linked_zone_ids
+            if identifier in active_ids
+            or bool(zone_service_ids(records[identifier]["data"]) & active_ids)
+        )
+    else:
+        active_ids.update(linked_zone_ids)
+        if not active_ids:
+            active_ids.update(
+                identifier
+                for identifier, record in records.items()
+                if _is_room_serving_source_class(str(record.get("source_class") or ""))
+            )
+
+    seen: set[str] = set()
+    pending = list(active_ids)
+    while pending:
+        identifier = pending.pop()
+        if identifier in seen:
+            continue
+        seen.add(identifier)
+        record = records.get(identifier)
+        if record is None:
+            continue
+        data = record["data"]
+        yield from _iter_nested(data)
+        for nested in _iter_nested(data):
+            nested_identifier = _identifier(nested)
+            if nested_identifier in records and nested_identifier not in seen:
+                pending.append(nested_identifier)
 
 
 def _iter_component_library_objects(library: dict[str, Any]) -> Iterable[Any]:
@@ -548,24 +630,67 @@ def _is_room_serving_source_class(source_class: str) -> bool:
 
 
 def _room_serving_without_thermal_zone_issues(model: Any) -> list[dict[str, Any]]:
-    if _has_room_linked_thermal_zone(model):
-        return []
-    for obj in _iter_model_objects(model):
-        if _is_room_serving_source_class(_source_class(obj)):
-            return [
-                _issue(
-                    severity="error",
-                    code="ironbug_room_serving_component_without_thermal_zone",
-                    source=obj,
-                    message=(
-                        "Room-serving Ironbug HVAC components require explicit "
-                        "room-linked IB_ThermalZone objects before DetailedHVAC "
-                        "application or EnergyPlus acceptance."
-                    ),
-                    repair_tool="create_ironbug_thermal_zone",
-                )
-            ]
-    return []
+    """Report every active room-serving component without a zone mapping."""
+
+    active_objects = list(_iter_active_model_objects(model))
+    mapped_components: set[str] = set()
+    for zone in active_objects:
+        if _source_class(zone) != "IB_ThermalZone":
+            continue
+        zone_equipments = _field(zone, "ZoneEquipments", [])
+        if zone_equipments is None:
+            zone_equipments = []
+        elif not isinstance(zone_equipments, (list, tuple)):
+            zone_equipments = [zone_equipments]
+        services = [
+            _field(zone, "AirTerminal"),
+            *zone_equipments,
+        ]
+        for service in services:
+            if isinstance(service, str):
+                mapped_components.add(service)
+                continue
+            for nested in _iter_nested(service):
+                if _is_room_serving_source_class(_source_class(nested)):
+                    identifier = _identifier(nested)
+                    if identifier:
+                        mapped_components.add(identifier)
+
+    # Unitary air-loop systems carry their controlling thermal zone as a
+    # source-backed child instead of living under ZoneEquipments.
+    for obj in active_objects:
+        if _source_class(obj) != "IB_AirLoopHVACUnitarySystem":
+            continue
+        if any(_source_class(nested) == "IB_ThermalZone" for nested in _iter_nested(obj)):
+            identifier = _identifier(obj)
+            if identifier:
+                mapped_components.add(identifier)
+
+    issues = []
+    seen: set[tuple[str, str]] = set()
+    for obj in active_objects:
+        source_class = _source_class(obj)
+        identifier = _identifier(obj)
+        if not _is_room_serving_source_class(source_class) or not identifier:
+            continue
+        key = (source_class, identifier)
+        if identifier in mapped_components or key in seen:
+            continue
+        seen.add(key)
+        issues.append(
+            _issue(
+                severity="error",
+                code="ironbug_room_serving_component_without_thermal_zone",
+                source=obj,
+                message=(
+                    "Room-serving Ironbug HVAC component "
+                    f"{source_class}/{identifier} is not mapped to a concrete "
+                    "IB_ThermalZone in the active HVAC graph."
+                ),
+                repair_tool="create_ironbug_thermal_zone",
+            )
+        )
+    return issues
 
 
 def _electric_load_center_missing_thermal_zone_issues(

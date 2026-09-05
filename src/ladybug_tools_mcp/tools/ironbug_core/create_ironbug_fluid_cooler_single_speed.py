@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_fluid_cooler_single_speed.'
+'MCP tool for IB_fluid_cooler_single_speed.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_fluid_cooler_single_speed tool.'
+    'Register the IB_fluid_cooler_single_speed tool.'
 
     @mcp.tool(
-        name='fluid_cooler_single_speed',
+        name='IB_fluid_cooler_single_speed',
         description=(
             'Create IB_FluidCoolerSingleSpeed, an OpenStudio/EnergyPlus FluidCooler:SingleSpeed condenser-water plant-loop heat-rejection component with a single-speed fan. Use it for dry fluid-cooler UA or nominal-capacity inputs, design water and air flow, and fan power; this is not an evaporative fluid cooler, cooling tower, chiller, or Energy simulation runner. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_fluid_cooler_single_speed(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -113,6 +112,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_FluidCoolerSingleSpeed as a reviewed Ironbug LoopObjs / PlantLoopObjects authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

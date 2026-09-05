@@ -19,7 +19,7 @@ Use this when the user needs a complete Honeybee Energy schedule for loads, cont
 ## Code Mode Pattern
 
 ```python
-schedule = await call_tool("energy_create_schedule_ruleset", {
+schedule = await call_tool("EP_create_schedule_ruleset", {
     "garden_root": garden_root,
     "identifier": "office_weekday_occupancy",
     "schedule_type": "fraction",
@@ -36,12 +36,12 @@ schedule = await call_tool("energy_create_schedule_ruleset", {
 ## SDK Object Pattern
 
 ```python
-day = await call_tool("energy_create_schedule_day", {
+day = await call_tool("EP_create_schedule_day", {
     "identifier": "office_day",
     "values": [0.0, 1.0, 0.25],
     "times": [{"hour": 0, "minute": 0}, {"hour": 8, "minute": 0}, {"hour": 18, "minute": 0}]
 })
-ruleset = await call_tool("energy_create_schedule_ruleset", {
+ruleset = await call_tool("EP_create_schedule_ruleset", {
     "identifier": "office_schedule",
     "default_day_schedule": day["object_dict"],
     "schedule_type_limit": "Fractional",
@@ -63,4 +63,3 @@ ruleset = await call_tool("energy_create_schedule_ruleset", {
 - `ScheduleDay` and `ScheduleRule` are intermediate payloads; persist the final `ScheduleRuleset`.
 - Do not mismatch `values` and `times` lengths.
 - Do not copy raw 8760 values unless explicitly requested.
-- Keep schedule evidence and metrics in LLM-Wiki.

@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.schedules import create_schedule_ruleset as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_schedule_ruleset tool.'
+    'Register the EP_create_schedule_ruleset tool.'
 
     @mcp.tool(
-        name='create_schedule_ruleset',
+        name='EP_create_schedule_ruleset',
         description="Create a Honeybee Energy ScheduleRuleset, the saved annual schedule resource assembled from a default ScheduleDay plus optional ScheduleRules, holiday, and design-day schedules. Use this for occupancy, lighting, equipment, setpoint, transmittance, or other annual schedules before ProgramType/load/Room property assignment. Returns object_dict, summary_view, and optional data; with garden_root it also returns target, persistence_receipt, and when include_data=true a data_target plus data_persistence_receipt.",
         tags={
             "energy",
@@ -29,13 +28,13 @@ def register(mcp: FastMCP) -> None:
         default_day_schedule: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Default ScheduleDay object_dict, usually returned by energy_create_schedule_day. If omitted, provide default_value for the Agent-friendly all-day shorthand.'
+                description='Default ScheduleDay object_dict, usually returned by EP_create_schedule_day. If omitted, provide default_value for the Agent-friendly all-day shorthand.'
             ),
         ] = None,
         schedule_rules: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description='Optional ScheduleRule object_dict rows ordered from highest to lowest priority, usually returned by energy_create_schedule_rule. Do not pass interval rows here; use rules for shorthand rows.'
+                description='Optional ScheduleRule object_dict rows ordered from highest to lowest priority, usually returned by EP_create_schedule_rule. Do not pass interval rows here; use rules for shorthand rows.'
             ),
         ] = None,
         rules: Annotated[
@@ -117,7 +116,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -128,6 +127,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a complete Honeybee Energy ScheduleRuleset."""
+        from garden.energy.schedules import create_schedule_ruleset as service
+
         return service(
             identifier=identifier,
             default_day_schedule=default_day_schedule,

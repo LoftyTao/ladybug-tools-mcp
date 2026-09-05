@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.run_energy.annual import read_energy_errors as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energyplus_read_errors tool.'
+    'Register the EP_read_errors tool.'
 
     @mcp.tool(
-        name="read_errors",
+        name="EP_read_errors",
         description=(
             "Read a bounded EnergyPlus ERR text output for one Garden energy_run "
             "target and summarize warning/severe/fatal counts. If the ERR "
@@ -32,11 +31,11 @@ def register(mcp: FastMCP) -> None:
     )
     def read_energy_errors(
         garden_root: Annotated[
-            str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")
+            str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")
         ],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Energy run target returned by energyplus_start_simulation; pass run_target unless you provide run_id.'),
+            Field(description='Energy run target returned by EP_start_simulation; pass run_target unless you provide run_id.'),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -47,6 +46,8 @@ def register(mcp: FastMCP) -> None:
         ] = 12000,
     ) -> dict[str, Any]:
         """Read Energy ERR output."""
+        from garden.run_energy.annual import read_energy_errors as service
+
         return service(
             garden_root=garden_root,
             run_target=run_target,

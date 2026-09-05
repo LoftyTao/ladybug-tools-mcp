@@ -1,22 +1,18 @@
-'MCP tool for detailed_hvac_air_terminal_single_duct_constant_volume_four_pipe_induction.'
+'MCP tool for IB_air_terminal_single_duct_constant_volume_four_pipe_induction.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    set_ironbug_thermal_zone_air_terminal,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_air_terminal_single_duct_constant_volume_four_pipe_induction tool.'
+    'Register the IB_air_terminal_single_duct_constant_volume_four_pipe_induction tool.'
 
     @mcp.tool(
-        name='air_terminal_single_duct_constant_volume_four_pipe_induction',
+        name='IB_air_terminal_single_duct_constant_volume_four_pipe_induction',
         description=(
             'Create IB_AirTerminalSingleDuctConstantVolumeFourPipeInduction, '
             'an Ironbug single-duct four-pipe induction air terminal that '
@@ -37,13 +33,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_air_terminal_single_duct_constant_volume_four_pipe_induction(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -136,7 +132,7 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Optional IB_CoilCoolingWater child target or same-model "
                     "identifier for Parameter 'CoolingCoil'; use a "
-                    "detailed_hvac_coil_cooling_water target."
+                    "IB_coil_cooling_water target."
                 )
             ),
         ] = None,
@@ -146,7 +142,7 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Optional IB_CoilHeatingWater child target or same-model "
                     "identifier for Parameter 'HeatingCoil'; use a "
-                    "detailed_hvac_coil_heating_water target."
+                    "IB_coil_heating_water target."
                 )
             ),
         ] = None,
@@ -156,6 +152,12 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_AirTerminalSingleDuctConstantVolumeFourPipeInduction as a reviewed induction terminal."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            set_ironbug_thermal_zone_air_terminal,
+        )
 
         child_targets = [
             heating_coil_target,

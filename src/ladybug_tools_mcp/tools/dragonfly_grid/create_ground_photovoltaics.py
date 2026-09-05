@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_grid.authoring import create_ground_photovoltaics as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the Grid GroundMountPV authoring tool."""
 
     @mcp.tool(
-        name="ground_photovoltaics",
+        name="DF_grid_ground_photovoltaics",
         description=(
             "Create a Dragonfly Energy REopt GroundMountPV object from footprint "
             "points. This authors PV geometry for Grid/REopt export handoff; it "
@@ -32,6 +31,8 @@ def register(mcp: FastMCP) -> None:
         display_name: Annotated[str | None, Field(description="Optional display name stored on the SDK object.")] = None,
     ) -> dict[str, Any]:
         """Create a Dragonfly Energy GroundMountPV object."""
+        from garden.dragonfly_grid.authoring import create_ground_photovoltaics as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

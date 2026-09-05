@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_district_cooling.'
+'MCP tool for IB_district_cooling.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_district_cooling tool.'
+    'Register the IB_district_cooling tool.'
 
     @mcp.tool(
-        name='district_cooling',
+        name='IB_district_cooling',
         description=(
             'Create IB_DistrictCooling, an EnergyPlus/OpenStudio DistrictCooling purchased chilled-water plant component. Use it as a plant-loop supply component when a centralized chilled-water source or purchased cooling replaces an explicit chiller. This authors Ironbug DetailedHVAC input only; it does not create a chiller, cooling tower, district-scale simulation, or Energy run. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -37,13 +36,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_district_cooling(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -102,6 +101,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_DistrictCooling as reviewed purchased chilled-water plant data."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.store import set_domain_base_model
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the therm_set_base_model tool.'
+    'Register the FF_set_base_model tool.'
 
     @mcp.tool(
-        name="set_base_model",
+        name="FF_set_base_model",
         description=(
             "Register or select an existing Fairyfly model target as the Garden base "
             "Fairyfly model. Returns target, summary_view, and report for downstream "
@@ -26,7 +25,7 @@ def register(mcp: FastMCP) -> None:
     def set_base_fairyfly_model(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         model_target: Annotated[
             dict[str, Any],
@@ -34,6 +33,8 @@ def register(mcp: FastMCP) -> None:
         ],
     ) -> dict[str, Any]:
         """Set the Garden base Fairyfly model."""
+        from garden.store import set_domain_base_model
+
         return set_domain_base_model(
             garden_root=garden_root,
             model_target=model_target,

@@ -3,22 +3,35 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
+import json
+import math
 from pathlib import Path
 from typing import Any
 
 from dragonfly.model import Model
 from dragonfly.room2d import Room2D
 from dragonfly.story import Story
+from ladybug_geometry.geometry2d.line import LineSegment2D
+from ladybug_geometry.geometry2d.pointvector import Point2D
 
 from garden.dragonfly_core.model_io import (
     load_dragonfly_model,
+    normalize_dragonfly_model_target,
     resolve_model_target,
     save_dragonfly_model,
 )
 from garden.dragonfly_core.targets import (
+    is_dragonfly_model_target,
     make_dragonfly_object_target,
     normalize_dragonfly_object_target,
     object_summary,
+)
+from garden.operations import (
+    GardenRevisionConflictError,
+    active_operation_controls,
+    commit_manifest,
+    read_operation_record,
 )
 from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
 from ladybug_tools_mcp.contracts.report import make_report
@@ -57,10 +70,13 @@ def _receipt(
     operation: str,
     target: dict[str, Any],
     change_details: dict[str, Any],
+    status: str = "persisted",
+    warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     return make_persistence_receipt(
-        status="persisted",
+        status=status,
         garden_id=garden_id,
+        warnings=warnings,
         model_target=model_target,
         persisted_path=persisted_path,
         change_summary={
@@ -113,6 +129,350 @@ def _room_target(
         object_type="room2d",
         object_identifier=room_identifier,
     )
+
+
+def _finite_float(
+    value: Any,
+    *,
+    field_name: str,
+    minimum: float,
+    inclusive: bool = True,
+) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a number.")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{field_name} must be a number.") from exc
+    if not math.isfinite(result) or (
+        result < minimum if inclusive else result <= minimum
+    ):
+        comparator = "greater than or equal to" if inclusive else "greater than"
+        raise ValueError(f"{field_name} must be {comparator} {minimum}.")
+    return result
+
+
+def _point2d(value: Any, *, field_name: str) -> Point2D:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or len(value) != 2:
+        raise ValueError(f"{field_name} must be a 2D coordinate list.")
+    if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in value):
+        raise ValueError(f"{field_name} must contain numeric coordinates.")
+    try:
+        x, y = float(value[0]), float(value[1])
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{field_name} must contain numeric coordinates.") from exc
+    if not math.isfinite(x) or not math.isfinite(y):
+        raise ValueError(f"{field_name} must contain finite coordinates.")
+    return Point2D(x, y)
+
+
+def _line_segments(lines: Any) -> tuple[LineSegment2D, ...]:
+    if isinstance(lines, (str, bytes)) or not isinstance(lines, Sequence) or not lines:
+        raise ValueError("lines must include at least one straight 2D line segment.")
+    segments: list[LineSegment2D] = []
+    for index, line in enumerate(lines):
+        points = line
+        if isinstance(points, (str, bytes)) or not isinstance(points, Sequence) or len(points) != 2:
+            raise ValueError(f"lines[{index}] must contain exactly two 2D points.")
+        start = _point2d(points[0], field_name=f"lines[{index}][0]")
+        end = _point2d(points[1], field_name=f"lines[{index}][1]")
+        if math.hypot(start.x - end.x, start.y - end.y) == 0:
+            raise ValueError(f"lines[{index}] must have two distinct points.")
+        segments.append(LineSegment2D.from_end_points(start, end))
+    return tuple(segments)
+
+
+def _resolve_host_stories(
+    model: Model,
+    *,
+    model_target: dict[str, Any],
+    host_type: str | None,
+    host_target: dict[str, Any] | None,
+) -> tuple[str, str, list[Story]]:
+    if host_type is not None and not isinstance(host_type, str):
+        raise ValueError("host_type must be a string.")
+    target_type = (
+        str(host_target.get("object_type"))
+        if isinstance(host_target, dict) and host_target.get("object_type")
+        else None
+    )
+    resolved_type = (host_type or target_type or "model").strip().lower().replace("-", "_")
+    if resolved_type not in {"model", "building", "story"}:
+        raise ValueError("host_type must be model, building, or story.")
+    if target_type is not None and target_type != resolved_type:
+        raise ValueError("host_type must match host_target.object_type.")
+    if resolved_type == "model":
+        if host_target is not None:
+            if not is_dragonfly_model_target(host_target):
+                raise ValueError(
+                    "host_target must be the selected Dragonfly Model target "
+                    "when host_type is model."
+                )
+            normalized_model_target = normalize_dragonfly_model_target(host_target)
+            if any(
+                normalized_model_target.get(field) != model_target.get(field)
+                for field in ("id", "garden_id", "domain", "model_identifier", "path")
+            ):
+                raise ValueError("host_target must match the loaded model_target.")
+        return resolved_type, model.identifier, list(model.stories)
+    if host_target is None:
+        raise ValueError(f"host_target is required for host_type {resolved_type}.")
+    normalized_target = normalize_dragonfly_object_target(
+        host_target,
+        expected_type=resolved_type,
+    )
+    target_model_identifier = str(normalized_target["model_identifier"])
+    if target_model_identifier != model.identifier:
+        raise ValueError("host_target belongs to a different Dragonfly Model.")
+    identifier = str(normalized_target["object_identifier"])
+    if resolved_type == "story":
+        return resolved_type, identifier, [_story_by_identifier(model, identifier)]
+    building = _one_by_identifier(
+        model.buildings_by_identifier([identifier]),
+        identifier,
+        "Building",
+    )
+    return resolved_type, identifier, list(building.unique_stories)
+
+
+def _host_target(
+    *,
+    garden_id: str,
+    model_target: dict[str, Any],
+    host_type: str,
+    host_identifier: str,
+) -> dict[str, Any]:
+    if host_type == "model":
+        return model_target
+    return make_dragonfly_object_target(
+        garden_id=garden_id,
+        model_identifier=str(model_target["model_identifier"]),
+        object_type=host_type,
+        object_identifier=host_identifier,
+    )
+
+
+def _room_signature(room: Room2D) -> tuple[str, str]:
+    return (
+        json.dumps(room.to_dict(), sort_keys=True, separators=(",", ":")),
+        json.dumps(room.floor_geometry.to_dict(), sort_keys=True, separators=(",", ":")),
+    )
+
+
+def _roof_signature(story: Story) -> str | None:
+    roof = getattr(story, "roof", None)
+    if roof is None:
+        return None
+    return json.dumps(roof.to_dict(), sort_keys=True, separators=(",", ":"))
+
+
+def _room_snapshot(
+    stories: Sequence[Story],
+) -> dict[tuple[str, str, str], tuple[str, str]]:
+    snapshot: dict[tuple[str, str, str], tuple[str, str]] = {}
+    for story in stories:
+        building = getattr(story, "parent", None)
+        building_identifier = str(getattr(building, "identifier", ""))
+        story_identifier = str(story.identifier)
+        for room in story.room_2ds:
+            room_identifier = str(room.identifier)
+            snapshot[(building_identifier, story_identifier, room_identifier)] = _room_signature(room)
+    return snapshot
+
+
+def _roof_snapshot(stories: Sequence[Story]) -> dict[tuple[str, str], str | None]:
+    snapshot: dict[tuple[str, str], str | None] = {}
+    for story in stories:
+        building = getattr(story, "parent", None)
+        building_identifier = str(getattr(building, "identifier", ""))
+        snapshot[(building_identifier, str(story.identifier))] = _roof_signature(story)
+    return snapshot
+
+
+def _scope_counts(
+    snapshot: dict[tuple[str, str, str], tuple[str, str]],
+) -> dict[str, int]:
+    return {
+        "buildings": len({building for building, _story, _room in snapshot if building}),
+        "stories": len({(building, story) for building, story, _room in snapshot}),
+        "room2ds": len(snapshot),
+    }
+
+
+def _batch_change_summary(
+    before: dict[tuple[str, str, str], tuple[str, str]],
+    after: dict[tuple[str, str, str], tuple[str, str]],
+    before_roofs: dict[tuple[str, str], str | None] | None = None,
+    after_roofs: dict[tuple[str, str], str | None] | None = None,
+) -> dict[str, Any]:
+    before_roofs = before_roofs or {}
+    after_roofs = after_roofs or {}
+    common = set(before) & set(after)
+    changed_keys = {key for key in common if before[key][0] != after[key][0]}
+    changed_geometry_keys = {key for key in common if before[key][1] != after[key][1]}
+    removed_keys = set(before) - set(after)
+    added_keys = set(after) - set(before)
+    common_roofs = set(before_roofs) & set(after_roofs)
+    changed_roof_keys = {
+        key for key in common_roofs if before_roofs[key] != after_roofs[key]
+    }
+    affected_keys = changed_keys | removed_keys | added_keys
+    affected_story_keys = {
+        (building, story) for building, story, _room in affected_keys
+    }
+    affected_story_keys.update(changed_roof_keys)
+    affected_building_keys = {
+        building for building, _story, _room in affected_keys if building
+    }
+    affected_building_keys.update(
+        building
+        for building, _story in changed_roof_keys
+        if building
+    )
+    affected_buildings = sorted(affected_building_keys)
+    affected_stories = sorted({story for _building, story in affected_story_keys})
+    affected_rooms = sorted({room for _building, _story, room in affected_keys})
+    return {
+        "affected_counts": {
+            "buildings": len(affected_buildings),
+            "stories": len(affected_story_keys),
+            "room2ds": len(affected_keys),
+        },
+        "affected_identifiers": {
+            "buildings": affected_buildings,
+            "stories": affected_stories,
+            "room2ds": affected_rooms,
+        },
+        "object_counts_before": _scope_counts(before),
+        "object_counts_after": _scope_counts(after),
+        "changed_room2d_identifiers": sorted(
+            {room for _building, _story, room in changed_keys}
+        ),
+        "changed_geometry_room2d_identifiers": sorted(
+            {room for _building, _story, room in changed_geometry_keys}
+        ),
+        "changed_roof_story_identifiers": sorted(
+            {story for _building, story in changed_roof_keys}
+        ),
+        "added_room2d_identifiers": sorted({room for _building, _story, room in added_keys}),
+        "removed_room2d_identifiers": sorted(
+            {room for _building, _story, room in removed_keys}
+        ),
+    }
+
+
+def _batch_result(
+    *,
+    garden_root_path: Path,
+    manifest: Any,
+    resolved_model_target: dict[str, Any],
+    model: Model,
+    operation: str,
+    message: str,
+    host_type: str,
+    host_identifier: str,
+    before: dict[tuple[str, str, str], tuple[str, str]],
+    after: dict[tuple[str, str, str], tuple[str, str]],
+    before_roofs: dict[tuple[str, str], str | None] | None = None,
+    after_roofs: dict[tuple[str, str], str | None] | None = None,
+    parameters: dict[str, Any],
+    warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    changes = _batch_change_summary(
+        before,
+        after,
+        before_roofs=before_roofs,
+        after_roofs=after_roofs,
+    )
+    validation = _validation_summary(model)
+    if not validation["is_valid"]:
+        raise ValueError(
+            f"{operation} produced an invalid Dragonfly Model and was not saved "
+            f"({validation['issue_count']} issue(s))."
+        )
+    has_changes = bool(
+        changes["affected_counts"]["room2ds"]
+        or changes["changed_roof_story_identifiers"]
+    )
+    if has_changes:
+        updated_model_target, persisted_path = _save_changed_model(
+            garden_root_path,
+            manifest,
+            resolved_model_target,
+            model,
+        )
+        receipt_status = "persisted"
+    else:
+        updated_model_target = resolved_model_target
+        persisted_path = str(resolved_model_target.get("path", ""))
+        receipt_status = "no_change"
+        controls = active_operation_controls()
+        existing_record = (
+            read_operation_record(garden_root_path, controls[0])
+            if controls is not None
+            else None
+        )
+        if existing_record is not None:
+            model_path = garden_root_path / str(resolved_model_target["path"])
+            commit_manifest(
+                garden_root_path,
+                manifest,
+                operation_type="dragonfly_model_save",
+                operation_id=controls[0],
+                expected_revision=controls[1],
+                staged_writes={
+                    str(resolved_model_target["path"]): model_path.read_bytes()
+                },
+            )
+        elif controls is not None and controls[1] is not None:
+            expected_revision = controls[1]
+            if expected_revision != manifest.revision:
+                raise GardenRevisionConflictError(
+                    expected_revision=expected_revision,
+                    current_revision=manifest.revision,
+                )
+    target = _host_target(
+        garden_id=manifest.garden_id,
+        model_target=updated_model_target,
+        host_type=host_type,
+        host_identifier=host_identifier,
+    )
+    summary_view = {
+        "target": target,
+        "model_target": updated_model_target,
+        "host_type": host_type,
+        "scope_identifier": host_identifier,
+        "parameters": parameters,
+        **changes,
+        "validation": validation,
+    }
+    if warnings:
+        summary_view["warnings"] = warnings
+    response = {
+        "target": target,
+        "host_target": target,
+        "model_target": updated_model_target,
+        "summary_view": summary_view,
+        "persistence_receipt": _receipt(
+            garden_id=manifest.garden_id,
+            model_target=updated_model_target,
+            persisted_path=persisted_path,
+            operation=operation,
+            target=target,
+            change_details=changes,
+            status=receipt_status,
+            warnings=warnings,
+        ),
+        "report": make_report(
+            status="ok",
+            message=message,
+            warnings=warnings,
+            details={"affected_counts": changes["affected_counts"]},
+        ),
+    }
+    if not has_changes:
+        response["runtime_status"] = "no_change"
+    return response
 
 
 def _validation_summary(model: Model) -> dict[str, Any]:
@@ -445,3 +805,247 @@ def clean_dragonfly_room2d_geometry(
             message=f"Cleaned Dragonfly Room2D geometry: {room.identifier}",
         ),
     }
+
+
+def align_dragonfly_room2ds(
+    *,
+    garden_root: str,
+    lines: Any,
+    distance: float = 0.5,
+    tolerance: float = 0.01,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Align Room2D vertices to straight lines with Dragonfly Story.align."""
+    line_segments = _line_segments(lines)
+    resolved_distance = _finite_float(
+        distance,
+        field_name="distance",
+        minimum=0,
+    )
+    resolved_tolerance = _finite_float(
+        tolerance,
+        field_name="tolerance",
+        minimum=0,
+        inclusive=False,
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    resolved_host_type, host_identifier, stories = _resolve_host_stories(
+        model,
+        model_target=resolved_model_target,
+        host_type=host_type,
+        host_target=host_target,
+    )
+    if not stories or not any(story.room_2ds for story in stories):
+        raise ValueError("The selected Dragonfly host contains no Room2Ds.")
+    before = _room_snapshot(stories)
+    before_roofs = _roof_snapshot(stories)
+    for story in stories:
+        for line in line_segments:
+            story.align(line, resolved_distance, resolved_tolerance)
+        story.remove_room_2d_duplicate_vertices(
+            resolved_tolerance,
+            delete_degenerate=True,
+        )
+        story.delete_degenerate_room_2ds(resolved_tolerance)
+        story.rebuild_detailed_windows(resolved_tolerance)
+        story.reset_adjacency()
+        story.solve_room_2d_adjacency(tolerance=resolved_tolerance)
+    after = _room_snapshot(stories)
+    after_roofs = _roof_snapshot(stories)
+    removed = sorted(
+        {room for _building, _story, room in set(before) - set(after)}
+    )
+    warnings = (
+        [
+            "Room2Ds removed because alignment made their geometry degenerate: "
+            + ", ".join(removed)
+        ]
+        if removed
+        else None
+    )
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation="align_dragonfly_room2ds",
+        message=f"Aligned Dragonfly Room2Ds in {resolved_host_type} scope.",
+        host_type=resolved_host_type,
+        host_identifier=host_identifier,
+        before=before,
+        after=after,
+        before_roofs=before_roofs,
+        after_roofs=after_roofs,
+        parameters={
+            "line_count": len(line_segments),
+            "distance": resolved_distance,
+            "tolerance": resolved_tolerance,
+        },
+        warnings=warnings,
+    )
+
+
+def intersect_dragonfly_room2ds(
+    *,
+    garden_root: str,
+    tolerance: float = 0.01,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Intersect adjacent Room2D segments and clear wall-level properties."""
+    resolved_tolerance = _finite_float(
+        tolerance,
+        field_name="tolerance",
+        minimum=0,
+        inclusive=False,
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    resolved_host_type, host_identifier, stories = _resolve_host_stories(
+        model,
+        model_target=resolved_model_target,
+        host_type=host_type,
+        host_target=host_target,
+    )
+    if not stories or not any(story.room_2ds for story in stories):
+        raise ValueError("The selected Dragonfly host contains no Room2Ds.")
+    before = _room_snapshot(stories)
+    for story in stories:
+        story_rooms = list(story.room_2ds)
+        cleaned_rooms = [
+            room.duplicate().remove_colinear_vertices(
+                resolved_tolerance,
+                preserve_wall_props=False,
+            )
+            for room in story_rooms
+        ]
+        intersected_rooms = Room2D.intersect_adjacency(
+            cleaned_rooms,
+            tolerance=resolved_tolerance,
+            preserve_wall_props=False,
+        )
+        if len(intersected_rooms) != len(story_rooms):
+            raise ValueError(
+                "Dragonfly Room2D intersection returned an unexpected Room2D count."
+            )
+        replacements = {
+            old.identifier: new
+            for old, new in zip(story_rooms, intersected_rooms)
+        }
+        story.room_2ds = [
+            replacements.get(room.identifier, room)
+            for room in story.room_2ds
+        ]
+        story.remove_room_2d_duplicate_vertices(
+            resolved_tolerance,
+            delete_degenerate=True,
+        )
+        story.delete_degenerate_room_2ds(resolved_tolerance)
+        story.reset_adjacency()
+        story.solve_room_2d_adjacency(tolerance=resolved_tolerance)
+    after = _room_snapshot(stories)
+    warning = (
+        "Room2D.intersect_adjacency subdivides wall segments and clears the original "
+        "boundary conditions, window/glazing parameters, and shading parameters. "
+        "Run this operation before assigning those properties; it does not restore "
+        "or automatically preserve them."
+    )
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation="intersect_dragonfly_room2ds",
+        message=(
+            f"Intersected Dragonfly Room2D segments in {resolved_host_type} scope; "
+            "wall-level properties were cleared."
+        ),
+        host_type=resolved_host_type,
+        host_identifier=host_identifier,
+        before=before,
+        after=after,
+        parameters={
+            "tolerance": resolved_tolerance,
+            "preserve_wall_props": False,
+        },
+        warnings=[warning],
+    )
+
+
+def join_small_dragonfly_room2ds(
+    *,
+    garden_root: str,
+    area_threshold: float = 10.0,
+    join_into_large: bool = False,
+    tolerance: float = 0.01,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Join small Room2Ds within selected Dragonfly Stories."""
+    if not isinstance(join_into_large, bool):
+        raise ValueError("join_into_large must be a boolean.")
+    resolved_threshold = _finite_float(
+        area_threshold,
+        field_name="area_threshold",
+        minimum=0,
+        inclusive=False,
+    )
+    resolved_tolerance = _finite_float(
+        tolerance,
+        field_name="tolerance",
+        minimum=0,
+        inclusive=False,
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    resolved_host_type, host_identifier, stories = _resolve_host_stories(
+        model,
+        model_target=resolved_model_target,
+        host_type=host_type,
+        host_target=host_target,
+    )
+    if not stories or not any(story.room_2ds for story in stories):
+        raise ValueError("The selected Dragonfly host contains no Room2Ds.")
+    before = _room_snapshot(stories)
+    for story in stories:
+        story.join_small_room_2ds(
+            resolved_threshold,
+            join_into_large=join_into_large,
+            tolerance=resolved_tolerance,
+        )
+        story.remove_room_2d_duplicate_vertices(
+            resolved_tolerance,
+            delete_degenerate=True,
+        )
+        story.delete_degenerate_room_2ds(resolved_tolerance)
+        story.reset_adjacency()
+        story.solve_room_2d_adjacency(tolerance=resolved_tolerance)
+    after = _room_snapshot(stories)
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation="join_small_dragonfly_room2ds",
+        message=f"Joined small Dragonfly Room2Ds in {resolved_host_type} scope.",
+        host_type=resolved_host_type,
+        host_identifier=host_identifier,
+        before=before,
+        after=after,
+        parameters={
+            "area_threshold": resolved_threshold,
+            "join_into_large": join_into_large,
+            "tolerance": resolved_tolerance,
+        },
+    )

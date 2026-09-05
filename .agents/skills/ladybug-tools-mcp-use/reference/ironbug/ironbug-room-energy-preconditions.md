@@ -12,15 +12,15 @@ conditioned simulation spaces before Ironbug DetailedHVAC is applied.
 
 Before creating `IB_ThermalZone` objects:
 
-1. Search the served Rooms with `honeybee_search_model_objects(object_type="room")`.
+1. Search the served Rooms with `HB_search_model_objects(object_type="room")`.
 2. Check each match's compact `energy_properties`.
-3. If a Room has no `program_type`, call `honeybee_edit_room` with
+3. If a Room has no `program_type`, call `HB_edit_room` with
    `program_type="Generic Office Program"` or a user/project-specific
    ProgramType.
-4. If a Room has no `setpoint`, call `energy_create_setpoint` with `garden_root`,
+4. If a Room has no `setpoint`, call `EP_create_setpoint` with `garden_root`,
    numeric `heating_setpoint` and `cooling_setpoint`, and
    `return_object_dict=False`; pass the returned `target` to
-   `honeybee_edit_room.setpoint`.
+   `HB_edit_room.setpoint`.
 5. Keep `exclude_floor_area=False` unless the user intentionally wants that
    Room excluded from floor-area accounting.
 6. Re-search or validate the model after edits. Do not rely on memory of a
@@ -33,10 +33,10 @@ The public Honeybee Room edit tool does not expose a separate `conditioned` bool
 Dragonfly-native Ironbug HVAC assignment uses `conditioned_only=True` by
 default for Story and Building hosts.
 
-Before calling `detailed_hvac_apply_to_dragonfly_energy_properties`:
+Before calling `IB_apply_to_dragonfly_energy_properties`:
 
 1. Apply ProgramType to Room2D, Story, or Building hosts with
-   `dragonfly_apply_energy_properties`.
+   `DF_apply_energy_properties`.
 2. Confirm the host has conditioned Room2Ds when `conditioned_only=True`.
 3. Set `conditioned_only=False` only when the user intentionally wants HVAC
    assigned to all child Room2Ds, including spaces that are not yet marked
@@ -54,24 +54,24 @@ After the space preflight:
   identifier for Honeybee DetailedHVAC application.
 - For Dragonfly-native paths, keep the selected host and
   `conditioned_only` setting in the final evidence.
-- If `detailed_hvac_apply_to_honeybee_model` reports a room-binding or
+- If `IB_apply_to_honeybee_model` reports a room-binding or
   simulation-readiness issue, repair that issue before starting Energy.
 
 ## Minimal Honeybee Pattern
 
 ```python
-rooms = await call_tool("honeybee_search_model_objects", {
+rooms = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "room",
 })
-setpoint = await call_tool("energy_create_setpoint", {
+setpoint = await call_tool("EP_create_setpoint", {
     "garden_root": garden_root,
     "identifier": "ironbug_case_setpoint",
     "heating_setpoint": 20,
     "cooling_setpoint": 26,
     "return_object_dict": False,
 })
-await call_tool("honeybee_edit_room", {
+await call_tool("HB_edit_room", {
     "garden_root": garden_root,
     "target": rooms["matches"][0]["target"],
     "program_type": "Generic Office Program",

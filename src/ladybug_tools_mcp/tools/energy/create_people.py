@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.programtypes import create_people as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_people tool.'
+    'Register the EP_create_people tool.'
 
     @mcp.tool(
-        name='create_people',
-        description='Create a Honeybee Energy People occupancy load object from people_per_area and optional occupancy/activity schedules. Occupancy schedules should be Fractional. Only pass activity_schedule when it is an Activity Level schedule in W/person; omit activity_schedule to use the SDK default seated-activity schedule. Do not reuse a Fractional occupancy schedule as activity_schedule. Use garden_root and return_object_dict=false to save a load target for energy_create_program_type.',
+        name='EP_create_people',
+        description='Create a Honeybee Energy People occupancy load object from people_per_area and optional occupancy/activity schedules. Occupancy schedules should be Fractional. Only pass activity_schedule when it is an Activity Level schedule in W/person; omit activity_schedule to use the SDK default seated-activity schedule. Do not reuse a Fractional occupancy schedule as activity_schedule. Use garden_root and return_object_dict=false to save a load target for EP_create_program_type.',
         tags={
             "energy",
             "program-type",
@@ -52,7 +51,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -63,6 +62,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy People object."""
+        from garden.energy.programtypes import create_people as service
+
         return service(
             identifier=identifier,
             people_per_area=people_per_area,

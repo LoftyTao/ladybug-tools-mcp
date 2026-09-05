@@ -1,24 +1,18 @@
-'MCP tool for detailed_hvac_outdoor_air_system.'
+'MCP tool for IB_outdoor_air_system.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    set_ironbug_outdoor_air_system_controller,
-    set_ironbug_outdoor_air_system_oa_stream,
-    set_ironbug_outdoor_air_system_relief_stream,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_outdoor_air_system tool.'
+    'Register the IB_outdoor_air_system tool.'
 
     @mcp.tool(
-        name='outdoor_air_system',
+        name='IB_outdoor_air_system',
         description=(
             'Create IB_OutdoorAirSystem, an EnergyPlus AirLoopHVAC:OutdoorAirSystem subsystem for the outdoor-air intake and relief-air streams of an AirLoopHVAC or DOAS path. Pass ControllerOutdoorAir, OA stream objects such as heat recovery or coils, and relief stream objects in addition order; this is not a complete AirLoopHVAC by itself or a ventilation schedule. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -41,13 +35,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_outdoor_air_system(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -98,6 +92,14 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_OutdoorAirSystem as a reviewed Ironbug LoopObjs / AirLoopObjects authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            set_ironbug_outdoor_air_system_controller,
+            set_ironbug_outdoor_air_system_oa_stream,
+            set_ironbug_outdoor_air_system_relief_stream,
+        )
 
         effective_oa_stream_targets = list(oa_stream_targets or [])
         if heat_recovery_target is not None:

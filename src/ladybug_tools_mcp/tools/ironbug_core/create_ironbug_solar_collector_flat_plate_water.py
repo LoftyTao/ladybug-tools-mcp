@@ -1,20 +1,19 @@
-'MCP tool for detailed_hvac_solar_collector_flat_plate_water.'
+'MCP tool for IB_solar_collector_flat_plate_water.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 from ladybug_tools_mcp.tools.ironbug_core.target_identifiers import target_identifier
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_solar_collector_flat_plate_water tool.'
+    'Register the IB_solar_collector_flat_plate_water tool.'
 
     @mcp.tool(
-        name='solar_collector_flat_plate_water',
+        name='IB_solar_collector_flat_plate_water',
         description=(
             'Create IB_SolarCollectorFlatPlateWater, the Ironbug and EnergyPlus SolarCollector:FlatPlate:Water plant-loop component. It combines a flat-plate thermal performance target with a shading or building surface target whose tilt, azimuth, and area define the collector. Use it for water-side solar thermal collectors, not PVT collectors, PV generators, water heaters, or Energy result reading. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -31,7 +30,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -100,6 +99,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug flat-plate water solar collector."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         child_targets = [
             solar_collector_performance_target,

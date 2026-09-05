@@ -150,15 +150,7 @@ def _register_artifact(
     garden_root: Path,
     target: dict[str, Any],
 ) -> None:
-    manifest.artifacts = [
-        item
-        for item in manifest.artifacts
-        if not (
-            item.get("artifact_type") == target["artifact_type"]
-            and item.get("identifier") == target["identifier"]
-        )
-    ]
-    manifest.artifacts.append(target)
+    manifest.upsert_artifact(target, key_fields=("artifact_type", "identifier"))
     manifest.write(garden_root)
 
 

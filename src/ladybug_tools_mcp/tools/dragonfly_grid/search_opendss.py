@@ -7,18 +7,17 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_grid.catalog import search_opendss as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the Grid OpenDSS catalog search tool."""
 
     @mcp.tool(
-        name="search_opendss",
+        name="DF_grid_search_opendss",
         description=(
             "Search Dragonfly Energy OpenDSS catalog identifiers for transformer "
             "properties, power lines, and wires. Returns compact catalog records "
-            "for df_grid_transformer and df_grid_electrical_connector inputs, "
+            "for DF_grid_transformer and DF_grid_electrical_connector inputs, "
             "plus matches, summary_view, and report."
         ),
         tags={"dragonfly", "electric-grid", "opendss", "search", "catalog", "list"},
@@ -30,4 +29,6 @@ def register(mcp: FastMCP) -> None:
         limit: Annotated[int, Field(description="Maximum compact records to return.")] = 25,
     ) -> dict[str, Any]:
         """Search OpenDSS catalog identifiers."""
+        from garden.dragonfly_grid.catalog import search_opendss as service
+
         return service(keywords=keywords, catalogs=catalogs, limit=limit)

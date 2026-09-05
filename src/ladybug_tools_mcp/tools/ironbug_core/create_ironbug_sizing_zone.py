@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_sizing_zone.'
+'MCP tool for IB_sizing_zone.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_sizing_zone tool.'
+    'Register the IB_sizing_zone tool.'
 
     @mcp.tool(
-        name='sizing_zone',
+        name='IB_sizing_zone',
         description=(
             'Create IB_SizingZone, the Ironbug and EnergyPlus Sizing:Zone object used by an IB_ThermalZone for zone design airflow, supply-air temperature, humidity-ratio, DOAS, humidistat schedule, and zone load sizing inputs. Use it as ThermalZone sizing metadata, not as Honeybee Room geometry, zone equipment, thermostat, or a sizing-result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -30,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -225,6 +224,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create Ironbug thermal-zone sizing inputs."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

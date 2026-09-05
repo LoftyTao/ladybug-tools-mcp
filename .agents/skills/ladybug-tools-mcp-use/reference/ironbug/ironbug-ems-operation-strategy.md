@@ -1,8 +1,6 @@
 # Ironbug EMS Operation Strategy
 
-Status: deterministic-contract-pass with Codex-direct MCP practice. This is
-projected from
-`docs/llm-wiki/workflows/ironbug-ems-operation-strategy.md`.
+Status: deterministic-contract-pass with Codex-direct MCP practice.
 Do not call it Agent-verified until a focused natural-language EMS
 operation-strategy Agent run passes.
 
@@ -58,11 +56,11 @@ For a first-practice EMS strategy case, use the active MCP Code Mode connection:
 
 1. Build or reuse the Garden-managed native baseline model.
 2. Build an EMS variant as a separate DetailedHVAC/Ironbug model or run.
-3. Apply DetailedHVAC, then run Energy with `energyplus_start_simulation` and
+3. Apply DetailedHVAC, then run Energy with `EP_start_simulation` and
    polling. DetailedHVAC runs should report Python Ironbug Console runtime
    translation; otherwise root EMS objects may not reach the OSM/IDF.
 4. For retained comparisons, reload completed runs with
-   `energyplus_start_simulation(reload_old=true)`.
+   `EP_start_simulation(reload_old=true)`.
 5. Read ERR, EUI, SQL meters, and EMS custom outputs through MCP Energy result
    tools.
 6. Compare the baseline and EMS variant on the intended strategy metric, not
@@ -80,7 +78,7 @@ EnergyPlus line and fail with EMS parser errors such as `Unknown keyword [S]`.
 
 For Energy output requests, do not use an `end_uses` preset. Use allowed
 presets such as `hvac_energy_use` and `zone_energy_use`; read annual end-use
-breakdown from `energyplus_read_eui`.
+breakdown from `EP_read_eui`.
 
 For data-center PUE probes, use a clearly labeled IT proxy such as always-on
 Honeybee `ElectricEquipment` when native `ElectricEquipment:ITE:AirCooled` is

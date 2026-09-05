@@ -564,7 +564,7 @@ def dragonfly_room2d_attribute_to_visualization_set(
     name: str | None = None,
     return_visualization_set: bool = True,
 ) -> dict[str, Any]:
-    """Create a Room2D attribute-group preview from df_room2ds_by_attribute output."""
+    """Create a Room2D attribute-group preview from DF_room2ds_by_attribute output."""
     if not isinstance(attribute_result, dict):
         raise ValueError("attribute_result must be a dictionary.")
     selection = attribute_result.get("selection")

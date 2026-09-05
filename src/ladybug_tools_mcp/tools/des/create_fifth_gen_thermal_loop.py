@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.authoring import create_fifth_gen_thermal_loop as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the fifth-generation DES thermal loop tool."""
 
     @mcp.tool(
-        name="create_fifth_gen_thermal_loop",
+        name="DF_des_create_fifth_gen_thermal_loop",
         description=(
             "Create a Dragonfly DES FifthGenThermalLoop from ThermalConnector targets "
             "plus optional soil and horizontal-pipe parameter targets. Use it for "
@@ -25,7 +24,7 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def create_fifth_gen_thermal_loop(
-        garden_root: Annotated[str, Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root'].")],
+        garden_root: Annotated[str, Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root'].")],
         identifier: Annotated[str, Field(description="Stable identifier for the saved FifthGenThermalLoop target.")],
         connector_targets: Annotated[list[dict[str, Any]], Field(description="One or more Dragonfly DES ThermalConnector targets to include in the loop.")],
         clockwise_flow: Annotated[bool, Field(description="Whether loop connector flow should be interpreted as clockwise.")] = False,
@@ -36,6 +35,8 @@ def register(mcp: FastMCP) -> None:
         display_name: Annotated[str | None, Field(description="Optional display name stored on SDK objects that support display_name.")] = None,
     ) -> dict[str, Any]:
         """Create a Dragonfly DES FifthGenThermalLoop."""
+        from garden.dragonfly_des.authoring import create_fifth_gen_thermal_loop as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

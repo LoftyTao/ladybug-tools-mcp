@@ -7,16 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.envelope_parameters import (
-    create_dragonfly_window_parameter as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_create_window_parameter tool.'
+    'Register the DF_create_window_parameter tool.'
 
     @mcp.tool(
-        name="create_window_parameter",
+        name="DF_create_window_parameter",
         description=(
             "Create a compact SDK-backed Dragonfly WindowParameter artifact for "
             "Room2D, Story, Building, or Model outdoor wall application. Supports "
@@ -31,7 +28,7 @@ def register(mcp: FastMCP) -> None:
     def create_dragonfly_window_parameter(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         parameter_type: Annotated[
             str,
@@ -65,8 +62,12 @@ def register(mcp: FastMCP) -> None:
         ] = 0,
     ) -> dict[str, Any]:
         """Create a Dragonfly WindowParameter artifact."""
+        from garden.dragonfly_core.envelope_parameters import (
+            create_dragonfly_window_parameter as service,
+        )
+
         if window_ratio is None:
-            raise ValueError('dragonfly_create_window_parameter requires window_ratio.')
+            raise ValueError('DF_create_window_parameter requires window_ratio.')
         return service(
             garden_root=garden_root,
             parameter_type=parameter_type,

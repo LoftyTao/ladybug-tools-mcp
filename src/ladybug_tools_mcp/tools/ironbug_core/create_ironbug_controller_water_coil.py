@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_controller_water_coil.'
+'MCP tool for IB_controller_water_coil.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_controller_water_coil tool.'
+    'Register the IB_controller_water_coil tool.'
 
     @mcp.tool(
-        name='controller_water_coil',
+        name='IB_controller_water_coil',
         description=(
             'Create IB_ControllerWaterCoil, the EnergyPlus Controller:WaterCoil object used by advanced hot-water or chilled-water coil wrappers to modulate water flow at an actuated node. Use it for control variable, action, actuator flow limits, and convergence tolerance; attach it through the advanced CoilCoolingWater or CoilHeatingWater controller input. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_controller_water_coil(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -101,6 +100,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_ControllerWaterCoil as a reviewed Ironbug Loop Objs authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

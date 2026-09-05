@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_pipe_adiabatic.'
+'MCP tool for IB_pipe_adiabatic.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_pipe_adiabatic tool.'
+    'Register the IB_pipe_adiabatic tool.'
 
     @mcp.tool(
-        name='pipe_adiabatic',
+        name='IB_pipe_adiabatic',
         description=(
             'Create IB_PipeAdiabatic, an EnergyPlus Pipe:Adiabatic plant-loop connector or bypass that passes inlet node conditions to the outlet node. Use it on plant branches that need a pass-through pipe with no pipe heat-transfer model; this is not Pipe:Indoor, Pipe:Outdoor, a pump, a duct, or an Energy run. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_pipe_adiabatic(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -79,6 +78,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug Pipe:Adiabatic plant-loop connector."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

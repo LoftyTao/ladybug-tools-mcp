@@ -15,10 +15,8 @@ components, loops, branches, zone equipment, and DetailedHVAC application.
 - Run Energy simulation through the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied.
 - Treat OpenStudio translation as diagnostic only. For Ironbug tool testing,
   EnergyPlus completion with ERR/SQL/EUI evidence is the acceptance target.
-- Current callable tool names remain the names returned by `search` or
-  `get_schema`, including existing `create_ironbug_*` names. Category short
-  names such as `zone_equipment_ptac` are migration targets until the MCP schema
-  exposes them.
+- Use the complete `IB_*` names returned by Code Mode `search` or `get_schema`,
+  such as `IB_zone_equipment_ptac`.
 
 ## Common Scenarios
 
@@ -39,8 +37,6 @@ components, loops, branches, zone equipment, and DetailedHVAC application.
 2. Create Ironbug components in dependency order through MCP tools.
 3. Apply DetailedHVAC to the Honeybee or Dragonfly model.
 4. Run standard Energy simulation and read EUI, ERR, and SQL outputs.
-5. Keep case files focused on reusable execution guidance; put run records in
-   LLM-Wiki.
 
 ## Stop Conditions
 

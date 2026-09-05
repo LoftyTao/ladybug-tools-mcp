@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.authoring import create_thermal_connector as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the DES ThermalConnector authoring tool."""
 
     @mcp.tool(
-        name="thermal_connector",
+        name="DF_des_thermal_connector",
         description=(
             "Create a Dragonfly DES ThermalConnector from Grasshopper-style 2D "
             "polyline points for a district thermal network. Use the returned target "
@@ -27,7 +26,7 @@ def register(mcp: FastMCP) -> None:
     def create_thermal_connector(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         identifier: Annotated[
             str,
@@ -43,6 +42,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Create a Dragonfly DES ThermalConnector."""
+        from garden.dragonfly_des.authoring import create_thermal_connector as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

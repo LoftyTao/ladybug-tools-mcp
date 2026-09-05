@@ -1,23 +1,18 @@
-'MCP tool for detailed_hvac_air_loop_hvac.'
+'MCP tool for IB_air_loop_hvac.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    set_ironbug_air_loop_demand_components,
-    set_ironbug_air_loop_supply_components,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_air_loop_hvac tool.'
+    'Register the IB_air_loop_hvac tool.'
 
     @mcp.tool(
-        name='air_loop_hvac',
+        name='IB_air_loop_hvac',
         description=(
             'Create IB_AirLoopHVAC, an air-side HVAC loop with supply and demand components, from the Ironbug Loops / AirLoop source mirror. For DOAS, VAV, CAV, and other zone-serving air loops, create IB_AirLoopBranches with room-linked IB_ThermalZone branches and pass that branch target in demand_component_targets; do not pass loose ThermalZone targets directly when an air-loop demand branch is required. Bind supply equipment such as outdoor-air systems, fans, and coils through supply_component_targets. This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
         ),
@@ -27,13 +22,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_air_loop_hvac(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -259,6 +254,13 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_AirLoopHVAC as a reviewed Ironbug Loops / AirLoop authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            set_ironbug_air_loop_demand_components,
+            set_ironbug_air_loop_supply_components,
+        )
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

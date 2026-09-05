@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_exist_air_loop.'
+'MCP tool for IB_exist_air_loop.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_exist_air_loop tool.'
+    'Register the IB_exist_air_loop tool.'
 
     @mcp.tool(
-        name='exist_air_loop',
+        name='IB_exist_air_loop',
         description=(
             'Create IB_ExistAirLoop, an Ironbug AirLoopHVAC wrapper that binds to an existing OpenStudio air loop through an IB_ExistingObj reference. Use it when zones or terminals must attach to an AirLoopHVAC already present in an imported OSM model; this tool does not create a new air-loop topology, plant loop, or Energy simulation run. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_exist_air_loop(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -55,6 +54,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_ExistAirLoop as a reviewed Ironbug Loops authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

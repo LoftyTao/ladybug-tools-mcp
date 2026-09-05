@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_shading_surface.'
+'MCP tool for IB_shading_surface.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_shading_surface tool.'
+    'Register the IB_shading_surface tool.'
 
     @mcp.tool(
-        name='shading_surface',
+        name='IB_shading_surface',
         description=(
             'Create IB_ShadingSurface, an Ironbug wrapper for an OpenStudio ShadingSurface / EnergyPlus Shading:Site:Detailed surface from explicit 3D vertices. Use it when another Ironbug DetailedHVAC object, such as a flat-plate solar collector, needs a shading-surface target; it does not create Honeybee Shade geometry or Radiance context. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -30,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -55,6 +54,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug OpenStudio shading surface from vertices."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

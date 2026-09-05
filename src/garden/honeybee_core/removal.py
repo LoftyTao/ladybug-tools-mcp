@@ -20,7 +20,6 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
     save_honeybee_model,
-    with_honeybee_model_write_lock,
 )
 from garden.honeybee_core.postprocess import (
     apply_honeybee_postprocess,
@@ -200,7 +199,6 @@ def _remove_hosted_shade(host: Any, shade: Shade) -> None:
     shade._parent = None
 
 
-@with_honeybee_model_write_lock
 def remove_honeybee_room(
     *,
     garden_root: str,
@@ -251,7 +249,6 @@ def remove_honeybee_room(
     )
 
 
-@with_honeybee_model_write_lock
 def remove_honeybee_face(
     *,
     garden_root: str,
@@ -305,7 +302,6 @@ def remove_honeybee_face(
     )
 
 
-@with_honeybee_model_write_lock
 def remove_honeybee_aperture(
     *,
     garden_root: str,
@@ -376,7 +372,6 @@ def remove_honeybee_aperture(
     )
 
 
-@with_honeybee_model_write_lock
 def remove_honeybee_door(
     *,
     garden_root: str,
@@ -443,7 +438,6 @@ def remove_honeybee_door(
     )
 
 
-@with_honeybee_model_write_lock
 def remove_honeybee_shade(
     *,
     garden_root: str,

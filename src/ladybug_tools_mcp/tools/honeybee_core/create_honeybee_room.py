@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.honeybee_core.creation import create_honeybee_room as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the honeybee_create_room tool.'
+    'Register the HB_create_room tool.'
 
     @mcp.tool(
-        name="create_room",
+        name="HB_create_room",
         description='Create a Honeybee Room, meaning a room/space envelope in a Garden Honeybee Model, from either a Honeybee Face list, a Ladybug Geometry Polyface3D envelope, or custom box dimensions. A Honeybee Room can later map partly to EnergyPlus zone concepts, but this tool does not create an Ironbug ThermalZone, assign ProgramType, assign ConstructionSet, set setpoints, or add HVAC. For simple boxes, use x_dim, y_dim, height, and optional origin. There is no host_target argument; the room is a top-level model object and auto-attaches to the selected model. Returns target, object_target, model_target, and room_target. Requires garden_root, identifier, and exactly one geometry mode; do not pass arguments null or {}.',
         tags={
             "author",
@@ -25,7 +24,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         identifier: Annotated[
@@ -70,11 +69,13 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model. This is not host_target; no host_target is supported because honeybee_create_room auto-attaches to the selected model."
+                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model. This is not host_target; no host_target is supported because HB_create_room auto-attaches to the selected model."
             ),
         ] = None,
     ) -> dict[str, Any]:
         """Create a Honeybee Room."""
+        from garden.honeybee_core.creation import create_honeybee_room as service
+
         origin_value = origin
         if isinstance(origin_value, dict):
             origin_value = [

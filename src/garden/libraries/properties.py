@@ -28,6 +28,7 @@ from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
 from ladybug_tools_mcp.contracts.report import make_report
 from ladybug_tools_mcp.contracts.targets import make_garden_properties_library_target
 from garden.manifest import GardenManifest, utc_now_iso
+from garden.operations import commit_manifest, read_operation_record
 from garden.paths import slugify_name, to_posix_relative
 
 
@@ -247,16 +248,10 @@ def _read_index(garden_root: Path, spec: _FamilySpec) -> dict[str, Any]:
         return json.load(handle)
 
 
-def _write_index(garden_root: Path, spec: _FamilySpec, index: dict[str, Any]) -> None:
-    path = _index_path(garden_root, spec)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _write_json(path, index)
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(payload, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
+def _json_bytes(payload: dict[str, Any]) -> bytes:
+    return (
+        json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    ).encode("utf-8")
 
 
 def _record_path(garden_root: Path, target: dict[str, Any]) -> Path:
@@ -354,6 +349,7 @@ def save_garden_properties_library_object(
     object_dict: dict[str, Any],
     identifier: str | None = None,
     overwrite: bool = True,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     """Save one SDK object dict as a Garden Properties Library resource."""
     root = _garden_root(garden_root)
@@ -364,10 +360,12 @@ def save_garden_properties_library_object(
     identifier = _identifier_from_object(obj, object_dict, identifier)
     object_type = _object_type(obj, object_dict)
 
-    folder = _family_dir(root, spec)
-    folder.mkdir(parents=True, exist_ok=True)
-    object_path = folder / f"{slugify_name(identifier)}.json"
-    if object_path.exists() and not overwrite:
+    object_path = _family_dir(root, spec) / f"{slugify_name(identifier)}.json"
+    if (
+        object_path.exists()
+        and not overwrite
+        and (operation_id is None or read_operation_record(root, operation_id) is None)
+    ):
         raise ValueError(f"Garden Properties Library object already exists: {identifier}")
 
     persisted_path = to_posix_relative(object_path, root)
@@ -378,10 +376,17 @@ def save_garden_properties_library_object(
         identifier=identifier,
         path=persisted_path,
     )
-    updated_at = utc_now_iso()
-    _write_json(object_path, object_dict)
-
     index = _read_index(root, spec)
+    existing_entry = _find_index_entry(index, identifier=identifier)
+    updated_at = (
+        str(existing_entry["updated_at"])
+        if (
+            operation_id
+            and existing_entry
+            and isinstance(existing_entry.get("updated_at"), str)
+        )
+        else manifest.updated_at if operation_id else utc_now_iso()
+    )
     objects = [
         item
         for item in index.get("objects", [])
@@ -398,7 +403,17 @@ def save_garden_properties_library_object(
     )
     objects.sort(key=lambda item: item["identifier"])
     index["objects"] = objects
-    _write_index(root, spec, index)
+    index_path = _index_path(root, spec)
+    operation = commit_manifest(
+        root,
+        manifest,
+        operation_type="garden_properties_library_save",
+        operation_id=operation_id,
+        staged_writes={
+            persisted_path: _json_bytes(object_dict),
+            to_posix_relative(index_path, root): _json_bytes(index),
+        },
+    )
 
     return {
         "object_dict": object_dict,
@@ -418,7 +433,9 @@ def save_garden_properties_library_object(
             change_summary={
                 "operation": "save_garden_properties_library_object",
                 "target": target,
-                "index_path": to_posix_relative(_index_path(root, spec), root),
+                "index_path": to_posix_relative(index_path, root),
+                "operation_id": operation.operation_id,
+                "revision": operation.after_revision,
             },
         ),
         "report": make_report(
@@ -580,6 +597,7 @@ def normalize_garden_properties_library_storage(
     domain: str | None = None,
     object_family: str | None = None,
     dry_run: bool = False,
+    operation_id: str | None = None,
 ) -> dict[str, Any]:
     """Rewrite legacy MCP-wrapped Garden library files into native SDK dict files."""
     root = _garden_root(garden_root)
@@ -587,6 +605,7 @@ def normalize_garden_properties_library_storage(
     rewritten: list[dict[str, Any]] = []
     already_native: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    staged_writes: dict[str, bytes] = {}
 
     selected_family = object_family if object_family is not None else "all"
     for spec in _selected_specs(domain, object_family):
@@ -628,7 +647,9 @@ def normalize_garden_properties_library_storage(
             if _is_legacy_record(record):
                 rewritten.append(summary)
                 if not dry_run:
-                    _write_json(_record_path(root, target), object_dict)
+                    staged_writes[to_posix_relative(_record_path(root, target), root)] = (
+                        _json_bytes(object_dict)
+                    )
             else:
                 already_native.append(summary)
 
@@ -638,6 +659,15 @@ def normalize_garden_properties_library_storage(
         f"{action} {len(rewritten)} Garden Properties Library file(s); "
         f"{len(already_native)} already native."
     )
+    operation = None
+    if staged_writes and not dry_run:
+        operation = commit_manifest(
+            root,
+            manifest,
+            operation_type="garden_properties_library_normalize",
+            operation_id=operation_id,
+            staged_writes=staged_writes,
+        )
     return {
         "normalized": rewritten,
         "already_native": already_native,
@@ -662,6 +692,14 @@ def normalize_garden_properties_library_storage(
                 "dry_run": dry_run,
                 "normalized": rewritten,
                 "skipped": skipped,
+                **(
+                    {
+                        "operation_id": operation.operation_id,
+                        "revision": operation.after_revision,
+                    }
+                    if operation
+                    else {}
+                ),
             },
         ),
         "report": make_report(status="ok", message=message),

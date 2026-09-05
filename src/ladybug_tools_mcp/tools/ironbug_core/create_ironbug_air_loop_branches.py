@@ -1,22 +1,20 @@
-'MCP tool for detailed_hvac_air_loop_branches.'
+'MCP tool for IB_air_loop_branches.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import set_ironbug_loop_branches
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_air_loop_branches tool.'
+    'Register the IB_air_loop_branches tool.'
 
     @mcp.tool(
-        name='air_loop_branches',
+        name='IB_air_loop_branches',
         description=(
-            'Create IB_AirLoopBranches, an air-loop component used on air-side supply or demand branches, from the Ironbug LoopObjs / AirLoopObjects source mirror. For DOAS, VAV, CAV, and room-serving air loops, pass one inner branch list per served room or zone through branch_component_targets, usually with a room-linked IB_ThermalZone target after an AirTerminal has been bound. Then pass this AirLoopBranches target to detailed_hvac_air_loop_hvac demand_component_targets. This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
+            'Create IB_AirLoopBranches, an air-loop component used on air-side supply or demand branches, from the Ironbug LoopObjs / AirLoopObjects source mirror. For DOAS, VAV, CAV, and room-serving air loops, pass one inner branch list per served room or zone through branch_component_targets, usually with a room-linked IB_ThermalZone target after an AirTerminal has been bound. Then pass this AirLoopBranches target to IB_air_loop_hvac demand_component_targets. This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
         ),
         tags={'ironbug', 'detailed-hvac', 'air-loop', 'doas', 'vav', 'component', 'author'},
         timeout=20,
@@ -24,13 +22,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_air_loop_branches(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -69,6 +67,10 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_AirLoopBranches as a reviewed Ironbug LoopObjs / AirLoopObjects authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import set_ironbug_loop_branches
 
         child_targets = [
             branch1_target,

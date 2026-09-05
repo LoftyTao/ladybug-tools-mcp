@@ -2,11 +2,9 @@
 
 from fastmcp import FastMCP
 
-from ladybug_tools_mcp.tools.config.get_ladybug_tools_config import (
-    register as register_get_ladybug_tools_config,
-)
+from ladybug_tools_mcp.tools._registration import register_discovered_tools
 
 
 def register(mcp: FastMCP) -> None:
     """Register Ladybug Tools configuration tools."""
-    register_get_ladybug_tools_config(mcp)
+    register_discovered_tools(mcp, __name__)

@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.constructionsets import (
-    create_window_blind_material as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_window_blind_material tool.'
+    'Register the EP_create_window_blind_material tool.'
 
     @mcp.tool(
-        name='create_window_blind_material',
+        name='EP_create_window_blind_material',
         description=(
             "Create a Honeybee Energy EnergyWindowMaterialBlind layer for "
             "window constructions with blinds. This returns a window material "
@@ -53,7 +50,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -64,6 +61,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy EnergyWindowMaterialBlind object."""
+        from garden.energy.constructionsets import (
+            create_window_blind_material as service,
+        )
+
         return service(
             identifier=identifier,
             slat_orientation=slat_orientation,

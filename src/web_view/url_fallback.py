@@ -1,4 +1,4 @@
-"""Local URL fallback for hosts that cannot render FastMCP Apps."""
+"""Garden-local vtk.js sidebar viewer."""
 
 from __future__ import annotations
 
@@ -408,6 +408,7 @@ def _make_handler(garden_root: Path) -> type[BaseHTTPRequestHandler]:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

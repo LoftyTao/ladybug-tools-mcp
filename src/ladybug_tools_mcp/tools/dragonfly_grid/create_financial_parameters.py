@@ -7,18 +7,17 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_grid.authoring import create_financial_parameters as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the Grid FinancialParameter authoring tool."""
 
     @mcp.tool(
-        name="financial_parameters",
+        name="DF_grid_financial_parameters",
         description=(
             "Create Dragonfly Energy REopt FinancialParameter settings for "
             "Grid/REopt workflows. This authors financial assumptions only; use "
-            "df_grid_start_reopt for runtime-gated REopt execution. Returns "
+            "DF_grid_start_reopt for runtime-gated REopt execution. Returns "
             "target, summary_view, persistence_receipt, and report."
         ),
         tags={"dragonfly", "electric-grid", "reopt", "financial", "author", "target"},
@@ -33,6 +32,8 @@ def register(mcp: FastMCP) -> None:
         discount_rate: Annotated[float, Field(description="Discount rate fraction.")] = 0.083,
     ) -> dict[str, Any]:
         """Create Dragonfly Energy REopt FinancialParameter settings."""
+        from garden.dragonfly_grid.authoring import create_financial_parameters as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

@@ -7,21 +7,18 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.display import (
-    dragonfly_models_to_comparison_visualization_set as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_models_to_comparison_visualization_set tool."""
+    """Register the DF_models_to_comparison_visualization_set tool."""
 
     @mcp.tool(
-        name="models_to_comparison_visualization_set",
+        name="DF_models_to_comparison_visualization_set",
         description=(
             "Create a Ladybug Display comparison VisualizationSet for two Garden "
             "Dragonfly models using Dragonfly Display model_comparison_to_vis_set. If "
             "Web View mode is active, this tool refreshes the demo panel; call "
-            "visualization_set_to_vtkjs only when the user asks for a saved vtk.js asset. "
+            "LB_set_to_vtkjs only when the user asks for a saved vtk.js asset. "
             "Returns visualization_set_target when saved and leaves both Dragonfly "
             "source models unchanged."
         ),
@@ -32,7 +29,7 @@ def register(mcp: FastMCP) -> None:
     def dragonfly_models_to_comparison_visualization_set(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         base_model_target: Annotated[
             dict[str, Any] | None,
@@ -72,9 +69,13 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Dragonfly comparison VisualizationSet."""
+        from garden.dragonfly_core.display import (
+            dragonfly_models_to_comparison_visualization_set as service,
+        )
+
         if base_model_target is None or incoming_model_target is None:
             raise ValueError(
-                "dragonfly_models_to_comparison_visualization_set requires "
+                "DF_models_to_comparison_visualization_set requires "
                 "base_model_target and incoming_model_target."
             )
         return service(

@@ -7,16 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.creation import (
-    create_dragonfly_building_from_footprint as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_create_building_from_footprint tool."""
+    """Register the DF_building_from_footprint tool."""
 
     @mcp.tool(
-        name="building_from_footprint",
+        name="DF_building_from_footprint",
         description=(
             "Create a Dragonfly Building from explicit footprint point loops and "
             "floor-to-floor heights. This is the MCP-native form of Grasshopper "
@@ -61,6 +58,10 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Create a Dragonfly Building from footprint point loops."""
+        from garden.dragonfly_core.creation import (
+            create_dragonfly_building_from_footprint as service,
+        )
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

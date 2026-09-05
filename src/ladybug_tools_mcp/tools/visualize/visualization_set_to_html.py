@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.visualize.artifacts import visualization_set_to_html as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_set_to_html tool.'
+    'Register the LB_set_to_html tool.'
 
     @mcp.tool(
-        name="set_to_html",
+        name="LB_set_to_html",
         description=(
             "Export a Ladybug Display VisualizationSet to a standalone "
             "interactive HTML page artifact inside a Garden and record it in "
@@ -19,8 +18,8 @@ def register(mcp: FastMCP) -> None:
             "page, report page, or browser-openable preview file. Preferred "
             "Agent path is visualization_set_target from an upstream visualize "
             "tool. For Web 3D geometry packages, vtk.js assets, FastMCP App "
-            "viewer assets, Remotion assets, or reusable geometry assets, use "
-            "visualization_set_to_vtkjs. This exporter does not create or "
+            "viewer assets, reusable geometry assets, or vtk.js packages, use "
+            "LB_set_to_vtkjs. This exporter does not create or "
             "modify the VisualizationSet source data."
         ),
         tags={
@@ -31,7 +30,7 @@ def register(mcp: FastMCP) -> None:
         timeout=60,
     )
     def visualization_set_to_html(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         visualization_set: Annotated[
             dict[str, Any] | None,
             Field(
@@ -55,6 +54,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Export a VisualizationSet to a Garden HTML artifact."""
+        from garden.visualize.artifacts import visualization_set_to_html as service
+
         return service(
             garden_root=garden_root,
             visualization_set=visualization_set,

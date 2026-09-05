@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_coil_heating_desuperheater.'
+'MCP tool for IB_coil_heating_desuperheater.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_coil_heating_desuperheater tool.'
+    'Register the IB_coil_heating_desuperheater tool.'
 
     @mcp.tool(
-        name='coil_heating_desuperheater',
+        name='IB_coil_heating_desuperheater',
         description=(
             'Create IB_CoilHeatingDesuperheater, an OpenStudio/EnergyPlus Coil:Heating:Desuperheater air heating coil that reclaims heat from superheated refrigerant gas from a DX cooling source. Pass heating_source_target as an IB_CoilCoolingDXSingleSpeed or IB_CoilCoolingDXTwoSpeed target. Use gas heating coil or hydronic water coil tools for burner or water-loop systems. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_coil_heating_desuperheater(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -103,6 +102,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_CoilHeatingDesuperheater as a reviewed Ironbug Loop Objs authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         child_targets = [
             heating_source_target,

@@ -1,4 +1,4 @@
-"""Generated Ironbug HVAC source mirror package. Do not edit by hand."""
+"""Source-mirrored Ironbug HVAC package maintained incrementally."""
 
 from __future__ import annotations
 
@@ -218,6 +218,18 @@ from ironbug._generated.hvac.curves.ib_curve_cubic import (
     IB_CurveCubic,
 )
 
+from ironbug._generated.hvac.curves.ib_curve_double_exponential_decay import (
+    IB_CurveDoubleExponentialDecay,
+)
+
+from ironbug._generated.hvac.curves.ib_curve_exponential_decay import (
+    IB_CurveExponentialDecay,
+)
+
+from ironbug._generated.hvac.curves.ib_curve_exponential_skew_normal import (
+    IB_CurveExponentialSkewNormal,
+)
+
 from ironbug._generated.hvac.curves.ib_curve_exponent import (
     IB_CurveExponent,
 )
@@ -226,16 +238,40 @@ from ironbug._generated.hvac.curves.ib_curve_fan_pressure_rise import (
     IB_CurveFanPressureRise,
 )
 
+from ironbug._generated.hvac.curves.ib_curve_functional_pressure_drop import (
+    IB_CurveFunctionalPressureDrop,
+)
+
 from ironbug._generated.hvac.curves.ib_curve_linear import (
     IB_CurveLinear,
+)
+
+from ironbug._generated.hvac.curves.ib_curve_quad_linear import (
+    IB_CurveQuadLinear,
 )
 
 from ironbug._generated.hvac.curves.ib_curve_quadratic import (
     IB_CurveQuadratic,
 )
 
+from ironbug._generated.hvac.curves.ib_curve_quadratic_linear import (
+    IB_CurveQuadraticLinear,
+)
+
 from ironbug._generated.hvac.curves.ib_curve_quartic import (
     IB_CurveQuartic,
+)
+
+from ironbug._generated.hvac.curves.ib_curve_quint_linear import (
+    IB_CurveQuintLinear,
+)
+
+from ironbug._generated.hvac.curves.ib_curve_rectangular_hyperbola1 import (
+    IB_CurveRectangularHyperbola1,
+)
+
+from ironbug._generated.hvac.curves.ib_curve_rectangular_hyperbola2 import (
+    IB_CurveRectangularHyperbola2,
 )
 
 from ironbug._generated.hvac.curves.ib_curve_sigmoid import (
@@ -244,6 +280,14 @@ from ironbug._generated.hvac.curves.ib_curve_sigmoid import (
 
 from ironbug._generated.hvac.curves.ib_curve_triquadratic import (
     IB_CurveTriquadratic,
+)
+
+from ironbug._generated.hvac.curves.ib_table_independent_variable import (
+    IB_TableIndependentVariable,
+)
+
+from ironbug._generated.hvac.curves.ib_table_lookup import (
+    IB_TableLookup,
 )
 
 from ironbug._generated.hvac.electric_load_center.ib_electric_load_center_distribution import (
@@ -1038,6 +1082,10 @@ from ironbug._generated.hvac.zone_equipments.ib_zone_hvac_energy_recovery_ventil
     IB_ZoneHVACEnergyRecoveryVentilator,
 )
 
+from ironbug._generated.hvac.zone_equipments.ib_zone_hvac_energy_recovery_ventilator_controller import (
+    IB_ZoneHVACEnergyRecoveryVentilatorController,
+)
+
 from ironbug._generated.hvac.zone_equipments.ib_zone_hvac_four_pipe_fan_coil import (
     IB_ZoneHVACFourPipeFanCoil,
 )
@@ -1182,13 +1230,24 @@ __all__ = [
     'IB_CurveBicubic',
     'IB_CurveBiquadratic',
     'IB_CurveCubic',
+    'IB_CurveDoubleExponentialDecay',
+    'IB_CurveExponentialDecay',
+    'IB_CurveExponentialSkewNormal',
     'IB_CurveExponent',
     'IB_CurveFanPressureRise',
+    'IB_CurveFunctionalPressureDrop',
     'IB_CurveLinear',
+    'IB_CurveQuadLinear',
     'IB_CurveQuadratic',
+    'IB_CurveQuadraticLinear',
     'IB_CurveQuartic',
+    'IB_CurveQuintLinear',
+    'IB_CurveRectangularHyperbola1',
+    'IB_CurveRectangularHyperbola2',
     'IB_CurveSigmoid',
     'IB_CurveTriquadratic',
+    'IB_TableIndependentVariable',
+    'IB_TableLookup',
     'IB_DistrictCooling',
     'IB_DistrictHeating',
     'IB_DistrictHeatingSteam',
@@ -1344,6 +1403,7 @@ __all__ = [
     'IB_ZoneHVACBaseboardRadiantConvectiveElectric',
     'IB_ZoneHVACBaseboardRadiantConvectiveWater',
     'IB_ZoneHVACEnergyRecoveryVentilator',
+    'IB_ZoneHVACEnergyRecoveryVentilatorController',
     'IB_ZoneHVACFourPipeFanCoil',
     'IB_ZoneHVACHighTemperatureRadiant',
     'IB_ZoneHVACIdealLoadsAirSystem',

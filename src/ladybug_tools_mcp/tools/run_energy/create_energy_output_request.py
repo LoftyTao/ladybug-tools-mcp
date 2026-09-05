@@ -7,23 +7,20 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.run_energy.output_requests import (
-    create_energy_output_request as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energyplus_create_output_request tool.'
+    'Register the EP_create_output_request tool.'
 
     @mcp.tool(
-        name="create_output_request",
+        name="EP_create_output_request",
         description=(
             "Create a Garden energy_output_request target for EnergyPlus "
             "outputs before an energy run. Use it for hourly zone loads, HVAC "
             "energy use, unmet hours, surface temperatures, custom "
             "Output:Variable names, summary reports, or later result "
             "visualization. Pass the returned target to "
-            "energyplus_start_simulation or energyplus_run_simulation_wait as "
+            "EP_start_simulation or EP_run_simulation_wait as "
             "output_request_target. This tool prepares requests; it does not "
             "read SQL, ERR, HTML, or DataCollection results."
         ),
@@ -39,7 +36,7 @@ def register(mcp: FastMCP) -> None:
     def create_energy_output_request(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str,
@@ -85,6 +82,10 @@ def register(mcp: FastMCP) -> None:
         ] = 1.11,
     ) -> dict[str, Any]:
         """Create an Energy output request target."""
+        from garden.run_energy.output_requests import (
+            create_energy_output_request as service,
+        )
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

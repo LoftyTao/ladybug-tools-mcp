@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from hashlib import sha1
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,10 @@ from ladybug.location import Location
 from ladybug_geometry.geometry2d.pointvector import Point2D
 
 from garden.dragonfly_core.model_io import load_dragonfly_model, resolve_model_target
+from garden.dragonfly_grid.serialization import load_grid_object
 from garden.manifest import GardenManifest
-from garden.paths import slugify_name, to_posix_relative
+from garden.paths import simulation_folder_name, slugify_name, to_posix_relative, windows_path_key
+from garden.run_ledger import serialized_run_start
 from ladybug_tools_mcp.contracts.receipts import make_artifact_receipt
 from ladybug_tools_mcp.contracts.report import make_report
 
@@ -32,14 +35,19 @@ from .serialization import load_des_object
 
 DES_EXPORTS_DIR = Path("")
 MAX_EXPORT_ID_LENGTH = 32
+URBANOPT_RUN_ROOT = Path("runs") / "urbanopt"
 
 
+@serialized_run_start
 def export_urbanopt_model(
     *,
     garden_root: str,
     location: dict[str, Any],
     model_target: dict[str, Any] | None = None,
     des_loop_target: dict[str, Any] | None = None,
+    electrical_network_target: dict[str, Any] | None = None,
+    road_network_target: dict[str, Any] | None = None,
+    ground_pv_targets: list[dict[str, Any]] | None = None,
     point: list[float] | None = None,
     folder_name: str | None = None,
     shade_distance: float | None = None,
@@ -58,8 +66,47 @@ def export_urbanopt_model(
         if des_loop_target
         else None
     )
-    export_id = _export_id(folder_name, getattr(model, "identifier", "dragonfly"), "urbanopt")
-    export_dir = garden_root_path / DES_EXPORTS_DIR / export_id
+    electrical_network = (
+        load_grid_object(
+            garden_root=garden_root_path,
+            target=electrical_network_target,
+            expected_kind="electrical_network",
+        )
+        if electrical_network_target
+        else None
+    )
+    road_network = (
+        load_grid_object(
+            garden_root=garden_root_path,
+            target=road_network_target,
+            expected_kind="road_network",
+        )
+        if road_network_target
+        else None
+    )
+    ground_pv = [
+        load_grid_object(
+            garden_root=garden_root_path,
+            target=target,
+            expected_kind="ground_photovoltaics",
+        )
+        for target in ground_pv_targets or []
+    ]
+    export_id = simulation_folder_name(
+        folder_name if folder_name is not None else model.display_name
+    )
+    export_dir = garden_root_path / URBANOPT_RUN_ROOT / export_id
+    _ensure_existing_urbanopt_model(
+        manifest=manifest,
+        garden_root=garden_root_path,
+        export_dir=export_dir,
+        model_target=resolved_model_target,
+    )
+    _prepare_urbanopt_folder(
+        garden_root=garden_root_path,
+        export_dir=export_dir,
+        model_target=resolved_model_target,
+    )
     export_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -73,6 +120,9 @@ def export_urbanopt_model(
             solve_ceiling_adjacencies=solve_ceiling_adjacencies,
             merge_method=merge_method,
             des_loop=des_loop,
+            electrical_network=electrical_network,
+            road_network=road_network,
+            ground_pv=ground_pv,
             folder=str(export_dir),
             tolerance=tolerance,
         )
@@ -81,6 +131,7 @@ def export_urbanopt_model(
         if blocked is not None:
             return blocked
         raise
+    _patch_urbanopt_detailed_model_filenames(feature_geojson, hb_model_jsons)
 
     bundle_target = artifact_target_for_path(
         manifest=manifest,
@@ -89,6 +140,7 @@ def export_urbanopt_model(
         artifact_type=DES_EXPORT_BUNDLE_ARTIFACT_TYPE,
         path=export_dir,
     )
+    bundle_target["model_target"] = resolved_model_target
     feature_target = artifact_target_for_path(
         manifest=manifest,
         garden_root=garden_root_path,
@@ -96,6 +148,7 @@ def export_urbanopt_model(
         artifact_type=DES_FEATURE_GEOJSON_ARTIFACT_TYPE,
         path=_bounded_existing_path(garden_root_path, feature_geojson, suffix=".geojson"),
     )
+    feature_target["model_target"] = resolved_model_target
     hb_targets = [
         artifact_target_for_path(
             manifest=manifest,
@@ -118,6 +171,9 @@ def export_urbanopt_model(
         source={
             "model_target": resolved_model_target,
             "des_loop_target": des_loop_target or {},
+            "electrical_network_target": electrical_network_target or {},
+            "road_network_target": road_network_target or {},
+            "ground_pv_targets": ground_pv_targets or [],
             "writer": "dragonfly_energy.writer.model_to_urbanopt",
         },
     )
@@ -132,6 +188,9 @@ def export_urbanopt_model(
             "export_type": "urbanopt",
             "model_target": resolved_model_target,
             "des_loop_target": des_loop_target or {},
+            "electrical_network_target": electrical_network_target or {},
+            "road_network_target": road_network_target or {},
+            "ground_pv_targets": ground_pv_targets or [],
             "feature_geojson_target": feature_target,
             "honeybee_model_count": len(hb_targets),
             "honeybee_model_identifiers": [
@@ -267,6 +326,82 @@ def export_model_to_des(
 
 def _garden_root(value: str | Path) -> Path:
     return Path(value).expanduser()
+
+
+def _prepare_urbanopt_folder(
+    *,
+    garden_root: Path,
+    export_dir: Path,
+    model_target: dict[str, Any],
+) -> None:
+    from garden.run_urbanopt.run import URBANOPT_RUN_INDEX, _URBANOPT_RUN_LEDGER
+
+    _URBANOPT_RUN_LEDGER.prepare_folder(
+        garden_root / URBANOPT_RUN_INDEX,
+        to_posix_relative(export_dir, garden_root),
+        model_target=model_target,
+    )
+
+
+def _ensure_existing_urbanopt_model(
+    *,
+    manifest: GardenManifest,
+    garden_root: Path,
+    export_dir: Path,
+    model_target: dict[str, Any],
+) -> None:
+    path = to_posix_relative(export_dir, garden_root)
+    for artifact in manifest.artifacts:
+        if (
+            artifact.get("domain") == "dragonfly_des"
+            and artifact.get("artifact_type") == DES_EXPORT_BUNDLE_ARTIFACT_TYPE
+            and windows_path_key(artifact.get("path", "")) == windows_path_key(path)
+        ):
+            previous = artifact.get("model_target")
+            if (
+                isinstance(previous, dict)
+                and previous.get("model_identifier")
+                and previous.get("model_identifier")
+                != model_target.get("model_identifier")
+            ):
+                raise ValueError(
+                    f"URBANopt project folder belongs to another model: {path}. "
+                    "Use distinct model display names or folder_name values."
+                )
+            return
+
+
+def _patch_urbanopt_detailed_model_filenames(
+    feature_geojson: str | Path,
+    hb_model_jsons: list[str],
+) -> None:
+    feature_path = Path(feature_geojson).expanduser()
+    if not feature_path.is_file():
+        return
+    hbjson_by_stem = {
+        Path(path).stem: str(Path(path).expanduser().resolve())
+        for path in hb_model_jsons
+    }
+    if not hbjson_by_stem:
+        return
+    geo_dict = json.loads(feature_path.read_text(encoding="utf-8"))
+    changed = False
+    for feature in geo_dict.get("features", []):
+        properties = feature.get("properties") if isinstance(feature, dict) else None
+        if not isinstance(properties, dict) or properties.get("type") != "Building":
+            continue
+        building_id = properties.get("id")
+        hbjson = hbjson_by_stem.get(str(building_id))
+        if hbjson is None:
+            continue
+        if properties.get("detailed_model_filename") != hbjson:
+            properties["detailed_model_filename"] = hbjson
+            changed = True
+    if changed:
+        feature_path.write_text(
+            json.dumps(geo_dict, indent=4, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
 
 def _export_id(folder_name: str | None, model_identifier: str, suffix: str) -> str:

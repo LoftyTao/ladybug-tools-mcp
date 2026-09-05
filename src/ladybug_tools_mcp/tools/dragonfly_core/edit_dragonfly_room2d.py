@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.editing import edit_dragonfly_room2d as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_edit_room2d tool.'
+    'Register the DF_edit_room2d tool.'
 
     @mcp.tool(
-        name="edit_room2d",
+        name="DF_edit_room2d",
         description=(
             "Edit a model-embedded Dragonfly Room2D using public Dragonfly SDK methods. "
             "Prefer room2d_target with a Dragonfly Room2D target and garden_root; "
@@ -28,7 +27,7 @@ def register(mcp: FastMCP) -> None:
     def edit_dragonfly_room2d(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         room2d_target: Annotated[
             dict[str, Any] | None,
@@ -52,7 +51,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
@@ -91,8 +90,10 @@ def register(mcp: FastMCP) -> None:
         ] = 0,
     ) -> dict[str, Any]:
         """Edit a Dragonfly Room2D."""
+        from garden.dragonfly_core.editing import edit_dragonfly_room2d as service
+
         if room2d_target is None and room_identifier is None:
-            raise ValueError('dragonfly_edit_room2d requires room2d_target or room_identifier.')
+            raise ValueError('DF_edit_room2d requires room2d_target or room_identifier.')
         return service(
             garden_root=garden_root,
             room2d_target=room2d_target,

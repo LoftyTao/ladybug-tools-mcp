@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from honeybee.room import Room
 from honeybee_radiance.sensorgrid import SensorGrid
 from honeybee_radiance.view import View
 
@@ -12,7 +13,6 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
     save_honeybee_model,
-    with_honeybee_model_write_lock,
 )
 from garden.honeybee_core.locate import find_object
 from garden.honeybee_core.targets import normalize_honeybee_object_target
@@ -84,16 +84,7 @@ def _register_artifact(
         "source": source,
         "created_at": utc_now_iso(),
     }
-    manifest.artifacts = [
-        item
-        for item in manifest.artifacts
-        if not (
-            item.get("artifact_type") == artifact_type
-            and item.get("path") == path
-        )
-    ]
-    manifest.artifacts.append(record)
-    return record
+    return manifest.upsert_artifact(record)
 
 
 def _target(
@@ -315,13 +306,6 @@ def _subtract(
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
 
-def _add(
-    a: tuple[float, float, float],
-    b: tuple[float, float, float],
-) -> tuple[float, float, float]:
-    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
-
-
 def _dot(
     a: tuple[float, float, float],
     b: tuple[float, float, float],
@@ -494,7 +478,6 @@ def _view_from_target(
     return view
 
 
-@with_honeybee_model_write_lock
 def attach_radiance_sensor_grids_to_model(
     *,
     garden_root: str,
@@ -540,7 +523,6 @@ def attach_radiance_sensor_grids_to_model(
     }
 
 
-@with_honeybee_model_write_lock
 def attach_radiance_views_to_model(
     *,
     garden_root: str,
@@ -586,7 +568,6 @@ def attach_radiance_views_to_model(
     }
 
 
-@with_honeybee_model_write_lock
 def create_radiance_sensor_grid(
     *,
     identifier: str,
@@ -627,7 +608,6 @@ def create_radiance_sensor_grid(
     )
 
 
-@with_honeybee_model_write_lock
 def create_radiance_sensor_grid_from_object(
     *,
     identifier: str,
@@ -683,6 +663,12 @@ def create_radiance_sensor_grid_from_object(
         offset=float(offset),
         flip_direction=flip_direction,
     )
+    parent = getattr(obj, "parent", None)
+    while parent is not None:
+        if isinstance(parent, Room):
+            sensor_grid.room_identifier = parent.identifier
+            break
+        parent = getattr(parent, "parent", None)
     if display_name is not None:
         sensor_grid.display_name = display_name
     if group_identifier is not None:
@@ -715,7 +701,6 @@ def create_radiance_sensor_grid_from_object(
     return result
 
 
-@with_honeybee_model_write_lock
 def create_radiance_view(
     *,
     identifier: str,

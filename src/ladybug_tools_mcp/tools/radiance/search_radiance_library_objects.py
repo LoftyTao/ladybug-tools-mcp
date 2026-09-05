@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.radiance.libraries import (
-    search_radiance_library_objects as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_search_library_objects tool.'
+    'Register the RAD_search_library_objects tool.'
 
     @mcp.tool(
-        name="search_library_objects",
+        name="RAD_search_library_objects",
         description=(
             "Search Honeybee Radiance standards library identifiers for "
             "modifiers, materials, and modifier sets. Use returned identifiers "
@@ -50,6 +47,10 @@ def register(mcp: FastMCP) -> None:
         ] = 10,
     ) -> dict[str, Any]:
         """Search Honeybee Radiance standards library identifiers."""
+        from garden.radiance.libraries import (
+            search_radiance_library_objects as service,
+        )
+
         return service(
             query=query,
             object_family=object_family,

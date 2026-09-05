@@ -7,16 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.visualize.datacollection import (
-    data_collection_monthly_chart_to_html as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_data_collection_monthly_chart_to_html tool.'
+    'Register the LB_data_collection_monthly_chart_to_html tool.'
 
     @mcp.tool(
-        name='data_collection_monthly_chart_to_html',
+        name='LB_data_collection_monthly_chart_to_html',
         description=(
             "Create a Garden HTML artifact from one or more Ladybug "
             "DataCollections using Ladybug MonthlyChart. Use series items with "
@@ -39,7 +36,7 @@ def register(mcp: FastMCP) -> None:
     def data_collection_monthly_chart_to_html(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         series: Annotated[
             list[dict[str, Any]],
@@ -97,6 +94,10 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/visualization/datacollections/html",
     ) -> dict[str, Any]:
         """Export Ladybug DataCollections to a MonthlyChart HTML artifact."""
+        from garden.visualize.datacollection import (
+            data_collection_monthly_chart_to_html as service,
+        )
+
         return service(
             garden_root=garden_root,
             series=series,

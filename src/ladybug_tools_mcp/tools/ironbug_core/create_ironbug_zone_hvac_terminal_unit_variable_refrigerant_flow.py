@@ -1,12 +1,10 @@
-'MCP tool for detailed_hvac_zone_equipment_terminal_unit_variable_refrigerant_flow.'
+'MCP tool for IB_zone_equipment_terminal_unit_variable_refrigerant_flow.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core import relationships as relationship_service
 
 
 def _coalesce_target(
@@ -25,10 +23,10 @@ def _coalesce_target(
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_terminal_unit_variable_refrigerant_flow tool.'
+    'Register the IB_zone_equipment_terminal_unit_variable_refrigerant_flow tool.'
 
     @mcp.tool(
-        name='zone_equipment_terminal_unit_variable_refrigerant_flow',
+        name='IB_zone_equipment_terminal_unit_variable_refrigerant_flow',
         description=(
             'Create IB_ZoneHVACTerminalUnitVariableRefrigerantFlow, the Ironbug and EnergyPlus ZoneHVAC:TerminalUnit:VariableRefrigerantFlow zone terminal for VRF systems. This terminal can carry refrigerant-side DX cooling/heating coils, an on/off fan, operating-mode schedules, outdoor-air rates, and ThermalZone placement. Use it with an IB_AirConditionerVariableRefrigerantFlow parent, not as a fan coil, air-loop terminal, standalone DX coil, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -45,7 +43,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -198,6 +196,10 @@ def register(mcp: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Create an Ironbug ZoneHVAC:TerminalUnit:VariableRefrigerantFlow object."""
 
+        from garden.ironbug_core.create_tools import (
+            _create_source_backed_ironbug_zone_equipment,
+        )
+
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}
         if name is not None:
@@ -266,58 +268,36 @@ def register(mcp: FastMCP) -> None:
                 "parameters or their Grasshopper Parameter aliases."
             )
 
-        result = create_source_backed_ironbug_object(
+        child_bindings: list[tuple[Any, set[str]]] = []
+        if all(target is not None for target in child_targets):
+            child_bindings = [
+                (
+                    effective_cooling_coil_target,
+                    {"IB_CoilCoolingDXVariableRefrigerantFlow"},
+                ),
+                (
+                    effective_heating_coil_target,
+                    {"IB_CoilHeatingDXVariableRefrigerantFlow"},
+                ),
+                (effective_fan_target, {"IB_FanOnOff"}),
+            ]
+        return _create_source_backed_ironbug_zone_equipment(
             garden_root=garden_root,
             ironbug_model_target=ironbug_model_target,
             source_class='IB_ZoneHVACTerminalUnitVariableRefrigerantFlow',
+            operation='create_ironbug_zone_hvac_terminal_unit_variable_refrigerant_flow',
             identifier=identifier,
             display_name=display_name,
             source_fields=source_fields or None,
             source_field_targets=source_field_targets or None,
             source_properties=source_properties or None,
-            child_targets=child_targets if any(item is not None for item in child_targets) else None,
             output_variable_names=output_variable_names,
             output_reporting_frequency=output_reporting_frequency,
             ems_sensor_targets=ems_sensor_targets,
             ems_actuator_targets=ems_actuator_targets,
             ems_internal_variable_targets=ems_internal_variable_targets,
+            child_bindings=child_bindings,
+            children_binding_step="vrf_terminal_children",
+            thermal_zone_target=thermal_zone_target,
             overwrite=overwrite,
         )
-
-        binding_steps: list[str] = []
-        current_model_target = result["updated_model_target"]
-        current_target = result["target"]
-
-        if (
-            effective_cooling_coil_target is not None
-            and effective_heating_coil_target is not None
-            and effective_fan_target is not None
-        ):
-            children_result = relationship_service.set_ironbug_vrf_terminal_children(
-                garden_root=garden_root,
-                ironbug_model_target=current_model_target,
-                vrf_terminal_target=current_target,
-                cooling_coil_target=effective_cooling_coil_target,
-                heating_coil_target=effective_heating_coil_target,
-                fan_target=effective_fan_target,
-            )
-            current_model_target = children_result["updated_model_target"]
-            current_target = children_result["target"]
-            binding_steps.append("vrf_terminal_children")
-
-        if thermal_zone_target is not None:
-            zone_result = relationship_service.add_ironbug_thermal_zone_equipment(
-                garden_root=garden_root,
-                ironbug_model_target=current_model_target,
-                thermal_zone_target=thermal_zone_target,
-                zone_equipment_target=current_target,
-            )
-            current_model_target = zone_result["updated_model_target"]
-            binding_steps.append("thermal_zone_equipment")
-
-        current_target["model_target"] = current_model_target
-        result["target"] = current_target
-        result["object_target"] = current_target
-        result["updated_model_target"] = current_model_target
-        result["summary_view"]["binding_steps"] = binding_steps
-        return result

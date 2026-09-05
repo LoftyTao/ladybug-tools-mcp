@@ -4,23 +4,23 @@ Use this when the current Honeybee Model needs model-level metadata changes, ful
 
 ## Preconditions
 
-- Get the base model target with `garden_get_base_honeybee_model`.
-- Use `honeybee_edit_model` for model metadata and top-level object operations only.
+- Get the base model target with `GD_get_base_honeybee_model`.
+- Use `HB_edit_model` for model metadata and top-level object operations only.
 - Use object-specific create/remove tools for hosted children.
 
 ## MCP Route
 
-1. Call `garden_get_base_honeybee_model` for the model target.
-2. Call `honeybee_edit_model` with metadata fields, `add_objects`, or `remove_targets`.
+1. Call `GD_get_base_honeybee_model` for the model target.
+2. Call `HB_edit_model` with metadata fields, `add_objects`, or `remove_targets`.
 3. Validate the model.
 4. Search specific objects when the user needs confirmation.
 
 ## Add Object Pattern
 
 ```python
-base = await call_tool("garden_get_base_honeybee_model", {"garden_root": garden_root})
+base = await call_tool("GD_get_base_honeybee_model", {"garden_root": garden_root})
 
-edited = await call_tool("honeybee_edit_model", {
+edited = await call_tool("HB_edit_model", {
     "garden_root": garden_root,
     "target": base["target"],
     "display_name": "Edited Model",
@@ -35,15 +35,15 @@ edited = await call_tool("honeybee_edit_model", {
 ## Remove Top-Level Object Pattern
 
 ```python
-objects = await call_tool("honeybee_search_model_objects", {
+objects = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "face",
     "identifier": "seed_face"
 })
 
-base = await call_tool("garden_get_base_honeybee_model", {"garden_root": garden_root})
+base = await call_tool("GD_get_base_honeybee_model", {"garden_root": garden_root})
 
-edited = await call_tool("honeybee_edit_model", {
+edited = await call_tool("HB_edit_model", {
     "garden_root": garden_root,
     "target": base["target"],
     "remove_targets": [objects["matches"][0]["target"]]
@@ -56,11 +56,11 @@ edited = await call_tool("honeybee_edit_model", {
 - Add operations return added counts and object types.
 - Remove operations return removed counts and object types.
 - `persistence_receipt.persisted_path` remains the registered model path.
-- `honeybee_validate_model.summary_view.is_valid == true`.
+- `HB_validate_model.summary_view.is_valid == true`.
 
 ## Stop Conditions
 
 - `add_objects` requires complete Honeybee object dictionaries, not typed targets or partial geometry snippets.
-- Do not use this tool to add a room already created by `honeybee_create_room`.
+- Do not use this tool to add a room already created by `HB_create_room`.
 - `remove_targets` is for model-owned Rooms and orphaned Face/Aperture/Door/Shade objects. Use object-specific remove tools for hosted children.
 - Do not describe replace behavior as stable unless it has fresh Agent evidence.

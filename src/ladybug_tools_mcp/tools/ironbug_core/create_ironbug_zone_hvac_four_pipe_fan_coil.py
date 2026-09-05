@@ -1,23 +1,18 @@
-'MCP tool for detailed_hvac_zone_equipment_four_pipe_fan_coil.'
+'MCP tool for IB_zone_equipment_four_pipe_fan_coil.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_thermal_zone_equipment,
-    set_ironbug_fan_coil_children,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_four_pipe_fan_coil tool.'
+    'Register the IB_zone_equipment_four_pipe_fan_coil tool.'
 
     @mcp.tool(
-        name='zone_equipment_four_pipe_fan_coil',
+        name='IB_zone_equipment_four_pipe_fan_coil',
         description=(
             'Create IB_ZoneHVACFourPipeFanCoil, an Ironbug four-pipe fan coil unit '
             '(FCU) / zone equipment object that maps downstream to the EnergyPlus '
@@ -45,13 +40,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_zone_hvac_four_pipe_fan_coil(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -215,6 +210,10 @@ def register(mcp: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Create IB_ZoneHVACFourPipeFanCoil as reviewed Ironbug FCU zone equipment."""
 
+        from garden.ironbug_core.create_tools import (
+            _create_source_backed_ironbug_zone_equipment,
+        )
+
         child_targets = (heating_coil_target, cooling_coil_target, fan_target)
         if any(item is not None for item in child_targets) and not all(
             item is not None for item in child_targets
@@ -262,11 +261,26 @@ def register(mcp: FastMCP) -> None:
             source_fields['MinimumSupplyAirTemperatureInCoolingMode'] = minimum_supply_air_temperature_in_cooling_mode
         if maximum_supply_air_temperature_in_heating_mode is not None:
             source_fields['MaximumSupplyAirTemperatureInHeatingMode'] = maximum_supply_air_temperature_in_heating_mode
-        created = create_source_backed_ironbug_object(
+        child_bindings = (
+            [
+                (heating_coil_target, {"IB_CoilHeatingWater"}),
+                (cooling_coil_target, {"IB_CoilCoolingWater"}),
+                (
+                    fan_target,
+                    {"IB_FanOnOff", "IB_FanConstantVolume", "IB_FanSystemModel"},
+                ),
+            ]
+            if all(item is not None for item in child_targets)
+            else []
+        )
+        return _create_source_backed_ironbug_zone_equipment(
             garden_root=garden_root,
             ironbug_model_target=ironbug_model_target,
             source_class='IB_ZoneHVACFourPipeFanCoil',
+            operation='create_ironbug_zone_hvac_four_pipe_fan_coil',
             identifier=identifier,
+            thermal_zone_target=thermal_zone_target,
+            child_bindings=child_bindings,
             display_name=display_name,
             source_fields=source_fields or None,
             source_field_targets=source_field_targets or None,
@@ -278,37 +292,3 @@ def register(mcp: FastMCP) -> None:
             ems_internal_variable_targets=ems_internal_variable_targets,
             overwrite=overwrite,
         )
-        latest_model_target = created["updated_model_target"]
-        binding_summary: dict[str, Any] = {}
-        if all(item is not None for item in child_targets):
-            children = set_ironbug_fan_coil_children(
-                garden_root=garden_root,
-                ironbug_model_target=latest_model_target,
-                fan_coil_target=created["target"],
-                heating_coil_target=heating_coil_target,
-                cooling_coil_target=cooling_coil_target,
-                fan_target=fan_target,
-            )
-            latest_model_target = children["updated_model_target"]
-            created["target"] = children["target"]
-            binding_summary["children_bound"] = True
-        else:
-            binding_summary["children_bound"] = False
-        if thermal_zone_target is not None:
-            zone = add_ironbug_thermal_zone_equipment(
-                garden_root=garden_root,
-                ironbug_model_target=latest_model_target,
-                thermal_zone_target=thermal_zone_target,
-                zone_equipment_target=created["target"],
-            )
-            latest_model_target = zone["updated_model_target"]
-            created["target"]["model_target"] = latest_model_target
-            binding_summary["thermal_zone_bound"] = True
-            binding_summary["thermal_zone_identifier"] = zone["summary_view"][
-                "thermal_zone_identifier"
-            ]
-        else:
-            binding_summary["thermal_zone_bound"] = False
-        created["updated_model_target"] = latest_model_target
-        created["summary_view"] = {**created["summary_view"], **binding_summary}
-        return created

@@ -7,19 +7,19 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.run import start_radiance_matrix_run as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_start_matrix_simulation tool.'
+    'Register the RAD_start_matrix_simulation tool.'
 
     @mcp.tool(
-        name="start_matrix_simulation",
+        name="RAD_start_matrix_simulation",
         description=(
             "Start a background Radiance annual or matrix daylight recipe for "
             "a Honeybee model with attached SensorGrids and a WEA target. Use "
-            "for annual-daylight, annual-irradiance, cumulative-radiation, and "
-            "rfluxmtx calculations. Poll with radiance_poll_simulation before "
+            "for annual-daylight (with optional enhanced two-phase mode), "
+            "annual-irradiance, cumulative-radiation, direct-sun-hours, and "
+            "rfluxmtx calculations. Poll with RAD_poll_simulation before "
             "reading artifacts. Returns run_target, radiance_run_target, "
             "runtime_status through summary_view.status, poll_next, and "
             "report. Treat failed runtime_status as requiring report review."
@@ -33,18 +33,22 @@ def register(mcp: FastMCP) -> None:
         timeout=60,
     )
     def start_radiance_matrix_run(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model and should already have SensorGrids attached."),
         ] = None,
         calculation_type: Annotated[
             str,
-            Field(description="Matrix calculation type: annual_daylight, annual_irradiance, or cumulative_radiation."),
+            Field(description="Matrix calculation type: annual_daylight, annual_irradiance, cumulative_radiation, or direct_sun_hours."),
         ] = "annual_daylight",
+        enhanced: Annotated[
+            bool,
+            Field(description="Use the annual-daylight-enhanced two-phase recipe when calculation_type is annual_daylight. Defaults to true."),
+        ] = True,
         wea_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Garden WEA target returned by radiance_create_wea_from_weather_file or radiance_create_ashrae_clear_sky_wea.'),
+            Field(description='Garden WEA target returned by RAD_create_wea_from_weather_file or RAD_create_ashrae_clear_sky_wea.'),
         ] = None,
         wea_path: Annotated[
             str | None,
@@ -82,7 +86,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         radiance_parameters: Annotated[
             str | dict[str, Any] | None,
-            Field(description='Optional Radiance parameters string or dictionary returned by radiance_create_parameters.'),
+            Field(description='Optional Radiance parameters string or dictionary returned by RAD_create_parameters.'),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -96,10 +100,13 @@ def register(mcp: FastMCP) -> None:
         silent: Annotated[bool, Field(description="Run the Radiance recipe silently.")] = True,
     ) -> dict[str, Any]:
         """Start a Radiance matrix run."""
+        from garden.radiance.run import start_radiance_matrix_run as service
+
         return service(
             garden_root=garden_root,
             model_target=model_target,
             calculation_type=calculation_type,
+            enhanced=enhanced,
             wea_target=wea_target,
             wea_path=wea_path,
             grid_filter=grid_filter,

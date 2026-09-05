@@ -50,7 +50,7 @@ reheat coils. The hot-water loop demand must be parallel singleton branches:
 `demand_branch_component_targets=[[central_heating_coil], [reheat_1], ...]`.
 
 Use a constant-speed/intermittent pump for the single-coil chilled-water loop.
-Use `detailed_hvac_pump_variable_speed` for the multi-branch hot-water loop
+Use `IB_pump_variable_speed` for the multi-branch hot-water loop
 with `rated_flow_rate="Autosize"`, `pump_control_type="Intermittent"`,
 `minimum_flow_rate=0.0`, `design_minimum_flow_rate_fraction=0.0`,
 `rated_pump_head=179352.0`, and `motor_efficiency=0.9`. Apply, run Energy,
@@ -60,15 +60,14 @@ read EUI/ERR/SQL.
 
 ```python
 # Inside Ladybug Tools MCP Code Mode execute.
-garden_root = "D:/path/to/prepared-garden"
+garden_root = "<selected Garden root>"
 case_id = "vav_reheat_four_room"
 rooms = ["Room1", "Room2", "Room3", "Room4"]
 
-base = await call_tool("garden_get_base_honeybee_model", {"garden_root": garden_root})
-ironbug = await call_tool("detailed_hvac_create_model", {
+base = await call_tool("GD_get_base_honeybee_model", {"garden_root": garden_root})
+ironbug = await call_tool("IB_create_model", {
     "garden_root": garden_root,
     "identifier": case_id,
-    "include_hvac_system": True,
     "overwrite": True,
 })
 
@@ -77,30 +76,30 @@ ironbug = await call_tool("detailed_hvac_create_model", {
 # Use overwrite=True on stable detailed_hvac_* identifiers so recovery attempts
 # do not rebuild the whole HVAC graph after a single failed step.
 
-applied = await call_tool("detailed_hvac_apply_to_honeybee_model", {
+applied = await call_tool("IB_apply_to_honeybee_model", {
     "garden_root": garden_root,
     "ironbug_model_target": ironbug["target"],
     "honeybee_model_target": base["target"],
     "room_identifiers": rooms,
     "detailed_hvac_identifier": case_id + "_detailed_hvac",
 })
-run = await call_tool("energyplus_start_simulation", {
+run = await call_tool("EP_start_simulation", {
     "garden_root": garden_root,
     "model_target": applied["updated_model_target"],
     "weather_target": "<prepared Garden weather_file target>",
     "run_id": case_id + "_run",
 })
-status = await call_tool("energyplus_poll_simulation", {
+status = await call_tool("EP_poll_simulation", {
     "garden_root": garden_root,
     "run_target": run["target"],
     "wait_seconds": 60,
     "poll_interval": 2,
 })
-outputs = await call_tool("energyplus_list_run_outputs", {
+outputs = await call_tool("EP_list_run_outputs", {
     "garden_root": garden_root,
     "run_target": run["target"],
 })
-eui = await call_tool("energyplus_read_eui", {
+eui = await call_tool("EP_read_eui", {
     "garden_root": garden_root,
     "run_target": run["target"],
 })
@@ -133,17 +132,17 @@ empty `writer_diagnostics`, and `csharp_ironbug_console_required=false`.
 ```jsonc
 {
   "case_id": "vav_reheat_four_room",
-  "garden_root": "D:/path/to/prepared-garden",
+  "garden_root": "<selected Garden root>",
   "rooms": ["Room1", "Room2", "Room3", "Room4"],
-  "ironbug_model_target": "<detailed_hvac_create_model.target>",
-  "detailed_hvac_target": "<detailed_hvac_apply_to_honeybee_model.detailed_hvac_target>",
+  "ironbug_model_target": "<IB_create_model.target>",
+  "detailed_hvac_target": "<IB_apply_to_honeybee_model.detailed_hvac_target>",
   "energy_status": "completed",
   "eui": 123.456,
-  "err_path": "runs/energy/vav_reheat_four_room_run/annual_energy_use/run/eplusout.err",
-  "sql_path": "runs/energy/vav_reheat_four_room_run/annual_energy_use/run/eplusout.sql",
+  "err_path": "<extract eplusout.err from outputs>",
+  "sql_path": "<extract eplusout.sql from outputs>",
   "python_ironbug_console_runtime": {
     "simulation_input_kind": "openstudio_osm",
-    "runtime_model_path": "runs/energy/vav_reheat_four_room_run/pyironbug.osm",
+    "runtime_model_path": "<returned runtime_model_path>",
     "compiled_room_count": 4,
     "csharp_ironbug_console_required": false
   },

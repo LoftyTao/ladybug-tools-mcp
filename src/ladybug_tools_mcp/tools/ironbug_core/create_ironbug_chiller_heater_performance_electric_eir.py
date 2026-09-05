@@ -1,21 +1,20 @@
-'MCP tool for detailed_hvac_chiller_heater_performance_electric_eir.'
+'MCP tool for IB_chiller_heater_performance_electric_eir.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_chiller_heater_performance_electric_eir tool.'
+    'Register the IB_chiller_heater_performance_electric_eir tool.'
 
     @mcp.tool(
-        name='chiller_heater_performance_electric_eir',
+        name='IB_chiller_heater_performance_electric_eir',
         description=(
-            'Create IB_ChillerHeaterPerformanceElectricEIR, the performance data object for a CentralHeatPumpSystem chiller-heater module. Use the returned target with detailed_hvac_central_heat_pump_system_module, then assemble the module into a central heat-pump system. This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
+            'Create IB_ChillerHeaterPerformanceElectricEIR, the performance data object for a CentralHeatPumpSystem chiller-heater module. Use the returned target with IB_central_heat_pump_system_module, then assemble the module into a central heat-pump system. This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
         ),
         tags={'ironbug', 'detailed-hvac', 'chiller-heater', 'heat-pump', 'central-system', 'performance', 'curve', 'heating', 'cooling', 'chilled-water', 'hot-water', 'condenser-water', 'component', 'hvac', 'author'},
         timeout=20,
@@ -23,13 +22,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_chiller_heater_performance_electric_eir(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -188,6 +187,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_ChillerHeaterPerformanceElectricEIR as a reviewed Ironbug Electrical authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

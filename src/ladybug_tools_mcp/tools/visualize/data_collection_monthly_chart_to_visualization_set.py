@@ -7,16 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.visualize.datacollection import (
-    data_collection_monthly_chart_to_visualization_set as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_data_collection_monthly_chart_to_visualization_set tool.'
+    'Register the LB_data_collection_monthly_chart_to_visualization_set tool.'
 
     @mcp.tool(
-        name='data_collection_monthly_chart_to_visualization_set',
+        name='LB_data_collection_monthly_chart_to_visualization_set',
         description=(
             "Create a Ladybug Display VisualizationSet monthly chart from one "
             "or more Ladybug DataCollection targets such as EnergyPlus result "
@@ -45,7 +42,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         time_interval: Annotated[
@@ -100,6 +97,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a MonthlyChart VisualizationSet from DataCollections."""
+        from garden.visualize.datacollection import (
+            data_collection_monthly_chart_to_visualization_set as service,
+        )
+
         return service(
             series=series,
             garden_root=garden_root,

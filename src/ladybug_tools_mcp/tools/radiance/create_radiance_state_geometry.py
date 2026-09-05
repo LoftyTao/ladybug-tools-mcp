@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.dynamic import create_radiance_state_geometry as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_state_geometry tool.'
+    'Register the RAD_create_state_geometry tool.'
 
     @mcp.tool(
-        name="create_state_geometry",
+        name="RAD_create_state_geometry",
         description=(
             "Create a Honeybee Radiance StateGeometry dictionary for dynamic "
             "shade or subface states. Provide geometry as a Ladybug Face3D "
@@ -54,10 +53,12 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance StateGeometry."""
+        from garden.radiance.dynamic import create_radiance_state_geometry as service
+
         identifier = identifier or "state_geometry"
         return service(
             identifier=identifier,

@@ -44,16 +44,7 @@ def _register_artifact(
         "source": source,
         "created_at": utc_now_iso(),
     }
-    manifest.artifacts = [
-        item
-        for item in manifest.artifacts
-        if not (
-            item.get("artifact_type") == artifact_type
-            and item.get("path") == path
-        )
-    ]
-    manifest.artifacts.append(record)
-    return record
+    return manifest.upsert_artifact(record)
 
 
 def _visualization_set_target(

@@ -176,6 +176,7 @@ def _write_low_temp_radiant_const_flow(
         )
         radiant.setName(name)
     _apply_generic_openstudio_fields(radiant, node)
+    _set_radiant_surface_type(radiant, node)
     _ensure_low_temp_radiant_pump_power(radiant)
     zone_name = _thermal_zone_name_for_field_reference(graph, node)
     zone = model.getThermalZoneByName(zone_name).get()
@@ -234,6 +235,7 @@ def _write_low_temp_radiant_var_flow(
     radiant.setHeatingCoil(heating_coil)
     radiant.setCoolingCoil(cooling_coil)
     _apply_generic_openstudio_fields(radiant, node)
+    _set_radiant_surface_type(radiant, node)
     _ensure_low_temp_radiant_pump_power(radiant)
     zone_name = _thermal_zone_name_for_field_reference(graph, node)
     zone = model.getThermalZoneByName(zone_name).get()
@@ -461,6 +463,22 @@ def _low_temp_radiant_surface_types(radiant: Any) -> set[str]:
     if radiant_surface_type == "AllSurfaces":
         return {"Floor", "RoofCeiling", "Wall"}
     return {"Floor"}
+
+
+def _set_radiant_surface_type(radiant: Any, node: ConsoleGraphNode) -> None:
+    value = node.fields.get("RadiantSurfaceType")
+    if not isinstance(value, str):
+        return
+    normalized = {
+        "floor": "Floors",
+        "floors": "Floors",
+        "ceiling": "Ceilings",
+        "ceilings": "Ceilings",
+        "wall": "Walls",
+        "walls": "Walls",
+    }.get(value.strip().casefold())
+    if normalized is not None:
+        radiant.setRadiantSurfaceType(normalized)
 
 
 def _surface_has_internal_source_construction(surface: Any) -> bool:

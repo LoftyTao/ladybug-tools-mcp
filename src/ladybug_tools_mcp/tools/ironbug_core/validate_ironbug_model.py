@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core import validate_ironbug_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_validate_model tool.'
+    'Register the IB_validate_model tool.'
 
     @mcp.tool(
-        name="validate_model",
+        name="IB_validate_model",
         description=(
             "Validate a Garden-managed Ironbug .ibjson model by ironbug_model target "
             "or Garden-relative path. Returns validation_status through "
@@ -29,14 +28,14 @@ def register(mcp: FastMCP) -> None:
     def validate_ironbug_model(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
                     "Optional Ironbug target argument named ironbug_model_target; "
-                    'pass the target returned by detailed_hvac_create_model, not ironbug_model.'
+                    'pass the target returned by IB_create_model, not ironbug_model.'
                 )
             ),
         ] = None,
@@ -46,6 +45,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Validate an Ironbug model and return compact issues."""
+
+        from garden.ironbug_core.models import validate_ironbug_model as service
 
         return service(
             garden_root=garden_root,

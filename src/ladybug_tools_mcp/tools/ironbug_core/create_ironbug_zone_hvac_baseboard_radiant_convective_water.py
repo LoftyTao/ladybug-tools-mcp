@@ -1,22 +1,18 @@
-'MCP tool for detailed_hvac_zone_equipment_baseboard_radiant_convective_water.'
+'MCP tool for IB_zone_equipment_baseboard_radiant_convective_water.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_thermal_zone_equipment,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_baseboard_radiant_convective_water tool.'
+    'Register the IB_zone_equipment_baseboard_radiant_convective_water tool.'
 
     @mcp.tool(
-        name='zone_equipment_baseboard_radiant_convective_water',
+        name='IB_zone_equipment_baseboard_radiant_convective_water',
         description=(
             'Create IB_ZoneHVACBaseboardRadiantConvectiveWater, the Ironbug and EnergyPlus ZoneHVAC:Baseboard:RadiantConvective:Water hot-water baseboard zone equipment. It accepts an optional IB_CoilHeatingWaterBaseboardRadiant child, radiant/people fraction fields, and optional ThermalZone binding; it is not a low-temperature radiant slab, air terminal, pump, or HVAC template. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -33,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -110,6 +106,12 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create Ironbug hot-water radiant-convective baseboard zone equipment."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            add_ironbug_thermal_zone_equipment,
+        )
 
         child_targets = [
             coil_heating_water_baseboard_radiant_target,

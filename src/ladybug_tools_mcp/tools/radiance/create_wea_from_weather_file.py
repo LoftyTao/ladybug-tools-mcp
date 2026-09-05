@@ -7,20 +7,19 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.sky import create_wea_from_weather_file as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_wea_from_weather_file tool.'
+    'Register the RAD_create_wea_from_weather_file tool.'
 
     @mcp.tool(
-        name='create_wea_from_weather_file',
+        name='RAD_create_wea_from_weather_file',
         description=(
             "Create a Radiance/DAYSIM WEA file artifact from a "
             "Garden-managed weather_file target or Garden-relative EPW path. "
             "Preferred Agent path: pass weather_target returned by "
-            "energyplus_download_epw or energyplus_search_weather_files. "
-            "Returns a compact wea_file target for radiance_create_sky_matrix "
+            "EP_import_local_weather or EP_search_weather_files. "
+            "Returns a compact wea_file target for RAD_create_sky_matrix "
             "and later Radiance matrix workflows. This converts weather for "
             "Radiance use and does not run EnergyPlus."
         ),
@@ -36,7 +35,7 @@ def register(mcp: FastMCP) -> None:
     def create_wea_from_weather_file(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str,
@@ -44,7 +43,7 @@ def register(mcp: FastMCP) -> None:
         ],
         weather_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Optional Garden weather_file target from energyplus_download_epw/energyplus_search_weather_files.'),
+            Field(description='Optional Garden weather_file target from EP_import_local_weather or EP_search_weather_files.'),
         ] = None,
         epw_path: Annotated[
             str | None,
@@ -72,6 +71,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create a WEA file target from EPW weather data."""
+        from garden.radiance.sky import create_wea_from_weather_file as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

@@ -98,6 +98,7 @@ _METRIC_SUFFIXES = {
     "udi": {".udi"},
     "udi_lower": {".udi"},
     "udi_upper": {".udi"},
+    "ga": {".ga"},
 }
 
 
@@ -281,6 +282,21 @@ def summarize_radiance_glare_metrics(
     _require_completed(record)
     result_root = _results_root(root, record)
     dgp_files = _find_dgp_files(result_root)
+    ga_folder = _existing_output_root(root, record, "ga")
+    if ga_folder is None:
+        metrics_root = _existing_output_root(root, record, "metrics")
+        ga_folder = metrics_root / "ga" if metrics_root is not None else None
+    ga_summary = (
+        _metric_folder_summary(ga_folder, metric="ga", include_values=include_values)
+        if ga_folder is not None and ga_folder.is_dir()
+        else None
+    )
+    ga_available = bool(ga_summary and ga_summary["sensor_count"])
+    warnings: list[str] = []
+    if not ga_available:
+        warnings.append(
+            "Glare autonomy (GA) output was not found in the completed run."
+        )
     values: list[float] = []
     for file_path in dgp_files:
         values.extend(_read_numbers(file_path))
@@ -296,13 +312,19 @@ def summarize_radiance_glare_metrics(
                 "recipe": record.get("recipe"),
                 "view_identifier": view_identifier,
                 "dgp_available": False,
+                "ga_available": ga_available,
+                "ga": ga_summary,
                 "available_result_files": [
                     to_posix_relative(path, root)
                     for path in sorted(result_root.rglob("*"))
                     if path.is_file()
                 ][:50],
             },
-            "report": make_report(status="blocked", message=message),
+            "report": make_report(
+                status="blocked",
+                message=message,
+                warnings=warnings,
+            ),
         }
     exceedance_count = sum(1 for value in values if value > dgp_threshold)
     dgp: dict[str, Any] = {
@@ -323,6 +345,8 @@ def summarize_radiance_glare_metrics(
         "recipe": record.get("recipe"),
         "view_identifier": view_identifier,
         "dgp": dgp,
+        "ga": ga_summary,
+        "ga_available": ga_available,
         "provenance": {"results_path": to_posix_relative(result_root, root)},
     }
     result: dict[str, Any] = {
@@ -333,9 +357,15 @@ def summarize_radiance_glare_metrics(
             "view_identifier": view_identifier,
             "dgp_available": True,
             "dgp": dgp,
+            "ga_available": ga_available,
+            "ga": ga_summary,
             "body_returned": False,
         },
-        "report": make_report(status="ok", message="Radiance DGP/glare summary returned."),
+        "report": make_report(
+            status="ok",
+            message="Radiance DGP/glare summary returned.",
+            warnings=warnings,
+        ),
     }
     if save_report:
         target, receipt = _save_report(

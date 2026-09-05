@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.honeybee_core.relate import relate_honeybee_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the honeybee_relate_model tool.'
+    'Register the HB_relate_model tool.'
 
     @mcp.tool(
-        name="relate_model",
+        name="HB_relate_model",
         description="Run SDK-backed Honeybee model relationship processing for solve_adjacency, Surface boundary relationships, optional room-face intersection, coplanar merge, AirBoundary/adiabatic settings, and explicit high-risk cleanup or missing sub-face repair. explicit_relate_full enables overwrite, relationship_cleanup, mismatched sub-face deletion, and clone_missing Aperture/Door repair, so use it only when the user asks for repair/overwrite/delete mismatch cleanup. Returns summary_view.model_target, persistence_receipt, and report for validation or export calls; there is no top-level target.",
         tags={
             "adjacency",
@@ -30,13 +29,13 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
+                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         relation_mode: Annotated[
@@ -113,6 +112,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Solve Honeybee model relationships with the SDK."""
+        from garden.honeybee_core.relate import relate_honeybee_model as service
+
         if solve_adjacency is True:
             relation_mode = "solve_adjacency"
         return service(

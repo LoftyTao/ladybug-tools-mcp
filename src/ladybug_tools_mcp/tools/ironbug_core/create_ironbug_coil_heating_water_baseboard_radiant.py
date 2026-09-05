@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_coil_heating_water_baseboard_radiant.'
+'MCP tool for IB_coil_heating_water_baseboard_radiant.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_coil_heating_water_baseboard_radiant tool.'
+    'Register the IB_coil_heating_water_baseboard_radiant tool.'
 
     @mcp.tool(
-        name='coil_heating_water_baseboard_radiant',
+        name='IB_coil_heating_water_baseboard_radiant',
         description=(
             'Create IB_CoilHeatingWaterBaseboardRadiant, the hot-water coil child for IB_ZoneHVACBaseboardRadiantConvectiveWater / EnergyPlus ZoneHVAC:Baseboard:RadiantConvective:Water equipment. Use it to define rated water temperature, rated water mass flow, heating capacity, and maximum water flow; connect its water side to a hot-water loop demand branch and use the parent baseboard zone-equipment tool for thermal-zone placement and radiant distribution. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_coil_heating_water_baseboard_radiant(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -109,6 +108,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_CoilHeatingWaterBaseboardRadiant as a reviewed Ironbug LoopObjs / PlantLoopObjects authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

@@ -7,19 +7,18 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.creation import create_dragonfly_story as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_create_story tool.'
+    'Register the DF_story tool.'
 
     @mcp.tool(
-        name="story",
+        name="DF_story",
         description=(
             "Create a Dragonfly Story draft object from Dragonfly Room2D targets. "
             "The parameter name is exactly room2d_targets, not room2ds and not room_2ds. "
             "Pass identifier or a natural display_name; the returned Story target "
-            "can be passed to dragonfly_create_building. This does not attach the "
+            "can be passed to DF_building. This does not attach the "
             "Story to a Building until that Building tool is called."
         ),
         tags={"dragonfly", "story", "room2d", "author", "assembly"},
@@ -28,7 +27,7 @@ def register(mcp: FastMCP) -> None:
     def create_dragonfly_story(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         room2d_targets: Annotated[
             list[dict[str, Any]] | None,
@@ -36,7 +35,7 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Required list of Dragonfly Room2D targets. The parameter name "
                     "is exactly room2d_targets, not room2ds and not room_2ds. Use "
-                    'room2d_target values returned by dragonfly_create_room2d or '
+                    'room2d_target values returned by DF_room2d or '
                     "target values from a Room2D search."
                 )
             ),
@@ -54,7 +53,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
@@ -92,6 +91,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Create a Dragonfly Story."""
+        from garden.dragonfly_core.creation import create_dragonfly_story as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

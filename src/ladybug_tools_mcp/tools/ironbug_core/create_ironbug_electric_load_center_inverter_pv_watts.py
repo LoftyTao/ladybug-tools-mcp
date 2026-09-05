@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_electric_load_center_inverter_pv_watts.'
+'MCP tool for IB_electric_load_center_inverter_pv_watts.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_electric_load_center_inverter_pv_watts tool.'
+    'Register the IB_electric_load_center_inverter_pv_watts tool.'
 
     @mcp.tool(
-        name='electric_load_center_inverter_pv_watts',
+        name='IB_electric_load_center_inverter_pv_watts',
         description=(
             'Create IB_ElectricLoadCenterInverterPVWatts, an EnergyPlus/OpenStudio ElectricLoadCenter:Inverter:PVWatts object for a Distribution that uses Generator:PVWatts objects. Use it for PVWatts load-center workflows, not for Generator:Photovoltaic or general inverter performance tables. This tool authors PVWatts inverter input only; it does not create PV arrays, generator lists, distribution panels, or run simulation. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_electric_load_center_inverter_pv_watts(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -85,6 +84,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_ElectricLoadCenterInverterPVWatts as reviewed PVWatts inverter data."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

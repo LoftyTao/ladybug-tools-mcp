@@ -7,16 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.envelope_parameters import (
-    apply_dragonfly_shading_parameter as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_apply_shading_parameter tool.'
+    'Register the DF_apply_shading_parameter tool.'
 
     @mcp.tool(
-        name="apply_shading_parameter",
+        name="DF_apply_shading_parameter",
         description=(
             "Apply a Dragonfly ShadingParameter artifact using public Dragonfly SDK "
             "set_outdoor_shading_parameters methods. Supports Room2D, Story, Building, "
@@ -30,13 +27,13 @@ def register(mcp: FastMCP) -> None:
     def apply_dragonfly_shading_parameter(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         shading_parameter: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required parameter dict returned by dragonfly_create_shading_parameter. '
+                    'Required parameter dict returned by DF_create_shading_parameter. '
                     "Use create result['parameter'] or result['shading_parameter']; do not "
                     "look for value.shading_parameter."
                 )
@@ -54,7 +51,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
@@ -65,6 +62,10 @@ def register(mcp: FastMCP) -> None:
         ] = "all_outdoor",
     ) -> dict[str, Any]:
         """Apply a Dragonfly ShadingParameter."""
+        from garden.dragonfly_core.envelope_parameters import (
+            apply_dragonfly_shading_parameter as service,
+        )
+
         return service(
             garden_root=garden_root,
             shading_parameter=shading_parameter,

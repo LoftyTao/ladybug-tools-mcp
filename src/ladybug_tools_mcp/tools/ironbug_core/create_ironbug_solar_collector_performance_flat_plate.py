@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_solar_collector_performance_flat_plate.'
+'MCP tool for IB_solar_collector_performance_flat_plate.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_solar_collector_performance_flat_plate tool.'
+    'Register the IB_solar_collector_performance_flat_plate tool.'
 
     @mcp.tool(
-        name='solar_collector_performance_flat_plate',
+        name='IB_solar_collector_performance_flat_plate',
         description=(
             'Create IB_SolarCollectorPerformanceFlatPlate, the Ironbug and EnergyPlus SolarCollectorPerformance:FlatPlate object. It stores SRCC/ASHRAE-style thermal efficiency and incident-angle modifier coefficients for a SolarCollector:FlatPlate:Water child target. This is performance data, not a collector surface, plant-loop component, PV module, or Energy result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -30,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -113,6 +112,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create flat-plate solar collector performance data."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

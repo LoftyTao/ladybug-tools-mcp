@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import subprocess
 import sys
-import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -21,8 +18,10 @@ from honeybee.config import folders as hb_folders
 from ladybug.epw import EPW
 
 from garden.dragonfly_core.model_io import load_dragonfly_model, resolve_model_target
-from garden.manifest import GardenManifest
-from garden.paths import slugify_name, to_posix_relative
+from garden.manifest import GardenManifest, utc_now_iso
+from garden.paths import to_posix_relative
+from garden.run_ledger import RunLedger, make_run_target, normalize_run_id, project_run
+from garden.run_ledger import run_id_from_target_or_value
 from garden.run_energy.config import make_garden_weather_target
 from garden.run_uwg import UWG_DOMAIN, UWG_RUN_RECIPE, UWG_RUN_TARGET_TYPE
 from garden.run_uwg.parameters import load_uwg_simulation_parameter
@@ -34,7 +33,7 @@ UWG_RUN_INDEX = UWG_RUNS_DIR / "index.json"
 OUTPUT_NAMES = ("uwg_json", "morphed_epw", "weather_target", "stdio_log")
 UWG_CLI_TIMEOUT_SECONDS = 900
 
-_uwg_index_lock = threading.Lock()
+_UWG_RUN_LEDGER = RunLedger(lock="thread", empty_is_empty=True, ensure_ascii=True)
 
 
 def run_uwg(
@@ -68,7 +67,7 @@ def run_uwg(
     outputs_dir.mkdir(parents=True, exist_ok=True)
     inputs_dir.mkdir(parents=True, exist_ok=True)
     stdio_log = run_dir / "uwg_stdio.log"
-    started_at = _utc_now()
+    started_at = utc_now_iso()
 
     try:
         model = load_dragonfly_model(garden_root_path, resolved_model_target)
@@ -120,7 +119,7 @@ def run_uwg(
             simulation_parameter_target=parameter_target,
             run_dir=run_dir,
             started_at=started_at,
-            completed_at=_utc_now(),
+            completed_at=utc_now_iso(),
             preflight=preflight,
             outputs={
                 "uwg_json": _output("uwg_json", garden_root_path, uwg_json_path),
@@ -144,7 +143,7 @@ def run_uwg(
             simulation_parameter_target=simulation_parameter_target,
             run_dir=run_dir,
             started_at=started_at,
-            completed_at=_utc_now(),
+            completed_at=utc_now_iso(),
             preflight={"status": "failed", "issues": [str(exc)]},
             error=str(exc),
             outputs={"stdio_log": _output("stdio_log", garden_root_path, stdio_log)},
@@ -271,7 +270,7 @@ def start_uwg_run(
     target = _run_target(manifest.garden_id, normalized_run_id)
     run_dir = garden_root_path / UWG_RUNS_DIR / normalized_run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    started_at = _utc_now()
+    started_at = utc_now_iso()
     try:
         resolved_epw = resolve_epw_path(
             garden_root=garden_root_path,
@@ -297,7 +296,7 @@ def start_uwg_run(
             simulation_parameter_target=simulation_parameter_target,
             run_dir=run_dir,
             started_at=started_at,
-            completed_at=_utc_now(),
+            completed_at=utc_now_iso(),
             preflight=preflight,
             error="; ".join(preflight["issues"]),
             outputs={},
@@ -369,7 +368,7 @@ def list_uwg_runs(
 ) -> dict[str, Any]:
     """List UWG run records."""
     garden_root_path = Path(garden_root).expanduser().resolve()
-    records = _read_index(garden_root_path).get("runs", [])
+    records = _UWG_RUN_LEDGER.list(garden_root_path / UWG_RUN_INDEX)
     if status is not None:
         records = [record for record in records if record.get("status") == status]
     matches = [_public_run(record) for record in records]
@@ -412,15 +411,7 @@ def list_uwg_run_outputs(
     }
 
 
-class _BackgroundExecutor:
-    def __init__(self) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="uwg")
-
-    def submit(self, fn, **kwargs):
-        return self._executor.submit(fn, **kwargs)
-
-
-_BACKGROUND_EXECUTOR = _BackgroundExecutor()
+_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="uwg")
 
 
 def _record(
@@ -464,85 +455,66 @@ def _normalize_run_id(
     run_id: str | None,
     model_target: dict[str, Any],
 ) -> str:
-    if run_id:
-        return slugify_name(run_id)
-    return slugify_name(f"{model_target['model_identifier']}_uwg_{uuid4().hex[:8]}")
+    return normalize_run_id(
+        run_id,
+        run_id or f"{model_target['model_identifier']}_uwg_{uuid4().hex[:8]}",
+    )
 
 
 def _run_target(garden_id: str, run_id: str) -> dict[str, Any]:
-    return {
-        "target_type": UWG_RUN_TARGET_TYPE,
-        "garden_id": garden_id,
-        "domain": UWG_DOMAIN,
-        "recipe": UWG_RUN_RECIPE,
-        "run_id": run_id,
-    }
+    return make_run_target(
+        target_type=UWG_RUN_TARGET_TYPE,
+        garden_id=garden_id,
+        domain=UWG_DOMAIN,
+        recipe=UWG_RUN_RECIPE,
+        run_id=run_id,
+    )
 
 
 def _run_id_from_target_or_value(
     run_target: dict[str, Any] | None,
     run_id: str | None,
 ) -> str:
-    if run_target is not None:
-        if run_target.get("target_type") != UWG_RUN_TARGET_TYPE:
-            raise ValueError("run_target must be a uwg_run target.")
-        value = run_target.get("run_id")
-        if not value:
-            raise ValueError("uwg_run target requires run_id.")
-        return str(value)
-    if run_id:
-        return slugify_name(run_id)
-    raise ValueError("Pass run_target or run_id.")
-
-
-def _read_index(garden_root: Path) -> dict[str, Any]:
-    path = garden_root / UWG_RUN_INDEX
-    if not path.is_file():
-        return {"runs": []}
-    text = path.read_text(encoding="utf-8")
-    return json.loads(text) if text.strip() else {"runs": []}
-
-
-def _write_index(garden_root: Path, payload: dict[str, Any]) -> None:
-    path = garden_root / UWG_RUN_INDEX
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return run_id_from_target_or_value(
+        run_target,
+        run_id,
+        target_type=UWG_RUN_TARGET_TYPE,
+        missing_message="Pass run_target or run_id.",
+        slug_value=True,
+    )
 
 
 def _upsert_record(garden_root: Path, record: dict[str, Any]) -> None:
-    with _uwg_index_lock:
-        index = _read_index(garden_root)
-        index["runs"] = [
-            item for item in index.get("runs", []) if item.get("run_id") != record["run_id"]
-        ]
-        index["runs"].append(record)
-        _write_index(garden_root, index)
+    _UWG_RUN_LEDGER.upsert(garden_root / UWG_RUN_INDEX, record)
 
 
 def _run_record_by_id(garden_root: Path, run_id: str) -> dict[str, Any] | None:
-    for record in _read_index(garden_root).get("runs", []):
-        if record.get("run_id") == run_id:
-            return record
-    return None
+    return _UWG_RUN_LEDGER.get(garden_root / UWG_RUN_INDEX, run_id)
 
 
 def _public_run(record: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "run_id": record.get("run_id"),
-        "target": record.get("target"),
-        "recipe": record.get("recipe"),
-        "status": record.get("status"),
-        "created_at": record.get("created_at"),
-        "started_at": record.get("started_at"),
-        "completed_at": record.get("completed_at"),
-        "run_folder": record.get("run_folder"),
-        "model_target": record.get("model_target"),
-        "weather_target": record.get("weather_target"),
-        "simulation_parameter_target": record.get("simulation_parameter_target"),
-        "preflight": record.get("preflight"),
-        "outputs": record.get("outputs") or {},
-        "error": record.get("error"),
-    }
+    public = project_run(
+        record,
+        (
+            "run_id",
+            "target",
+            "recipe",
+            "status",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "run_folder",
+            "model_target",
+            "weather_target",
+            "simulation_parameter_target",
+            "preflight",
+            "outputs",
+            "error",
+        ),
+        include_missing=True,
+    )
+    public["outputs"] = record.get("outputs") or {}
+    return public
 
 
 def _result_from_record(
@@ -562,7 +534,7 @@ def _result_from_record(
             "run": public,
             "outputs": record.get("outputs") or {},
             "poll_next": {
-                "tool": "get_uwg_run",
+                "tool": "DF_uwg_poll_simulation",
                 "arguments": {"garden_root": garden_root, "run_target": target},
             },
         },
@@ -630,41 +602,3 @@ def _output(name: str, garden_root: Path, path: Path) -> dict[str, Any]:
         "path": to_posix_relative(path, garden_root),
         "exists": path.exists(),
     }
-
-
-@contextlib.contextmanager
-def _capture_stdio(path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    saved_fds: list[tuple[int, int]] = []
-    with path.open("a", encoding="utf-8", errors="replace") as handle:
-        for stream in (sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__):
-            try:
-                stream.flush()
-            except Exception:
-                pass
-        for fd in (1, 2):
-            try:
-                saved_fd = os.dup(fd)
-                os.dup2(handle.fileno(), fd)
-            except OSError:
-                continue
-            saved_fds.append((fd, saved_fd))
-        try:
-            with contextlib.redirect_stdout(handle), contextlib.redirect_stderr(handle):
-                yield
-        finally:
-            for stream in (sys.stdout, sys.stderr):
-                try:
-                    stream.flush()
-                except Exception:
-                    pass
-            handle.flush()
-            for fd, saved_fd in reversed(saved_fds):
-                try:
-                    os.dup2(saved_fd, fd)
-                finally:
-                    os.close(saved_fd)
-
-
-def _utc_now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")

@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.runs import list_urbanopt_run_outputs as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the URBANopt output listing tool."""
 
     @mcp.tool(
-        name="list_urbanopt_run_outputs",
+        name="DF_des_list_urbanopt_run_outputs",
         description=(
             "List the saved output files for one Garden URBANopt DES run as "
             "compact path records. Use after polling has found completed or "
@@ -31,4 +30,6 @@ def register(mcp: FastMCP) -> None:
         run_id: Annotated[str | None, Field(description="URBANopt run id to list when run_target is not available.") ] = None,
     ) -> dict[str, Any]:
         """List URBANopt run outputs."""
+        from garden.dragonfly_des.runs import list_urbanopt_run_outputs as service
+
         return service(garden_root=garden_root, run_target=run_target, run_id=run_id)

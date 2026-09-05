@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_coil_cooling_dx_variable_refrigerant_flow.'
+'MCP tool for IB_coil_cooling_dx_variable_refrigerant_flow.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_coil_cooling_dx_variable_refrigerant_flow tool.'
+    'Register the IB_coil_cooling_dx_variable_refrigerant_flow tool.'
 
     @mcp.tool(
-        name='coil_cooling_dx_variable_refrigerant_flow',
+        name='IB_coil_cooling_dx_variable_refrigerant_flow',
         description=(
             'Create IB_CoilCoolingDXVariableRefrigerantFlow, an OpenStudio/EnergyPlus Coil:Cooling:DX:VariableRefrigerantFlow object for a VRF terminal unit cooling coil. Use the returned target with the advanced VRF terminal-unit workflow and connect that terminal to an AirConditioner:VariableRefrigerantFlow outdoor system; this is not the VRF outdoor unit itself. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_coil_cooling_dx_variable_refrigerant_flow(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -101,6 +100,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_CoilCoolingDXVariableRefrigerantFlow as a reviewed Ironbug Loop Objs authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

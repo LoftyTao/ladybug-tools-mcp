@@ -20,18 +20,18 @@ The main collaboration chain is `FP Garden List` or `FP Create Garden` into `FP 
 
 ## MCP Route
 
-1. If the user says "current Grasshopper model" and the Garden is known, prefer `flowerpot_get_active_context(garden_root=...)`.
-2. If an opaque Flowerpot is provided, call `flowerpot_get(flowerpot=<opaque Flowerpot>)`.
+1. If the user says "current Grasshopper model" and the Garden is known, prefer `FP_get_active_context(garden_root=...)`.
+2. If an opaque Flowerpot is provided, call `FP_get(flowerpot=<opaque Flowerpot>)`.
 3. Read `summary_view.garden_root`.
-4. Continue with normal Garden tools such as `honeybee_create_room`, `honeybee_search_model_objects`, and `honeybee_validate_model`.
+4. Continue with normal Garden tools such as `HB_create_room`, `HB_search_model_objects`, and `HB_validate_model`.
 
 ## Code Mode Pattern
 
 ```python
-context = await call_tool("flowerpot_get", {"flowerpot": flowerpot})
+context = await call_tool("FP_get", {"flowerpot": flowerpot})
 garden_root = context["summary_view"]["garden_root"]
 
-room = await call_tool("honeybee_create_room", {
+room = await call_tool("HB_create_room", {
     "garden_root": garden_root,
     "identifier": "agent_room_from_flowerpot",
     "x_dim": 4,
@@ -39,24 +39,24 @@ room = await call_tool("honeybee_create_room", {
     "height": 3
 })
 
-rooms = await call_tool("honeybee_search_model_objects", {
+rooms = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "room"
 })
-validation = await call_tool("honeybee_validate_model", {"garden_root": garden_root})
+validation = await call_tool("HB_validate_model", {"garden_root": garden_root})
 ```
 
 ## Success Criteria
 
 - Agent never manually reads or interprets `flowerpot["payload_context"]`.
-- `flowerpot_get` or active context resolution returns `summary_view.garden_root`.
+- `FP_get` or active context resolution returns `summary_view.garden_root`.
 - New Honeybee edits write to the Garden base model linked by Grasshopper.
-- `honeybee_validate_model.is_valid == true` when the workflow claims a valid model.
+- `HB_validate_model.is_valid == true` when the workflow claims a valid model.
 - `FP Honeybee Link follow_=True` can observe Garden model changes after the component has loaded the current runtime.
 
 ## Stop Conditions
 
 - Do not ask the user to split Flowerpot internals.
-- `flowerpot_get(..., include_body=True)` still does not return full model bodies; continue through Garden tools.
+- `FP_get(..., include_body=True)` still does not return full model bodies; continue through Garden tools.
 - Reuse existing Flowerpot handoff records unless the user explicitly asks for `force_new=true`.
 - Prefer MCP for Program, HVAC, Construction, Modifier, batch windows/shades, search, validation, and summaries; prefer Grasshopper for component wiring and visual geometry sliders.

@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.honeybee_core.search import (
-    search_honeybee_model_objects as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the honeybee_search_model_objects tool.'
+    'Register the HB_search_model_objects tool.'
 
     @mcp.tool(
-        name="search_model_objects",
+        name="HB_search_model_objects",
         description="Search Honeybee Room, Face, Aperture/window, Door, and Shade objects in the Garden base model or an explicit model_target. Use object_type plus identifier, query, room_identifier, face_identifier, face_type, boundary_condition, or children_scope to narrow results; for exterior wall/window workflows search faces with face_type=Wall and boundary_condition=Outdoors, then search children under the face. Returns matches with nested target dicts, compact child_counts, geometry summaries, limited room/shade energy_properties, summary_view, and a top-level target only when there is one match. Pass matches[i].target to create/edit/remove tools. This is not for Energy library resources or Radiance SensorGrids/Views.",
         tags={
             "aperture",
@@ -36,13 +33,13 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model; do not pass model_identifier or a full model body."
+                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model; do not pass model_identifier or a full model body."
             ),
         ] = None,
         object_type: Annotated[
@@ -99,6 +96,10 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Search Honeybee objects and return typed targets."""
+        from garden.honeybee_core.search import (
+            search_honeybee_model_objects as service,
+        )
+
         object_type = object_type.strip().lower().replace("-", "_").replace(" ", "_")
         return service(
             garden_root=garden_root,

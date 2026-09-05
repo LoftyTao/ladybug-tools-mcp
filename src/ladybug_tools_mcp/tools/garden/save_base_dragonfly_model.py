@@ -7,14 +7,13 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.store import save_base_dragonfly_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the garden_save_base_dragonfly_model tool.'
+    'Register the GD_save_base_dragonfly_model tool.'
 
     @mcp.tool(
-        name='save_base_dragonfly_model',
+        name='GD_save_base_dragonfly_model',
         description=(
             "Persist the current Garden base Dragonfly model back to Garden "
             "authoring truth as DFJSON. Use after Dragonfly edits have changed the "
@@ -39,7 +38,7 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Required Garden root path containing garden.json, usually "
-                    "garden_create['garden_root']; save the current Dragonfly "
+                    "GD_create['garden_root']; save the current Dragonfly "
                     "base-model slot for this Garden."
                 )
             ),
@@ -86,6 +85,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, object]:
         """Save the current Garden base Dragonfly model."""
+        from garden.store import save_base_dragonfly_model as service
+
         return service(
             garden_root=garden_root,
             message=message,

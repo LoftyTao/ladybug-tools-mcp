@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.programtypes import create_service_hot_water as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_service_hot_water tool.'
+    'Register the EP_create_service_hot_water tool.'
 
     @mcp.tool(
-        name='create_service_hot_water',
-        description='Create a Honeybee Energy ServiceHotWater demand load from floor-area hot water use, optional fractional schedule, tap target temperature, and sensible/latent fractions. Use it as the program-type domestic hot water demand companion to ventilation, infiltration, thermostat, and humidistat loads; it does not size outdoor air or ACH. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to energy_create_program_type.service_hot_water; set return_object_dict=false only when you want a low-token target/summary/receipt response. This describes hot-water use demand and zone gains, not a service hot-water plant, water heater, or loop component.',
+        name='EP_create_service_hot_water',
+        description='Create a Honeybee Energy ServiceHotWater demand load from floor-area hot water use, optional fractional schedule, tap target temperature, and sensible/latent fractions. Use it as the program-type domestic hot water demand companion to ventilation, infiltration, thermostat, and humidistat loads; it does not size outdoor air or ACH. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to EP_create_program_type.service_hot_water; set return_object_dict=false only when you want a low-token target/summary/receipt response. This describes hot-water use demand and zone gains, not a service hot-water plant, water heater, or loop component.',
         tags={
             "author",
             "energy",
@@ -51,7 +50,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -62,6 +61,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy ServiceHotWater object."""
+        from garden.energy.programtypes import create_service_hot_water as service
+
         return service(
             identifier=identifier,
             flow_per_area=flow_per_area,

@@ -11,14 +11,14 @@ Use this when the user wants an existing VisualizationSet exported as an interac
 ## MCP Route
 
 1. Create or retrieve a compact VisualizationSet target.
-2. Call `visualization_set_to_html`.
+2. Call `LB_set_to_html`.
 3. Pass `garden_root`, `visualization_set_target`, and optional `name`.
 4. Return `artifact_receipt.artifact_path` or top-level artifact fields.
 
 ## Code Mode Pattern
 
 ```python
-html = await call_tool("visualization_set_to_html", {
+html = await call_tool("LB_set_to_html", {
     "garden_root": garden_root,
     "visualization_set_target": vis["visualization_set_target"],
     "name": "agent_html_preview"
@@ -27,7 +27,7 @@ html = await call_tool("visualization_set_to_html", {
 
 ## Recovery
 
-Exporters can load a Garden `visualization_set_json` artifact record or a Garden-relative path shape such as `{"artifact": "artifacts/visualization_sets/name.json"}` when recovering from `garden_list_artifacts`. This is deterministic-pass recovery; target handoff is the preferred path.
+Exporters can load a Garden `visualization_set_json` artifact record or a Garden-relative path shape such as `{"artifact": "artifacts/visualization_sets/name.json"}` when recovering from `GD_list_artifacts`. This is deterministic-pass recovery; target handoff is the preferred path.
 
 ## Success Criteria
 

@@ -1,4 +1,4 @@
-"""Web View session state for FastMCP App vtk.js previews.
+"""Web View session state for local vtk.js previews.
 
 This module only coordinates Garden-backed preview state. Geometry and result
 visuals must come from Ladybug Tools SDK/MCP artifacts such as `.vtkjs` files.
@@ -106,7 +106,7 @@ def start_web_view_session(
             "name": manifest.name,
         },
         "viewer": {
-            "ui": "FastMCP App",
+            "ui": "Local sidebar viewer",
             "library": "vtk.js",
             "mode": "mcp_app_preview",
         },
@@ -193,7 +193,7 @@ def _resolve_vtkjs_artifact(
         if not artifacts:
             raise ValueError(
                 "No visualization_vtkjs artifact is registered in this Garden. "
-                "Export a VisualizationSet with visualization_set_to_vtkjs first."
+                "Export a VisualizationSet with LB_set_to_vtkjs first."
             )
         return artifacts[0]
 
@@ -385,7 +385,7 @@ def record_preview_failure(
 
 
 def get_web_view_config(*, garden_root: str) -> dict[str, Any]:
-    """Return the Web View config that the FastMCP App can consume."""
+    """Return the Web View config consumed by the local viewer."""
     root = _resolve_garden_root(garden_root)
     manifest = GardenManifest.read(root)
     session = _read_session(root)

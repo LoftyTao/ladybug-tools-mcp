@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_central_heat_pump_system.'
+'MCP tool for IB_central_heat_pump_system.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_central_heat_pump_system tool.'
+    'Register the IB_central_heat_pump_system tool.'
 
     @mcp.tool(
-        name='central_heat_pump_system',
+        name='IB_central_heat_pump_system',
         description=(
             'Create IB_CentralHeatPumpSystem, the Ironbug and EnergyPlus CentralHeatPumpSystem chiller-heater bank for central plants that can serve chilled-water, hot-water, and condenser/source-water loops. Use it to group ChillerHeaterPerformance:Electric:EIR or CentralHeatPumpSystemModule objects and control cooling-only, heating-only, or simultaneous heating/cooling operation; this is DetailedHVAC plant equipment, not Pump:* hardware and not an Energy HVAC template. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -39,13 +38,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_central_heat_pump_system(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -126,6 +125,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_CentralHeatPumpSystem as a reviewed Ironbug LoopObjs / PlantLoopObjects authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ladybug-tools-mcp"
-version = "1.1.0"
+version = "1.2.0"
 description = "A FastMCP server for Ladybug Tools workflows."
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
@@ -18,14 +18,9 @@ python-ironbug-console = "garden.ironbug_console.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests/deterministic"]
-cache_dir = "tests/.artifacts/pytest_cache"
-pythonpath = ["src"]
-addopts = "-ra"
-markers = [
-  "opencode_sdk: OpenCode SDK worker tests that require local OpenCode runtime and provider configuration",
-  "agent_radiance_cross: slow natural-language Agent Radiance cross workflows with real Radiance runs",
-  "slow: tests that are intentionally long-running and excluded from fast local checks",
-  "radiance_binary: tests that require local Radiance runtime commands",
+[tool.setuptools.package-data]
+ladybug_tools_mcp = [
+  "resources/weather/*/*.epw",
+  "resources/weather/*/*.ddy",
+  "resources/weather/*/*.stat",
 ]

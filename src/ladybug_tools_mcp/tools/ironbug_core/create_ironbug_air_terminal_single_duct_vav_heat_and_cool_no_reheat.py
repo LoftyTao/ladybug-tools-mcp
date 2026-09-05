@@ -1,22 +1,18 @@
-'MCP tool for detailed_hvac_air_terminal_single_duct_vav_heat_and_cool_no_reheat.'
+'MCP tool for IB_air_terminal_single_duct_vav_heat_and_cool_no_reheat.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    set_ironbug_thermal_zone_air_terminal,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_air_terminal_single_duct_vav_heat_and_cool_no_reheat tool.'
+    'Register the IB_air_terminal_single_duct_vav_heat_and_cool_no_reheat tool.'
 
     @mcp.tool(
-        name='air_terminal_single_duct_vav_heat_and_cool_no_reheat',
+        name='IB_air_terminal_single_duct_vav_heat_and_cool_no_reheat',
         description=(
             'Create IB_AirTerminalSingleDuctVAVHeatAndCoolNoReheat, an '
             'Ironbug single-duct variable air volume (VAV) heat-and-cool '
@@ -36,13 +32,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_air_terminal_single_duct_vav_heat_and_cool_no_reheat(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -115,6 +111,12 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_AirTerminalSingleDuctVAVHeatAndCoolNoReheat as a reviewed air terminal."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            set_ironbug_thermal_zone_air_terminal,
+        )
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

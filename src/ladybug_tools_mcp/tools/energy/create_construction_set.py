@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.constructionsets import create_construction_set as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_construction_set tool.'
+    'Register the EP_create_construction_set tool.'
 
     @mcp.tool(
-        name='create_construction_set',
-        description='Create a saved Honeybee Energy ConstructionSet, the envelope default set for wall, floor, roof/ceiling, aperture, door, shade, and air-boundary constructions. Start from a standards-library or Garden base ConstructionSet, then pass subset object_dict overrides or direct construction targets for common slots. Returns object_dict plus summary_view, or saved target plus persistence_receipt when garden_root and return_object_dict=false are supplied; use energy_create_window_construction first for low-U, SHGC, or visible-transmittance window requests.',
+        name='EP_create_construction_set',
+        description='Create a saved Honeybee Energy ConstructionSet, the envelope default set for wall, floor, roof/ceiling, aperture, door, shade, and air-boundary constructions. Start from a standards-library or Garden base ConstructionSet, then pass subset object_dict overrides or direct construction targets for common slots. Returns object_dict plus summary_view, or saved target plus persistence_receipt when garden_root and return_object_dict=false are supplied; use EP_create_window_construction first for low-U, SHGC, or visible-transmittance window requests.',
         tags={
             "energy",
             "construction-set",
@@ -79,7 +78,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -90,6 +89,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy ConstructionSet object."""
+        from garden.energy.constructionsets import create_construction_set as service
+
         return service(
             identifier=identifier,
             base_construction_set=base_construction_set,

@@ -7,14 +7,13 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ladybug_tools_config import get_ladybug_tools_config as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the config_get_runtime_config tool.'
+    'Register the LB_get_runtime_config tool.'
 
     @mcp.tool(
-        name="get_runtime_config",
+        name="LB_get_runtime_config",
         description=(
             "Diagnose the local Ladybug Tools runtime configuration for Radiance, "
             "OpenStudio, EnergyPlus, URBANopt, THERM, and Ironbug.Console. Use this "
@@ -51,6 +50,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict:
         """Return compact local Ladybug Tools SDK runtime configuration."""
+        from garden.ladybug_tools_config import get_ladybug_tools_config as service
+
         result = service()
         if not include_path_updates:
             result["summary_view"].pop("path_updates", None)

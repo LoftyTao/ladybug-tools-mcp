@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.visualize.honeybee import compose_model_analysis_visualization_set as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_compose_model_analysis_visualization_set tool.'
+    'Register the LB_compose_model_analysis_visualization_set tool.'
 
     @mcp.tool(
-        name='compose_model_analysis_visualization_set',
+        name='LB_compose_model_analysis_visualization_set',
         description=(
             "Compose a Garden-backed model-context VisualizationSet target "
             "with an analysis-result VisualizationSet target for overlays such "
@@ -31,7 +30,7 @@ def register(mcp: FastMCP) -> None:
         timeout=30,
     )
     def compose_model_analysis_visualization_set(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         model_context_target: Annotated[
             dict[str, Any],
             Field(description="VisualizationSet target for model context geometry such as Honeybee model wireframe."),
@@ -62,6 +61,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Compose model context with an analysis VisualizationSet and save it."""
+        from garden.visualize.honeybee import compose_model_analysis_visualization_set as service
+
         return service(
             garden_root=garden_root,
             model_context_target=model_context_target,

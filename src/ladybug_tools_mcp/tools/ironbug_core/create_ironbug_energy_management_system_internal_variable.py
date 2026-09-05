@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_energy_management_system_internal_variable.'
+'MCP tool for IB_energy_management_system_internal_variable.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_energy_management_system_internal_variable tool.'
+    'Register the IB_energy_management_system_internal_variable tool.'
 
     @mcp.tool(
-        name='energy_management_system_internal_variable',
+        name='IB_energy_management_system_internal_variable',
         description=(
             'Create IB_EnergyManagementSystemInternalVariable, an EnergyPlus EMS internal variable for static model data such as zone area or air volume. Use internal data key/type values from EnergyPlus EDD/EIO output or a referenced host object; this tool does not discover internal data names, validate Erl, or run simulation. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_energy_management_system_internal_variable(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -75,6 +74,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_EnergyManagementSystemInternalVariable as a reviewed Ironbug EMS authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         custom_attributes: dict[str, Any] = {}
         source_fields: dict[str, Any] = {}

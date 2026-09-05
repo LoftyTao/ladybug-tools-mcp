@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.editing import remove_dragonfly_buildings as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_remove_buildings tool."""
+    """Register the DF_remove_buildings tool."""
 
     @mcp.tool(
-        name="remove_buildings",
+        name="DF_remove_buildings",
         description=(
             "Remove Buildings from a Garden Dragonfly Model using Building object "
             "targets or identifiers. Embedded Stories and Room2Ds inside removed "
@@ -29,7 +28,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[str, Field(description="Required Garden root path containing garden.json.")],
         object_targets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="Optional Building object targets from df_search_objects."),
+            Field(description="Optional Building object targets from DF_search_objects."),
         ] = None,
         building_identifiers: Annotated[
             list[str] | None,
@@ -41,6 +40,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Remove Dragonfly Buildings."""
+        from garden.dragonfly_core.editing import remove_dragonfly_buildings as service
+
         return service(
             garden_root=garden_root,
             object_targets=object_targets,

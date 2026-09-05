@@ -4,17 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.constructionsets import (
-    create_window_construction as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_window_construction tool.'
+    'Register the EP_create_window_construction tool.'
 
     @mcp.tool(
-        name='create_window_construction',
-        description='Create a Honeybee Energy WindowConstruction from glazing/gas layers ordered from outside to inside, with an optional frame. For natural requests like a low-U window, low U-value glazing, U-factor, SHGC, visible transmittance, simple window construction, or simple glazing system, omit materials and pass u_factor, shgc, and vt to create a SDK SimpleGlazSys construction directly. In an existing Garden workflow, pass garden_root and set return_object_dict=false to save a reusable Garden target, then pass the returned target to energy_create_construction_set.aperture_set for the exterior window slot. Do not handwrite a WindowConstruction dict. Returns object_dict plus summary_view, or target plus persistence_receipt when saved.',
+        name='EP_create_window_construction',
+        description='Create a Honeybee Energy WindowConstruction from glazing/gas layers ordered from outside to inside, with an optional frame. For natural requests like a low-U window, low U-value glazing, U-factor, SHGC, visible transmittance, simple window construction, or simple glazing system, omit materials and pass u_factor, shgc, and vt to create a SDK SimpleGlazSys construction directly. In an existing Garden workflow, pass garden_root and set return_object_dict=false to save a reusable Garden target, then pass the returned target to EP_create_construction_set.aperture_set for the exterior window slot. Do not handwrite a WindowConstruction dict. Returns object_dict plus summary_view, or target plus persistence_receipt when saved.',
         tags={
             "energy",
             "construction",
@@ -68,7 +65,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -79,6 +76,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy WindowConstruction object."""
+        from garden.energy.constructionsets import (
+            create_window_construction as service,
+        )
+
         return service(
             identifier=identifier,
             materials=materials,

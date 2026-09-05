@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.ventilation import setup_airflow_network as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_setup_airflow_network tool.'
+    'Register the EP_setup_airflow_network tool.'
 
     @mcp.tool(
-        name='setup_airflow_network',
+        name='EP_setup_airflow_network',
         description="Generate EnergyPlus AirflowNetwork properties for selected Honeybee Rooms using the Honeybee Energy AFN generator. Use this for pressure-driven multizone airflow, Face vent_crack leakage, closed-opening leakage, and optional room-infiltration-derived exterior cracks; it is not the simple operable-window setup, not a VentilationFan, and not the ProgramType Ventilation load. Returns the updated Honeybee model target in target and summary_view.target plus persistence_receipt and report.",
         tags={
             "airflow-network",
@@ -27,7 +26,7 @@ def register(mcp: FastMCP) -> None:
     def setup_airflow_network(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
@@ -39,7 +38,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         room_targets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description='Optional Honeybee Room typed targets from honeybee_search_model_objects. Use this or room_identifiers; omit both to use all Rooms.'),
+            Field(description='Optional Honeybee Room typed targets from HB_search_model_objects. Use this or room_identifiers; omit both to use all Rooms.'),
         ] = None,
         vent_control_type: Annotated[
             str,
@@ -91,6 +90,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Generate AirflowNetwork properties."""
+        from garden.energy.ventilation import setup_airflow_network as service
+
         return service(
             garden_root=garden_root,
             model_target=model_target,

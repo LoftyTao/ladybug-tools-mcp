@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_plant_component_user_defined.'
+'MCP tool for IB_plant_component_user_defined.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_plant_component_user_defined tool.'
+    'Register the IB_plant_component_user_defined tool.'
 
     @mcp.tool(
-        name='plant_component_user_defined',
+        name='IB_plant_component_user_defined',
         description=(
             'Create IB_PlantComponentUserDefined, an EnergyPlus PlantComponent:UserDefined custom plant component backed by EMS actuators, Erl programs, and calling managers. Use it only when supplying the required plant loading/flow modes and EMS control targets; this is not the generic DetailedHVAC component fallback, an external-code runner, a result reader, or an Energy run. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_plant_component_user_defined(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -185,6 +184,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug PlantComponent:UserDefined object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

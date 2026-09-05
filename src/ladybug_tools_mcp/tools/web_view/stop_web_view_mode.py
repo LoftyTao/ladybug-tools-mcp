@@ -12,12 +12,12 @@ from web_view.session import stop_web_view_session
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the web_view_stop_mode tool.'
+    'Register the GD_web_view_stop_mode tool.'
 
     @mcp.tool(
-        name="stop_mode",
+        name="GD_web_view_stop_mode",
         description=(
-            "Stop Garden Web View Mode by marking the FastMCP App preview session "
+            "Stop Garden Web View Mode by marking the local preview session "
             "inactive. Code Mode stops exporting automatic session-managed vtk.js "
             "previews for the Garden after this call. Returns session, "
             "session_path, summary_view, and viewer status. It does not delete "
@@ -33,14 +33,14 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def stop_web_view_mode(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root'].")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root'].")],
     ) -> dict[str, Any]:
         """Disable Web View Mode for a Garden."""
         result = stop_web_view_session(garden_root=garden_root)
         result["url_fallback"] = stop_preview_url_fallback(garden_root=garden_root)
         result["viewer"] = {
             "status": "stopped",
-            "ui": "FastMCP App",
+            "ui": "Local sidebar viewer",
             "library": "vtk.js",
             "mode": "mcp_app_preview",
         }

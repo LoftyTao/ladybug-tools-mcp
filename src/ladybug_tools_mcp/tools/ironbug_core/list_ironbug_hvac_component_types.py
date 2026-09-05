@@ -7,18 +7,17 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core import list_ironbug_hvac_component_types as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_list_hvac_component_types tool.'
+    'Register the IB_list_hvac_component_types tool.'
 
     @mcp.tool(
-        name="list_hvac_component_types",
+        name="IB_list_hvac_component_types",
         description=(
             "List source-backed Ironbug HVAC component types that the assembly "
             "tools can create for Garden-managed .ibjson models. Use this before "
-            'detailed_hvac_add_hvac_component_fallback. It returns component_types with '
+            'IB_add_hvac_component_fallback. It returns component_types with '
             "component_type ids, Ironbug source classes, source paths, and whether "
             "the type is useful for source-backed plant-loop examples such as "
             "Example 1, Example 3 plant-core, or boiler hot-water loops. Optional "
@@ -35,7 +34,7 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Optional Garden root path containing garden.json, usually "
-                    "garden_create['garden_root']; this list is global and does "
+                    "GD_create['garden_root']; this list is global and does "
                     "not require garden_root."
                 )
             ),
@@ -61,6 +60,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """List source-backed Ironbug HVAC component types."""
+
+        from garden.ironbug_core.assembly import list_ironbug_hvac_component_types as service
 
         return service(
             garden_root=garden_root,

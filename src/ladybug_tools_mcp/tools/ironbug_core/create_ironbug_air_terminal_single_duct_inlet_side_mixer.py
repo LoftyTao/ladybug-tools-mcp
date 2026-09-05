@@ -1,15 +1,10 @@
-'MCP tool for detailed_hvac_air_terminal_single_duct_inlet_side_mixer.'
+'MCP tool for IB_air_terminal_single_duct_inlet_side_mixer.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_child,
-    set_ironbug_thermal_zone_air_terminal,
-)
 
 
 def _coalesce_zone_equipment_target(
@@ -27,10 +22,10 @@ def _coalesce_zone_equipment_target(
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_air_terminal_single_duct_inlet_side_mixer tool.'
+    'Register the IB_air_terminal_single_duct_inlet_side_mixer tool.'
 
     @mcp.tool(
-        name='air_terminal_single_duct_inlet_side_mixer',
+        name='IB_air_terminal_single_duct_inlet_side_mixer',
         description=(
             'Create IB_AirTerminalSingleDuctInletSideMixer, an Ironbug '
             'inlet-side air terminal mixer for dedicated outdoor air (DOAS) '
@@ -50,13 +45,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_air_terminal_single_duct_inlet_side_mixer(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -111,7 +106,7 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Optional IB_ZoneEquipment target or same-model identifier "
                     "to attach as this inlet-side mixer's MixedZoneEquip child. "
-                    "Use a detailed_hvac_zone_equipment_* target such as FCU, "
+                    "Use an IB_zone_equipment_* target such as FCU, "
                     "PTAC, PTHP, unit ventilator, VRF terminal, or supported "
                     "unitary equipment; do not pass another air terminal."
                 )
@@ -143,6 +138,13 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_AirTerminalSingleDuctInletSideMixer as a reviewed inlet-side mixer."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            add_ironbug_child,
+            set_ironbug_thermal_zone_air_terminal,
+        )
 
         effective_zone_equipment_target = _coalesce_zone_equipment_target(
             direct_target=zone_equipment_child_target,

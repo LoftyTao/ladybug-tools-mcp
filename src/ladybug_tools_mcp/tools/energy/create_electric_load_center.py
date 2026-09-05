@@ -4,20 +4,19 @@ from __future__ import annotations
 from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.ventilation import create_electric_load_center as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_electric_load_center tool.'
+    'Register the EP_create_electric_load_center tool.'
 
     @mcp.tool(
-        name='create_electric_load_center',
+        name='EP_create_electric_load_center',
         description=(
             "Create Honeybee Energy ElectricLoadCenter model-level settings "
             "for photovoltaic inverter efficiency and DC-to-AC sizing. Use this "
-            "with energy_create_pv_properties on Honeybee Shades, then assign "
+            "with EP_create_pv_properties on Honeybee Shades, then assign "
             "the saved electric_load_center target through "
-            "honeybee_edit_model.electric_load_center. This Honeybee Energy "
+            "HB_edit_model.electric_load_center. This Honeybee Energy "
             "object is separate from Ironbug electric load center objects and "
             "does not start an EnergyPlus run."
         ),
@@ -44,7 +43,7 @@ def register(mcp: FastMCP) -> None:
         ] = 1.1,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ] = None,
         return_object_dict: Annotated[
             bool,
@@ -52,6 +51,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict:
         """Create electric load center settings."""
+        from garden.energy.ventilation import create_electric_load_center as service
+
         return service(
             identifier=identifier,
             inverter_efficiency=inverter_efficiency,

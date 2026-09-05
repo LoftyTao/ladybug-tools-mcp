@@ -7,18 +7,17 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.luminaires import add_radiance_luminaire_to_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_add_luminaire_to_model tool.'
+    'Register the RAD_add_luminaire_to_model tool.'
 
     @mcp.tool(
-        name="add_luminaire_to_model",
+        name="RAD_add_luminaire_to_model",
         description=(
             "Attach Radiance luminaire targets to a Garden Honeybee model for "
             "electric-lighting Radiance studies. Pass luminaire targets from "
-            "radiance_create_luminaire plus an optional Honeybee model target. "
+            "RAD_create_luminaire plus an optional Honeybee model target. "
             "This edits model.properties.radiance.luminaires; it does not "
             "create Energy lighting loads or run rpict/grid recipes. Returns "
             "target, model_target, summary_view, persistence_receipt, and "
@@ -36,7 +35,7 @@ def register(mcp: FastMCP) -> None:
     def add_radiance_luminaire_to_model(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         luminaires: Annotated[
             list[dict[str, Any]],
@@ -52,6 +51,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Attach Radiance Luminaire objects to a Garden Honeybee model."""
+        from garden.radiance.luminaires import add_radiance_luminaire_to_model as service
+
         return service(
             garden_root=garden_root,
             luminaires=luminaires,

@@ -15,7 +15,6 @@ from ironbug.console_ir import (
 
 from garden.ironbug_console.writer_registry_families import (
     FIRST_WRITER_FAMILY_NAMES,
-    _FUTURE_SOURCE_CLASSES,
     _IMPLEMENTED_SOURCE_CLASSES,
     known_source_class_families,
 )
@@ -38,13 +37,6 @@ class ConsoleWriterNodePlan:
                 source_class=node.source_class,
                 writer_family=_IMPLEMENTED_SOURCE_CLASSES[node.source_class],
                 implemented=True,
-            )
-        if node.source_class in _FUTURE_SOURCE_CLASSES:
-            return cls(
-                identifier=node.identifier,
-                source_class=node.source_class,
-                writer_family=_FUTURE_SOURCE_CLASSES[node.source_class],
-                implemented=False,
             )
         return cls(
             identifier=node.identifier,

@@ -7,17 +7,16 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.display import dragonfly_room2d_to_visualization_set as service
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_room2d_to_visualization_set tool."""
+    """Register the DF_room2d_to_visualization_set tool."""
 
     @mcp.tool(
-        name="room2d_to_visualization_set",
+        name="DF_room2d_to_visualization_set",
         description=(
             "Create a compact VisualizationSet preview for one Dragonfly Room2D "
-            "target. Use Room2D targets from df_search_objects, df_room2ds_by_attribute, "
+            "target. Use Room2D targets from DF_search_objects, DF_room2ds_by_attribute, "
             "or creation tools. Set return_visualization_set=false to save the preview "
             "and return visualization_set_target for shared exporters. Returns "
             "summary_view, report, and optionally the VisualizationSet body."
@@ -40,6 +39,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Dragonfly Room2D VisualizationSet."""
+        from garden.dragonfly_core.display import dragonfly_room2d_to_visualization_set as service
+
         return service(
             garden_root=garden_root,
             target=target,

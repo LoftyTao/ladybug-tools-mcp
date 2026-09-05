@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.runs import prepare_urbanopt_project as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the URBANopt project preparation tool."""
 
     @mcp.tool(
-        name="prepare_urbanopt_project",
+        name="DF_des_prepare_urbanopt_project",
         description=(
             "Create the URBANopt runner setup for a DES feature GeoJSON artifact "
             "that does not yet have a scenario CSV target. The tool records the "
@@ -28,13 +27,20 @@ def register(mcp: FastMCP) -> None:
     def prepare_urbanopt_project(
         garden_root: Annotated[str, Field(description="Garden root containing garden.json; runner setup is written inside this Garden.")],
         feature_geojson_target: Annotated[dict[str, Any], Field(description="DES feature GeoJSON artifact target to prepare as an URBANopt project.")],
+        weather_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Garden weather_file target; when provided its EPW is written into the base Honeybee OSW before URBANopt simulation."),
+        ] = None,
         cpu_count: Annotated[int | None, Field(description="Optional positive CPU count for the URBANopt runner configuration.") ] = None,
         verbose: Annotated[bool, Field(description="Ask the generated runner configuration to emit verbose progress output.") ] = False,
     ) -> dict[str, Any]:
         """Prepare an URBANopt project folder."""
+        from garden.dragonfly_des.runs import prepare_urbanopt_project as service
+
         return service(
             garden_root=garden_root,
             feature_geojson_target=feature_geojson_target,
+            weather_target=weather_target,
             cpu_count=cpu_count,
             verbose=verbose,
         )

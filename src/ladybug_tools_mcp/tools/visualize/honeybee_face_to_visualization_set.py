@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.visualize.honeybee import (
-    honeybee_face_to_visualization_set as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_honeybee_face_to_visualization_set tool.'
+    'Register the LB_honeybee_face_to_visualization_set tool.'
 
     @mcp.tool(
-        name='honeybee_face_to_visualization_set',
+        name='LB_honeybee_face_to_visualization_set',
         description=(
             "Visualize one Honeybee Face target as a Ladybug Display "
             "VisualizationSet. Use this read-only preview after object search "
@@ -33,7 +30,7 @@ def register(mcp: FastMCP) -> None:
         timeout=30,
     )
     def honeybee_face_to_visualization_set(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         target: Annotated[
             dict[str, Any], Field(description="Honeybee Face typed target to convert into a VisualizationSet preview.")
         ],
@@ -79,6 +76,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Build a VisualizationSet from a Garden Honeybee Face typed target."""
+        from garden.visualize.honeybee import (
+            honeybee_face_to_visualization_set as service,
+        )
+
         return service(
             garden_root=garden_root,
             target=target,

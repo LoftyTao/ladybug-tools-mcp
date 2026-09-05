@@ -7,7 +7,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.sky import create_cie_standard_sky as service
 
 
 _TIME_ZONE_OFFSET_NAMES = {
@@ -44,10 +43,10 @@ def _normalize_time_zone(time_zone: str | int | float | None) -> str | None:
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_cie_standard_sky tool.'
+    'Register the RAD_create_cie_standard_sky tool.'
 
     @mcp.tool(
-        name='create_cie_standard_sky',
+        name='RAD_create_cie_standard_sky',
         description=(
             "Create a Garden radiance_sky_file target backed by a Radiance "
             "gensky command. Use this for a single-timestep CIE standard sky "
@@ -68,7 +67,7 @@ def register(mcp: FastMCP) -> None:
     def create_cie_standard_sky(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         identifier: Annotated[
             str | None,
@@ -148,6 +147,8 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/radiance/sky",
     ) -> dict[str, Any]:
         """Create a CIE standard Radiance sky file."""
+        from garden.radiance.sky import create_cie_standard_sky as service
+
         if identifier is None:
             identifier = "cie_standard_sky"
         return service(

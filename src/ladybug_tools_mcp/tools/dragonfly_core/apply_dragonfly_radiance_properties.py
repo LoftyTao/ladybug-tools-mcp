@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.properties import apply_dragonfly_radiance_properties as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_apply_radiance_properties tool.'
+    'Register the DF_apply_radiance_properties tool.'
 
     @mcp.tool(
-        name="apply_radiance_properties",
+        name="DF_apply_radiance_properties",
         description=(
             "Apply narrow SDK-backed Dragonfly Radiance properties to a Room2D, "
             "Story, or Building target. Supports Honeybee Radiance ModifierSet "
@@ -33,7 +32,7 @@ def register(mcp: FastMCP) -> None:
     def apply_dragonfly_radiance_properties(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         host_target: Annotated[
             dict[str, Any],
@@ -50,7 +49,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
@@ -116,6 +115,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Apply Dragonfly Radiance properties."""
+        from garden.dragonfly_core.properties import apply_dragonfly_radiance_properties as service
+
         return service(
             garden_root=garden_root,
             host_target=host_target,

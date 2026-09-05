@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_pipe_outdoor.'
+'MCP tool for IB_pipe_outdoor.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_pipe_outdoor tool.'
+    'Register the IB_pipe_outdoor tool.'
 
     @mcp.tool(
-        name='pipe_outdoor',
+        name='IB_pipe_outdoor',
         description=(
             'Create IB_PipeOutdoor, an EnergyPlus Pipe:Outdoor plant-loop pipe with transport delay and heat transfer to an outdoor environment. Use it with pipe diameter and length when the plant pipe should exchange heat outdoors; this is not Pipe:Indoor, Pipe:Adiabatic, a pump, a duct, an underground pipe network, or an Energy run. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_pipe_outdoor(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -87,6 +86,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug Pipe:Outdoor plant-loop heat-transfer pipe."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

@@ -11,7 +11,7 @@ Use this when the user provides IES LM-63 content or a Garden-contained IES file
 ## Create Pattern
 
 ```python
-luminaire = await call_tool("radiance_create_luminaire", {
+luminaire = await call_tool("RAD_create_luminaire", {
     "garden_root": garden_root,
     "ies_content": ies_text,
     "identifier": "sample_luminaire",
@@ -19,7 +19,7 @@ luminaire = await call_tool("radiance_create_luminaire", {
     "custom_lamp": {"mode": "color_temperature", "name": "warm_lamp", "color_temperature": 3000},
     "return_object_dict": False
 })
-found = await call_tool("library_search_garden_properties_objects", {
+found = await call_tool("GD_library_search_garden_properties_objects", {
     "garden_root": garden_root,
     "query": "sample",
     "domain": "honeybee_radiance",
@@ -30,7 +30,7 @@ found = await call_tool("library_search_garden_properties_objects", {
 ## Attach Pattern
 
 ```python
-attached = await call_tool("radiance_add_luminaire_to_model", {
+attached = await call_tool("RAD_add_luminaire_to_model", {
     "garden_root": garden_root,
     "model_target": model_target,
     "luminaires": [luminaire["target"]]
@@ -53,4 +53,3 @@ Use `replace_existing=True` only when intentionally replacing a model luminaire 
 
 - Do not confuse Radiance luminaires with Honeybee Energy lighting loads.
 - Do not attach luminaires unless the downstream scene/run needs them.
-- Keep IES evidence in LLM-Wiki.

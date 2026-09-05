@@ -7,7 +7,6 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.store import list_garden_artifacts
 
 
 def _target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any]) -> dict[str, Any]:
@@ -25,10 +24,10 @@ def _target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_search_views tool.'
+    'Register the RAD_search_views tool.'
 
     @mcp.tool(
-        name="search_views",
+        name="RAD_search_views",
         description=(
             "Search Garden Radiance View artifacts and return compact "
             "radiance_view targets for point-in-time view runs. This searches "
@@ -46,11 +45,13 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def search_radiance_views(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         query: Annotated[str | None, Field(description="Optional View identifier or Garden-relative .vf path substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance View artifacts."""
+        from garden.store import list_garden_artifacts
+
         listed = list_garden_artifacts(
             garden_root=garden_root,
             artifact_type="radiance_view",

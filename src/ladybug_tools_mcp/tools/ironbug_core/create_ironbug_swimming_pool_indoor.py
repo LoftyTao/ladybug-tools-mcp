@@ -1,20 +1,19 @@
-'MCP tool for detailed_hvac_swimming_pool_indoor.'
+'MCP tool for IB_swimming_pool_indoor.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 from ladybug_tools_mcp.tools.ironbug_core.target_identifiers import target_identifier
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_swimming_pool_indoor tool.'
+    'Register the IB_swimming_pool_indoor tool.'
 
     @mcp.tool(
-        name='swimming_pool_indoor',
+        name='IB_swimming_pool_indoor',
         description=(
             'Create IB_SwimmingPoolIndoor, the Ironbug and EnergyPlus SwimmingPool:Indoor plant-loop component linked to a floor surface. It models indoor pool water depth, schedules, cover factors, people load, and heating water flow; it does not create pool geometry, surfaces, or Energy result data. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -31,7 +30,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -143,6 +142,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug indoor swimming-pool plant component."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

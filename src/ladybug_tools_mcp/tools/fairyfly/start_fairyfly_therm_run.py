@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.fairyfly.therm import start_fairyfly_therm_run as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the therm_start_simulation tool.'
+    'Register the FF_start_simulation tool.'
 
     @mcp.tool(
-        name="start_simulation",
+        name="FF_start_simulation",
         description=(
             "Start a Fairyfly THERM two-dimensional heat-transfer run for a "
             "Garden Fairyfly model and return a fairyfly_therm_run target. "
@@ -32,13 +31,13 @@ def register(mcp: FastMCP) -> None:
     def start_fairyfly_therm_run(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Fairyfly Model target dict, usually therm_create_model['target']; "
+                    "Optional Fairyfly Model target dict, usually FF_create_model['target']; "
                     "defaults to the Garden base Fairyfly Model."
                 )
             ),
@@ -53,6 +52,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Start a Fairyfly THERM run and return a run target."""
+        from garden.fairyfly.therm import start_fairyfly_therm_run as service
+
         return service(
             garden_root=garden_root,
             model_target=model_target,

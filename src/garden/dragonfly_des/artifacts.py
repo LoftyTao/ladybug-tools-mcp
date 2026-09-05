@@ -43,16 +43,10 @@ def register_des_artifacts(
 ) -> None:
     """Register DES artifact targets in the Garden manifest."""
     for target in targets:
-        manifest.artifacts = [
-            item
-            for item in manifest.artifacts
-            if not (
-                item.get("domain") == DES_ARTIFACT_DOMAIN
-                and item.get("artifact_type") == target["artifact_type"]
-                and item.get("identifier") == target["identifier"]
-            )
-        ]
-        manifest.artifacts.append(target)
+        manifest.upsert_artifact(
+            target,
+            key_fields=("domain", "artifact_type", "identifier"),
+        )
     manifest.write(garden_root)
 
 

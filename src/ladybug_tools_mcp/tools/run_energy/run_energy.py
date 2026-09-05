@@ -4,21 +4,23 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.run_energy.annual import run_energy as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energyplus_run_simulation_wait tool.'
+    'Register the EP_run_simulation_wait tool.'
 
     @mcp.tool(
-        name="run_simulation_wait",
+        name="EP_run_simulation_wait",
         description=(
             "Run the blocking Honeybee Energy annual-energy-use recipe for a "
             "Garden Honeybee model with Garden-managed EPW/DDY weather. Use "
-            "energyplus_start_simulation plus energyplus_poll_simulation for "
+            "EP_start_simulation plus EP_poll_simulation for "
             "the normal nonblocking workflow. Advanced users can pass "
+            "a reusable simulation_parameter_target or the inline sim_par "
+            "escape hatch (choose one), and can pass "
             "Garden-local additional_idf_path, inline additional_idf_text, or "
-            "measures_path. This tool writes runs/energy/<run_id>, records an "
+            "measures_path. This tool writes native OpenStudio contents under "
+            "runs/energy/<model display name>/openstudio, records an "
             "energy_run target, and returns runtime_status through "
             "summary_view.status plus a lightweight output index. Treat failed "
             "runtime_status as requiring report review."
@@ -34,12 +36,12 @@ def register(mcp: FastMCP) -> None:
     )
     def run_energy(
         garden_root: Annotated[
-            str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")
+            str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")
         ],
         weather_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Garden weather file target returned by energyplus_download_epw or a Garden-relative EPW path.'
+                description='Garden weather file target returned by EP_import_local_weather or EP_search_weather_files, or a Garden-relative EPW path.'
             ),
         ] = None,
         model_target: Annotated[
@@ -54,10 +56,19 @@ def register(mcp: FastMCP) -> None:
                 description="Optional Honeybee Energy SimulationParameter dictionary. Saved to the run inputs folder."
             ),
         ] = None,
+        simulation_parameter_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description=(
+                    "Optional reusable simulation_parameter target returned by "
+                    "EP_create_simulation_parameter. Do not pass together with sim_par."
+                )
+            ),
+        ] = None,
         output_request_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Optional parameter named exactly output_request_target. Pass the energy_output_request target returned by energyplus_create_output_request. It is merged into the SimulationParameter output section and recorded in the run ledger.'
+                description='Optional parameter named exactly output_request_target. Pass the energy_output_request target returned by EP_create_output_request. It is merged into the SimulationParameter output section and recorded in the run ledger.'
             ),
         ] = None,
         additional_idf_path: Annotated[
@@ -105,11 +116,14 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Run annual energy-use simulation and register an energy_run target."""
+        from garden.run_energy.annual import run_energy as service
+
         return service(
             garden_root=garden_root,
             weather_target=weather_target,
             model_target=model_target,
             sim_par=sim_par,
+            simulation_parameter_target=simulation_parameter_target,
             output_request_target=output_request_target,
             additional_idf_path=additional_idf_path,
             additional_idf_text=additional_idf_text,

@@ -4,7 +4,7 @@ Use this when the user wants to delete an existing orphaned or hosted Honeybee S
 
 ## Preconditions
 
-- Locate the Shade with `honeybee_search_model_objects(object_type="shade")`.
+- Locate the Shade with `HB_search_model_objects(object_type="shade")`.
 - Pass the Shade typed target as `target`.
 - Hosted shades keep their parent path in the search target; do not rebuild it manually.
 
@@ -12,19 +12,19 @@ Use this when the user wants to delete an existing orphaned or hosted Honeybee S
 
 1. Search Shade objects.
 2. Select the intended target.
-3. Call `honeybee_remove_shade`.
+3. Call `HB_remove_shade`.
 4. Search Shade objects again or use `children_scope` on the parent to confirm.
 
 ## Code Mode Pattern
 
 ```python
-shades = await call_tool("honeybee_search_model_objects", {
+shades = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "shade",
     "identifier": "shade_1"
 })
 
-removed = await call_tool("honeybee_remove_shade", {
+removed = await call_tool("HB_remove_shade", {
     "garden_root": garden_root,
     "target": shades["matches"][0]["target"]
 })

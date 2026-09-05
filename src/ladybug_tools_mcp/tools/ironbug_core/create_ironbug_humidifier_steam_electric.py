@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_humidifier_steam_electric.'
+'MCP tool for IB_humidifier_steam_electric.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_humidifier_steam_electric tool.'
+    'Register the IB_humidifier_steam_electric tool.'
 
     @mcp.tool(
-        name='humidifier_steam_electric',
+        name='IB_humidifier_steam_electric',
         description=(
             'Create IB_HumidifierSteamElectric, an EnergyPlus Humidifier:Steam:Electric air-loop component that injects electrically generated steam into the supply air stream. Use it with a humidity-ratio setpoint on the outlet node and fields for availability, rated water-addition capacity, rated electric power, fan power, and standby power; this is not a gas humidifier, water-use tank, zone humidistat, desiccant heat exchanger, or Energy run. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -35,13 +34,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_humidifier_steam_electric(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -108,6 +107,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_HumidifierSteamElectric as a reviewed Ironbug LoopObjs / AirLoopObjects authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

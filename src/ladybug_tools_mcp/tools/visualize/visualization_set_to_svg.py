@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.visualize.artifacts import visualization_set_to_svg as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_set_to_svg tool.'
+    'Register the LB_set_to_svg tool.'
 
     @mcp.tool(
-        name="set_to_svg",
+        name="LB_set_to_svg",
         description=(
             "Export a Ladybug Display VisualizationSet to an SVG artifact "
             "inside a Garden and record it in garden.json artifacts. Preferred "
@@ -27,7 +26,7 @@ def register(mcp: FastMCP) -> None:
         timeout=60,
     )
     def visualization_set_to_svg(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         visualization_set: Annotated[
             dict[str, Any] | None,
             Field(
@@ -65,6 +64,8 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/visualization/svg",
     ) -> dict[str, Any]:
         """Export a VisualizationSet to a Garden SVG artifact."""
+        from garden.visualize.artifacts import visualization_set_to_svg as service
+
         return service(
             garden_root=garden_root,
             visualization_set=visualization_set,

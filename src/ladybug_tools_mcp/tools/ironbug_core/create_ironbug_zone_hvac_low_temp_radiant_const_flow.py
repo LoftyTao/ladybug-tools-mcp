@@ -1,22 +1,18 @@
-'MCP tool for detailed_hvac_zone_equipment_low_temp_radiant_const_flow.'
+'MCP tool for IB_zone_equipment_low_temp_radiant_const_flow.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
-from garden.ironbug_core.relationships import (
-    add_ironbug_thermal_zone_equipment,
-)
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_zone_equipment_low_temp_radiant_const_flow tool.'
+    'Register the IB_zone_equipment_low_temp_radiant_const_flow tool.'
 
     @mcp.tool(
-        name='zone_equipment_low_temp_radiant_const_flow',
+        name='IB_zone_equipment_low_temp_radiant_const_flow',
         description=(
             'Create IB_ZoneHVACLowTempRadiantConstFlow, the Ironbug and EnergyPlus ZoneHVAC:LowTemperatureRadiant:ConstantFlow hydronic radiant zone equipment with heating/cooling radiant coil children, tubing geometry, pump fields, and ThermalZone placement. Use it for constant-flow low-temperature radiant systems, not as a baseboard, high-temperature radiant heater, air terminal, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -33,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -181,6 +177,12 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug ZoneHVAC:LowTemperatureRadiant:ConstantFlow object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
+
+        from garden.ironbug_core.relationships import (
+            add_ironbug_thermal_zone_equipment,
+        )
 
         child_targets = [
             heating_coil_target,

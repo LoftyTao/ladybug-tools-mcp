@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.data_collection import export_data_collection_file as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_data_collection_to_file tool.'
+    'Register the LB_data_collection_to_file tool.'
 
     @mcp.tool(
-        name='data_collection_to_file',
+        name='LB_data_collection_to_file',
         description=(
             "Export one Ladybug DataCollection to a Garden artifact using "
             "Ladybug SDK native collections_to_json or collections_to_csv. Use "
@@ -36,7 +35,7 @@ def register(mcp: FastMCP) -> None:
     def data_collection_to_file(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         file_format: Annotated[
             str,
@@ -66,6 +65,8 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/data_collections",
     ) -> dict[str, Any]:
         """Export a Ladybug DataCollection to a native SDK JSON or CSV artifact."""
+        from garden.data_collection import export_data_collection_file as service
+
         return service(
             garden_root=garden_root,
             data_collection=data_collection,
@@ -73,5 +74,5 @@ def register(mcp: FastMCP) -> None:
             file_format=file_format,
             name=name,
             output_subdir=output_subdir,
-            source={"producer": 'visualization_data_collection_to_file'},
+            source={"producer": 'LB_data_collection_to_file'},
         )

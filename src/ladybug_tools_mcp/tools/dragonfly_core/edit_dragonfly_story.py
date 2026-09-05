@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core.editing import edit_dragonfly_story as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the dragonfly_edit_story tool.'
+    'Register the DF_edit_story tool.'
 
     @mcp.tool(
-        name="edit_story",
+        name="DF_edit_story",
         description=(
             "Edit a model-embedded Dragonfly Story using public Dragonfly SDK "
             "properties. Requires story_target or story_identifier; supports "
@@ -27,7 +26,7 @@ def register(mcp: FastMCP) -> None:
     def edit_dragonfly_story(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         story_target: Annotated[
             dict[str, Any] | None,
@@ -46,7 +45,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Dragonfly Model target dict, usually dragonfly_create_model['target']; "
+                    "Optional Dragonfly Model target dict, usually DF_model['target']; "
                     "defaults to the Garden base Dragonfly Model."
                 )
             ),
@@ -69,6 +68,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Edit a Dragonfly Story."""
+        from garden.dragonfly_core.editing import edit_dragonfly_story as service
+
         return service(
             garden_root=garden_root,
             story_target=story_target,

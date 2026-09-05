@@ -20,7 +20,7 @@ Use this before creating Ironbug hot-water, chilled-water, or condenser-water lo
 For semantic loop tools:
 
 ```python
-loop = await call_tool('detailed_hvac_plant_loop_hot_water', {
+loop = await call_tool('IB_plant_loop_hot_water', {
     'garden_root': garden_root,
     'ironbug_model_target': ironbug_model_target,
     'identifier': 'hot_water_loop',

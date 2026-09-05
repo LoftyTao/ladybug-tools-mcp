@@ -7,21 +7,18 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core import (
-    apply_ironbug_detailed_hvac_to_dragonfly_energy_properties as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    """Register the dragonfly_detailed_hvac tool."""
+    """Register the DF_detailed_hvac tool."""
 
     @mcp.tool(
-        name="detailed_hvac",
+        name="DF_detailed_hvac",
         description=(
             "Apply a Garden Ironbug-Core .ibjson model as Dragonfly Energy "
             "DetailedHVAC/HVAC properties on a Dragonfly Room2D, Story, or Building "
             "target. This is the Dragonfly-side route for Ironbug-backed HVAC: pass "
-            "ironbug_model_target from detailed_hvac_create_model plus a Dragonfly "
+            "ironbug_model_target from IB_create_model plus a Dragonfly "
             "host_target. It does not accept plain strings, Honeybee-only "
             "DetailedHVAC objects, or run EnergyPlus. Returns the Ironbug-backed "
             "detailed_hvac_target, updated Dragonfly model target, summary_view, "
@@ -33,13 +30,13 @@ def register(mcp: FastMCP) -> None:
     def apply_dragonfly_detailed_hvac(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    "Required Ironbug model target returned by detailed_hvac_create_model. "
+                    "Required Ironbug model target returned by IB_create_model. "
                     "Do not pass a plain string or Honeybee DetailedHVAC object."
                 )
             ),
@@ -48,7 +45,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    "Required Dragonfly Room2D, Story, or Building target from df_search_objects "
+                    "Required Dragonfly Room2D, Story, or Building target from DF_search_objects "
                     "or Dragonfly authoring tools."
                 )
             ),
@@ -72,6 +69,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Apply Ironbug DetailedHVAC to Dragonfly Energy properties."""
+        from garden.ironbug_core.detailed_hvac import (
+            apply_ironbug_detailed_hvac_to_dragonfly_energy_properties as service,
+        )
+
         return service(
             garden_root=garden_root,
             ironbug_model_target=ironbug_model_target,

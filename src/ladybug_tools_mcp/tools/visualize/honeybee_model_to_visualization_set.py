@@ -4,16 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.visualize.honeybee import (
-    honeybee_model_to_visualization_set as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_honeybee_model_to_visualization_set tool.'
+    'Register the LB_honeybee_model_to_visualization_set tool.'
 
     @mcp.tool(
-        name='honeybee_model_to_visualization_set',
+        name='LB_honeybee_model_to_visualization_set',
         description=(
             "Create a Ladybug Display VisualizationSet from a Honeybee model "
             "in a Garden. color_by accepts type, boundary_condition, or none; "
@@ -33,7 +30,7 @@ def register(mcp: FastMCP) -> None:
         timeout=30,
     )
     def honeybee_model_to_visualization_set(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
@@ -91,6 +88,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a VisualizationSet from a Garden Honeybee model."""
+        from garden.visualize.honeybee import (
+            honeybee_model_to_visualization_set as service,
+        )
+
         return service(
             garden_root=garden_root,
             model_target=model_target,

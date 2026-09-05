@@ -7,18 +7,17 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core import create_ironbug_detailed_hvac as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_create_detailed_hvac_system tool.'
+    'Register the IB_create_detailed_hvac_system tool.'
 
     @mcp.tool(
-        name="create_detailed_hvac_system",
+        name="IB_create_detailed_hvac_system",
         description=(
             "Create a compact Honeybee Energy DetailedHVAC bridge summary from a "
             "Garden Ironbug-Core .ibjson model and exact Honeybee Room identifiers. "
-            'Use the argument ironbug_model_target from detailed_hvac_create_model, not '
+            'Use the argument ironbug_model_target from IB_create_model, not '
             "ironbug_model. This constructs the minimal Ironbug.HVAC.IB_NoAirLoop "
             "DetailedHVAC specification for recognition/room-binding inspection only; "
             "it does not mutate a Honeybee model, generate OSM/IDF, run OpenStudio or "
@@ -32,14 +31,14 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_detailed_hvac(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
                     "Required Ironbug model target named ironbug_model_target; pass "
-                    "detailed_hvac_create_model['target'], not ironbug_model."
+                    "IB_create_model['target'], not ironbug_model."
                 )
             ),
         ],
@@ -58,6 +57,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Create a compact DetailedHVAC bridge summary."""
+
+        from garden.ironbug_core.detailed_hvac import create_ironbug_detailed_hvac as service
 
         return service(
             garden_root=garden_root,

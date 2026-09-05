@@ -1,21 +1,20 @@
-'MCP tool for detailed_hvac_schedule_day.'
+'MCP tool for IB_schedule_day.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_schedule_day tool.'
+    'Register the IB_schedule_day tool.'
 
     @mcp.tool(
-        name='schedule_day',
+        name='IB_schedule_day',
         description=(
-            'Create IB_ScheduleDay, a low-level OpenStudio ScheduleDay target for one daily HVAC profile inside Ironbug DetailedHVAC schedules. This wrapper creates the day-profile object; use detailed_hvac_schedule_rule or detailed_hvac_schedule_ruleset when you need one-value or 24-hour values and annual date rules. This is not a full year schedule, Schedule:File, Honeybee Energy schedule library object, or Energy run. Returns target, summary_view, persistence_receipt, and report.'
+            'Create IB_ScheduleDay, a low-level OpenStudio ScheduleDay target for one daily HVAC profile inside Ironbug DetailedHVAC schedules. This wrapper creates the day-profile object; use IB_schedule_rule or IB_schedule_ruleset when you need one-value or 24-hour values and annual date rules. This is not a full year schedule, Schedule:File, Honeybee Energy schedule library object, or Energy run. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
         ),
         tags={'ironbug', 'detailed-hvac', 'schedule', 'schedule-day', 'daily-schedule', 'author'},
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_schedule_day(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -49,6 +48,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug ScheduleDay daily-profile target."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

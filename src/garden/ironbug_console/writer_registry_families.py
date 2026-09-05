@@ -24,10 +24,9 @@ _IMPLEMENTED_SOURCE_CLASSES: dict[str, str] = {
     **_EXPLICIT_IMPLEMENTED_SOURCE_CLASSES,
     **_OPENSTUDIO_OBJECT_SOURCE_CLASSES,
 }
-_FUTURE_SOURCE_CLASSES: dict[str, str] = {}
 
 
 def known_source_class_families() -> dict[str, str]:
     """Return all source classes the Python Console can classify today."""
 
-    return {**_FUTURE_SOURCE_CLASSES, **_IMPLEMENTED_SOURCE_CLASSES}
+    return dict(_IMPLEMENTED_SOURCE_CLASSES)

@@ -10,14 +10,14 @@ Use this when the user asks for daylight sensors, workplane test points, Radianc
 
 ## Tool Choice
 
-- `radiance_create_sensor_grid`: explicit positions and directions.
-- `radiance_create_sensor_grid_from_object`: sample a Face3D-backed Honeybee object surface.
-- `radiance_create_view`: explicit camera vectors and Radiance view type tokens `v`, `h`, `l`, `c`, `a`, or `s`.
+- `RAD_create_sensor_grid`: explicit positions and directions.
+- `RAD_create_sensor_grid_from_object`: sample a Face3D-backed Honeybee object surface.
+- `RAD_create_view`: explicit camera vectors and Radiance view type tokens `v`, `h`, `l`, `c`, `a`, or `s`.
 
 ## Code Mode Pattern
 
 ```python
-grid = await call_tool("radiance_create_sensor_grid", {
+grid = await call_tool("RAD_create_sensor_grid", {
     "garden_root": garden_root,
     "identifier": "workplane_grid",
     "positions": [[0, 0, 0.8], [1, 0, 0.8]],
@@ -26,7 +26,7 @@ grid = await call_tool("radiance_create_sensor_grid", {
     "attach_to_model": True,
     "return_object_dict": False
 })
-view = await call_tool("radiance_create_view", {
+view = await call_tool("RAD_create_view", {
     "garden_root": garden_root,
     "identifier": "north_view",
     "position": [0, -5, 1.5],
@@ -44,7 +44,7 @@ view = await call_tool("radiance_create_view", {
 Object-hosted grid:
 
 ```python
-shade_grid = await call_tool("radiance_create_sensor_grid_from_object", {
+shade_grid = await call_tool("RAD_create_sensor_grid_from_object", {
     "garden_root": garden_root,
     "identifier": "shade_irradiance_grid",
     "object_target": shade_target,

@@ -138,10 +138,13 @@ def _write_schedule_ruleset(
 
     written_rules: list[OpenStudioWrittenObject] = []
     rule_index = 0
+    first_rule_day: ConsoleGraphNode | None = None
     for child_identifier in node.children:
         child_node = graph.node_by_identifier(str(child_identifier))
         if child_node.source_class != "IB_ScheduleRule":
             continue
+        if first_rule_day is None:
+            first_rule_day = _schedule_day_node_for_rule(graph, child_node)
         _write_schedule_rule_to_ruleset(
             openstudio,
             model,
@@ -160,6 +163,16 @@ def _write_schedule_ruleset(
             )
         )
         rule_index += 1
+    if (
+        first_rule_day is not None
+        and default_day_identifier is None
+        and constant_value is None
+    ):
+        _copy_values_to_schedule_day(
+            openstudio,
+            schedule.defaultDaySchedule(),
+            first_rule_day,
+        )
 
     ruleset_summary = OpenStudioWrittenObject(
         identifier=node.identifier,

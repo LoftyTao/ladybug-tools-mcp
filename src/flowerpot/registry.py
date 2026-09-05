@@ -11,7 +11,8 @@ from uuid import uuid4
 from ladybug_tools_mcp.contracts.flowerpot import make_flowerpot
 from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
 from ladybug_tools_mcp.contracts.report import make_report
-from garden.manifest import GardenManifest, utc_now_iso
+from garden.manifest import GardenManifest, utc_now_iso, write_json_file
+from garden.paths import to_posix_relative
 
 REGISTRY_RELATIVE_PATH = "flowerpots/registry.json"
 ITEMS_RELATIVE_DIR = "flowerpots/items"
@@ -49,20 +50,9 @@ def _read_registry(garden_root: Path) -> dict[str, Any]:
     return data
 
 
-def _write_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(data, handle, indent=2)
-        handle.write("\n")
-
-
 def _write_registry(garden_root: Path, registry: dict[str, Any]) -> None:
     registry["updated_at"] = utc_now_iso()
-    _write_json(_registry_path(garden_root), registry)
-
-
-def _relative(path: Path, root: Path) -> str:
-    return path.resolve().relative_to(root.resolve()).as_posix()
+    write_json_file(_registry_path(garden_root), registry)
 
 
 def _normalize_source(source: str | None) -> str:
@@ -292,7 +282,7 @@ def create_flowerpot(
         platform=platform_context,
     )
     item_path = _item_path(garden_root_path, flowerpot_id)
-    item_relative_path = _relative(item_path, garden_root_path)
+    item_relative_path = to_posix_relative(item_path, garden_root_path)
     summary = _summary_for_flowerpot(
         flowerpot_id=flowerpot_id,
         flowerpot=flowerpot,
@@ -321,7 +311,7 @@ def create_flowerpot(
         "flowerpot": flowerpot,
         "registry_entry": entry,
     }
-    _write_json(item_path, item)
+    write_json_file(item_path, item)
 
     registry["flowerpots"] = [
         existing

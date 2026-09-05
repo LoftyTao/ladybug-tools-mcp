@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_availability_manager_low_temperature_turn_on.'
+'MCP tool for IB_availability_manager_low_temperature_turn_on.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_availability_manager_low_temperature_turn_on tool.'
+    'Register the IB_availability_manager_low_temperature_turn_on tool.'
 
     @mcp.tool(
-        name='availability_manager_low_temperature_turn_on',
+        name='IB_availability_manager_low_temperature_turn_on',
         description=(
             'Create IB_AvailabilityManagerLowTemperatureTurnOn, an OpenStudio availability manager that turns loop or system operation on when a sensor node falls below the low-temperature threshold. Use the returned target in an AirLoopHVAC, PlantLoop, or AvailabilityManagerList availability-manager slot. This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
         ),
@@ -23,13 +22,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_availability_manager_low_temperature_turn_on(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -89,6 +88,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_AvailabilityManagerLowTemperatureTurnOn as a reviewed Ironbug AvailabilityManagers authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         child_targets = [
             sensor_probe_target,

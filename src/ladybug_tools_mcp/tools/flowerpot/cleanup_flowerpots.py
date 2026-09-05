@@ -11,10 +11,10 @@ from flowerpot.registry import cleanup_flowerpots as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the flowerpot_cleanup_all tool.'
+    'Register the FP_cleanup_all tool.'
 
     @mcp.tool(
-        name="cleanup_all",
+        name="FP_cleanup_all",
         description=(
             "Clean only Garden-local Flowerpot handoff maintenance state: registry "
             "entries and Flowerpot item files. Use orphaned for missing item files, "
@@ -35,7 +35,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         cleanup_scope: Annotated[

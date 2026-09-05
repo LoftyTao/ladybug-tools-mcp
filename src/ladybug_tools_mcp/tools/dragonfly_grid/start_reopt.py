@@ -7,19 +7,19 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_grid.runs import start_reopt as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the Grid REopt start tool."""
 
     @mcp.tool(
-        name="start_reopt",
+        name="DF_grid_start_reopt",
         description=(
             "Start or block a Dragonfly Electric Grid REopt post-processing run "
-            "from feature GeoJSON and scenario CSV targets. Missing runtime or "
-            "credentials returns a blocked ledger; this tool does not hide REopt "
-            "cost/API prerequisites."
+            "from feature GeoJSON and scenario CSV targets. Under the local-service "
+            "runtime policy, API-backed REopt submission returns a blocked ledger "
+            "with runtime_diagnostics.external_api_blocker; this tool "
+            "does not hide REopt local-service, credential, or cost prerequisites."
         ),
         tags={"dragonfly", "electric-grid", "reopt", "run", "runtime", "target"},
         timeout=30,
@@ -33,6 +33,8 @@ def register(mcp: FastMCP) -> None:
         developer_key: Annotated[str | None, Field(description="Optional REopt developer key; do not expose secrets in reports.")] = None,
     ) -> dict[str, Any]:
         """Start or block a REopt run."""
+        from garden.dragonfly_grid.runs import start_reopt as service
+
         return service(
             garden_root=garden_root,
             feature_geojson_target=feature_geojson_target,
@@ -41,4 +43,3 @@ def register(mcp: FastMCP) -> None:
             run_id=run_id,
             developer_key=developer_key,
         )
-

@@ -10,14 +10,14 @@ Use this when the user needs a Honeybee Radiance standards-library identifier fo
 
 ## MCP Route
 
-1. Search for `radiance_search_library_objects`.
+1. Search for `RAD_search_library_objects`.
 2. Call with `query`, optional `object_family`, and optional `limit`.
 3. Pass the returned `identifier` directly to Radiance or Honeybee edit tools.
 
 ## Code Mode Pattern
 
 ```python
-result = await call_tool("radiance_search_library_objects", {
+result = await call_tool("RAD_search_library_objects", {
     "query": "generic wall",
     "object_family": "modifier",
     "limit": 3
@@ -34,4 +34,3 @@ result = await call_tool("radiance_search_library_objects", {
 
 - Do not call this with `arguments: null` or `{}`.
 - Do not keep probing unrelated terms after short searches such as `glass`, `plastic`, or `generic wall` return usable matches.
-- Keep schema and live-run evidence in LLM-Wiki.

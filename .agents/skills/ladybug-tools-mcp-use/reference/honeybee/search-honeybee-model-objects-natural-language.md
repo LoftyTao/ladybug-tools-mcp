@@ -10,7 +10,7 @@ Use this when a user refers to a room, wall, window, door, shade, or model objec
 
 ## MCP Route
 
-1. Call `honeybee_search_model_objects` with the narrowest known filters.
+1. Call `HB_search_model_objects` with the narrowest known filters.
 2. If there is one clear match, pass `matches[0].target` to the downstream tool.
 3. If the match is ambiguous, narrow by room `children_scope`, face identifier, boundary condition, or object identifier.
 4. Use `child_counts`, `parent`, and `normal_vector` from compact matches before making broad follow-up searches.
@@ -18,13 +18,13 @@ Use this when a user refers to a room, wall, window, door, shade, or model objec
 ## Common Queries
 
 ```python
-rooms = await call_tool("honeybee_search_model_objects", {
+rooms = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "room",
     "identifier": "open_office"
 })
 
-faces = await call_tool("honeybee_search_model_objects", {
+faces = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "face",
     "children_scope": rooms["matches"][0]["target"],

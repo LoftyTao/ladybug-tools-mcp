@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.visual import list_radiance_hdr_images as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_list_hdr_images tool.'
+    'Register the RAD_list_hdr_images tool.'
 
     @mcp.tool(
-        name="list_hdr_images",
+        name="RAD_list_hdr_images",
         description=(
             "List HDR image artifacts from completed Radiance view runs. Use "
             "this before falsecolor, GIF, or image search workflows. This "
@@ -32,10 +31,10 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def list_radiance_hdr_images(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Optional completed view radiance_run target returned by radiance_start_view_simulation. Poll the run before listing HDR images.'),
+            Field(description='Optional completed view radiance_run target returned by RAD_start_view_simulation. Poll the run before listing HDR images.'),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -43,4 +42,6 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """List .hdr images for a Radiance view run."""
+        from garden.radiance.visual import list_radiance_hdr_images as service
+
         return service(garden_root=garden_root, run_target=run_target, run_id=run_id)

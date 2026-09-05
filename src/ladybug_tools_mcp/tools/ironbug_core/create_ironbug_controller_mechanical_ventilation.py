@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_controller_mechanical_ventilation.'
+'MCP tool for IB_controller_mechanical_ventilation.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_controller_mechanical_ventilation tool.'
+    'Register the IB_controller_mechanical_ventilation tool.'
 
     @mcp.tool(
-        name='controller_mechanical_ventilation',
+        name='IB_controller_mechanical_ventilation',
         description=(
             'Create IB_ControllerMechanicalVentilation, the EnergyPlus Controller:MechanicalVentilation object used with Controller:OutdoorAir to calculate minimum outdoor air for an air loop. Use it for ASHRAE 62.1 ventilation-rate procedure, IAQP, demand-controlled ventilation, and system outdoor air method fields; pass the result to controller_outdoor_air.mechanical_ventilation_target. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_controller_mechanical_ventilation(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -95,6 +94,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create IB_ControllerMechanicalVentilation as a reviewed Ironbug Loop Objs authoring object."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

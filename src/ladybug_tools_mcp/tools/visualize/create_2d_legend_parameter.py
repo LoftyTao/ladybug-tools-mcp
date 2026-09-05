@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.visualize.legend import create_2d_legend_parameter as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_create_2d_legend_parameter tool.'
+    'Register the LB_create_2d_legend_parameter tool.'
 
     @mcp.tool(
-        name='create_2d_legend_parameter',
+        name='LB_create_2d_legend_parameter',
         description=(
             "Create a Ladybug Display 2D legend parameter payload for "
             "VisualizationSet chart and model exports. Use the returned "
@@ -67,6 +66,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Create a 2D legend parameter dict."""
+        from garden.visualize.legend import create_2d_legend_parameter as service
+
         return service(
             title=title,
             segment_count=segment_count,

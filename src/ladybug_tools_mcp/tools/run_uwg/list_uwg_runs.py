@@ -7,14 +7,13 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.run_uwg.run import list_uwg_runs as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the uwg_list_runs tool.'
+    'Register the DF_uwg_list_runs tool.'
 
     @mcp.tool(
-        name="list_runs",
+        name="DF_uwg_list_runs",
         description=(
             "List UWG Alternative Weather runs recorded in a Garden ledger. Use this "
             "to find run_id or run_target before polling or reading outputs. Returns "
@@ -31,11 +30,13 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def list_uwg_runs(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         status: Annotated[
             str | None,
             Field(description="Optional runtime_status filter for Garden UWG run ledger records, such as running, completed, failed, or cancelled."),
         ] = None,
     ) -> dict:
         """List UWG runs."""
+        from garden.run_uwg.run import list_uwg_runs as service
+
         return service(garden_root=garden_root, status=status)

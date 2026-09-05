@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.radiance.assets import create_radiance_sensor_grid_from_object as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_create_sensor_grid_from_object tool.'
+    'Register the RAD_create_sensor_grid_from_object tool.'
 
     @mcp.tool(
-        name="create_sensor_grid_from_object",
+        name="RAD_create_sensor_grid_from_object",
         description=(
             "Create a Honeybee Radiance SensorGrid by sampling the surface of "
             "a Honeybee Face, Aperture, Door, Shade, shading panel, PV panel, "
@@ -23,7 +22,10 @@ def register(mcp: FastMCP) -> None:
             "object_target from Honeybee object search or shade creation plus "
             "garden_root. Set attach_to_model=true to attach the grid for "
             "Radiance grid or annual-irradiance recipes. This samples existing "
-            "geometry and does not create new Honeybee objects."
+            "geometry and preserves its mesh. Room-hosted surfaces also set "
+            "room_identifier for daylight compliance assessments. Use a room "
+            "floor face with flip_direction=true and offset=0.8 for an upward "
+            "workplane grid."
         ),
         tags={
             "radiance",
@@ -36,12 +38,12 @@ def register(mcp: FastMCP) -> None:
     def create_radiance_sensor_grid_from_object(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         object_target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee face, aperture, door, or shade target to sample into a Radiance SensorGrid. Pass matches[i].target from honeybee_search_model_objects or target from honeybee_create_shade.'
+                description='Required Honeybee face, aperture, door, or shade target to sample into a Radiance SensorGrid. Pass matches[i].target from HB_search_model_objects or target from HB_create_shade.'
             ),
         ],
         identifier: Annotated[
@@ -94,6 +96,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance SensorGrid from an object surface."""
+        from garden.radiance.assets import create_radiance_sensor_grid_from_object as service
+
         if identifier is None:
             identifier = "object_sensor_grid"
         return service(

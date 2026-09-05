@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.hvac import create_ideal_air_system as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_ideal_air_system tool.'
+    'Register the EP_create_ideal_air_system tool.'
 
     @mcp.tool(
-        name='create_ideal_air_system',
+        name='EP_create_ideal_air_system',
         description="Create a Honeybee Energy IdealAirSystem HVAC object for simple ideal-loads conditioning and early-stage room energy properties. This is an HVAC-template/simple HVAC resource, not an Ironbug DetailedHVAC loop or component graph. Returns a full object_dict, or saves to Garden Properties Library and returns a target plus persistence_receipt when garden_root is provided and return_object_dict=false. For simple HVAC, omit heating_air_temperature and cooling_air_temperature; they are supply air temperatures, not room setpoints.",
         tags={
             "energy",
@@ -85,7 +84,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -96,6 +95,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy IdealAirSystem HVAC object."""
+        from garden.energy.hvac import create_ideal_air_system as service
+
         return service(
             identifier=identifier,
             economizer_type=economizer_type,

@@ -11,20 +11,20 @@ Use this when an existing Aperture, Door, or Shade must be edited without creati
 ## MCP Route
 
 1. Search for the Shade, Aperture, or Door by `object_type` and identifier when known.
-2. Call `honeybee_edit_shade`, `honeybee_edit_aperture`, or `honeybee_edit_door`.
+2. Call `HB_edit_shade`, `HB_edit_aperture`, or `HB_edit_door`.
 3. Search the object again or validate the model.
 4. For paired interior doors, edit one side and let the service update the paired side.
 
 ## Focused Code Mode Pattern
 
 ```python
-windows = await call_tool("honeybee_search_model_objects", {
+windows = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "aperture",
     "identifier": "window_1"
 })
 
-edited = await call_tool("honeybee_edit_aperture", {
+edited = await call_tool("HB_edit_aperture", {
     "garden_root": garden_root,
     "target": windows["matches"][0]["target"],
     "is_operable": True,
@@ -41,9 +41,9 @@ edited = await call_tool("honeybee_edit_aperture", {
 
 ## Supported Edit Fields
 
-- `honeybee_edit_shade`: `geometry`, `display_name`, `user_data`, `is_detached`, `construction`, `transmittance_schedule`, `pv_properties`, `modifier`, `modifier_blk`, `dynamic_group_identifier`, `states`.
-- `honeybee_edit_aperture`: `geometry`, `display_name`, `user_data`, `is_operable`, `construction`, `vent_opening`, `modifier`, `modifier_blk`, `dynamic_group_identifier`, `states`.
-- `honeybee_edit_door`: `geometry`, `display_name`, `user_data`, `is_glass`, `construction`, `vent_opening`, `modifier`, `modifier_blk`, `dynamic_group_identifier`, `states`.
+- `HB_edit_shade`: `geometry`, `display_name`, `user_data`, `is_detached`, `construction`, `transmittance_schedule`, `pv_properties`, `modifier`, `modifier_blk`, `dynamic_group_identifier`, `states`.
+- `HB_edit_aperture`: `geometry`, `display_name`, `user_data`, `is_operable`, `construction`, `vent_opening`, `modifier`, `modifier_blk`, `dynamic_group_identifier`, `states`.
+- `HB_edit_door`: `geometry`, `display_name`, `user_data`, `is_glass`, `construction`, `vent_opening`, `modifier`, `modifier_blk`, `dynamic_group_identifier`, `states`.
 - `states` supports `replace_all`, `add`, and `clear`; a list is interpreted as `replace_all`.
 
 ## Paired Interior Door Geometry

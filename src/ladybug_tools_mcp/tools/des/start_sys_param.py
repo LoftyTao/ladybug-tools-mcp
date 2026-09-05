@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.runs import start_sys_param as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the DES system-parameter start tool."""
 
     @mcp.tool(
-        name="start_sys_param",
+        name="DF_des_start_sys_param",
         description=(
             "Start the DES system-parameter sizing/update step after URBANopt "
             "outputs and building loads are ready. The tool records a Garden "
@@ -33,6 +32,8 @@ def register(mcp: FastMCP) -> None:
         run_id: Annotated[str | None, Field(description="Optional stable run id; omit to let the Garden create one.") ] = None,
     ) -> dict[str, Any]:
         """Start a DES system-parameter run."""
+        from garden.dragonfly_des.runs import start_sys_param as service
+
         return service(
             garden_root=garden_root,
             feature_geojson_target=feature_geojson_target,

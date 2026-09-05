@@ -21,7 +21,7 @@ from dragonfly_energy.des.loop import (
     GHEThermalLoop,
 )
 
-from garden.manifest import GardenManifest
+from garden.manifest import GardenManifest, write_json_file
 from garden.paths import slugify_name, to_posix_relative
 from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
 from ladybug_tools_mcp.contracts.report import make_report
@@ -50,13 +50,6 @@ def _garden_root(value: str | Path) -> Path:
 
 def _object_path(root: Path, kind: str, identifier: str) -> Path:
     return root / "models" / "dragonfly_des" / kind / f"{slugify_name(identifier)}.json"
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(payload, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
 
 
 def save_des_object(
@@ -88,7 +81,7 @@ def save_des_object(
         identifier=identifier,
         path=persisted_path,
     )
-    _write_json(object_path, object_dict)
+    write_json_file(object_path, object_dict, ensure_ascii=False)
 
     receipt = make_persistence_receipt(
         status="persisted",

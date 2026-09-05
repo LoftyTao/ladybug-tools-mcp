@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.fairyfly.model import add_fairyfly_boundary_to_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the therm_add_boundary_to_model tool.'
+    'Register the FF_add_boundary_to_model tool.'
 
     @mcp.tool(
-        name="add_boundary_to_model",
+        name="FF_add_boundary_to_model",
         description=(
             "Add a Fairyfly Boundary to a Garden-backed Fairyfly Model from Ladybug "
             "Geometry 2D line segment input. The boundary is saved into the model, "
@@ -27,7 +26,7 @@ def register(mcp: FastMCP) -> None:
     def add_fairyfly_boundary_to_model(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         line_segments_2d: Annotated[
             list[list[list[float]]],
@@ -45,7 +44,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional Fairyfly Model target dict, usually therm_create_model['target']; "
+                    "Optional Fairyfly Model target dict, usually FF_create_model['target']; "
                     "defaults to the Garden base Fairyfly Model."
                 )
             ),
@@ -80,6 +79,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Add a Fairyfly Boundary to a model."""
+        from garden.fairyfly.model import add_fairyfly_boundary_to_model as service
+
         return service(
             garden_root=garden_root,
             line_segments_2d=line_segments_2d,

@@ -7,16 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.run_energy.results import (
-    energy_result_monthly_chart_to_html as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energyplus_result_monthly_chart_to_html tool.'
+    'Register the EP_result_monthly_chart_to_html tool.'
 
     @mcp.tool(
-        name="result_monthly_chart_to_html",
+        name="EP_result_monthly_chart_to_html",
         description="Create a ready-to-open Garden HTML artifact from one or more EnergyPlus SQL DataCollections using Ladybug MonthlyChart. Each series item uses output_name plus optional collection_index, run_period_index, and label metadata. Returns artifact_receipt, summary_view.artifact, summary_view.series, and report; pass artifact_receipt.artifact_path or summary_view.artifact.path to preview/export flows.",
         tags={
             "energy",
@@ -31,7 +28,7 @@ def register(mcp: FastMCP) -> None:
     def energy_result_monthly_chart_to_html(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         series: Annotated[
             list[dict[str, Any]],
@@ -42,7 +39,7 @@ def register(mcp: FastMCP) -> None:
         run_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Energy run target returned by energyplus_start_simulation; pass run_target for polling unless you provide run_id.'
+                description='Energy run target returned by EP_start_simulation; pass run_target for polling unless you provide run_id.'
             ),
         ] = None,
         run_id: Annotated[
@@ -91,6 +88,10 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/energy/results/html",
     ) -> dict[str, Any]:
         """Export Energy result DataCollections to a MonthlyChart HTML artifact."""
+        from garden.run_energy.results import (
+            energy_result_monthly_chart_to_html as service,
+        )
+
         return service(
             garden_root=garden_root,
             run_target=run_target,

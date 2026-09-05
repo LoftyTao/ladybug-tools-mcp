@@ -7,18 +7,19 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_grid.runs import start_rnm as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the Grid RNM start tool."""
 
     @mcp.tool(
-        name="start_rnm",
+        name="DF_grid_start_rnm",
         description=(
             "Start or block a Dragonfly Electric Grid RNM run from a feature "
-            "GeoJSON target and scenario CSV target. Missing runtime returns a "
-            "blocked run ledger with config_get_runtime_config as the next check."
+            "GeoJSON target and scenario CSV target. Under the local-service "
+            "runtime policy, API-backed RNM-US submission returns a blocked run "
+            "ledger with runtime_diagnostics.external_api_blocker and "
+            "LB_get_runtime_config as the next check."
         ),
         tags={"dragonfly", "electric-grid", "rnm", "run", "runtime", "target"},
         timeout=30,
@@ -33,6 +34,8 @@ def register(mcp: FastMCP) -> None:
         nodes_per_building: Annotated[int, Field(description="RNM nodes per building.")] = 1,
     ) -> dict[str, Any]:
         """Start or block an RNM run."""
+        from garden.dragonfly_grid.runs import start_rnm as service
+
         return service(
             garden_root=garden_root,
             feature_geojson_target=feature_geojson_target,
@@ -42,4 +45,3 @@ def register(mcp: FastMCP) -> None:
             lv_only=lv_only,
             nodes_per_building=nodes_per_building,
         )
-

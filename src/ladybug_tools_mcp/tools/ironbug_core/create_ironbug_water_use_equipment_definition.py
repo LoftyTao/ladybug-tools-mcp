@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_water_use_equipment_definition.'
+'MCP tool for IB_water_use_equipment_definition.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_water_use_equipment_definition tool.'
+    'Register the IB_water_use_equipment_definition tool.'
 
     @mcp.tool(
-        name='water_use_equipment_definition',
+        name='IB_water_use_equipment_definition',
         description=(
             'Create IB_WaterUseEquipmentDefinition, the Ironbug WaterUse:Equipment definition/load target that stores peak flow rate plus target-temperature, sensible, and latent fraction schedules for a WaterUse:Equipment fixture. Use it as fixture load data, not as a plant-loop connection, water heater, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -30,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -99,6 +98,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create Ironbug water-use fixture load data."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

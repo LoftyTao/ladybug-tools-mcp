@@ -4,21 +4,20 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.run_energy.config import search_weather_files as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energyplus_search_weather_files tool.'
+    'Register the EP_search_weather_files tool.'
 
     @mcp.tool(
-        name='search_weather_files',
+        name='EP_search_weather_files',
         description=(
             "Search weather_file targets already managed by a Garden under "
             "imports/weather and registered in garden.json. This tool does "
-            "not search global SDK weather folders, remote EPW map records, or "
-            "UWG parameter files. For a new weather file, use "
-            "energyplus_search_epw_map then energyplus_download_epw with the "
-            "same garden_root."
+            "not search bundled FastMCP resources, global SDK weather folders, "
+            "remote sites, or UWG parameter files. Import a bundled station from "
+            "weather://catalog with EP_import_local_weather, or obtain "
+            "another EPW archive from https://climate.onebuilding.org/."
         ),
         tags={
             "energy",
@@ -33,7 +32,7 @@ def register(mcp: FastMCP) -> None:
     def search_weather_files(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         query: Annotated[
             str | None,
@@ -50,6 +49,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Search weather files and return weather_file targets."""
+        from garden.run_energy.config import search_weather_files as service
+
         return service(
             garden_root=garden_root,
             query=query,

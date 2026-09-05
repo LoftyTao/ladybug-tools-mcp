@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.run_energy.annual import list_energy_runs as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energyplus_list_runs tool.'
+    'Register the EP_list_runs tool.'
 
     @mcp.tool(
-        name="list_runs",
+        name="EP_list_runs",
         description=(
             "List annual energy-use simulation runs recorded in a Garden run "
             "ledger. Use this to find run_id, run_target, status, or run "
@@ -30,7 +29,7 @@ def register(mcp: FastMCP) -> None:
     )
     def list_energy_runs(
         garden_root: Annotated[
-            str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")
+            str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")
         ],
         status: Annotated[
             str | None,
@@ -40,4 +39,6 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """List Energy simulation runs."""
+        from garden.run_energy.annual import list_energy_runs as service
+
         return service(garden_root=garden_root, status=status)

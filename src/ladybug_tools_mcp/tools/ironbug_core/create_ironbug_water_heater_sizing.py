@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_water_heater_sizing.'
+'MCP tool for IB_water_heater_sizing.'
 
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_water_heater_sizing tool.'
+    'Register the IB_water_heater_sizing tool.'
 
     @mcp.tool(
-        name='water_heater_sizing',
+        name='IB_water_heater_sizing',
         description=(
             'Create IB_WaterHeaterSizing, the Ironbug and EnergyPlus WaterHeater:Sizing child used by WaterHeater:Mixed or stratified tanks to autosize tank volume and heater capacity. Use it as sizing metadata for a water heater, not as a water heater, plant loop, water-use fixture, or result reader. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -30,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -133,6 +132,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create Ironbug water-heater sizing metadata."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

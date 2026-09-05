@@ -10,15 +10,15 @@ Use this when the user wants to add a Room to the current Honeybee Model in a Ga
 
 ## MCP Route
 
-1. Search for `honeybee_create_room`.
-2. Call `honeybee_create_room` with `garden_root`, `identifier`, and either box dimensions or `room_geometry`.
+1. Search for `HB_create_room`.
+2. Call `HB_create_room` with `garden_root`, `identifier`, and either box dimensions or `room_geometry`.
 3. The tool writes to the Garden base model automatically.
-4. Confirm with `honeybee_search_model_objects(object_type="room")`.
+4. Confirm with `HB_search_model_objects(object_type="room")`.
 
 ## Code Mode Pattern
 
 ```python
-room = await call_tool("honeybee_create_room", {
+room = await call_tool("HB_create_room", {
     "garden_root": garden_root,
     "identifier": "open_office",
     "room_geometry": {
@@ -31,7 +31,7 @@ room = await call_tool("honeybee_create_room", {
     }
 })
 
-rooms = await call_tool("honeybee_search_model_objects", {
+rooms = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "room",
     "identifier": "open_office"
@@ -45,11 +45,11 @@ rooms = await call_tool("honeybee_search_model_objects", {
 ## Success Criteria
 
 - The result includes a Room typed target.
-- The room is found by `honeybee_search_model_objects(object_type="room")`.
+- The room is found by `HB_search_model_objects(object_type="room")`.
 - Later face/subface tools can use `children_scope=<room target>`.
 
 ## Stop Conditions
 
 - Do not pass `host_target`; rooms are top-level model objects.
-- Do not call `honeybee_edit_model(add_objects)` with the returned room target. The room is already persisted.
+- Do not call `HB_edit_model(add_objects)` with the returned room target. The room is already persisted.
 - If the model has no base Honeybee Model, create and confirm it first.

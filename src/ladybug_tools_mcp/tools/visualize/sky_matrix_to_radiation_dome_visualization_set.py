@@ -7,16 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.visualize.sky import (
-    sky_matrix_to_radiation_dome_visualization_set as service,
-)
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the visualization_sky_matrix_to_radiation_dome_visualization_set tool.'
+    'Register the LB_sky_matrix_to_radiation_dome_visualization_set tool.'
 
     @mcp.tool(
-        name='sky_matrix_to_radiation_dome_visualization_set',
+        name='LB_sky_matrix_to_radiation_dome_visualization_set',
         description=(
             "Create a cumulative Ladybug Radiance Radiation Dome "
             "VisualizationSet from a Garden sky_matrix target. This visualizes "
@@ -36,11 +33,11 @@ def register(mcp: FastMCP) -> None:
     def sky_matrix_to_radiation_dome_visualization_set(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         sky_matrix_target: Annotated[
             dict[str, Any],
-            Field(description='Existing Garden sky_matrix target returned by radiance_create_sky_matrix.'),
+            Field(description='Existing Garden sky_matrix target returned by RAD_create_sky_matrix.'),
         ],
         azimuth_count: Annotated[
             int,
@@ -93,6 +90,10 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a cumulative RadiationDome VisualizationSet."""
+        from garden.visualize.sky import (
+            sky_matrix_to_radiation_dome_visualization_set as service,
+        )
+
         return service(
             garden_root=garden_root,
             sky_matrix_target=sky_matrix_target,

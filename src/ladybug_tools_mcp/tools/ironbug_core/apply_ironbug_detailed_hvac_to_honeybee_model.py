@@ -7,22 +7,23 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core import apply_ironbug_detailed_hvac_to_honeybee_model as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_apply_to_honeybee_model tool.'
+    'Register the IB_apply_to_honeybee_model tool.'
 
     @mcp.tool(
-        name="apply_to_honeybee_model",
+        name="IB_apply_to_honeybee_model",
         description=(
             "Apply a Garden Ironbug-Core .ibjson model as a Honeybee Energy "
             "DetailedHVAC object on selected Honeybee Rooms. Use ironbug_model_target "
-            'from detailed_hvac_create_model, not ironbug_model. Select Rooms with exactly '
+            'from IB_create_model, not ironbug_model. Select Rooms with exactly '
             "one mode: room_targets, room_identifiers, or apply_to_all_rooms=true. "
             "For room-serving systems, apply_to_all_rooms only selects Honeybee Rooms; "
             "it does not replace creating one room-linked IB_ThermalZone per Room and "
-            "binding zone equipment or air terminals to those thermal zones. "
+            "binding zone equipment or air terminals to those thermal zones. Each "
+            "selected Room must have a same-named IB_ThermalZone with an actual "
+            "AirTerminal or ZoneEquipments service path. "
             "Returns compact targets, summary_view, report, and persistence_receipt. "
             "Before starting a standard Energy run, check summary_view.simulation_ready; "
             "if it is false, repair the listed simulation_readiness_issues first. "
@@ -35,14 +36,14 @@ def register(mcp: FastMCP) -> None:
     def apply_ironbug_detailed_hvac_to_honeybee_model(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, usually GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
                     "Required Ironbug model target named ironbug_model_target; pass "
-                    "detailed_hvac_create_model['target'], not ironbug_model."
+                    "IB_create_model['target'], not ironbug_model."
                 )
             ),
         ],
@@ -54,7 +55,7 @@ def register(mcp: FastMCP) -> None:
             list[dict[str, Any]] | None,
             Field(
                 description=(
-                    'Optional Honeybee Room targets from honeybee_search_model_objects '
+                    'Optional Honeybee Room targets from HB_search_model_objects '
                     "matches[i].target. Use this instead of room_identifiers or "
                     "apply_to_all_rooms; do not combine room selection modes. "
                     "Do not pass full search matches."
@@ -90,6 +91,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Apply Ironbug DetailedHVAC to selected Honeybee Rooms."""
+
+        from garden.ironbug_core.detailed_hvac import apply_ironbug_detailed_hvac_to_honeybee_model as service
 
         return service(
             garden_root=garden_root,

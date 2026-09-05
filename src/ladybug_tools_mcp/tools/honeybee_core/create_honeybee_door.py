@@ -4,14 +4,13 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.honeybee_core.creation import create_honeybee_door as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the honeybee_create_door tool.'
+    'Register the HB_create_door tool.'
 
     @mcp.tool(
-        name="create_door",
+        name="HB_create_door",
         description='Create a Honeybee Door on a host Honeybee Face typed target. For an ordinary rectangular door, omit geometry and pass door_width, door_height, and sill_height; the service places it inside the host wall and avoids existing apertures or doors when possible. For a shared interior Surface boundary wall between adjacent rooms, this creates the paired adjacent Door automatically and preserves Honeybee Surface adjacency. Pass geometry only for explicit custom Face3D geometry. The parameter names are geometry and host_target, not Face3D and not host_face. Returns target, object_target, model_target, door_target, and for paired interior doors also targets, adjacent_target, and summary_view.is_interior_pair.',
         tags={
             "author",
@@ -27,7 +26,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str,
             Field(
-                description="Required Garden root path containing garden.json, usually garden_create['garden_root']."
+                description="Required Garden root path containing garden.json, usually GD_create['garden_root']."
             ),
         ],
         identifier: Annotated[
@@ -36,7 +35,7 @@ def register(mcp: FastMCP) -> None:
         host_target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee face typed target dict from nested target honeybee_search_model_objects matches[i].target or a prior honeybee_create_face result target; parameter name is host_target, not host_face. Use a Surface boundary wall face to create an interior door between adjacent rooms; the adjacent paired door is created automatically. Full responses, room targets, and identifier strings are rejected.'
+                description='Required Honeybee face typed target dict from nested target HB_search_model_objects matches[i].target or a prior HB_create_face result target; parameter name is host_target, not host_face. Use a Surface boundary wall face to create an interior door between adjacent rooms; the adjacent paired door is created automatically. Full responses, room targets, and identifier strings are rejected.'
             ),
         ],
         geometry: Annotated[
@@ -48,7 +47,7 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually honeybee_create_model['target']; defaults to the Garden base Honeybee Model."
+                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         door_width: Annotated[
@@ -80,6 +79,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create a Honeybee Door."""
+        from garden.honeybee_core.creation import create_honeybee_door as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,

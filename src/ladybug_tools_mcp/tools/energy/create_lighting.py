@@ -4,15 +4,14 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.energy.programtypes import create_lighting as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energy_create_lighting tool.'
+    'Register the EP_create_lighting tool.'
 
     @mcp.tool(
-        name='create_lighting',
-        description='Create a Honeybee Energy Lighting load object from lighting power density in watts_per_area and an optional schedule. This is an internal gains load for a ProgramType, not a Radiance luminaire or daylight electric-lighting control. Use garden_root and return_object_dict=false to save a load target for energy_create_program_type.',
+        name='EP_create_lighting',
+        description='Create a Honeybee Energy Lighting load object from lighting power density in watts_per_area and an optional schedule. This is an internal gains load for a ProgramType, not a Radiance luminaire or daylight electric-lighting control. Use garden_root and return_object_dict=false to save a load target for EP_create_program_type.',
         tags={
             "energy",
             "program-type",
@@ -48,7 +47,7 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."
+                description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."
             ),
         ] = None,
         return_object_dict: Annotated[
@@ -59,6 +58,8 @@ def register(mcp: FastMCP) -> None:
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Energy Lighting object."""
+        from garden.energy.programtypes import create_lighting as service
+
         return service(
             identifier=identifier,
             watts_per_area=watts_per_area,

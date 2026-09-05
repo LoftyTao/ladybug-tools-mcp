@@ -11,7 +11,7 @@ Use this category when the Agent needs Honeybee Energy resources, weather files,
 ## Common Scenarios
 
 - Search or create ProgramType, ScheduleRuleset, ConstructionSet, HVAC, Setpoint, and reusable Garden library objects.
-- Download EPW weather and start annual Energy simulation.
+- Use Garden-managed EPW weather and start annual Energy simulation.
 - Poll background Energy runs and read EUI, ERR, SQL, and available outputs.
 - Diagnose suspicious Energy results from bounded evidence.
 - Segment large geometry/properties/weather/simulation requests into stages.
@@ -21,8 +21,8 @@ Use this category when the Agent needs Honeybee Energy resources, weather files,
 1. Confirm required Honeybee Rooms and Energy properties.
 2. Create or reuse Energy resources with Garden target handoff.
 3. Attach resources through supported Honeybee edit tools.
-4. Use `energyplus_search_epw_map` and `energyplus_download_epw` for weather.
-5. Use `energyplus_start_simulation` and `energyplus_poll_simulation` for Agent workflows.
+4. For a bundled station, read `weather://catalog` and call `EP_import_local_weather` with `garden_root` and `source_path="weather://files/<station>"`; for a remote or missing station, call `LB_weather_download` with a specific query and exact `region`/`country`/`admin_region` filters when known. Keep its returned `weather_file` target.
+5. Use `EP_start_simulation` and `EP_poll_simulation` for Agent workflows.
 6. Read outputs only after completion and return compact result summaries.
 
 ## HVAC Boundary
@@ -37,7 +37,7 @@ Use this category when the Agent needs Honeybee Energy resources, weather files,
 
 - Stop when weather search or download is blocked after one clear recovery attempt.
 - Stop when model validation or run status is `failed`; read bounded errors before proposing repair.
-- Stop before using blocking `energyplus_run_simulation_wait` unless the user explicitly asks to wait for a local blocking run.
+- Stop before using blocking `EP_run_simulation_wait` unless the user explicitly asks to wait for a local blocking run.
 - Stop before claiming causality from a single run; describe hypotheses and next tests.
 
 ## References

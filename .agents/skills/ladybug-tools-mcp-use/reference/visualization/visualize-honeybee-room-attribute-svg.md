@@ -10,21 +10,21 @@ Use this when the user wants Honeybee Room attributes converted to a classified 
 
 ## MCP Route
 
-1. Call `visualization_create_2d_legend_parameter`.
-2. Call `visualization_honeybee_model_to_visualization_set` with `room_attributes_`.
+1. Call `LB_create_2d_legend_parameter`.
+2. Call `LB_honeybee_model_to_visualization_set` with `room_attributes_`.
 3. Pass `return_visualization_set=false` for target-first export when possible.
-4. Call `visualization_set_to_svg` with the target or, for debug, the full VisualizationSet.
+4. Call `LB_set_to_svg` with the target or, for debug, the full VisualizationSet.
 
 ## Code Mode Pattern
 
 ```python
-legend = await call_tool("visualization_create_2d_legend_parameter", {
+legend = await call_tool("LB_create_2d_legend_parameter", {
     "title": "Room Identifier",
     "orientation": "horizontal",
     "position_2d": {"origin_x": "5%", "origin_y": "88%"},
     "color_set": "viridis"
 })
-vis = await call_tool("visualization_honeybee_model_to_visualization_set", {
+vis = await call_tool("LB_honeybee_model_to_visualization_set", {
     "garden_root": garden_root,
     "color_by": "none",
     "room_attributes": [{
@@ -35,7 +35,7 @@ vis = await call_tool("visualization_honeybee_model_to_visualization_set", {
     "name": "agent_attribute_svg",
     "return_visualization_set": False
 })
-svg = await call_tool("visualization_set_to_svg", {
+svg = await call_tool("LB_set_to_svg", {
     "garden_root": garden_root,
     "visualization_set_target": vis["visualization_set_target"],
     "name": "agent_attribute_svg",

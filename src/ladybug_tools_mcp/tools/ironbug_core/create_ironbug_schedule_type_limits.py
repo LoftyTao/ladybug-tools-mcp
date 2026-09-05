@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_schedule_type_limits.'
+'MCP tool for IB_schedule_type_limits.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_schedule_type_limits tool.'
+    'Register the IB_schedule_type_limits tool.'
 
     @mcp.tool(
-        name='schedule_type_limits',
+        name='IB_schedule_type_limits',
         description=(
             'Create IB_ScheduleTypeLimits, an OpenStudio ScheduleTypeLimits target that constrains schedule lower/upper values, numeric type, and unit type for Ironbug DetailedHVAC schedules. Use it with ScheduleRuleset or Schedule:File targets; this is not a schedule values object, CSV schedule, Honeybee Energy schedule library object, or Energy run. Returns target, summary_view, persistence_receipt, and report.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_schedule_type_limits(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json, for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -79,6 +78,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug ScheduleTypeLimits target."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_setpoint_manager_single_zone_reheat.'
+'MCP tool for IB_setpoint_manager_single_zone_reheat.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_setpoint_manager_single_zone_reheat tool.'
+    'Register the IB_setpoint_manager_single_zone_reheat tool.'
 
     @mcp.tool(
-        name='setpoint_manager_single_zone_reheat',
+        name='IB_setpoint_manager_single_zone_reheat',
         description=(
             'Create IB_SetpointManagerSingleZoneReheat, the Ironbug and EnergyPlus SetpointManager:SingleZone:Reheat object. It uses one IB_ThermalZone control zone to calculate supply-air temperature setpoints from zone load, inlet flow, and zone temperature; the EnergyPlus object is not limited to reheat coils. Use it as an air-loop setpoint manager, not as a thermostat, zone equipment object, coil, result reader, or Energy simulation runner. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -30,7 +29,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -78,6 +77,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug single-zone reheat setpoint manager."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

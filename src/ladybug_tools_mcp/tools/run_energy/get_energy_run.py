@@ -6,15 +6,14 @@ import time
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
-from garden.run_energy.annual import get_energy_run as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energyplus_poll_simulation tool.'
+    'Register the EP_poll_simulation tool.'
 
     @mcp.tool(
-        name="poll_simulation",
-        description='Get one Garden energy_run record by run_target or run_id without returning large result files. Use after energyplus_start_simulation. When the user asks to wait, pass wait_seconds instead of repeated immediate polling; this waits in the wrapper and does not change the EnergyPlus engine timeout. Returns runtime_status through summary_view.status, summary_view.run, result_evidence, summary_view.recommended_next_tools, summary_view.final_answer_guidance, and report. Treat a failed runtime_status as requiring report review. This polling tool has no top-level poll_next field.',
+        name="EP_poll_simulation",
+        description='Get one Garden energy_run record by run_target or run_id without returning large result files. Use after EP_start_simulation. When the user asks to wait, pass wait_seconds instead of repeated immediate polling; this waits in the wrapper and does not change the EnergyPlus engine timeout. Returns runtime_status through summary_view.status, summary_view.run, result_evidence, summary_view.recommended_next_tools, summary_view.final_answer_guidance, and report. Treat a failed runtime_status as requiring report review. This polling tool has no top-level poll_next field.',
         tags={
             "energy",
             "simulate",
@@ -26,11 +25,11 @@ def register(mcp: FastMCP) -> None:
     )
     def get_energy_run(
         garden_root: Annotated[
-            str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")
+            str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")
         ],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Energy run target returned by energyplus_start_simulation; pass run_target for polling unless you provide run_id.'),
+            Field(description='Energy run target returned by EP_start_simulation; pass run_target for polling unless you provide run_id.'),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -48,6 +47,8 @@ def register(mcp: FastMCP) -> None:
         ] = None,
     ) -> dict[str, Any]:
         """Get one Energy simulation run."""
+        from garden.run_energy.annual import get_energy_run as service
+
         requested_wait = max(float(wait_seconds or 0), 0.0)
         applied_wait = min(requested_wait, 150.0)
         interval = max(float(poll_interval or 1.0), 0.2)

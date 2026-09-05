@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.runs import poll_sys_param as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the DES system-parameter poll tool."""
 
     @mcp.tool(
-        name="poll_sys_param",
+        name="DF_des_poll_sys_param",
         description=(
             "Read the compact Garden ledger for a DES system-parameter run. Use "
             "after the start tool to check runtime_status and confirm whether a "
@@ -30,4 +29,6 @@ def register(mcp: FastMCP) -> None:
         run_id: Annotated[str | None, Field(description="System-parameter run id to poll when run_target is not available.") ] = None,
     ) -> dict[str, Any]:
         """Poll a DES system-parameter run."""
+        from garden.dragonfly_des.runs import poll_sys_param as service
+
         return service(garden_root=garden_root, run_target=run_target, run_id=run_id)

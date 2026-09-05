@@ -5,6 +5,10 @@ from __future__ import annotations
 from garden.ironbug_console.openstudio_zone_equipment_fan_coils import (
     _write_four_pipe_fan_coil,
 )
+from garden.ironbug_console.openstudio_zone_equipment_energy_recovery_ventilator import (
+    _new_erv_controller,
+    _write_energy_recovery_ventilator,
+)
 from garden.ironbug_console.openstudio_zone_equipment_packaged import (
     _write_ptac,
     _write_pthp,
@@ -33,6 +37,7 @@ _ZONE_HVAC_EQUIPMENT_SOURCE_CLASSES = frozenset(
         "IB_ZoneHVACFourPipeFanCoil",
         "IB_ZoneHVACWaterToAirHeatPump",
         "IB_ZoneHVACBaseboardRadiantConvectiveWater",
+        "IB_ZoneHVACEnergyRecoveryVentilator",
         "IB_ZoneHVACUnitHeater",
         "IB_ZoneHVACUnitVentilator_CoolingHeating",
         "IB_ZoneHVACUnitVentilator_CoolingOnly",
@@ -42,6 +47,8 @@ _ZONE_HVAC_EQUIPMENT_SOURCE_CLASSES = frozenset(
 
 
 def _write_zone_hvac_equipment(openstudio, model, graph, node):
+    if node.source_class == "IB_ZoneHVACEnergyRecoveryVentilator":
+        return _write_energy_recovery_ventilator(openstudio, model, graph, node)
     if node.source_class == "IB_ZoneHVACPackagedTerminalAirConditioner":
         return _write_ptac(openstudio, model, graph, node)
     if node.source_class == "IB_ZoneHVACPackagedTerminalHeatPump":
@@ -80,6 +87,8 @@ def _zone_hvac_component_by_node(model, node):
         optional = model.getZoneHVACWaterToAirHeatPumpByName(name)
     elif node.source_class == "IB_ZoneHVACBaseboardRadiantConvectiveWater":
         optional = model.getZoneHVACBaseboardRadiantConvectiveWaterByName(name)
+    elif node.source_class == "IB_ZoneHVACEnergyRecoveryVentilator":
+        optional = model.getZoneHVACEnergyRecoveryVentilatorByName(name)
     elif node.source_class == "IB_ZoneHVACUnitHeater":
         optional = model.getZoneHVACUnitHeaterByName(name)
     elif node.source_class in {
@@ -98,6 +107,8 @@ __all__ = (
     "_ZONE_HVAC_EQUIPMENT_SOURCE_CLASSES",
     "_write_baseboard_radiant_convective_water",
     "_write_four_pipe_fan_coil",
+    "_write_energy_recovery_ventilator",
+    "_new_erv_controller",
     "_write_high_temperature_radiant",
     "_write_low_temp_radiant_const_flow",
     "_write_low_temp_radiant_var_flow",

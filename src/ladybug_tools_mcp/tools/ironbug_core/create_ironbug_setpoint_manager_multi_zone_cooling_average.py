@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_setpoint_manager_multi_zone_cooling_average.'
+'MCP tool for IB_setpoint_manager_multi_zone_cooling_average.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_setpoint_manager_multi_zone_cooling_average tool.'
+    'Register the IB_setpoint_manager_multi_zone_cooling_average tool.'
 
     @mcp.tool(
-        name='setpoint_manager_multi_zone_cooling_average',
+        name='IB_setpoint_manager_multi_zone_cooling_average',
         description=(
             'Create IB_SetpointManagerMultiZoneCoolingAverage / EnergyPlus SetpointManager:MultiZone:Cooling:Average for AirLoopHVAC cooling supply-air temperature. The manager uses multi-zone cooling demand to calculate a node setpoint, then applies optional minimum and maximum temperature limits. This authors Ironbug DetailedHVAC input only; it is not a heating manager, humidity manager, zone thermostat, result reader, or Energy simulation runner. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_setpoint_manager_multi_zone_cooling_average(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json; for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json; for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -65,6 +64,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug SetpointManager:MultiZone:Cooling:Average target."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

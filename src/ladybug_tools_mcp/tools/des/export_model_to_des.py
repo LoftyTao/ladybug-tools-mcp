@@ -7,14 +7,13 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_des.export import export_model_to_des as service
 
 
 def register(mcp: FastMCP) -> None:
     """Register the DES artifact export tool."""
 
     @mcp.tool(
-        name="export_model",
+        name="DF_des_export_model",
         description=(
             "Write the Dragonfly Energy DES handoff files for a Dragonfly Model, "
             "thermal loop, and EPW weather target. The response gives Garden "
@@ -37,6 +36,8 @@ def register(mcp: FastMCP) -> None:
         tolerance: Annotated[float | None, Field(description="Optional geometry tolerance for the Dragonfly Energy DES writer.") ] = None,
     ) -> dict[str, Any]:
         """Export a Dragonfly Model to DES artifacts."""
+        from garden.dragonfly_des.export import export_model_to_des as service
+
         return service(
             garden_root=garden_root,
             des_loop_target=des_loop_target,

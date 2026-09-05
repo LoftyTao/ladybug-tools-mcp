@@ -10,18 +10,17 @@ from pydantic import Field
 from ladybug_tools_mcp.tools.radiance.list_radiance_artifact_files import (
     _normalize_artifact_type,
 )
-from garden.store import list_garden_artifacts as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the radiance_search_visualizations tool.'
+    'Register the RAD_search_visualizations tool.'
 
     @mcp.tool(
-        name="search_visualizations",
+        name="RAD_search_visualizations",
         description=(
             "Search Garden-managed Radiance image and visualization artifacts "
             "such as HDR falsecolor images and GIF previews. For raw run HDR "
-            "outputs, use radiance_list_hdr_images with a run target or "
+            "outputs, use RAD_list_hdr_images with a run target or "
             "run_id. This searches artifact metadata and does not render, "
             "convert, or export files."
         ),
@@ -35,12 +34,14 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def search_radiance_visualizations(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         artifact_type: Annotated[str | None, Field(description="Optional formal Radiance artifact target_type: radiance_hdr_image, radiance_gif_image, radiance_view, or radiance_sensor_grid.")] = None,
         query: Annotated[str | None, Field(description="Optional visualization artifact name or Garden-relative path substring filter.")] = None,
         limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
     ) -> dict[str, Any]:
         """Search Radiance visualization artifacts."""
+        from garden.store import list_garden_artifacts as service
+
         normalized_artifact_type = _normalize_artifact_type(artifact_type)
         result = service(garden_root=garden_root, artifact_type=normalized_artifact_type)
         query_text = (query or "").strip().lower()

@@ -5,27 +5,27 @@ Use this when the user wants to delete an orphaned Honeybee Face directly owned 
 ## Preconditions
 
 - The target Face must be orphaned. Room-hosted Faces are part of a closed Room solid and should not be removed with this tool.
-- Locate the Face with `honeybee_search_model_objects`.
+- Locate the Face with `HB_search_model_objects`.
 - Pass the typed Face target as `target`.
 
 ## MCP Route
 
 1. Search `object_type="face"`.
 2. Confirm the selected match has no Room parent.
-3. Call `honeybee_remove_face`.
+3. Call `HB_remove_face`.
 4. Search again to confirm removal.
 5. Validate if the model will be simulated or reused.
 
 ## Code Mode Pattern
 
 ```python
-faces = await call_tool("honeybee_search_model_objects", {
+faces = await call_tool("HB_search_model_objects", {
     "garden_root": garden_root,
     "object_type": "face",
     "identifier": "wall_1"
 })
 
-removed = await call_tool("honeybee_remove_face", {
+removed = await call_tool("HB_remove_face", {
     "garden_root": garden_root,
     "target": faces["matches"][0]["target"]
 })

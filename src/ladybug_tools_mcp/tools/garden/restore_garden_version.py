@@ -7,18 +7,17 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.versions import restore_garden_version as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the garden_restore_version tool.'
+    'Register the GD_restore_version tool.'
 
     @mcp.tool(
-        name='restore_version',
+        name='GD_restore_version',
         description=(
             "Restore, undo, go back, or roll back Garden authoring truth to a "
             "previous Garden version checkpoint and record that restore as a new "
-            "history item. Pass either the version_id from garden_list_versions "
+            "history item. Pass either the version_id from GD_list_versions "
             "matches/versions or the nested garden_version target as version_target. "
             "Returns summary_view, restored_from_version, new_version, version_target, "
             "and persistence_receipt metadata only. It refuses dirty authoring "
@@ -41,7 +40,7 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Required Garden root path containing garden.json, usually "
-                    "garden_create['garden_root']; restore only this Garden's "
+                    "GD_create['garden_root']; restore only this Garden's "
                     "authoring truth paths."
                 )
             ),
@@ -50,7 +49,7 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(
                 description=(
-                    "Garden version_id string from garden_list_versions "
+                    "Garden version_id string from GD_list_versions "
                     "matches/versions. Required unless version_target is provided; "
                     "do not pass a raw Git hash from another repository."
                 )
@@ -60,8 +59,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional nested garden_version target from garden_list_versions, "
-                    "garden_create_version, or garden_restore_version. Expected "
+                    "Optional nested garden_version target from GD_list_versions, "
+                    "GD_create_version, or GD_restore_version. Expected "
                     "shape includes target_type='garden_version', garden_id, and "
                     "version_id; use this instead of the version_id string when "
                     "passing the target handoff is easier."
@@ -98,6 +97,8 @@ def register(mcp: FastMCP) -> None:
         ] = "agent",
     ) -> dict[str, Any]:
         """Restore a Garden version as a new history entry."""
+        from garden.versions import restore_garden_version as service
+
         resolved_version_id = version_id
         if resolved_version_id is None and version_target:
             raw_id = version_target.get("version_id")

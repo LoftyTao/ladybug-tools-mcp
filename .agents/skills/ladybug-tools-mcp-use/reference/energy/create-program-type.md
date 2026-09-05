@@ -10,15 +10,15 @@ Use this when the user needs a Honeybee Energy `ProgramType` for Room program as
 
 ## MCP Route
 
-1. Search standards identifiers with `energy_search_energy_library_objects` when a library base or schedule is needed.
-2. Create needed loads, such as `energy_create_lighting`, `energy_create_people`, or `energy_create_setpoint`.
-3. Call `energy_create_program_type` with a base ProgramType identifier or target and load targets.
-4. Assign the resulting ProgramType target to Rooms with `honeybee_edit_room`.
+1. Search standards identifiers with `EP_search_energy_library_objects` when a library base or schedule is needed.
+2. Create needed loads, such as `EP_create_lighting`, `EP_create_people`, or `EP_create_setpoint`.
+3. Call `EP_create_program_type` with a base ProgramType identifier or target and load targets.
+4. Assign the resulting ProgramType target to Rooms with `HB_edit_room`.
 
 ## Code Mode Pattern
 
 ```python
-lighting = await call_tool("energy_create_lighting", {
+lighting = await call_tool("EP_create_lighting", {
     "identifier": "agent_lighting",
     "watts_per_area": 5.0,
     "schedule": "Generic Office Lighting",
@@ -26,7 +26,7 @@ lighting = await call_tool("energy_create_lighting", {
     "return_object_dict": False
 })
 
-program = await call_tool("energy_create_program_type", {
+program = await call_tool("EP_create_program_type", {
     "identifier": "agent_program",
     "base_program_type": "Generic Office Program",
     "lighting": lighting["target"],
@@ -37,7 +37,7 @@ program = await call_tool("energy_create_program_type", {
 
 ## Load Handoff
 
-The same target-first pattern applies to `energy_create_people`, `energy_create_electric_equipment`, `energy_create_gas_equipment`, `energy_create_ventilation`, `energy_create_infiltration`, `energy_create_service_hot_water`, and `energy_create_setpoint`.
+The same target-first pattern applies to `EP_create_people`, `EP_create_electric_equipment`, `EP_create_gas_equipment`, `EP_create_ventilation`, `EP_create_infiltration`, `EP_create_service_hot_water`, and `EP_create_setpoint`.
 
 ## Success Criteria
 

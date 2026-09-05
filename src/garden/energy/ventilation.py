@@ -22,7 +22,6 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
     save_honeybee_model,
-    with_honeybee_model_write_lock,
 )
 from garden.honeybee_core.targets import normalize_honeybee_object_target
 from garden.libraries.properties import save_garden_properties_library_object
@@ -322,7 +321,6 @@ def _save_model_change(
     }
 
 
-@with_honeybee_model_write_lock
 def setup_simple_ventilation_properties(
     *,
     garden_root: str,
@@ -399,7 +397,6 @@ def setup_simple_ventilation_properties(
     )
 
 
-@with_honeybee_model_write_lock
 def setup_airflow_network(
     *,
     garden_root: str,

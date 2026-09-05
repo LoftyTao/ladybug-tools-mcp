@@ -7,15 +7,14 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.run_energy.results import read_energy_result_data as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the energyplus_read_result_data tool.'
+    'Register the EP_read_result_data tool.'
 
     @mcp.tool(
-        name="read_result_data",
-        description='Read EnergyPlus SQL results from a completed Garden energy_run as compact Ladybug DataCollection summaries with result_context provenance. Use output names from energyplus_list_run_outputs or SQL output inventory filters. Without output_name/output_names/filters, returns available_outputs only. With save_data_collections=true, returns data_collection_targets and summary_view.first_data_collection_target for visualization tools; there is no top-level target or single data_collection_target.',
+        name="EP_read_result_data",
+        description='Read EnergyPlus SQL results from a completed Garden energy_run as compact Ladybug DataCollection summaries with result_context provenance. Use output names from EP_list_run_outputs or SQL output inventory filters. Without output_name/output_names/filters, returns available_outputs only. With save_data_collections=true, returns data_collection_targets and summary_view.first_data_collection_target for visualization tools; there is no top-level target or single data_collection_target.',
         tags={
             "energy",
             "result",
@@ -27,12 +26,12 @@ def register(mcp: FastMCP) -> None:
     def read_energy_result_data(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually garden_create['garden_root']; required when saving or reading Garden targets."),
+            Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets."),
         ],
         run_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Energy run target returned by energyplus_start_simulation; pass run_target unless you provide run_id.'
+                description='Energy run target returned by EP_start_simulation; pass run_target unless you provide run_id.'
             ),
         ] = None,
         run_id: Annotated[
@@ -109,6 +108,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Read Energy result DataCollection summaries."""
+        from garden.run_energy.results import read_energy_result_data as service
+
         return service(
             garden_root=garden_root,
             run_target=run_target,

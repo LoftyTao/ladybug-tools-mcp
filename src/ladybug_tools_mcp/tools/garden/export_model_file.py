@@ -7,20 +7,19 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.model_export import export_model_file as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the garden_export_model_file tool.'
+    'Register the GD_export_model_file tool.'
 
     @mcp.tool(
-        name='export_model_file',
+        name='GD_export_model_file',
         description=(
             "Export an explicit Garden Honeybee Model or Dragonfly Model target to "
             "a Garden-managed DOE-2 INP or DesignBuilder dsbXML export artifact. "
             "Requires garden_root, export_format, and a nested model_target from "
-            "a Honeybee/Dragonfly create tool, garden_list_models, "
-            "garden_get_base_honeybee_model, or garden_get_base_dragonfly_model. "
+            "a Honeybee/Dragonfly create tool, GD_list_models, "
+            "GD_get_base_honeybee_model, or GD_get_base_dragonfly_model. "
             "The tool derives Honeybee vs Dragonfly from model_target, validates "
             "that the source is a Garden-relative .hbjson or .dfjson file, and "
             "returns target, model_export_artifact_target, artifact_receipt, "
@@ -45,7 +44,7 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Required Garden root path containing garden.json, usually "
-                    "garden_create['garden_root']; the model target and export "
+                    "GD_create['garden_root']; the model target and export "
                     "artifact must belong to this Garden."
                 )
             ),
@@ -67,7 +66,7 @@ def register(mcp: FastMCP) -> None:
                     "Required exact Honeybee Model or Dragonfly Model target. Pass the "
                     "nested model_target dict from a model create/list/base-model tool, "
                     "not a full tool response and not an identifier string. Targets "
-                    "from garden_list_models must include a Garden-relative path to "
+                    "from GD_list_models must include a Garden-relative path to "
                     ".hbjson or .dfjson."
                 )
             ),
@@ -93,6 +92,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Export a Honeybee or Dragonfly model file artifact."""
+        from garden.model_export import export_model_file as service
+
         return service(
             garden_root=garden_root,
             export_format=export_format,

@@ -11,10 +11,10 @@ from flowerpot.registry import get_flowerpot as service
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the flowerpot_get tool.'
+    'Register the FP_get tool.'
 
     @mcp.tool(
-        name='get',
+        name='FP_get',
         description=(
             "Read, list, or summarize Garden-local Flowerpot handoff context while "
             "keeping Flowerpot dictionaries opaque. Use garden_root alone to list "
@@ -38,13 +38,13 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[
             str | None,
             Field(
-                description="Optional Garden root path containing garden.json, usually garden_create['garden_root']; required when using flowerpot_id or listing registered Flowerpots."
+                description="Optional Garden root path containing garden.json, usually GD_create['garden_root']; required when using flowerpot_id or listing registered Flowerpots."
             ),
         ] = None,
         flowerpot_id: Annotated[
             str | None,
             Field(
-                description='Optional registered Flowerpot id returned by flowerpot_create. Omit with garden_root to list registered Flowerpots.'
+                description='Optional registered Flowerpot id returned by FP_create. Omit with garden_root to list registered Flowerpots.'
             ),
         ] = None,
         flowerpot: Annotated[

@@ -1,19 +1,18 @@
-'MCP tool for detailed_hvac_setpoint_manager_follow_ground_temperature.'
+'MCP tool for IB_setpoint_manager_follow_ground_temperature.'
 
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
 
 
 def register(mcp: FastMCP) -> None:
-    'Register the detailed_hvac_setpoint_manager_follow_ground_temperature tool.'
+    'Register the IB_setpoint_manager_follow_ground_temperature tool.'
 
     @mcp.tool(
-        name='setpoint_manager_follow_ground_temperature',
+        name='IB_setpoint_manager_follow_ground_temperature',
         description=(
             'Create IB_SetpointManagerFollowGroundTemperature / EnergyPlus SetpointManager:FollowGroundTemperature. The manager follows a selected Site:GroundTemperature object, applies an offset, and clips the resulting node setpoint between minimum and maximum temperatures. This authors Ironbug DetailedHVAC input only; it is not a ground heat exchanger, ground-temperature file, weather source, result reader, or Energy simulation runner. Returns target, summary_view, persistence_receipt, and report for downstream DetailedHVAC assembly.'
             'This tool authors Ironbug DetailedHVAC input only; run Energy simulation with the standard Ladybug Tools MCP Energy workflow after DetailedHVAC is applied. '
@@ -24,13 +23,13 @@ def register(mcp: FastMCP) -> None:
     def create_ironbug_setpoint_manager_follow_ground_temperature(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json; for example garden_create['garden_root']."),
+            Field(description="Required Garden root path containing garden.json; for example GD_create['garden_root']."),
         ],
         ironbug_model_target: Annotated[
             dict[str, Any],
             Field(
                 description=(
-                    'Required Ironbug model target returned by detailed_hvac_create_model; '
+                    'Required Ironbug model target returned by IB_create_model; '
                     "pass result['target'], not the .ibjson file path."
                 )
             ),
@@ -69,6 +68,8 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> dict[str, Any]:
         """Create an Ironbug SetpointManager:FollowGroundTemperature target."""
+
+        from garden.ironbug_core.create_tools import create_source_backed_ironbug_object
 
         source_fields: dict[str, Any] = {}
         source_field_targets: dict[str, Any] = {}

@@ -24,13 +24,13 @@ accepted path must preserve exact OpenStudio
 ## MCP Tool Chain
 
 1. Create Room1 ThermalZone.
-2. Create `detailed_hvac_fan_on_off`.
-3. Create `detailed_hvac_coil_heating_water` with numeric water flow, UA, and
+2. Create `IB_fan_on_off`.
+3. Create `IB_coil_heating_water` with numeric water flow, UA, and
    rated inlet/outlet water and air temperatures.
-4. Create `detailed_hvac_zone_equipment_unit_heater` with fan, heating coil, and
+4. Create `IB_zone_equipment_unit_heater` with fan, heating coil, and
    ThermalZone.
 5. Create hot-water loop: constant-speed pump plus either
-   `detailed_hvac_district_heating_water` or `detailed_hvac_boiler_hot_water`
+   `IB_district_heating_water` or `IB_boiler_hot_water`
    on supply, heating coil on demand. For the current district-heating path,
    use a hot-water loop setpoint around `82.2` C to match the water coil rated
    inlet temperature and avoid EnergyPlus UA autosizing failure.
@@ -41,16 +41,16 @@ accepted path must preserve exact OpenStudio
 
 ## Short Anti-Patterns
 
-- `detailed_hvac_thermal_zone` has no `honeybee_room_identifier` parameter. Use
+- `IB_thermal_zone` has no `honeybee_room_identifier` parameter. Use
   `identifier` and `name` for Room1, then select Room1 when applying HVAC.
-- `detailed_hvac_zone_equipment_unit_heater` uses `fan_target`, not
+- `IB_zone_equipment_unit_heater` uses `fan_target`, not
   `supply_fan_target`.
-- `detailed_hvac_pump_constant_speed` uses `rated_pump_head`,
+- `IB_pump_constant_speed` uses `rated_pump_head`,
   `rated_flow_rate`, `motor_efficiency`, and `pump_control_type`; do not use
   `nominal_flow_rate` or `nominal_head`.
-- `energyplus_start_simulation` uses `model_target`, not
+- `EP_start_simulation` uses `model_target`, not
   `honeybee_model_target`. Use the returned run target for follow-up reads.
-- `energyplus_read_eui` exposes the positive EUI value at
+- `EP_read_eui` exposes the positive EUI value at
   `eui_result["eui"]["eui"]`; do not let `total_energy == 0` overwrite the
   acceptance EUI value.
 - Code Mode does not support `with` statements.
@@ -58,12 +58,87 @@ accepted path must preserve exact OpenStudio
   create tool with the same identifier and `overwrite=True`; do not keep
   replaying the whole Garden.
 
+## Code Mode Call Example
+
+```python
+# Inside Ladybug Tools MCP Code Mode execute.
+garden_root = "<selected Garden root>"
+case_id = "unit_heater_single"
+rooms = ["Room1"]
+
+base = await call_tool("HB_create_model", {
+    "garden_root": garden_root,
+    "identifier": case_id + "_model",
+})
+ironbug = await call_tool("IB_create_model", {
+    "garden_root": garden_root,
+    "identifier": case_id,
+    "overwrite": True,
+})
+
+# Create Room1 ThermalZone, OnOff fan, hot-water coil, UnitHeater, pump, and
+# hot-water source described in MCP Tool Chain above. Keep returned targets.
+
+applied = await call_tool("IB_apply_to_honeybee_model", {
+    "garden_root": garden_root,
+    "ironbug_model_target": ironbug["target"],
+    "honeybee_model_target": base["target"],
+    "room_identifiers": rooms,
+    "detailed_hvac_identifier": case_id + "_detailed_hvac",
+})
+run = await call_tool("EP_start_simulation", {
+    "garden_root": garden_root,
+    "model_target": applied["updated_model_target"],
+    "weather_target": "<cold-weather EPW target created or registered in this Garden>",
+    "run_id": case_id + "_run",
+})
+status = await call_tool("EP_poll_simulation", {
+    "garden_root": garden_root,
+    "run_target": run["target"],
+    "wait_seconds": 60,
+    "poll_interval": 2,
+})
+outputs = await call_tool("EP_list_run_outputs", {
+    "garden_root": garden_root,
+    "run_target": run["target"],
+})
+eui = await call_tool("EP_read_eui", {
+    "garden_root": garden_root,
+    "run_target": run["target"],
+})
+return {
+    "case_id": case_id,
+    "status": "accepted-case-pass",
+    "garden_target": "<garden target>",
+    "building_model_target": base["target"],
+    "rooms": rooms,
+    "ironbug_model_target": ironbug["target"],
+    "detailed_hvac_target": applied.get("detailed_hvac_target"),
+    "detailed_hvac_application": {
+        "status": "applied",
+        "model_target": base["target"],
+        "ironbug_model_target": ironbug["target"],
+        "detailed_hvac_target": applied.get("detailed_hvac_target"),
+        "updated_model_target": applied["updated_model_target"],
+    },
+    "energy_run_id": run["target"]["run_id"],
+    "energy_run_target": run["target"],
+    "energy_status": status["summary_view"]["status"],
+    "eui": {"total": eui["eui"]["eui"], "run_id": run["target"]["run_id"]},
+    "err": "<structured ERR exists/path/warning/severe/fatal summary>",
+    "sql": "<structured SQL exists/path/run_id summary>",
+    "python_ironbug_console_runtime": status.get("python_ironbug_console_runtime"),
+    "rerun_command": "<minimum pytest rerun command>",
+    "blocker": None,
+}
+```
+
 ## Expected MCP Return
 
 Return compact JSON-compatible evidence with `case_id`, `status`,
 `garden_target`, `building_model_target`, `rooms`, `ironbug_model_target`,
-`detailed_hvac_application`, optional `energy_run_id`, optional
-`energy_run_target`, optional structured `eui`, optional structured `err`,
+`detailed_hvac_target`, `detailed_hvac_application`, optional `energy_run_id`, optional
+`energy_run_target`, `energy_status`, optional structured `eui`, optional structured `err`,
 optional structured `sql`, `python_ironbug_console_runtime`, `rerun_command`,
 and `blocker`. For a pass, set `status` to `accepted-case-pass`, make
 `blocker` null, and include Python Console runtime evidence with
@@ -71,6 +146,51 @@ and `blocker`. For a pass, set `status` to `accepted-case-pass`, make
 `csharp_ironbug_console_required=false`, empty `writer_diagnostics`, and
 `compiler_reports` showing
 `IB_ZoneHVACUnitHeater -> OS:ZoneHVAC:UnitHeater`.
+
+## Code Mode Return Example
+
+```jsonc
+{
+  "case_id": "unit_heater_single",
+  "status": "accepted-case-pass",
+  "garden_target": {"target_type": "garden", "garden_id": "<garden_id>"},
+  "building_model_target": {"target_type": "honeybee_model", "path": "<hbjson path>"},
+  "rooms": ["Room1"],
+  "ironbug_model_target": {"target_type": "ironbug_model", "path": "<ibjson path>"},
+  "detailed_hvac_target": "<IB_apply_to_honeybee_model.detailed_hvac_target>",
+  "detailed_hvac_application": {
+    "status": "applied",
+    "model_target": {"target_type": "honeybee_model", "path": "<source hbjson path>"},
+    "ironbug_model_target": {"target_type": "ironbug_model", "path": "<ibjson path>"},
+    "detailed_hvac_target": "<IB_apply_to_honeybee_model.detailed_hvac_target>",
+    "updated_model_target": {"target_type": "honeybee_model", "path": "<updated hbjson path>"}
+  },
+  "energy_run_id": "<energy_run_id>",
+  "energy_run_target": {"target_type": "energy_run", "run_id": "<energy_run_id>"},
+  "energy_status": "completed",
+  "eui": {"total": 123.456, "run_id": "<energy_run_id>"},
+  "err": {
+    "exists": true,
+    "path": "<extract eplusout.err from outputs>",
+    "warning_count": 0,
+    "severe_count": 0,
+    "fatal_count": 0
+  },
+  "sql": {
+    "exists": true,
+    "path": "<extract eplusout.sql from outputs>",
+    "run_id": "<energy_run_id>"
+  },
+  "python_ironbug_console_runtime": {
+    "status": "translated",
+    "simulation_input_kind": "openstudio_osm",
+    "csharp_ironbug_console_required": false,
+    "compiler_reports": ["IB_ZoneHVACUnitHeater -> OS:ZoneHVAC:UnitHeater"]
+  },
+  "rerun_command": "<minimum pytest rerun command>",
+  "blocker": null
+}
+```
 
 ## Case Notes
 
@@ -83,8 +203,6 @@ severe/fatal counts of 0, SQL present, and must preserve exact UnitHeater
 semantics. If the runtime can only translate to `Baseboard/DHWBaseboard`, return
 the precise blocker and any available ERR/SQL paths instead of reporting a pass.
 
-Keep detailed evidence records in LLM-Wiki rather than copying them into this
-Skill.
 
-Do not use `detailed_hvac_district_heating`. Do not create DOAS, chilled-water
+Do not use `IB_district_heating`. Do not create DOAS, chilled-water
 loops, load-profile plant demand, or generic PlantLoop tools.
