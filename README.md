@@ -11,10 +11,6 @@ Through natural-language conversation, users can use the core capabilities of La
 
 ![Opencode Honeybee Modeling Flow](https://raw.githubusercontent.com/LoftyTao/ladybug-tools-mcp/f530e12d9836db518b187639eee4e7644a6a7e9f/resources/remotion/snapshots/videos/opencode-honeybee-modeling-vtkjs-flow-en/opencode-honeybee-modeling-vtkjs-flow-en-latest.gif)
 
-This project has been built entirely by Codex, including the source code and all demo images.
-GPT 5.4 and GPT 5.5 were used for project development, MiniMax 2.7 was used for focused and partial tool-call testing, and GPT 5.4 Mini was used for complete cross-functional workflow testing.
-The overall cost is roughly 5 billion tokens per month.
-
 ## Contents
 
 - [Overview](#overview)
