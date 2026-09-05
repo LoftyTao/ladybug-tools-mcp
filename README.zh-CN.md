@@ -2,8 +2,6 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-![Ladybug Tools MCP 题图](https://raw.githubusercontent.com/LoftyTao/ladybug-tools-mcp/f530e12d9836db518b187639eee4e7644a6a7e9f/resources/GitHub-Obsidian-header-flowerpot-garden.png)
-
 ## 概览
 
 Ladybug Tools MCP 是基于 FastMCP 构建、面向代理应用的 MCP 服务。
