@@ -95,9 +95,9 @@ Flowerpot 是 Ladybug Tools MCP 与其他交互界面交换信息的中间层。
 下表列出了 Ladybug Tools MCP `v1.2.0` 所采用的外部运行环境版本要求。
 请按具体工作流安装所需引擎；Ironbug 建模使用项目内的 Python 实现。
 
-| Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
+Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.0` | 3.12 | 5.4 (2023-11-05) | 3.10.0 | 25.1.0 | 1.10.0 | 1.4.0 | 8.1.30 beta |
+| `v1.2.0` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NatLabRockies/OpenStudio/releases/tag/v3.11.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
 
 使用 `LB_get_runtime_config` 检查已安装引擎，并获取缺失运行环境的配置指引。
 
