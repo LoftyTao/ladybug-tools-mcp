@@ -147,6 +147,8 @@ Python-only matrix acceptance, the run must be under
 run fails, return the precise blocker and any available ERR/SQL paths instead
 of rebuilding the whole graph.
 
+Keep detailed evidence records in LLM-Wiki rather than copying them into this
+Skill.
 
 On Windows/OpenStudio, avoid very long Garden roots for full Energy proofs. If
 OpenStudio says a seed model or EPW is missing while the file exists, retry

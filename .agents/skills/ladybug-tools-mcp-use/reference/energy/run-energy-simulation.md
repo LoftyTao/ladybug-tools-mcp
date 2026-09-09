@@ -225,3 +225,4 @@ Use blocking `EP_run_simulation_wait` only for debugging or clients that can saf
 - Do not construct a result path from `run_id` or the `annual_energy_use` recipe name.
 - Do not call a public `get_energy_simulation_config`; it is service-layer behavior.
 - If SQL output is missing, request it before a fresh run with `EP_create_output_request`.
+- Keep run evidence, EUI values, artifacts, and metrics in LLM-Wiki.

@@ -5,6 +5,7 @@ Use this staged workflow when a user asks for a real forum/paper-style Honeybee 
 ## Preconditions
 
 - Treat this as a simulation-chain proof, not an optimization workflow.
+- Keep source framing and retained-run evidence in LLM-Wiki.
 - Do not claim annual daylight, comfort, or optimization outcomes unless the corresponding tools and outputs are run.
 
 ## Turn 1: Concept

@@ -38,3 +38,4 @@ result = await call_tool("EP_search_energy_library_objects", {
 
 - Do not use this to find Garden-saved custom resources.
 - Do not invent broader Energy library families when a filter returns no match.
+- Keep schema evidence in LLM-Wiki.

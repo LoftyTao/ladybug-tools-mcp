@@ -71,3 +71,4 @@ return {
 - Do not request full HBJSON, EPW, SQL, or large SDK dictionaries unless the user asks for export/debug output.
 - Do not start a duplicate run for the same `run_id`.
 - Do not continue downstream after a stage summary unless the user requested the next stage.
+- Keep run identifiers, metrics, and historical failure analysis in LLM-Wiki.

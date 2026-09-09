@@ -34,3 +34,4 @@ result = await call_tool("RAD_search_library_objects", {
 
 - Do not call this with `arguments: null` or `{}`.
 - Do not keep probing unrelated terms after short searches such as `glass`, `plastic`, or `generic wall` return usable matches.
+- Keep schema and live-run evidence in LLM-Wiki.

@@ -53,3 +53,4 @@ Use `replace_existing=True` only when intentionally replacing a model luminaire 
 
 - Do not confuse Radiance luminaires with Honeybee Energy lighting loads.
 - Do not attach luminaires unless the downstream scene/run needs them.
+- Keep IES evidence in LLM-Wiki.

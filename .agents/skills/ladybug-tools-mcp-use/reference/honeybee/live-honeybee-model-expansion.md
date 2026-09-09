@@ -77,3 +77,4 @@ return {"room": room["target"], "window": window["target"], "is_valid": validati
 
 - Do not rebuild the user's live Garden to recover from a partial failure.
 - Do not pass full search responses downstream.
+- Record complex live-round evidence in LLM-Wiki, not in this Skill reference.

@@ -1,6 +1,6 @@
 # Ironbug Core ibjson Operations
 
-Use this operational reference for Garden-managed Ironbug `.ibjson` create, validate, search, and DetailedHVAC handoff.
+Use this operational reference for Garden-managed Ironbug `.ibjson` create, validate, search, and DetailedHVAC handoff. Evidence, candidate systems, source-backed tool expansion policy, and broad tool maps live in LLM-Wiki, not in this Skill reference.
 
 ## Use When
 

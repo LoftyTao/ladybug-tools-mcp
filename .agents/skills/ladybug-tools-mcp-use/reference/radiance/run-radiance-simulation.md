@@ -194,3 +194,4 @@ Do not invent a View recipe parameter, rerun after a missing-View diagnostic wit
 - Do not call qualitative HDR/GIF previews DGP or glare metrics.
 - Do not invent Radiance-owned HTML/SVG export tools.
 - Do not handwrite VisualizationSet JSON or result HTML in Agent space.
+- Keep run evidence, metrics, and visual QA notes in LLM-Wiki.

@@ -36,6 +36,7 @@ Use Garden mode and do not request full large payloads by default.
 - Public tool arguments use one canonical lowercase `snake_case` name. Use `garden_root`, `model_target`, `host_target`, `object_type`, and `return_object_dict`; do not use historical names such as `_garden_root`, `garden_root_`, `_target`, or `object_type_`.
 - Use the complete, case-sensitive tool name returned by Code Mode `search` or `get_schema`; the uppercase ecosystem prefix is part of the public name, for example `HB_create_room`, `EP_start_simulation`, `RAD_create_sensor_grid`, and `IB_zone_equipment_ptac`. After reconnecting or deploying a rename, rediscover the current directory before calling it.
 - Keep Honeybee Energy HVAC template/simple HVAC separate from Ironbug DetailedHVAC. Use the Energy references for `hvac-template` workflows such as template HVAC, Ideal Air, simple ventilation/fans, and reusable HVAC resources; use the Ironbug references for `detailed-hvac` workflows such as source-backed components, loops, branches, and DetailedHVAC application.
+- For a fixed ice-rink load proxy requested through either `additional_idf_text` or Ironbug EMS, load `reference/ironbug/ice-rink-load-proxy.md`; route ice-surface physics and equipment-closure requests through its boundary.
 - `GD_create` is the common Garden-root exception: it takes the folder path as `root_dir` and returns the reusable top-level `garden_root` string. Do not call `GD_create` with `garden_root`.
 - `GD_create` initializes Garden-local `.git/` when Git is available on `PATH`; if `summary_view.version_control.git_available=false`, treat creation as successful and defer version tools. After Git becomes available, the first Garden version tool initializes the repository.
 - For blank-project workflows, the first `execute` block must call `GD_create` before any tool that takes `garden_root`; creating the folder yourself is not enough because Garden tools require `garden.json`.
@@ -206,6 +207,7 @@ Read only the most relevant category overview and reference file(s) for the curr
   - `reference/ironbug/ironbug-loop-topology-placement.md`
   - `reference/ironbug/ironbug-ems-operation-strategy.md`
   - `reference/ironbug/ironbug-ems-storage-dispatch.md`
+  - `reference/ironbug/ice-rink-load-proxy.md`
   - `reference/ironbug/custom-hvac-cases/index.md`
   - `reference/ironbug/ironbug-custom-hvac-agent-workflows.md`
 - Tool naming, disclosure, or Skill reference maintenance:
@@ -216,4 +218,5 @@ Read only the most relevant category overview and reference file(s) for the curr
 - `SKILL.md` should stay short and only provide entry rules and navigation.
 - Detailed scenarios, validated shortest paths, prompt samples, success criteria, and failure examples belong under `reference/`.
 - `reference/` is for Agent-facing usage paths only.
+- `docs/llm-wiki/` is for product notes, project state, evidence, cost records, and capability evolution; it is not the main Agent entrypoint.
 - Only paths verified by a completed direct MCP interaction can be documented as recommended paths in `reference/`.

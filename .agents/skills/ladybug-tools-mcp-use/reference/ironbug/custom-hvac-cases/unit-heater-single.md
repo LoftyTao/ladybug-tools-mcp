@@ -203,6 +203,8 @@ severe/fatal counts of 0, SQL present, and must preserve exact UnitHeater
 semantics. If the runtime can only translate to `Baseboard/DHWBaseboard`, return
 the precise blocker and any available ERR/SQL paths instead of reporting a pass.
 
+Keep detailed evidence records in LLM-Wiki rather than copying them into this
+Skill.
 
 Do not use `IB_district_heating`. Do not create DOAS, chilled-water
 loops, load-profile plant demand, or generic PlantLoop tools.

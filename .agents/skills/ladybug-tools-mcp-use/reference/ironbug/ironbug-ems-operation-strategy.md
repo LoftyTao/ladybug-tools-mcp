@@ -1,6 +1,8 @@
 # Ironbug EMS Operation Strategy
 
-Status: deterministic-contract-pass with Codex-direct MCP practice.
+Status: deterministic-contract-pass with Codex-direct MCP practice. This is
+projected from
+`docs/llm-wiki/workflows/ironbug-ems-operation-strategy.md`.
 Do not call it Agent-verified until a focused natural-language EMS
 operation-strategy Agent run passes.
 

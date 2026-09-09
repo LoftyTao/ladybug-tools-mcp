@@ -51,3 +51,4 @@ glass = await call_tool("RAD_create_glass_modifier", {
 
 - Do not use filesystem probes or Python imports inside Code Mode to confirm Gardens.
 - Do not copy full modifier dictionaries when a target exists.
+- Keep modifier evidence in LLM-Wiki.

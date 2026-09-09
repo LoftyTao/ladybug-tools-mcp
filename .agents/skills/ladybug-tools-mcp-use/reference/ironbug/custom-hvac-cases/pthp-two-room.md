@@ -172,6 +172,8 @@ ERR severe/fatal counts of 0, and SQL present. If the run fails, return the
 precise blocker and any available ERR/SQL paths instead of rebuilding the whole
 graph.
 
+Keep detailed evidence records in LLM-Wiki rather than copying them into this
+Skill.
 
 Do not share one PTHP between rooms. Do not create hydronic loops, DOAS, or
 AirLoopHVAC.

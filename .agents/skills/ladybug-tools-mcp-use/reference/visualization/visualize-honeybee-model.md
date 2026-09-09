@@ -39,3 +39,4 @@ vis = await call_tool("LB_honeybee_model_to_visualization_set", {
 - Do not assume this generates HTML or SVG; export is a separate tool call.
 - `color_by="none"` maps to SDK `None` semantics.
 - Model-level `color_by` supports `type`, `boundary_condition`, and `none`; do not use `face_type`.
+- Keep preview artifacts and metrics in LLM-Wiki.

@@ -4,6 +4,8 @@ Status: Agent-verified for local Ladybug Tools EPW reuse and UWG completion in A
 
 Use this reference when the user asks for Dragonfly UWG, Urban Weather Generator, alternative weather, urban microclimate EPW morphing, or a morphed EPW handoff to Energy.
 
+OKF source: `docs/llm-wiki/tools/uwg-tools.md`.
+
 ## Tool Order
 
 1. Create or select a Garden and a Dragonfly model target.

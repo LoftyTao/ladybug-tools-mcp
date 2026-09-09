@@ -37,6 +37,8 @@ components, loops, branches, zone equipment, and DetailedHVAC application.
 2. Create Ironbug components in dependency order through MCP tools.
 3. Apply DetailedHVAC to the Honeybee or Dragonfly model.
 4. Run standard Energy simulation and read EUI, ERR, and SQL outputs.
+5. Keep case files focused on reusable execution guidance; put run records in
+   LLM-Wiki.
 
 ## Stop Conditions
 

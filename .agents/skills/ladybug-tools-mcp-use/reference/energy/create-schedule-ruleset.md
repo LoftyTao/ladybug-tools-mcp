@@ -63,3 +63,4 @@ ruleset = await call_tool("EP_create_schedule_ruleset", {
 - `ScheduleDay` and `ScheduleRule` are intermediate payloads; persist the final `ScheduleRuleset`.
 - Do not mismatch `values` and `times` lengths.
 - Do not copy raw 8760 values unless explicitly requested.
+- Keep schedule evidence and metrics in LLM-Wiki.

@@ -45,3 +45,4 @@ validation = await call_tool("HB_validate_model", {"garden_root": garden_root})
 
 - Do not pass Face, Aperture, Door, or Shade targets.
 - Do not assume the tool call alone proves deletion; confirm with search.
+- Keep broad adjacency-cleanup evidence in LLM-Wiki.

@@ -1,6 +1,8 @@
 # Radiance Daylight Compliance Recipes
 
 Use this reference for LEED daylight Option 1/2, EN 17037, WELL daylight, or BREEAM 4b.
+Source: [Radiance tool family](../../../../../docs/llm-wiki/tools/radiance-tools.md).
+
 ## Select the recipe and inputs
 
 Use a Garden Honeybee Model with exterior apertures and attached SensorGrids.

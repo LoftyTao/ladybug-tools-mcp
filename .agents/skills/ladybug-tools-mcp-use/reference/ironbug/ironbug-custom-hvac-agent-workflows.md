@@ -1,6 +1,6 @@
 # Ironbug Custom HVAC Agent Workflows
 
-Use this family-level guide for Ironbug custom HVAC variants, mixed requests, and repair work. For exact case prompts, load the one-scenario case skill from `custom-hvac-cases/index.md` first.
+Use this family-level guide for Ironbug custom HVAC variants, mixed requests, and repair work. For exact case prompts, load the one-scenario case skill from `custom-hvac-cases/index.md` first. Evidence matrices and candidate roadmaps live in LLM-Wiki, not in this Skill reference.
 
 ## Use First
 

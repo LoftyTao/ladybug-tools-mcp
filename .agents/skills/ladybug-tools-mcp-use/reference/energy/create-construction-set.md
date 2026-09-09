@@ -59,3 +59,4 @@ construction_set = await call_tool("EP_create_construction_set", {
 - Do not treat a U-value target as a full layered construction.
 - Do not use `save_to_library`; use `garden_root` and returned targets.
 - Do not assume `EP_create_aperture_construction_set` returns a reusable target. For common low-U overrides, pass `EP_create_window_construction.target` directly to `EP_create_construction_set.aperture_set`.
+- Keep construction-set evidence in LLM-Wiki.

@@ -2,6 +2,8 @@
 
 Status: Agent-verified for Grid authoring, Grid-target URBANopt feature export, URBANopt Energy handoff, VisualizationSet handoff, and blocked/failed runtime ledgers. Use this reference for Dragonfly Electric Grid authoring and runtime-gated RNM/OpenDSS/REopt attempts. Do not describe RNM/OpenDSS/REopt numeric completion as Agent-verified until retained runtime evidence exists.
 
+OKF source: `docs/llm-wiki/tools/dragonfly-grid-tools.md`.
+
 ## Preconditions
 
 - Create or select a Garden.

@@ -26,6 +26,7 @@ Use this path for Dragonfly DES tool discovery, minimal Dragonfly authoring, exp
 - For DES export and URBANopt Energy runs, use a Garden `weather_file` target with an EPW path.
 - Check runtime configuration before any URBANopt, GMT/uo_des, Docker, or OpenModelica execution.
 - For sys-param and Modelica work, inspect `LB_get_runtime_config.summary_view.engines.des_gmt`. Continue only when `available=true`; missing `uo_des.exe`, `thermalnetwork.exe`, `geojson_modelica_translator`, `ThermalNetwork`, or Modelica Buildings Library resources are local dependency blockers. If `des_gmt.urbanopt_offline_runtime_pack` is returned, follow its reported readiness; a missing `python_config.json` or missing `gmt_path` / `ghe_path` remains blocked.
+- Do not run `dragonfly_energy install all-des` from an Agent validation run. Grasshopper can use that installer when the user chooses it, but MCP validation must stay on local runtime/dependency paths, report the missing `des_gmt` dependencies, and stop.
 - Keep the selected Garden root and any explicit URBANopt `folder_name` within the native writer's Windows path limit. Omit `folder_name` to use the model display name; preserve native export subdirectories.
 
 ## Usual MCP Route

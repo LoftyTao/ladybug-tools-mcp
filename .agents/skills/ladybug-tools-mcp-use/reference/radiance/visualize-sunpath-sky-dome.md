@@ -69,3 +69,4 @@ scene = await call_tool("LB_compose_visualization_sets", {
 
 - Do not move sky patch arrays, WEA text, or full VisualizationSet bodies through Agent context.
 - Do not invent benefit-sky mode; current public Radiation Dome mode is cumulative.
+- Keep solar-context evidence in LLM-Wiki.

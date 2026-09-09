@@ -41,3 +41,4 @@ removed = await call_tool("HB_remove_aperture", {
 
 - Do not handwrite Aperture targets.
 - Do not confuse "open a window" with "remove a window"; creation uses `HB_create_apertures_by_parameters`.
+- Keep broad removal evidence in LLM-Wiki.

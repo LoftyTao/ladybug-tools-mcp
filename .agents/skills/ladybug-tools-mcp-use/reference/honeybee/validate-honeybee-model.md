@@ -38,3 +38,4 @@ return {
 
 - Do not treat a successful tool call as a valid model; inspect the validation fields.
 - Do not request or return full model bodies for routine validation.
+- Store long evidence, run identifiers, and metrics in LLM-Wiki, not in this Skill reference.

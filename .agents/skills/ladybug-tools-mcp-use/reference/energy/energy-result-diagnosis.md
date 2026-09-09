@@ -50,3 +50,4 @@ Use this when the user asks why an Energy result looks high, low, or suspicious 
 - Do not claim a single run proves the unique cause.
 - Do not overstate IdealAir or template HVAC results as real equipment reports.
 - If schedule and program are ordinary, do not force them into the answer as a likely cause.
+- Keep campaign evidence, EUI values, and Garden version IDs in LLM-Wiki.

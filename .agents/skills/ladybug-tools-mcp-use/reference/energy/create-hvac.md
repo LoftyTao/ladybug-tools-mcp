@@ -65,3 +65,4 @@ edited = await call_tool("HB_edit_room", {
   `reference/ironbug/ironbug-custom-hvac-agent-workflows.md`.
 - Do not copy expanded Setpoint schedule JSON when a saved target exists.
 - For `EP_create_ideal_air_system`, do not use room setpoint temperatures as supply air temperatures. Omit supply air temperatures unless the user means supply air.
+- Keep HVAC smoke and run metrics in LLM-Wiki.

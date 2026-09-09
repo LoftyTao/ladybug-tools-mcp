@@ -40,3 +40,4 @@ combined = await call_tool("LB_compose_visualization_sets", {
 - Do not handwrite half-targets with only `path`; use full targets or artifact records.
 - Do not write `type="visualization_set"`; target field is `target_type`.
 - Do not combine geometry previews and Energy/DataCollection charts if units or semantics are incompatible.
+- Keep compose/export evidence in LLM-Wiki.

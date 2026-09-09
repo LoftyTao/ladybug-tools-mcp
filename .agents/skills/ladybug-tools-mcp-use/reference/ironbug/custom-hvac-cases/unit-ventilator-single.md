@@ -136,6 +136,8 @@ Python-only matrix acceptance, the run must be under
 run fails, return the precise blocker and any available ERR/SQL paths instead
 of rebuilding the whole graph.
 
+Keep detailed evidence records in LLM-Wiki rather than copying them into this
+Skill.
 
 Do not use `IB_district_heating`. Do not create a hand-made
 NoAirLoop, generic PlantLoop, or Ironbug-only simulation run.
