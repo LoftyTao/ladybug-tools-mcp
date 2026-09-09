@@ -7,3 +7,4 @@ dist/
 gardens/
 .env
 .env.*
+.obsidian
