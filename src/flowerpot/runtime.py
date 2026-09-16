@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 
 try:
     from collections.abc import Mapping
@@ -24,9 +25,12 @@ except NameError:
 _REQUIRED_COMPONENT_STATE_API = (
     "clear_follow_refresh_pending",
     "clear_follow_refresh_state",
+    "clear_follow_timer",
     "consume_write_pulse",
     "get_follow_signature",
+    "get_follow_timer",
     "mark_follow_refresh_pending",
+    "set_follow_timer",
     "set_follow_signature",
 )
 _component_state = None
@@ -242,6 +246,373 @@ def read_radiance_properties_input(
         follow_flag,
         component,
     )
+
+
+class _NativeHvacGateError(Exception):
+    """A hard native Ironbug handoff gate failed."""
+
+    def __init__(self, gate, message):
+        Exception.__init__(self, message)
+        self.gate = gate
+
+
+_IRONBUG_ASSEMBLY_NAME = "Ironbug.HVAC"
+_IRONBUG_ASSEMBLY_VERSION = "1.26.0"
+_IRONBUG_CLR_TYPE = "Ironbug.HVAC.IB_HVACSystem"
+
+
+def detail_ironbug_hvac(
+    flowerpot,
+    model_identifier=None,
+    follow_flag=False,
+    component=None,
+):
+    """Rebuild a Garden Ironbug HVAC specification as a native CLR object."""
+    if flowerpot is None:
+        return _ironbug_hvac_result(None, _required_input_report("_flowerpot"))
+
+    try:
+        response = _run_worker(
+            "ironbug_hvac_specification",
+            {
+                "flowerpot": _flowerpot_to_dict(flowerpot),
+                "model_identifier": _normalize_optional_string(model_identifier),
+            },
+        )
+    except Exception as error:
+        _sync_ironbug_follow_refresh(component, False)
+        report = _error_report(str(error))
+        report["details"].update({"follow": False, "follow_source": None})
+        return _ironbug_hvac_result(None, report)
+
+    report = dict(response.get("report") or {})
+    follow_path = response.get("follow_path")
+    follow_active = bool(
+        follow_flag and report.get("status") != "error" and follow_path
+    )
+    report_details = dict(report.get("details") or {})
+    report_details.update(
+        {
+            "follow": follow_active,
+            "follow_source": str(follow_path) if follow_active else None,
+        }
+    )
+    report["details"] = report_details
+    if not follow_active:
+        _sync_ironbug_follow_refresh(component, False)
+    else:
+        _sync_ironbug_follow_refresh(component, True, follow_path)
+    if report.get("status") == "error":
+        return _ironbug_hvac_result(None, report)
+
+    metadata = response.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    metadata = dict(metadata)
+    metadata.update(
+        {
+            "follow": follow_active,
+            "follow_source": str(follow_path) if follow_active else None,
+        }
+    )
+    try:
+        native_system = _native_hvac_from_specification(
+            response.get("specification"),
+            response.get("allowlist"),
+        )
+    except _NativeHvacGateError as error:
+        _sync_ironbug_follow_refresh(component, False)
+        metadata.update({"follow": False, "follow_source": None})
+        return _ironbug_hvac_result(
+            None,
+            _native_hvac_failure_report(
+                error.gate,
+                str(error),
+                metadata,
+            ),
+        )
+    except Exception as error:
+        _sync_ironbug_follow_refresh(component, False)
+        metadata.update({"follow": False, "follow_source": None})
+        return _ironbug_hvac_result(
+            None,
+            _native_hvac_failure_report("from_json", str(error), metadata),
+        )
+
+    details = dict(report.get("details") or {})
+    details.update(metadata)
+    details.update(
+        {
+            "failed_gate": None,
+            "clr_type": _clr_type_name(native_system),
+            "actual_assembly_name": _clr_assembly_name(native_system),
+            "actual_assembly_version": _clr_assembly_version(native_system),
+        }
+    )
+    report["details"] = details
+    return _ironbug_hvac_result(native_system, report)
+
+
+def _ironbug_hvac_result(hvac_system, report):
+    return {
+        "hvac_system": hvac_system,
+        "report": report,
+    }
+
+
+def _native_hvac_failure_report(gate, message, metadata):
+    details = dict(metadata or {})
+    details["failed_gate"] = gate
+    report = _error_report(
+        "Native Ironbug HVAC handoff failed at %s gate: %s" % (gate, message)
+    )
+    report["details"] = details
+    return report
+
+
+def _native_hvac_from_specification(specification, allowlist):
+    _validate_native_hvac_specification(specification, allowlist)
+    try:
+        native_hvac = _load_native_ironbug_hvac()
+    except Exception as error:
+        raise _NativeHvacGateError("assembly", str(error))
+    system_type = getattr(native_hvac, "IB_HVACSystem", native_hvac)
+    try:
+        native_system = _call_native_from_json(
+            system_type,
+            json.dumps(specification, ensure_ascii=False),
+        )
+    except Exception as error:
+        raise _NativeHvacGateError("from_json", str(error))
+    if native_system is None:
+        raise _NativeHvacGateError(
+            "from_json",
+            "Ironbug.HVAC.IB_HVACSystem.FromJson returned None.",
+        )
+
+    clr_type = _clr_type_name(native_system)
+    if clr_type != _IRONBUG_CLR_TYPE:
+        raise _NativeHvacGateError(
+            "clr_type",
+            "Expected %s, got %s." % (_IRONBUG_CLR_TYPE, clr_type or "<unknown>"),
+        )
+    version = _clr_assembly_version(native_system)
+    assembly_name = _clr_assembly_name(native_system)
+    if assembly_name != _IRONBUG_ASSEMBLY_NAME or not _is_expected_ironbug_version(version):
+        raise _NativeHvacGateError(
+            "assembly_version",
+            "Expected assembly %s %s, got %s %s."
+            % (
+                _IRONBUG_ASSEMBLY_NAME,
+                _IRONBUG_ASSEMBLY_VERSION,
+                assembly_name or "<unknown>",
+                version or "<unknown>",
+            ),
+        )
+    to_json = getattr(native_system, "ToJson", None)
+    if not callable(to_json):
+        raise _NativeHvacGateError(
+            "to_json",
+            "Native Ironbug HVAC system does not expose ToJson().",
+        )
+    try:
+        serialized = to_json()
+    except Exception as error:
+        raise _NativeHvacGateError("to_json", str(error))
+    if serialized is None or not str(serialized).strip():
+        raise _NativeHvacGateError(
+            "to_json",
+            "Native Ironbug HVAC system ToJson() returned an empty payload.",
+        )
+    try:
+        roundtrip = json.loads(str(serialized))
+        _validate_native_hvac_specification(roundtrip, allowlist)
+    except _NativeHvacGateError as error:
+        raise _NativeHvacGateError("to_json", str(error))
+    except Exception as error:
+        raise _NativeHvacGateError("to_json", "ToJson() did not return valid JSON: %s" % error)
+    return native_system
+
+
+def _call_native_from_json(system_type, payload):
+    from_json = getattr(system_type, "FromJson", None)
+    if callable(from_json):
+        return from_json(payload)
+    get_method = getattr(system_type, "GetMethod", None)
+    method = get_method("FromJson") if callable(get_method) else None
+    if method is None:
+        raise RuntimeError("Ironbug.HVAC.IB_HVACSystem.FromJson is unavailable.")
+    return method.Invoke(None, (payload,))
+
+
+def _validate_native_hvac_specification(specification, allowlist):
+    if not isinstance(specification, Mapping):
+        raise _NativeHvacGateError(
+            "allowlist",
+            "Ironbug HVAC specification must be a mapping.",
+        )
+    if not isinstance(allowlist, (list, tuple, set)):
+        raise _NativeHvacGateError(
+            "allowlist",
+            "Ironbug HVAC type allowlist is missing.",
+        )
+    allowed = set(allowlist)
+    if not allowed:
+        raise _NativeHvacGateError("allowlist", "Ironbug HVAC type allowlist is empty.")
+
+    def visit(value, path):
+        if isinstance(value, Mapping):
+            if "$type" in value:
+                type_name = value["$type"]
+                if not isinstance(type_name, basestring) or type_name not in allowed:
+                    raise _NativeHvacGateError(
+                        "allowlist",
+                        "Disallowed $type at %s: %s."
+                        % (path, type_name if type_name is not None else "<missing>"),
+                    )
+            for key, item in value.items():
+                visit(item, "%s.%s" % (path, key))
+        elif isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                visit(item, "%s[%s]" % (path, index))
+
+    visit(specification, "$")
+
+
+def _load_native_ironbug_hvac():
+    loaded = _loaded_native_ironbug_hvac()
+    if loaded is not None:
+        return loaded
+
+    try:
+        from honeybee_energy.config import folders
+
+        ironbug_exe = getattr(folders, "ironbug_exe", None)
+    except Exception as error:
+        raise RuntimeError(
+            "Ironbug.HVAC is not loaded and Honeybee Ironbug configuration is unavailable: %s"
+            % error
+        )
+    if not ironbug_exe:
+        raise RuntimeError(
+            "Ironbug.HVAC is not loaded and honeybee_energy.config.folders.ironbug_exe is empty."
+        )
+    exe_path = os.path.abspath(str(ironbug_exe))
+    folder = exe_path if os.path.isdir(exe_path) else os.path.dirname(exe_path)
+    assembly_path = os.path.join(folder, "Ironbug.HVAC.dll")
+    if not os.path.isfile(assembly_path):
+        raise RuntimeError("Ironbug.HVAC.dll was not found beside %s." % ironbug_exe)
+    try:
+        import clr
+
+        clr.AddReferenceToFileAndPath(assembly_path)
+    except Exception as error:
+        raise RuntimeError("Could not load Ironbug.HVAC.dll: %s" % error)
+    loaded = _loaded_native_ironbug_hvac()
+    if loaded is None:
+        raise RuntimeError("Ironbug.HVAC namespace is unavailable after assembly load.")
+    return loaded
+
+
+def _loaded_native_ironbug_hvac():
+    candidates = []
+    try:
+        from System import AppDomain
+
+        for assembly in AppDomain.CurrentDomain.GetAssemblies():
+            name = assembly.GetName().Name
+            if str(name) == _IRONBUG_ASSEMBLY_NAME:
+                system_type = assembly.GetType(_IRONBUG_CLR_TYPE)
+                if system_type is not None:
+                    candidates.append(system_type)
+                    try:
+                        from System.Runtime.Loader import AssemblyLoadContext
+
+                        context = AssemblyLoadContext.GetLoadContext(assembly)
+                        if str(getattr(context, "Name", "")) == "Default":
+                            return system_type
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    if candidates:
+        return candidates[0]
+    namespace = _import_native_ironbug_hvac()
+    if namespace is not None:
+        return namespace
+    try:
+        import sys
+
+        return sys.modules.get("Ironbug.HVAC")
+    except Exception:
+        return None
+
+
+def _import_native_ironbug_hvac():
+    try:
+        module = __import__("Ironbug.HVAC", fromlist=["IB_HVACSystem"])
+        if hasattr(module, "IB_HVACSystem"):
+            return module
+    except Exception:
+        pass
+    try:
+        import Ironbug
+
+        namespace = getattr(Ironbug, "HVAC", None)
+        if namespace is not None and hasattr(namespace, "IB_HVACSystem"):
+            return namespace
+    except Exception:
+        pass
+    return None
+
+
+def _clr_type_name(value):
+    try:
+        type_info = value.GetType()
+        return str(getattr(type_info, "FullName", "") or "")
+    except Exception:
+        return ""
+
+
+def _clr_assembly_version(value):
+    try:
+        type_info = value.GetType()
+        assembly = getattr(type_info, "Assembly", None)
+        name = assembly.GetName() if assembly is not None else None
+        version = getattr(name, "Version", None)
+        return str(version or "")
+    except Exception:
+        return ""
+
+
+def _clr_assembly_name(value):
+    try:
+        type_info = value.GetType()
+        assembly = getattr(type_info, "Assembly", None)
+        name = assembly.GetName() if assembly is not None else None
+        return str(getattr(name, "Name", "") or "")
+    except Exception:
+        return ""
+
+
+def _is_expected_ironbug_version(version):
+    parts = str(version or "").split(".")
+    if len(parts) < 3:
+        return False
+    if parts[:3] != ["1", "26", "0"]:
+        return False
+    return all(part == "0" for part in parts[3:])
+
+
+def _sync_ironbug_follow_refresh(component, follow_flag, follow_path=None):
+    if component is None:
+        return False
+    if not follow_flag or not follow_path:
+        _load_component_state().clear_follow_refresh_state(component)
+        return False
+    state = _load_component_state()
+    state.set_follow_signature(component, _file_signature(follow_path))
+    return _schedule_component_refresh(component)
 
 
 def _read_properties_input(
@@ -461,35 +832,81 @@ def _run_worker(action, request):
     return _get_worker_session().run(action, request)
 
 
-def _schedule_component_refresh(component):
-    """Ask Grasshopper to expire this component on the next follow poll."""
+def _schedule_component_refresh(component, document=None):
+    """Poll the followed file without scheduling Grasshopper solutions."""
+    state = _load_component_state()
+    if state.get_follow_signature(component) is None:
+        return False
+    if state.get_follow_timer(component) is not None:
+        return False
+    if document is None:
+        try:
+            document = component.OnPingDocument()
+        except Exception:
+            state.clear_follow_refresh_pending(component)
+            return False
+    if document is None:
+        return False
+
+    timer_holder = [None]
+
+    def _poll():
+        state_now = _load_component_state()
+        timer = timer_holder[0]
+        if state_now.get_follow_timer(component) is not timer:
+            return
+        state_now.clear_follow_timer(component)
+        previous = state_now.get_follow_signature(component)
+        if previous is None:
+            return
+        if _file_signature(previous.get("path")) != previous:
+            _schedule_component_solution(
+                component, previous.get("path"), document
+            )
+        else:
+            _schedule_component_refresh(component, document)
+
+    timer = threading.Timer(_FOLLOW_POLL_INTERVAL_MS / 1000.0, _poll)
+    timer_holder[0] = timer
+    timer.daemon = True
+    state.set_follow_timer(component, timer)
+    try:
+        timer.start()
+        return True
+    except Exception:
+        state.clear_follow_timer(component)
+        return False
+
+
+def _schedule_component_solution(component, followed_path, document=None):
+    """Schedule one solution after a followed file changes."""
     state = _load_component_state()
     if not state.mark_follow_refresh_pending(component):
         return False
-    try:
-        document = component.OnPingDocument()
-    except Exception:
-        state.clear_follow_refresh_pending(component)
-        return False
     if document is None:
-        state.clear_follow_refresh_pending(component)
-        return False
+        try:
+            document = component.OnPingDocument()
+        except Exception:
+            state.clear_follow_refresh_pending(component)
+            return False
+        if document is None:
+            state.clear_follow_refresh_pending(component)
+            return False
 
     def _expire(document_argument):
         state_now = _load_component_state()
+        signature = state_now.get_follow_signature(component)
+        if signature is None or signature.get("path") != followed_path:
+            state_now.clear_follow_refresh_pending(component)
+            return
         try:
-            if _follow_signature_changed(component):
-                component.ExpireSolution(False)
-            else:
-                state_now.clear_follow_refresh_pending(component)
-                _schedule_component_refresh(component)
+            component.ExpireSolution(False)
         finally:
-            if _follow_signature_changed(component):
-                state_now.clear_follow_refresh_pending(component)
+            state_now.clear_follow_refresh_pending(component)
 
     callback = _schedule_delegate(_expire)
     try:
-        document.ScheduleSolution(_FOLLOW_POLL_INTERVAL_MS, callback)
+        document.ScheduleSolution(1, callback)
         return True
     except Exception:
         state.clear_follow_refresh_pending(component)
@@ -660,8 +1077,9 @@ def _worker_python_candidates():
                 "python.exe",
             )
         )
-    if os.path.basename(sys.executable).lower().startswith("python"):
-        _append(sys.executable)
+    executable = getattr(sys, "executable", None)
+    if executable and os.path.basename(executable).lower().startswith("python"):
+        _append(executable)
     return candidates
 
 

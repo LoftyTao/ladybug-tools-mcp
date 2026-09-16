@@ -123,6 +123,7 @@ def _iter_nested(value: Any) -> Iterable[Any]:
         "Children",
         "HVACSystem",
         "AirLoops",
+        "ThermalZones",
         "PlantLoops",
         "VariableRefrigerantFlows",
         "SupplyComponents",

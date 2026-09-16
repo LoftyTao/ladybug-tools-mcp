@@ -101,6 +101,7 @@ def build_ironbug_model_detailed_hvac_specification(
     *,
     ironbug_model: IB_Model,
     room_identifiers: list[str],
+    validate_room_links: bool = True,
 ) -> dict[str, Any]:
     """Build a DetailedHVAC specification from the source-backed Ironbug graph."""
 
@@ -108,12 +109,13 @@ def build_ironbug_model_detailed_hvac_specification(
     air_loops = _air_loops(ironbug_model)
     plant_loops = _plant_loops(ironbug_model)
     vrfs = _variable_refrigerant_flows(ironbug_model)
-    _ensure_explicit_room_linked_thermal_zones(
-        ironbug_model,
-        air_loops=air_loops,
-        plant_loops=plant_loops,
-        vrfs=vrfs,
-    )
+    if validate_room_links:
+        _ensure_explicit_room_linked_thermal_zones(
+            ironbug_model,
+            air_loops=air_loops,
+            plant_loops=plant_loops,
+            vrfs=vrfs,
+        )
 
     if not air_loops and not vrfs:
         thermal_zones = _component_thermal_zones(ironbug_model)

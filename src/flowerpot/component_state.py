@@ -3,6 +3,7 @@
 _WRITE_TOGGLE_STATE = {}
 _FOLLOW_REFRESH_PENDING = {}
 _FOLLOW_SIGNATURE_STATE = {}
+_FOLLOW_TIMER_STATE = {}
 
 
 def consume_write_pulse(component, write_flag):
@@ -39,6 +40,7 @@ def clear_follow_refresh_pending(component):
 def clear_follow_refresh_state(component):
     """Remove follow refresh state for one component."""
     clear_follow_refresh_pending(component)
+    clear_follow_timer(component)
     key = _component_state_key(component)
     if key is not None:
         _FOLLOW_SIGNATURE_STATE.pop(key, None)
@@ -49,6 +51,12 @@ def set_follow_signature(component, signature):
     key = _component_state_key(component)
     if key is None:
         return
+    previous = _FOLLOW_SIGNATURE_STATE.get(key)
+    previous_path = previous.get("path") if isinstance(previous, dict) else None
+    next_path = signature.get("path") if isinstance(signature, dict) else None
+    if previous_path != next_path:
+        clear_follow_refresh_pending(component)
+        clear_follow_timer(component)
     _FOLLOW_SIGNATURE_STATE[key] = signature
 
 
@@ -58,6 +66,35 @@ def get_follow_signature(component):
     if key is None:
         return None
     return _FOLLOW_SIGNATURE_STATE.get(key)
+
+
+def set_follow_timer(component, timer):
+    """Store the active background follow timer for one component."""
+    key = _component_state_key(component)
+    if key is None:
+        return
+    _FOLLOW_TIMER_STATE[key] = timer
+
+
+def get_follow_timer(component):
+    """Return the active background follow timer for one component."""
+    key = _component_state_key(component)
+    if key is None:
+        return None
+    return _FOLLOW_TIMER_STATE.get(key)
+
+
+def clear_follow_timer(component):
+    """Cancel and remove the background follow timer for one component."""
+    key = _component_state_key(component)
+    if key is None:
+        return
+    timer = _FOLLOW_TIMER_STATE.pop(key, None)
+    if timer is not None:
+        try:
+            timer.cancel()
+        except Exception:
+            pass
 
 
 def _component_state_key(component):
