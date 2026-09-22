@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from socketserver import TCPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -40,6 +41,11 @@ class _FallbackServerHandle:
 class _FallbackHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def server_bind(self):
+        # HTTPServer reverse-resolves its address; local preview needs no DNS.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 _SERVERS: dict[str, _FallbackServerHandle] = {}

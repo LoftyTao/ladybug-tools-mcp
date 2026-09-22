@@ -55,6 +55,8 @@ jobs:
           $wheel = (Get-ChildItem dist/*.whl).FullName
           uv pip install --python $python --prerelease allow --only-binary ':all:' --no-binary luigi $wheel
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python -I tests/deterministic/validate_preview_local_bind.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $python -I tests/deterministic/validate_distribution.py --wheel $wheel --root (Join-Path $env:RUNNER_TEMP 'distribution 验收')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v7
