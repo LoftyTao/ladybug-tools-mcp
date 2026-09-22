@@ -56,9 +56,116 @@ jobs:
           $wheel = (Get-ChildItem dist/*.whl).FullName
           uv pip install --python $python --prerelease allow --only-binary ':all:' --no-binary luigi $wheel
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $python -I tests/deterministic/validate_preview_local_bind.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $python -I tests/deterministic/validate_distribution.py --wheel $wheel --root (Join-Path $env:RUNNER_TEMP 'distribution 验收')
+          @'
+          import asyncio
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+          import tomllib
+          from urllib.request import urlopen
+
+          from fastmcp import Client
+          from fastmcp.client.transports import StdioTransport
+
+          wheel = Path(sys.argv[1]).resolve()
+          root = Path(os.environ["RUNNER_TEMP"]) / "distribution 验收"
+          if root.exists():
+              shutil.rmtree(root)
+          root.mkdir(parents=True)
+          runtime = root / "runtime tools"
+          gardens = root / "Gardens"
+          config = root / "codex" / "config.toml"
+          skills = root / "skills"
+          state = root / "installation.json"
+          root.joinpath("codex").mkdir()
+          original = '# keep this comment\n[mcp_servers.example]\ncommand = "example"\n'
+          config.write_text(original, encoding="utf-8")
+          common = [
+              "--wheel", str(wheel), "--tool-dir", str(runtime),
+              "--garden-dir", str(gardens), "--codex-config", str(config),
+              "--skills-dir", str(skills), "--no-grasshopper",
+          ]
+          log = (root / "smoke.log").open("w", encoding="utf-8")
+
+          def cli(*arguments):
+              command = [str(Path(sys.executable)), "-I", "-m", "ladybug_tools_mcp_cli", *arguments,
+                         "--state", str(state), "--yes"]
+              completed = subprocess.run(command, cwd=root, text=True, encoding="utf-8",
+                                          errors="replace", capture_output=True)
+              log.write(completed.stdout + completed.stderr + "\n")
+              if completed.returncode:
+                  raise RuntimeError(completed.stdout + completed.stderr)
+              return completed
+
+          generated = cli("install", *common, "--generate-config")
+          assert config.read_text(encoding="utf-8") == original
+          assert "[mcp_servers.lbt-mcp]" in generated.stdout
+          cli("install", *common)
+          settings = tomllib.loads(config.read_text(encoding="utf-8"))
+          assert settings["mcp_servers"]["lbt-mcp"]["required"] is True
+          record = json.loads(state.read_text(encoding="utf-8"))
+
+          async def execute(client, code):
+              result = await client.call_tool("execute", {"code": code})
+              if result.is_error:
+                  raise RuntimeError(str(result))
+              data = result.data or {}
+              return data.get("result", data)
+
+          async def protocol_smoke():
+              env = dict(os.environ)
+              env.update({
+                  "LADYBUG_TOOLS_GARDENS_ROOT": record["gardens_root"],
+                  "LADYBUG_TOOLS_MCP_INSTALLATION": str(state),
+              })
+              transport = StdioTransport(
+                  record["python"], ["-I", "-m", "ladybug_tools_mcp.server"],
+                  cwd=str(root), env=env, keep_alive=False, log_file=root / "server.log",
+              )
+              garden_root = None
+              async with Client(transport, timeout=180, init_timeout=120) as client:
+                  tools = {item.name for item in await client.list_tools()}
+                  assert {"search", "get_schema", "execute"} <= tools
+                  created = await execute(client, f'''\
+          created = await call_tool("GD_create", {{"name": "Distribution smoke", "root_dir": {str(gardens / "Distribution smoke")!r}}})
+          return {{"created": created}}
+          ''')
+                  garden_root = created["created"]["garden_root"]
+                  viewer_data = await execute(client, f'''\
+          viewer = await call_tool("GD_web_view_start_mode", {{"garden_root": {garden_root!r}, "name": "Distribution smoke"}})
+          return {{"viewer": viewer}}
+          ''')
+                  model_data = await execute(client, f'''\
+          model = await call_tool("HB_create_model", {{"garden_root": {garden_root!r}, "identifier": "package_model", "set_base": True}})
+          room = await call_tool("HB_create_room", {{"garden_root": {garden_root!r}, "identifier": "PackageRoom", "x_dim": 6, "y_dim": 5, "height": 3}})
+          return {{"model": model, "room": room}}
+          ''')
+                  validation_data = await execute(client, f'''\
+          validation = await call_tool("HB_validate_model", {{"garden_root": {garden_root!r}}})
+          return {{"validation": validation}}
+          ''')
+                  assert validation_data["validation"].get("valid", validation_data["validation"].get("is_valid"))
+                  viewer_url = viewer_data["viewer"]["viewer"]["url"]
+                  with urlopen(viewer_url, timeout=20) as response:
+                      assert response.status == 200 and "vtk" in response.read().decode("utf-8").lower()
+                  with urlopen(viewer_url.rstrip("/") + "/api/state", timeout=20) as response:
+                      preview_state = json.load(response)
+                      assert "package_model" in json.dumps(preview_state)
+                  (root / "protocol.json").write_text(json.dumps({**created, **viewer_data, **model_data, **validation_data}, indent=2, default=str), encoding="utf-8")
+                  await execute(client, f'return await call_tool("GD_web_view_stop_mode", {{"garden_root": {garden_root!r}}})')
+              assert garden_root and (Path(garden_root) / "garden.json").is_file()
+
+          asyncio.run(protocol_smoke())
+          cli("uninstall")
+          assert not state.exists()
+          assert (gardens / "Distribution smoke" / "garden.json").is_file()
+          assert "lbt-mcp" not in tomllib.loads(config.read_text(encoding="utf-8"))["mcp_servers"]
+          log.close()
+          print("distribution smoke passed")
+          '@ | & $python -I - $wheel
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v7
         if: always()
