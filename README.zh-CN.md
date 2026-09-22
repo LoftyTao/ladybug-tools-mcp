@@ -108,6 +108,22 @@ uvx --isolated --python 3.12 --prerelease allow --from <绝对 wheel 路径> lbt
 
 生成的输出是 Codex TOML 配置块，其中包含已安装 Python、Garden 根目录和安装记录路径。手动配置 Codex 时，将该配置块复制到 `~/.codex/config.toml`。
 
+这两个环境变量按目标系统当前用户的主目录生成，常见默认值如下：
+
+| 系统 | `LADYBUG_TOOLS_GARDENS_ROOT` | `LADYBUG_TOOLS_MCP_INSTALLATION` |
+| --- | --- | --- |
+| Windows | `%USERPROFILE%\LadybugTools\Gardens` | `%USERPROFILE%\.ladybug-tools-mcp\installation.json` |
+| macOS | `/Users/<用户名>/LadybugTools/Gardens` | `/Users/<用户名>/.ladybug-tools-mcp/installation.json` |
+| Linux | `/home/<用户名>/LadybugTools/Gardens` | `/home/<用户名>/.ladybug-tools-mcp/installation.json` |
+
+安装器会写入展开后的绝对路径，也支持系统重定向的用户主目录；MCP 客户端不需要解析 `%USERPROFILE%`、`$HOME` 或 `~`。Garden 目录可在向导中选择，也可以通过参数同时指定两个路径：
+
+```text
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install --garden-dir "<Garden 绝对目录>" --state "<installation.json 绝对路径>"
+```
+
+显式选择的 Garden 目录优先于已有安装记录；未指定时保留原选择，再使用默认目录。安装记录路径优先级为 `--state`、`LADYBUG_TOOLS_MCP_INSTALLATION`、系统默认路径。升级、查看状态和卸载时继续使用同一个 `--state`。Flowerpot 使用自定义记录时，启动 Rhino 的环境中也须将 `LADYBUG_TOOLS_MCP_INSTALLATION` 指向同一文件。
+
 其他 MCP 客户端可以使用同一个已安装 Python，并采用标准 stdio 配置：
 
 ```json

@@ -107,6 +107,22 @@ uvx --isolated --python 3.12 --prerelease allow --from <absolute-wheel-path> lbt
 
 The generated output is a Codex TOML block containing the installed Python path, the Garden root, and the installation record. Copy that block into `~/.codex/config.toml` when configuring Codex manually.
 
+The two environment values use the current user's home directory on the target system. Typical defaults are:
+
+| System | `LADYBUG_TOOLS_GARDENS_ROOT` | `LADYBUG_TOOLS_MCP_INSTALLATION` |
+| --- | --- | --- |
+| Windows | `%USERPROFILE%\LadybugTools\Gardens` | `%USERPROFILE%\.ladybug-tools-mcp\installation.json` |
+| macOS | `/Users/<user>/LadybugTools/Gardens` | `/Users/<user>/.ladybug-tools-mcp/installation.json` |
+| Linux | `/home/<user>/LadybugTools/Gardens` | `/home/<user>/.ladybug-tools-mcp/installation.json` |
+
+The installer writes resolved absolute paths, including redirected home directories; MCP clients do not need to expand `%USERPROFILE%`, `$HOME`, or `~`. Choose the Garden directory in the wizard, or select both paths explicitly:
+
+```text
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install --garden-dir "<absolute-garden-directory>" --state "<absolute-installation.json>"
+```
+
+An explicit Garden choice overrides the saved installation; otherwise the saved choice is retained before using the default. `--state` overrides `LADYBUG_TOOLS_MCP_INSTALLATION`, which overrides the default record location. Keep using the same `--state` for later upgrades/status/uninstall. When Flowerpot uses a custom record, Rhino must inherit `LADYBUG_TOOLS_MCP_INSTALLATION` pointing to that same file.
+
 Other MCP clients can use the same installed Python with standard stdio configuration:
 
 ```json
