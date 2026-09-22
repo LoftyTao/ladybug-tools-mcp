@@ -1,0 +1,102 @@
+{
+  "version": "1.2.1",
+  "components": [
+    {
+      "name": "FP Create Garden",
+      "file": "FP Create Garden.ghuser",
+      "inputs": [
+        "_name",
+        "folder_",
+        "_create"
+      ],
+      "outputs": [
+        "flowerpot",
+        "garden_root",
+        "report"
+      ],
+      "source_sha256": "970a82c9f881c3436b5c9917d8ca1ffcb25db86b05a0659fb440bab75a7902f7",
+      "sha256": "211a6b8c74f817d5f2a2d483c7e21782cfd34ec72a614f4ba4d4795c2d944341"
+    },
+    {
+      "name": "FP Detail HVAC",
+      "file": "FP Detail HVAC.ghuser",
+      "inputs": [
+        "_flowerpot",
+        "model_",
+        "follow_"
+      ],
+      "outputs": [
+        "hvac_system",
+        "report"
+      ],
+      "source_sha256": "e08fc80461d2dcceda6f138b9e68f87234505dc9967a4f89b48f3cffc9f29f73",
+      "sha256": "ea29dbdd7790089a53e2c45f14056fa74fa02e249ab7b81d339251eb681bfbb2"
+    },
+    {
+      "name": "FP Energy Properties Input",
+      "file": "FP Energy Properties Input.ghuser",
+      "inputs": [
+        "_flowerpot",
+        "_type",
+        "value_",
+        "follow_"
+      ],
+      "outputs": [
+        "property",
+        "report"
+      ],
+      "source_sha256": "30fcee382aeade76e0f47f286454b3f24dd8d1d1bc4f59f98925291b4d1e5aef",
+      "sha256": "c7f4908333c6cea5a5278b8b206380d17ce3254f57ab36611f655526d100cf04"
+    },
+    {
+      "name": "FP Garden List",
+      "file": "FP Garden List.ghuser",
+      "inputs": [
+        "folder_",
+        "refresh_"
+      ],
+      "outputs": [
+        "flowerpots",
+        "garden_roots",
+        "names",
+        "report"
+      ],
+      "source_sha256": "7d741f8cd8ebe05bc0971d3a359f72b3a96b8d30482c2481c6f0fd295c9e8f90",
+      "sha256": "44e0a08e76b07f730bd23f61b1ba6e525064fba29f574ebcd7fda8e704f0edf0"
+    },
+    {
+      "name": "FP Honeybee Link",
+      "file": "FP Honeybee Link.ghuser",
+      "inputs": [
+        "_flowerpot",
+        "model_",
+        "_write",
+        "follow_"
+      ],
+      "outputs": [
+        "model",
+        "flowerpot",
+        "changed",
+        "report"
+      ],
+      "source_sha256": "15761efbafe907e355efff82f0ed71cdfcaf02c291eea89377b8b1e8875a0ff2",
+      "sha256": "189cb880f7f6decfd73834204140f90f1d461bc114ec3e8af1063fa362444d98"
+    },
+    {
+      "name": "FP Radiance Properties Input",
+      "file": "FP Radiance Properties Input.ghuser",
+      "inputs": [
+        "_flowerpot",
+        "_type",
+        "value_",
+        "follow_"
+      ],
+      "outputs": [
+        "property",
+        "report"
+      ],
+      "source_sha256": "25dda7974c7897f33332020f6c8c4ce15a335406e17bd5b2774a5d859de708e3",
+      "sha256": "054a6b98011382cf10c8cdacb39a56e8aefa4a500e8c8a2692c070fc922365db"
+    }
+  ]
+}

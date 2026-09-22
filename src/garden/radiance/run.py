@@ -22,7 +22,7 @@ from lbt_recipes.settings import RecipeSettings
 from garden.background import submit_worker_process
 from garden.honeybee_core.model_io import load_honeybee_model, resolve_model_target
 from garden.manifest import GardenManifest, utc_now_iso
-from garden.paths import PROJECT_ROOT, simulation_folder_name, to_posix_relative
+from garden.paths import simulation_folder_name, to_posix_relative
 from garden.radiance.sky import RADIANCE_SKY_FILE_TARGET_TYPE, WEA_TARGET_TYPE
 from garden.run_ledger import (
     RunLedger,
@@ -112,7 +112,7 @@ def _submit_radiance_background(**kwargs: Any) -> subprocess.Popen:
         run_dir=run_dir,
         worker_module="garden.radiance.worker",
         request=kwargs,
-        cwd=PROJECT_ROOT,
+        cwd=garden_root,
         environment=env,
     )
 
@@ -781,7 +781,7 @@ def run_radiance_recipe(
                 settings=settings,
                 radiance_check=True,
                 queenbee_path=str(
-                    Path(sys.executable).resolve().parent
+                    Path(sys.executable).absolute().parent
                     / ("queenbee.exe" if os.name == "nt" else "queenbee")
                 ),
                 silent=silent,

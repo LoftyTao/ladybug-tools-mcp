@@ -25,7 +25,7 @@ Use Garden mode and do not request full large payloads by default.
 
 ## Core Rules
 
-- The maintained development and local MCP environment is Windows. Use the user's or selected Garden root verbatim, Windows paths, PowerShell commands, and `.venv/Scripts/python.exe`.
+- Use the user's selected Garden root and the connected server's native paths verbatim. Installed distributions use a persistent Python environment configured by the installer; do not assume a source checkout or `.venv`. Windows is the primary acceptance platform; respect each tool's external-runtime and platform gates.
 - Prefer explicit Garden root, object names, and target actions.
 - When using Code Mode, keep intermediate SDK dicts and targets inside the `execute` block and return only final target, summary, receipt, or compact diagnostics.
 - For create/edit/simulate workflows, do the dependent chain in one `execute` block whenever possible. Use local variables for tool results and return one compact final dictionary; do not make one `execute` call per MCP tool unless you are debugging a specific failing step.
@@ -105,7 +105,7 @@ Use Garden mode and do not request full large payloads by default.
 - In Code Mode, do not call original domain tools as outer MCP tools. Use them only inside `execute` via `await call_tool(tool_name, arguments)`.
 - Tool names returned by Code Mode `search` are strings for `execute`/`call_tool`, not standalone MCP tool calls. Use the connected MCP session's Code Mode tools to discover and execute them.
 - Every `call_tool` invocation must include a non-empty JSON `arguments` object that uses the tool's exact required parameter names. If a required-argument validation error appears, rebuild the full arguments object from the latest search result, tool schema, or prompt instead of retrying the failed shape.
-- Use Windows paths in Code Mode arguments when a path is required. Prefer forward slashes so Python strings and JSON remain unambiguous; use exact runtime paths returned by diagnostics for external engines.
+- Use native paths in Code Mode arguments. On Windows, prefer forward slashes so Python strings and JSON remain unambiguous; use exact runtime paths returned by diagnostics for external engines.
 - For multi-step write workflows, prefer one concrete tool call at a time. After a successful search, immediately call the next MCP tool with the target from that search instead of ending with a plan sentence.
 - Avoid parallel write calls against the same Garden/model.
 - Agents should execute all dependent writes sequentially: wait for each write result, then search or validate before the next dependent write.
