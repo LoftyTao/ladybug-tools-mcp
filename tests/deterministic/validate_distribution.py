@@ -7,22 +7,30 @@ Use --keep to leave the isolated installation for native client/GH acceptance.
 
 import argparse
 import asyncio
+import base64
 import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tomllib
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.request import urlopen
-from zipfile import ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile
 
 
-def invoke(args, *options, success=True):
-    command = [sys.executable, "-I", "-m", "ladybug_tools_mcp_cli", *options,
-               "--state", str(args.root / "installation.json"), "--yes"]
+def invoke(args, *options, success=True, bootstrap=None):
+    if bootstrap:
+        uvx = shutil.which("uvx")
+        assert uvx, "uvx is required for the isolated previous-version bootstrap"
+        command = [uvx, "--isolated", "--python", "3.12", "--prerelease", "allow",
+                   "--from", str(bootstrap), "ladybug-tools-mcp", *options]
+    else:
+        command = [sys.executable, "-I", "-m", "ladybug_tools_mcp_cli", *options]
+    command += ["--state", str(args.root / "installation.json"), "--yes"]
     completed = subprocess.run(command, cwd=args.root, text=True, encoding="utf-8",
                                errors="replace", capture_output=True)
     with (args.root / "installer.log").open("a", encoding="utf-8") as stream:
@@ -51,6 +59,45 @@ def make_broken_wheel(source, destination):
                 continue
             broken.writestr(entry, archive.read(entry.filename))
     assert removed, "The fixture wheel must contain the bundled Skill."
+    return destination
+
+
+def make_previous_wheel(source, destination):
+    """Create an explicitly synthetic pre-release wheel for upgrade coverage."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    old_dist = "ladybug_tools_mcp-1.2.1.dist-info"
+    new_dist = "ladybug_tools_mcp-1.2.1.dev0.dist-info"
+    entries = {}
+    with ZipFile(source) as archive:
+        for entry in archive.infolist():
+            name = entry.filename.replace(old_dist, new_dist)
+            data = archive.read(entry.filename)
+            if name == "ladybug_tools_mcp/__init__.py":
+                text = data.decode("utf-8")
+                data = text.replace('__version__ = "1.2.1"', '__version__ = "1.2.1.dev0"').encode("utf-8")
+                assert data != archive.read(entry.filename), "Synthetic version fixture was not rewritten."
+            if name == f"{new_dist}/METADATA":
+                text = data.decode("utf-8")
+                text = text.replace("Version: 1.2.1\r\n", "Version: 1.2.1.dev0\r\n")
+                text = text.replace("Version: 1.2.1\n", "Version: 1.2.1.dev0\n")
+                data = text.encode("utf-8")
+                assert "Version: 1.2.1.dev0" in text
+            if name != f"{new_dist}/RECORD":
+                entries[name] = data
+    record_name = f"{new_dist}/RECORD"
+    records = []
+    for name, data in sorted(entries.items()):
+        encoded = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode("ascii")
+        records.append(f"{name},sha256={encoded},{len(data)}")
+    records.append(f"{record_name},,")
+    entries[record_name] = ("\n".join(records) + "\n").encode("utf-8")
+    with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    with ZipFile(destination) as archive:
+        metadata = archive.read(f"{new_dist}/METADATA").decode("utf-8")
+        assert "Version: 1.2.1.dev0" in metadata
+        assert "Version: 1.2.1\r\n" not in metadata and "Version: 1.2.1\n" not in metadata
     return destination
 
 
@@ -209,6 +256,31 @@ async def gitless_garden_check(args, record):
     return garden
 
 
+async def existing_garden_check(args, record, garden):
+    """Read an authoring Garden created by the synthetic previous version."""
+    from fastmcp import Client
+    from fastmcp.client.transports import StdioTransport
+
+    environment = {**os.environ, "LADYBUG_TOOLS_GARDENS_ROOT": record["gardens_root"],
+        "LADYBUG_TOOLS_MCP_INSTALLATION": str(args.root / "installation.json")}
+    transport = StdioTransport(record["python"], ["-I", "-m", "ladybug_tools_mcp.server"],
+        cwd=str(args.root), env=environment, keep_alive=False,
+        log_file=args.root / "upgrade-server.log")
+    async with Client(transport, timeout=180, init_timeout=120) as client:
+        result = await client.call_tool("execute", {"code": f'''
+garden = await call_tool("GD_get", {{"garden_root": {str(garden)!r}}})
+base = await call_tool("GD_get_base_honeybee_model", {{"garden_root": {str(garden)!r}}})
+return {{"garden": garden, "base": base}}
+'''})
+        assert not result.is_error, result
+        data = result.data or {}
+        if "result" in data:
+            data = data["result"]
+        assert data["garden"]["garden_root"] == str(garden)
+        assert data["garden"]["summary_view"]["model_count"] == 1
+        assert data["base"]["summary_view"]["has_base_honeybee_model"] is True
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--wheel", type=Path, required=True)
@@ -238,22 +310,46 @@ def main():
                "--skills-dir", str(skills), "--no-grasshopper")
     invoke(args, *options, "--generate-config")
     assert config.read_text(encoding="utf-8") == original and not skills.exists()
-    invoke(args, *options)
+    previous_wheel = make_previous_wheel(args.wheel, args.root / "previous-wheel" / "ladybug_tools_mcp-1.2.1.dev0-py3-none-any.whl")
+    old_options = ("install", "--wheel", str(previous_wheel), "--tool-dir", str(args.root / "runtime tools"),
+                   "--garden-dir", str(args.root / "Gardens"), "--codex-config", str(config),
+                   "--skills-dir", str(skills), "--no-grasshopper")
+    invoke(args, *old_options, bootstrap=previous_wheel)
+    old_record = json.loads((args.root / "installation.json").read_text(encoding="utf-8"))
+    assert old_record["version"] == "1.2.1.dev0"
+    assert old_record["wheel_sha256"] == hashlib.sha256(previous_wheel.read_bytes()).hexdigest()
+    skill = skills / "ladybug-tools-mcp-use" / "SKILL.md"
+    assert skill.is_file()
+    garden = asyncio.run(protocol_check(args, old_record))
+    garden_before_upgrade = file_snapshot(Path(garden))
+    upgrade_skill = skill.read_bytes() + b"\nUpgrade customization.\n"
+    skill.write_bytes(upgrade_skill)
+    state_before_upgrade = (args.root / "installation.json").read_bytes()
+    config_before_upgrade = config.read_bytes()
+    invoke(args, *options, success=False)
+    assert (args.root / "installation.json").read_bytes() == state_before_upgrade
+    assert config.read_bytes() == config_before_upgrade
+    assert skill.read_bytes() == upgrade_skill
+    assert file_snapshot(Path(garden)) == garden_before_upgrade
+    invoke(args, *options, "--replace")
+    record = json.loads((args.root / "installation.json").read_text(encoding="utf-8"))
+    assert old_record["version"] == "1.2.1.dev0" and record["version"] == "1.2.1"
+    assert record["wheel_sha256"] == hashlib.sha256(args.wheel.read_bytes()).hexdigest()
+    assert config.read_bytes() == config_before_upgrade
+    assert any(path.read_bytes() == upgrade_skill for path in skill.parent.glob("SKILL.md.ladybug-backup-*"))
+    assert skill.read_bytes() != upgrade_skill
+    assert file_snapshot(Path(garden)) == garden_before_upgrade
+    asyncio.run(existing_garden_check(args, record, garden))
+    assert file_snapshot(Path(garden)) == garden_before_upgrade
     configured = config.read_bytes()
     assert b"# retain this comment" in configured
     settings = tomllib.loads(configured.decode("utf-8"))
     assert settings["mcp_servers"]["example"]["command"] == "example"
     assert settings["mcp_servers"]["ladybug-tools-mcp"]["args"] == ["-I", "-m", "ladybug_tools_mcp.server"]
     assert settings["mcp_servers"]["ladybug-tools-mcp"]["required"] is True
-    skill = skills / "ladybug-tools-mcp-use" / "SKILL.md"
-    assert skill.is_file()
-    invoke(args, *options)
-    assert config.read_bytes() == configured
-    record = json.loads((args.root / "installation.json").read_text(encoding="utf-8"))
     assert "runtime tools" in record["python"]
     assert (Path(record["package_root"]) / "flowerpot" / "runtime.py").is_file()
     interactive_generate_config_check(args)
-    garden = asyncio.run(protocol_check(args, record))
     gitless_garden = asyncio.run(gitless_garden_check(args, record))
     worker = subprocess.run([record["python"], "-I", "-m", "flowerpot.worker_cli", "garden_list"],
         input=json.dumps({"root_folder": record["gardens_root"]}), capture_output=True, text=True, check=True)
@@ -308,7 +404,7 @@ def main():
     assert not Path(record["python"]).exists()
     assert not (args.root / "installation.json").exists()
     assert all(Path(path).read_bytes() == data for path, data in before.items())
-    print(json.dumps({"status": "passed", "root": str(args.root), "checks": ["wheel", "generate-config", "interactive-options", "install", "same-version-rerun", "runtime-failure-recovery", "stdio", "Garden", "Git-version", "Gitless-Garden", "model", "localhost", "conflicts", "uninstall"], "upgrade": "cross-version upgrade not exercised; same-version reruns only"}))
+    print(json.dumps({"status": "passed", "root": str(args.root), "checks": ["wheel", "generate-config", "interactive-options", "synthetic-upgrade", "upgrade-skill-conflict-and-backup", "upgrade-garden-readback", "install", "same-version-rerun", "runtime-failure-recovery", "stdio", "Garden", "Git-version", "Gitless-Garden", "model", "localhost", "conflicts", "uninstall"], "upgrade": "1.2.1.dev0 synthetic fixture -> 1.2.1; not a historical release upgrade"}))
 
 
 if __name__ == "__main__":

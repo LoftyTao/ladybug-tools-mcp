@@ -52,30 +52,27 @@ Clients that use `mcpServers`:
 }
 ```
 
-[OpenCode V2](https://opencode.ai/v2/docs/mcp-servers/) uses a different shape:
+The tested OpenCode2 CLI, `@opencode/cli@2.0.12`, accepts this configuration:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "skills": ["<installed-skills-directory>"],
   "mcp": {
-    "servers": {
-      "ladybug-tools-mcp": {
-        "type": "local",
-        "command": ["<installed-python>", "-I", "-m", "ladybug_tools_mcp.server"],
-        "environment": {
-          "LADYBUG_TOOLS_GARDENS_ROOT": "<garden-directory>",
-          "LADYBUG_TOOLS_MCP_INSTALLATION": "<installation-record>"
-        },
-        "codemode": false,
-        "timeout": {"startup": 60000}
-      }
+    "ladybug-tools-mcp": {
+      "type": "local",
+      "command": ["<installed-python>", "-I", "-m", "ladybug_tools_mcp.server"],
+      "environment": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<garden-directory>",
+        "LADYBUG_TOOLS_MCP_INSTALLATION": "<installation-record>"
+      },
+      "timeout": 120000
     }
   }
 }
 ```
 
-The server already exposes FastMCP's `search`, `get_schema`, and `execute`; disabling the client's additional Code Mode layer exposes these directly. MCP also serves the bundled Skill as resources. Codex local Skill discovery follows the [official Skills locations](https://learn.chatgpt.com/docs/build-skills).
+The server exposes FastMCP's `search`, `get_schema`, and `execute`. OpenCode's rolling [V2 MCP documentation](https://opencode.ai/v2/docs/mcp-servers/) currently describes a different schema (`mcp.servers`, `codemode`, and structured timeouts); those fields were rejected by the tested 2.0.12 build. Check the installed client's schema before switching formats. The [official V2 installation page](https://opencode.ai/v2/docs/) points to `@opencode/cli`; the older `@opencode-ai/cli` beta builds could not use the tested free tier. MCP also serves the bundled Skill as resources. Codex local Skill discovery follows the [official Skills locations](https://learn.chatgpt.com/docs/build-skills).
 
 ## Upgrade, recovery, and removal
 
@@ -130,7 +127,7 @@ uv pip install --python <bootstrap-python> --prerelease allow dist/ladybug_tools
 <bootstrap-python> -I tests/deterministic/validate_distribution.py --wheel dist/ladybug_tools_mcp-1.2.1-py3-none-any.whl --root <new-test-directory>
 ```
 
-It checks package resources, generated configuration, repeat install, MCP discovery, Garden/model creation, validation, geometry readback, localhost HTTP, conflict protection, backup, and uninstall preservation. Native Grasshopper and natural-language Agent acceptance are additional release checks. Use OpenCode2's current listed free model, an explicit session title, and native JSON execution records; unavailable free models are a test-environment limitation and never trigger paid fallback. Use Codex for full Agent acceptance and independently inspect the persisted model.
+It checks package resources, generated configuration, interactive choices, repeat install, runtime-failure recovery, MCP discovery, Garden/model creation, Git history and creation without Git, validation, geometry readback, localhost HTTP, conflict protection, backup, and uninstall preservation. The localhost bind check also ensures preview startup never requires reverse DNS. Native Grasshopper and natural-language Agent acceptance are additional release checks. Use OpenCode2's current listed free model, an explicit session title, and native JSON execution records; unavailable free models are a test-environment limitation and never trigger paid fallback. Use Codex for full Agent acceptance and independently inspect the persisted model.
 
 `.github/workflows/distribution.yml` builds once, tests the same wheel on three OS runners, and publishes the downloaded artifact only for a version-matching tag after all checks pass. The GitHub `pypi` environment requires approval from `LoftyTao` and permits only `v*` tags. Confirm native Grasshopper and Agent evidence before approving that environment.
 

@@ -24,6 +24,7 @@ jobs:
         run: |
           uvx twine check dist/*
           uv run --no-project --python 3.12 python -c 'import os,tomllib; v=tomllib.load(open("pyproject.toml","rb"))["project"]["version"]; assert not os.environ["GITHUB_REF"].startswith("refs/tags/") or os.environ["GITHUB_REF_NAME"] == "v"+v'
+          sha256sum dist/* >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
           name: distributions
