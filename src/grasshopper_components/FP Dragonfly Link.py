@@ -2,19 +2,22 @@
 # env: installed runtime, then development source fallback
 
 """
-List Ladybug Tools Gardens and wrap each one as a Flowerpot.
+Link a Dragonfly Model to a Flowerpot Garden.
 -
 This component is the GHPython shell over the formal Python 3 worker.
 -
 
     Args:
-        folder_: Optional folder containing Garden project folders.
-        refresh_: Set to True to refresh the list of Gardens.
+        _flowerpot: Opaque Flowerpot dictionary from an FP component.
+        model_: Optional Dragonfly Model input.
+        _write: Optional write trigger. Set to True to persist the connected
+            Dragonfly Model into the Flowerpot Garden once for this component.
+        follow_: Set to True to refresh from the Garden context.
 
     Returns:
-        flowerpots: Opaque Flowerpot dictionaries for downstream FP components.
-        garden_roots: Resolved Garden root folders.
-        names: Garden names.
+        model: Dragonfly Model passed through or refreshed from the Garden.
+        flowerpot: Opaque Flowerpot dictionary for downstream FP components.
+        changed: Boolean flag indicating whether this solve persisted a model.
         report: Reports, errors, warnings, etc.
 """
 import io
@@ -59,8 +62,8 @@ def _ensure_src_root():
 
 _ensure_src_root()
 
-import flowerpot.runtime as _runtime
 from flowerpot.input_guard import all_required_inputs_ready
+import flowerpot.runtime as _runtime
 
 try:
     _reload = reload
@@ -68,33 +71,29 @@ except NameError:
     from importlib import reload as _reload
 
 try:
-    ghenv.Component.Name = "FP Garden List"
-    ghenv.Component.NickName = "GardenList"
+    ghenv.Component.Name = "FP Dragonfly Link"
+    ghenv.Component.NickName = "DragonflyLink"
     ghenv.Component.Message = "1.3.0.dev0"
     ghenv.Component.Category = "Flowerpot"
     ghenv.Component.SubCategory = "Flowerpot"
-    ghenv.Component.AdditionalHelpFromDocStrings = "1"
-    ghenv.Component.Params.Input[0].Optional = True
+    ghenv.Component.AdditionalHelpFromDocStrings = "2"
+    ghenv.Component.Params.Input[0].Optional = False
     ghenv.Component.Params.Input[1].Optional = True
+    ghenv.Component.Params.Input[2].Optional = True
+    ghenv.Component.Params.Input[3].Optional = True
 except Exception:
     pass
 
 
-def run(folder_, refresh_):
-    """List Garden Flowerpots through the formal worker."""
-    if not refresh_:
-        return {
-            "flowerpots": [],
-            "garden_roots": [],
-            "names": [],
-            "report": {
-                "status": "idle",
-                "message": "Refresh is false.",
-                "warnings": [],
-                "details": {},
-            },
-        }
-    return _load_runtime().list_garden_flowerpots(folder_)
+def run(_flowerpot, model_, _write, follow_):
+    """Link a Dragonfly model to a Flowerpot Garden through the worker."""
+    return _load_runtime().link_dragonfly_model(
+        flowerpot=_flowerpot,
+        model=model_,
+        write_flag=_write,
+        follow_flag=bool(follow_),
+        component=_component_from_ghenv(),
+    )
 
 
 def _load_runtime():
@@ -102,20 +101,33 @@ def _load_runtime():
     return _reload(_runtime)
 
 
-flowerpots = []
-garden_roots = []
-names = []
+def _component_from_ghenv():
+    """Return the live GHPython component instance when running inside Grasshopper."""
+    try:
+        return ghenv.Component
+    except Exception:
+        return None
+
+
+model = globals().get("model_")
+flowerpot = globals().get("_flowerpot")
+changed = False
 report = {
     "status": "idle",
-    "message": "Refresh is false.",
+    "message": "No Flowerpot action requested.",
     "warnings": [],
     "details": {},
 }
 
-if "ghenv" in globals():
+if "_flowerpot" in globals() and _flowerpot is not None:
     if all_required_inputs_ready(ghenv.Component):
-        _result = run(globals().get("folder_"), globals().get("refresh_", False))
-        flowerpots = _result["flowerpots"]
-        garden_roots = _result["garden_roots"]
-        names = _result["names"]
+        _result = run(
+            _flowerpot,
+            globals().get("model_"),
+            globals().get("_write", False),
+            globals().get("follow_", False),
+        )
+        model = _result["model"]
+        flowerpot = _result["flowerpot"]
+        changed = _result["changed"]
         report = _result["report"]

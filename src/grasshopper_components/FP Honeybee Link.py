@@ -73,10 +73,10 @@ except NameError:
 try:
     ghenv.Component.Name = "FP Honeybee Link"
     ghenv.Component.NickName = "HoneybeeLink"
-    ghenv.Component.Message = "1.2.1"
+    ghenv.Component.Message = "1.3.0.dev0"
     ghenv.Component.Category = "Flowerpot"
-    ghenv.Component.SubCategory = "1 :: Honeybee"
-    ghenv.Component.AdditionalHelpFromDocStrings = "1"
+    ghenv.Component.SubCategory = "Flowerpot"
+    ghenv.Component.AdditionalHelpFromDocStrings = "2"
     ghenv.Component.Params.Input[0].Optional = False
     ghenv.Component.Params.Input[1].Optional = True
     ghenv.Component.Params.Input[2].Optional = True

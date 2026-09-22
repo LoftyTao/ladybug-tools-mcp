@@ -1,7 +1,7 @@
 # Direct dependencies; compile with:
 # uv pip compile --universal --python-version 3.12 --prerelease allow requirements.in -o requirements.txt
 tomlkit>=0.13,<1
-fastmcp[code-mode]==4.0.0b5
+fastmcp[code-mode]==4.0.5
 PyYAML==6.0.3
 ladybug-core==0.44.61
 ladybug-comfort==0.19.10

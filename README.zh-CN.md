@@ -171,6 +171,8 @@ uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 uninstall
 
 Flowerpot 为可选项。Windows / Rhino 8 用户选中后，重启 Grasshopper，在组件搜索中输入 `FP` 或到 `Flowerpot` 分类中拖入六个组件。Rhino、Ladybug Tools for Grasshopper 和 Ironbug 按工作流另行安装。已有源码组件和画布保留开发路径回退。
 
+`1.3.0.dev0` 开发版新增 **FP Dragonfly Link**：七个组件统一放在一个 Flowerpot 子栏内，沿用 LBT 的 Exposure 分组方式，在子栏内部区分 Garden、模型交接、属性和 HVAC。已有 Garden 可通过 FP Garden List 配合 Grasshopper 的 List Item 选择；气象、数据序列和模型操作继续使用原生 Ladybug Tools 组件。详见[组件说明](src/grasshopper_components/README.md)。已发布的 `1.2.1` 尚不包含 Dragonfly Link。
+
 Windows x86_64 优先完成原生验收；Linux x86_64 和 macOS Apple Silicon 通过同一 CI 流程验证基础 MCP。Flowerpot 与 Fairyfly/THERM 暂以 Windows 为边界；其他平台的外部引擎按实际可用性检查。已发布版本见 [Release Notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases)，自动分发验收见 [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml)。
 
 ### 模拟运行环境

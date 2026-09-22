@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lbt-mcp"
-version = "1.2.1"
+version = "1.3.0.dev0"
 description = "A FastMCP server for Ladybug Tools workflows."
 readme = "README.md"
 dynamic = ["dependencies"]
@@ -20,7 +20,7 @@ python-ironbug-console = "garden.ironbug_console.cli:main"
 Homepage = "https://github.com/LoftyTao/ladybug-tools-mcp"
 
 [tool.setuptools]
-py-modules = ["ladybug_tools_mcp_cli"]
+py-modules = ["ladybug_tools_mcp_cli", "ladybug_tools_mcp_clients"]
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}

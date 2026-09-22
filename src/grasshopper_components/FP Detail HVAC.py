@@ -69,10 +69,10 @@ except NameError:
 try:
     ghenv.Component.Name = "FP Detail HVAC"
     ghenv.Component.NickName = "DetailHVAC"
-    ghenv.Component.Message = "1.2.1"
+    ghenv.Component.Message = "1.3.0.dev0"
     ghenv.Component.Category = "Flowerpot"
-    ghenv.Component.SubCategory = "3 :: Ironbug"
-    ghenv.Component.AdditionalHelpFromDocStrings = "1"
+    ghenv.Component.SubCategory = "Flowerpot"
+    ghenv.Component.AdditionalHelpFromDocStrings = "4"
     ghenv.Component.Params.Input[0].Optional = False
     ghenv.Component.Params.Input[1].Optional = True
     ghenv.Component.Params.Input[2].Optional = True

@@ -113,6 +113,7 @@ def write_active_context(
     model_target: dict[str, Any] | None = None,
     model_identifier: str | None = None,
     model_display_name: str | None = None,
+    model_domain: str = "honeybee",
     report_status: str = "ok",
 ) -> dict[str, Any]:
     """Write the Garden-local active Flowerpot context for a platform."""
@@ -121,6 +122,9 @@ def write_active_context(
     safe_flowerpot = _sanitize_flowerpot(flowerpot)
     payload_context = safe_flowerpot.get("payload_context", {})
     public_model_target = _public_model_target(model_target)
+    normalized_domain = str(model_domain or "honeybee").strip().lower()
+    if normalized_domain not in {"honeybee", "dragonfly"}:
+        raise ValueError("Active Flowerpot model_domain must be honeybee or dragonfly.")
     context = {
         "schema_version": "1",
         "updated_at": utc_now_iso(),
@@ -131,7 +135,14 @@ def write_active_context(
         "flowerpot": safe_flowerpot,
         "flowerpot_id": payload_context.get("flowerpot_id"),
         "flowerpot_kind": safe_flowerpot.get("kind"),
-        "base_honeybee_model_target": public_model_target,
+        "model_domain": normalized_domain,
+        "model_target": public_model_target,
+        "base_honeybee_model_target": (
+            public_model_target if normalized_domain == "honeybee" else None
+        ),
+        "base_dragonfly_model_target": (
+            public_model_target if normalized_domain == "dragonfly" else None
+        ),
         "model_identifier": model_identifier,
         "model_display_name": model_display_name,
         "mode": mode,
@@ -195,19 +206,30 @@ def read_active_context(
         context["flowerpot"] = _sanitize_flowerpot(context["flowerpot"])
 
     flowerpot = context.get("flowerpot") or {}
-    model_target = context.get("base_honeybee_model_target")
+    model_domain = str(context.get("model_domain") or "honeybee").strip().lower()
+    if model_domain not in {"honeybee", "dragonfly"}:
+        model_domain = "honeybee"
+    model_target = context.get("model_target")
+    if not isinstance(model_target, dict):
+        model_target = context.get(
+            "base_dragonfly_model_target"
+            if model_domain == "dragonfly"
+            else "base_honeybee_model_target"
+        )
     _validate_model_target(model_target)
     return {
         "exists": True,
         "active_context": context,
         "garden_root": str(garden_root_path),
         "flowerpot": flowerpot,
+        "model_domain": model_domain,
         "model_target": model_target,
         "summary_view": {
             "found": True,
             "platform": context.get("platform", normalized_platform),
             "flowerpot_id": context.get("flowerpot_id"),
             "flowerpot_kind": context.get("flowerpot_kind"),
+            "model_domain": model_domain,
             "model_identifier": context.get("model_identifier"),
             "model_display_name": context.get("model_display_name"),
             "mode": context.get("mode"),

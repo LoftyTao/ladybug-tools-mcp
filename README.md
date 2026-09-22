@@ -166,9 +166,29 @@ For upgrades, close clients using MCP and Rhino, then run the chosen new version
 uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 uninstall
 ```
 
+### Client presets (development build)
+
+The unreleased `1.3.0.dev0` build adds selectable presets for Codex, Claude Code, Gemini CLI, OpenCode, OpenCode2, Hermes Agent, OpenClaw, ZCode, Kimi Code, Devin, Qoder, CodeBuddy, WorkBuddy, Cline, Cursor and VS Code. List the exact preset IDs without changing client settings:
+
+```text
+uvx --isolated --python 3.12 --prerelease allow --from <absolute-wheel-path> lbt-mcp clients
+```
+
+Choose multiple clients in the terminal wizard, or repeat `--client`. For example:
+
+```text
+uvx --isolated --python 3.12 --prerelease allow --from <absolute-wheel-path> lbt-mcp install --wheel <absolute-wheel-path> --client opencode2 --client hermes --client workbuddy --generate-config --output-dir "<preset-directory>"
+```
+
+`--client all` selects every preset; `--client none` installs only the runtime and any selected Flowerpot integration. `--generate-config` still prepares the persistent runtime. Exported files use its absolute Python path and the selected Garden and installation-record paths. Without `--output-dir`, generated fragments print in the terminal. With it, each client gets a separate file and `lbt-mcp-README.md` explains where to merge/import it and where the bundled Skill lives. Existing differing export files require `--replace` and receive backups.
+
+Codex retains automatic configuration and local Skill installation. The other first-batch presets require import into the client; generating a preset does not confirm that client is installed or connected. OpenCode and OpenCode2 are separate choices; the `opencode2` preset targets the tested 2.0.12 format, while `opencode2-native` is for clients verified against the native V2 schema. Devin Cloud gets a guide instead of local paths. Unselected clients and manually imported settings remain unchanged; exported files remain after uninstall. These options are not available in the published `1.2.1` release.
+
 ### Flowerpot and platform scope
 
 Flowerpot is optional. On Windows with Rhino 8, select it in the wizard, restart Grasshopper, then search for `FP` or drag the six components from the `Flowerpot` category. Install Rhino, Ladybug Tools for Grasshopper, and Ironbug separately as required by the workflow. Existing source components retain their development-path fallback.
+
+The `1.3.0.dev0` development build adds **FP Dragonfly Link**: seven components in a single Flowerpot subcategory, internally grouped into Garden, models, properties and HVAC using LBT-style exposure groups. Use FP Garden List with Grasshopper's List Item to choose an existing Garden; native Ladybug Tools components handle weather, data collections and model operations. See [the component guide](src/grasshopper_components/README.md). Dragonfly Link is not in the published `1.2.1` package.
 
 Windows x86_64 is the primary native acceptance platform. Linux x86_64 and macOS Apple Silicon run the same basic MCP checks in CI. Flowerpot and Fairyfly/THERM currently have Windows boundaries; external engines are checked per workflow. See the [release notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases) and [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml) for published release evidence.
 

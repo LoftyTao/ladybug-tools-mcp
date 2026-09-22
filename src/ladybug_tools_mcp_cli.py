@@ -18,6 +18,7 @@ from email.parser import Parser
 
 from ladybug_tools_mcp import __version__
 from flowerpot.installation import installation_path, read_installation
+from ladybug_tools_mcp_clients import CLIENTS, render_client
 
 
 PACKAGE = "lbt-mcp"
@@ -38,6 +39,40 @@ def absolute(value: str | Path) -> Path:
 
 def digest(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def validate_grasshopper_manifest(source: Path) -> dict:
+    """Validate the packaged Flowerpot index before copying user objects."""
+    try:
+        manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError("Invalid Grasshopper asset manifest.") from error
+    entries = manifest.get("components")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("Grasshopper asset manifest is empty.")
+    names, files = set(), set()
+    for entry in entries:
+        name, filename = entry.get("name"), entry.get("file")
+        if not isinstance(name, str) or not isinstance(filename, str):
+            raise ValueError("Invalid Grasshopper manifest entry.")
+        asset = source / filename
+        if (
+            name in names or filename in files
+            or entry.get("category") != "Flowerpot"
+            or entry.get("subcategory") != "Flowerpot"
+            or entry.get("exposure") not in {2, 4, 8, 16, 32, 64, 128}
+            or filename != name + ".ghuser"
+            or asset.resolve().parent != source.resolve()
+            or not asset.is_file()
+        ):
+            raise ValueError("Invalid or duplicate Grasshopper manifest entry: " + name)
+        names.add(name)
+        files.add(filename)
+        if digest(asset.read_bytes()) != entry.get("sha256"):
+            raise ValueError("Grasshopper asset checksum mismatch: " + filename)
+    if {path.name for path in source.glob("*.ghuser")} != files:
+        raise ValueError("Grasshopper manifest and user-object files do not match.")
+    return manifest
 
 
 def atomic_write(path: Path, content: bytes) -> None:
@@ -91,6 +126,87 @@ def ask_yes(label: str, default: bool) -> bool:
     if answer not in {"y", "yes", "n", "no"}:
         raise ValueError("Answer yes or no.")
     return answer in {"y", "yes"}
+
+
+def normalize_clients(values: list[str]) -> list[str]:
+    if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+        raise ValueError("Client selection must be a list of client IDs.")
+    if values == ["all"]:
+        return list(CLIENTS)
+    if values == ["none"]:
+        return []
+    unknown = [value for value in values if value not in CLIENTS]
+    if unknown:
+        raise ValueError("Unknown client selection: " + ", ".join(unknown) + ". Run lbt-mcp clients.")
+    return list(dict.fromkeys(values))
+
+
+def ask_clients(default: list[str]) -> list[str]:
+    print("Client presets (comma-separated numbers or IDs; 0 = runtime only, all = every preset):")
+    choices = list(CLIENTS)
+    for index, client in enumerate(choices, 1):
+        mode = "automatic or export" if client == "codex" else "export / import guide"
+        print(f"  {index}. {CLIENTS[client]['label']} [{client}] - {mode}")
+    answer = input(f"Clients [{', '.join(default) or 'none'}]: ").strip()
+    if not answer:
+        return default
+    values = []
+    for token in answer.split(","):
+        token = token.strip()
+        if token == "0":
+            token = "none"
+        elif token.isdecimal():
+            index = int(token)
+            if not 1 <= index <= len(choices):
+                raise ValueError("Client number is outside the displayed list.")
+            token = choices[index - 1]
+        values.append(token)
+    return normalize_clients(values)
+
+
+def preset_updates(clients: list[str], server: dict, skill_source: Path,
+                   output: Path | None, replace: bool, reserved: set[Path]):
+    """Generate importable fragments; these exports are never managed client files."""
+    changes, expected, results, rendered = {}, {}, [], {}
+    guide = [f"# lbt-mcp {__version__} client presets", "",
+             "Merge only the lbt-mcp entry into the selected client's configuration.",
+             "Do not replace an entire existing configuration with a fragment.",
+             "Generated files do not mean the client has connected or loaded Skills.",
+             "Use the paths only on the machine where this MCP runtime is installed.", ""]
+
+    def add_export(path: Path, content: str):
+        if path in reserved or path in changes:
+            raise ValueError(f"Preset output overlaps another installation file: {path}")
+        existing, data = file_bytes(path), content.encode("utf-8")
+        if path.is_symlink():
+            raise ValueError(f"Refusing to export through a symlink: {path}")
+        if existing is not None and existing != data and not replace:
+            raise FileExistsError(f"Preset export differs: {path}. Choose another --output-dir or use --replace for a backup.")
+        if existing != data:
+            changes[path], expected[path] = data, existing
+
+    for client in clients:
+        info = CLIENTS[client]
+        content = render_client(client, server, skill_source)
+        rendered[client] = content
+        entry = {"client": client, **info,
+                 "status": "guide" if info["format"] == "text" else "generated"}
+        if output:
+            suffix = "md" if info["format"] == "text" else info["format"]
+            path = output / f"lbt-mcp-{client}.{suffix}"
+            add_export(path, content)
+            entry["path"] = str(path)
+        results.append(entry)
+        guide.extend([f"## {info['label']} ({client})", "", info["instructions"], "",
+                      f"Reference: {info['docs']}", ""])
+    if output and clients:
+        if any(client != "devin-cloud" for client in clients):
+            guide.extend(["## Bundled Skill", "", str(skill_source), "",
+                          "Copy the complete ladybug-tools-mcp-use folder, including its references,",
+                          "to the selected client's documented Skills directory or use its import UI.",
+                          "An MCP resource is separate from client-side Skill discovery.", ""])
+        add_export(output / "lbt-mcp-README.md", "\n".join(guide))
+    return changes, expected, results, rendered
 
 
 def grasshopper_directory() -> Path:
@@ -162,14 +278,9 @@ def asset_updates(resources: Path, skills: Path | None, gh: Path | None, previou
         groups.append((resources / "skills" / SKILL, skills / SKILL, "skill"))
     if gh:
         source = resources / "grasshopper"
-        manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
-        if manifest["version"] != __version__ or len(manifest["components"]) != 6:
+        manifest = validate_grasshopper_manifest(source)
+        if manifest.get("version") != __version__:
             raise ValueError("Grasshopper assets do not match this release.")
-        for entry in manifest["components"]:
-            asset = source / entry["file"]
-            asset.resolve().relative_to(source.resolve())
-            if digest(asset.read_bytes()) != entry["sha256"]:
-                raise ValueError("Grasshopper asset checksum mismatch: " + entry["file"])
         groups.append((source, gh, "grasshopper"))
     for source, destination, kind in groups:
         if not source.is_dir():
@@ -274,14 +385,15 @@ def install(args) -> dict:
     state = absolute(args.state)
     state_before = file_bytes(state)
     previous = read_installation(str(state))
+    requested = getattr(args, "client", None)
+    clients = normalize_clients(requested if requested is not None else previous.get("client_presets", ["codex"]))
+    output = absolute(args.output_dir) if getattr(args, "output_dir", None) else None
     uv = uv_command()
     default_tools = subprocess.run([uv, "tool", "dir"], check=True, capture_output=True, text=True).stdout.strip()
     tools_dir = absolute(args.tool_dir or previous.get("tool_dir") or default_tools)
     gardens = absolute(args.garden_dir or previous.get("gardens_root") or Path.home() / "LadybugTools/Gardens")
     codex = absolute(args.codex_config or (previous.get("codex") or {}).get("path") or Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml")
     skills = absolute(args.skills_dir or previous.get("skills_dir") or Path.home() / ".agents/skills")
-    if previous.get("codex") and previous["codex"]["path"] != str(codex):
-        raise ValueError("Uninstall before changing the managed Codex configuration path.")
     gh_enabled = args.grasshopper if args.grasshopper is not None else bool(previous.get("grasshopper_dir"))
     if not args.yes:
         if not sys.stdin.isatty():
@@ -289,9 +401,17 @@ def install(args) -> dict:
         print(f"Ladybug Tools MCP {__version__}")
         tools_dir = ask_path("Runtime directory", tools_dir)
         gardens = ask_path("Garden directory", gardens)
-        args.generate_config = not ask_yes("Configure Codex and install local Skills?", not args.generate_config)
+        clients = ask_clients(clients)
+        if "codex" in clients:
+            args.generate_config = not ask_yes("Configure Codex and install local Skills?", not args.generate_config)
+        if clients and output is None:
+            answer = input("Save preset files to a directory (blank = print only): ").strip()
+            output = absolute(answer) if answer else None
         gh_enabled = ask_yes("Install Flowerpot integration (Grasshopper / Rhino 8 on Windows)?", gh_enabled)
-    if args.generate_config and previous.get("assets") and previous.get("skills_dir") != str(skills):
+    configure_codex = "codex" in clients and not args.generate_config
+    if configure_codex and previous.get("codex") and previous["codex"]["path"] != str(codex):
+        raise ValueError("Uninstall before changing the managed Codex configuration path.")
+    if not configure_codex and previous.get("assets") and previous.get("skills_dir") != str(skills):
         raise ValueError("Keep the installed Skills directory when only generating configuration.")
     gh = None
     if gh_enabled:
@@ -311,13 +431,19 @@ def install(args) -> dict:
         raise ValueError("The Garden directory must be outside the runtime directory and uv cache.")
     if previous and previous["tool_dir"] != str(tools_dir):
         raise ValueError("Uninstall the existing runtime before changing its directory. Gardens are retained.")
+    if output and (output.is_relative_to(tools_dir) or output.is_relative_to(cache_dir)):
+        raise ValueError("Preset exports must be outside the runtime directory and uv cache.")
+    if not args.yes:
+        print(f"Runtime: {python}\nGardens: {gardens}")
+        print(f"Codex: {codex if configure_codex else 'not modified'}")
+        print(f"Preset output: {output or 'terminal'}")
     server = configuration(python, gardens, state)
     config_bytes, config_record, config_before = (None, None, None)
-    if not args.generate_config:
+    if configure_codex:
         config_bytes, config_record, config_before = codex_update(codex, server, previous, args.replace)
     import ladybug_tools_mcp
     resources = Path(ladybug_tools_mcp.__file__).resolve().parent / "resources"
-    changes, assets, kept, expected = asset_updates(resources, None if args.generate_config else skills, gh, previous, args.replace)
+    changes, assets, kept, expected = asset_updates(resources, skills if configure_codex else None, gh, previous, args.replace)
     if config_bytes is not None and config_before != config_bytes:
         changes[codex] = config_bytes
         expected[codex] = config_before
@@ -338,22 +464,36 @@ def install(args) -> dict:
         except subprocess.CalledProcessError as error:
             raise RuntimeError("uv could not prepare the runtime. Close MCP clients and Rhino, check the error above, then retry this command. Client settings and Gardens were retained.") from error
         details = runtime_details(python)
+    skill_source = Path(details["resources"]) / "skills"
+    export_changes, export_expected, presets, rendered = preset_updates(
+        clients, server, skill_source, output, args.replace,
+        {state, codex, *changes, *(Path(asset["path"]) for asset in assets)},
+    )
+    changes.update(export_changes)
+    expected.update(export_expected)
+    for entry in presets:
+        if entry["client"] == "codex" and configure_codex:
+            entry["status"] = "configured"
     gardens.mkdir(parents=True, exist_ok=True)
     record = {
+        **previous,
         "schema_version": 1, "version": __version__, "wheel_sha256": wheel_hash, "tool_dir": str(tools_dir),
         "python": str(python), "package_root": details["package_root"],
         "gardens_root": str(gardens), "skills_dir": str(skills),
         "grasshopper_dir": str(gh) if gh else None,
         "codex": config_record if config_record else previous.get("codex"), "assets": assets,
+        "client_presets": clients,
     }
     changes[state] = (json.dumps(record, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     expected[state] = state_before
     backups = commit_files(changes, expected)
-    if args.generate_config:
-        import tomlkit
-        print(tomlkit.dumps({"mcp_servers": {PACKAGE: server}}))
+    for entry in presets:
+        if not output and entry["status"] != "configured":
+            print(f"\n# {entry['label']} - {entry['status']}\n{entry['instructions']}\n")
+            print(rendered[entry["client"]])
     return {"version": __version__, "python": str(python), "gardens_root": str(gardens),
-            "state": str(state), "codex_configured": not args.generate_config,
+            "state": str(state), "codex_configured": configure_codex, "client_presets": presets,
+            "bundled_skills": str(skill_source),
             "grasshopper": str(gh) if gh else None, "backups": backups, "preserved_files": kept}
 
 
@@ -414,6 +554,7 @@ def main(argv=None) -> int:
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("serve", help="Run the stdio MCP server (default).")
+    commands.add_parser("clients", help="List available client presets without installing or changing settings.")
     for name in ("install", "uninstall", "status"):
         command = commands.add_parser(name)
         command.add_argument("--state", default=installation_path(), help="Installation record path (for separate test profiles).")
@@ -426,7 +567,10 @@ def main(argv=None) -> int:
             command.add_argument("--skills-dir", type=Path)
             command.add_argument("--grasshopper", action=argparse.BooleanOptionalAction, default=None)
             command.add_argument("--grasshopper-dir", type=Path)
-            command.add_argument("--generate-config", action="store_true", help="Install runtime and print Codex settings without changing client settings or local Skills.")
+            command.add_argument("--client", action="append", choices=[*CLIENTS, "all", "none"],
+                                 help="Select a client preset; repeat for multiple clients. New installs default to codex.")
+            command.add_argument("--output-dir", type=Path, help="Save selected presets and import instructions here; otherwise print them.")
+            command.add_argument("--generate-config", action="store_true", help="Prepare runtime and generate selected presets without changing client settings or local Skills.")
             command.add_argument("--replace", action="store_true", help="Back up and replace conflicting MCP settings or integration files.")
             command.add_argument("--wheel", type=Path, help="Use a local wheel of this version instead of PyPI.")
     args = parser.parse_args(argv)
@@ -438,7 +582,10 @@ def main(argv=None) -> int:
         mcp.run(show_banner=False)
         return 0
     try:
-        if args.command == "install":
+        if args.command == "clients":
+            result = [{"client": client, **info, "automatic_configuration": client == "codex"}
+                      for client, info in CLIENTS.items()]
+        elif args.command == "install":
             result = install(args)
         elif args.command == "uninstall":
             result = uninstall(args)
