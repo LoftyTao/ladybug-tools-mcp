@@ -24,6 +24,14 @@ PACKAGE = "ladybug-tools-mcp"
 SKILL = "ladybug-tools-mcp-use"
 
 
+def configure_stdio() -> None:
+    """Keep generated configuration printable on Windows console encodings."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            reconfigure(encoding="utf-8")
+
+
 def absolute(value: str | Path) -> Path:
     return Path(value).expanduser().resolve()
 
@@ -262,6 +270,7 @@ def wheel_requirement(path: Path | None) -> str:
 
 
 def install(args) -> dict:
+    configure_stdio()
     state = absolute(args.state)
     state_before = file_bytes(state)
     previous = read_installation(str(state))
@@ -400,6 +409,7 @@ def uninstall(args) -> dict:
 
 
 def main(argv=None) -> int:
+    configure_stdio()
     parser = argparse.ArgumentParser(prog=PACKAGE, description="Ladybug Tools MCP server and local installation wizard.")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command")

@@ -114,31 +114,51 @@ async def protocol_check(args, record):
         assert epw[0].text.startswith("LOCATION,") and len(epw[0].text.splitlines()) > 8760
         discovery = await client.call_tool("search", {"query": "GD_create HB_create_model HB_create_room HB_validate_model GD_web_view_start_mode"})
         (args.root / "discovery.json").write_text(json.dumps(discovery.data, indent=2, default=str), encoding="utf-8")
-        code = f'''
-created = await call_tool("GD_create", {{"name": "Distribution acceptance", "root_dir": {garden!r}}})
-root = created["garden_root"]
-viewer = await call_tool("GD_web_view_start_mode", {{"garden_root": root, "name": "Distribution acceptance"}})
-model = await call_tool("HB_create_model", {{"garden_root": root, "identifier": "package_model", "set_base": True}})
-room = await call_tool("HB_create_room", {{"garden_root": root, "identifier": "PackageRoom", "x_dim": 6, "y_dim": 5, "height": 3}})
-validation = await call_tool("HB_validate_model", {{"garden_root": root}})
-base = await call_tool("GD_get_base_honeybee_model", {{"garden_root": root}})
-version = await call_tool("GD_create_version", {{"garden_root": root, "subject": "distribution acceptance", "summary": {{"source": "deterministic validator"}}, "source": "test"}})
-status = await call_tool("GD_get_version_status", {{"garden_root": root}})
-versions = await call_tool("GD_list_versions", {{"garden_root": root, "limit": 5}})
-return {{"garden": created, "viewer": viewer, "model": model, "room": room, "validation": validation, "base": base, "version": version, "status": status, "versions": versions}}
-'''
-        result = await client.call_tool("execute", {"code": code})
-        (args.root / "protocol.json").write_text(json.dumps(result.data, indent=2, default=str), encoding="utf-8")
-        data = result.data or {}
-        if "result" in data:
-            data = data["result"]
-        try:
+        async def execute(code):
+            result = await client.call_tool("execute", {"code": code})
             assert not result.is_error, result
+            data = result.data or {}
+            return data.get("result", data)
+
+        created_data = await execute(f'''
+created = await call_tool("GD_create", {{"name": "Distribution acceptance", "root_dir": {garden!r}}})
+return {{"garden": created}}
+''')
+        root = created_data["garden"]["garden_root"]
+        viewer_data = await execute(f'''
+viewer = await call_tool("GD_web_view_start_mode", {{"garden_root": {root!r}, "name": "Distribution acceptance"}})
+return {{"viewer": viewer}}
+''')
+        model_data = await execute(f'''
+model = await call_tool("HB_create_model", {{"garden_root": {root!r}, "identifier": "package_model", "set_base": True}})
+room = await call_tool("HB_create_room", {{"garden_root": {root!r}, "identifier": "PackageRoom", "x_dim": 6, "y_dim": 5, "height": 3}})
+return {{"model": model, "room": room}}
+''')
+        try:
+            validation_data = await execute(f'''
+validation = await call_tool("HB_validate_model", {{"garden_root": {root!r}}})
+base = await call_tool("GD_get_base_honeybee_model", {{"garden_root": {root!r}}})
+return {{"validation": validation, "base": base}}
+''')
+            data = {**created_data, **viewer_data, **model_data, **validation_data}
+            (args.root / "protocol.json").write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
             assert data["validation"].get("valid", data["validation"].get("is_valid")), data["validation"]
-            assert data["version"].get("version_id"), data["version"]
-            assert data["status"]["summary_view"]["has_versions"]
-            assert not data["status"]["summary_view"]["is_dirty"]
-            assert len(data["versions"]["versions"]) == 1, data["versions"]
+            version_data = await execute(f'''
+version = await call_tool("GD_create_version", {{"garden_root": {root!r}, "subject": "distribution acceptance", "summary": {{"source": "deterministic validator"}}, "source": "test"}})
+return {{"version": version}}
+''')
+            assert version_data["version"].get("version_id"), version_data["version"]
+            status_data = await execute(f'''
+status = await call_tool("GD_get_version_status", {{"garden_root": {root!r}}})
+return {{"status": status}}
+''')
+            assert status_data["status"]["summary_view"]["has_versions"]
+            assert not status_data["status"]["summary_view"]["is_dirty"]
+            versions_data = await execute(f'''
+versions = await call_tool("GD_list_versions", {{"garden_root": {root!r}, "limit": 5}})
+return {{"versions": versions}}
+''')
+            assert len(versions_data["versions"]["versions"]) == 1, versions_data["versions"]
             url = data["viewer"]["viewer"]["url"]
             assert url.startswith(("http://127.0.0.1:", "http://localhost:")), url
             with urlopen(url, timeout=20) as response:
