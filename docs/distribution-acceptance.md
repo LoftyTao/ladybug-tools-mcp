@@ -2,7 +2,7 @@
 
 更新日期：2026-09-22。目标版本：1.2.1。[PR #3](https://github.com/LoftyTao/ladybug-tools-mcp/pull/3)，分支 `codex/distribution-installer`。
 
-三平台基线、Codex、OpenCode2、Grasshopper 和浏览器预览已通过；跨版本升级补充检查正在收口。用户已明确暂不登录 PyPI，因此正式发布仍未完成。ADR 的 `accepted` 表示方案已确认，不能用来代替交付状态。
+三平台基线、Codex、OpenCode2、Grasshopper 和浏览器预览已通过；跨版本升级补充检查本地已通过，并已纳入三平台 CI。用户已明确暂不登录 PyPI，因此正式发布仍未完成。ADR 的 `accepted` 表示方案已确认，不能用来代替交付状态。
 
 ## 产物与来源
 
@@ -19,6 +19,7 @@
 | --- | --- |
 | 三平台原生运行 | GitHub 托管 Windows x86_64、Linux x86_64、macOS Apple Silicon runner 实际安装并运行 CPython 3.12 wheel；非 editable，服务用 `-I` 启动。 |
 | 安装配置与维护 | 中文/空格路径、终端选项、仅生成配置、自动配置、重复安装、损坏 wheel 的失败重试、同名冲突拒绝、显式替换及备份、无关设置保留、卸载保留用户修改和 Garden。 |
+| 跨版本升级 | 实际安装合成前版 `1.2.1.dev0`，创建 Garden、模型和 Git 版本，再升级同一运行目录至 `1.2.1`；安装记录更新、Skill 冲突拒绝及显式备份、Codex 配置保留、Garden 字节不变、当前 MCP 继续读取旧 Garden 均通过。 |
 | MCP 确定性基线 | 正式 stdio 连接；Code Mode 发现及执行、Skill 资源、完整 EPW、Garden、房间建模、有效性检查、独立几何复核。Git 版本保存和无 Git 创建 Garden 均通过。 |
 | localhost HTTP | 页面和 `/api/state` 可读，场景包含实际模型；回归检查在禁止反向 DNS 查询时仍成功提供 HTTP 页面。未更改 vtk.js CDN 依赖。 |
 | 浏览器真实预览 | 2026-09-22 在 Codex Browser 实际看到安装包导出的房间模型；Ax 和 Top 相机切换正常，浏览器无 error/warn。截图在 `tests/.artifacts/distribution/native-20260922/preview-axonometric.png` 和 `preview-top.png`。 |
@@ -28,7 +29,7 @@
 | Grasshopper 交接 | 从搜索结果实例化六个组件并核对端口；完成 Garden 创建、列表选择、Honeybee 读取；30 m²、90 m³；保存 `.gh` 后重开重算通过。之前的中文路径测试亦通过。 |
 | Flowerpot 回归 | 23 项既有 pytest 检查通过。 |
 
-跨版本升级的补充测试使用明确标注的合成前版 wheel，最终运行结果以 PR CI 为准；不把同版本重装描述为历史发行版本升级。
+跨版本测试的前版 wheel 是本次代码生成的测试夹具，不对外发布，也不代表曾发布过该版本。升级和整套确定性检查由 `tests/deterministic/validate_distribution.py` 在每个平台执行，最后一次执行状态见 PR CI。
 
 ## 发现并修复的问题
 
