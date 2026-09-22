@@ -28,11 +28,10 @@ caio==0.12.2
     # via aiofile
 cffi==2.1.1 ; platform_python_implementation != 'PyPy'
     # via cryptography
-click==8.1.7
+click==8.3.3
     # via
     #   click-plugins
     #   ladybug-core
-    #   lbt-recipes
     #   queenbee-local
     #   uvicorn
 click-plugins==1.1.1.2
@@ -61,7 +60,7 @@ docstring-parser==0.18.0
     # via cyclopts
 dragonfly-comparison==0.1.4
     # via lbt-dragonfly
-dragonfly-core==1.77.7
+dragonfly-core==1.77.14
     # via
     #   -r requirements.in
     #   dragonfly-comparison
@@ -69,15 +68,15 @@ dragonfly-core==1.77.7
     #   dragonfly-energy
     #   dragonfly-radiance
     #   dragonfly-uwg
-dragonfly-designbuilder==0.1.10
+dragonfly-designbuilder==0.1.11
     # via -r requirements.in
-dragonfly-display==0.5.0
+dragonfly-display==0.6.1
     # via lbt-dragonfly
-dragonfly-doe2==0.12.19
+dragonfly-doe2==0.12.21
     # via
     #   -r requirements.in
     #   lbt-dragonfly
-dragonfly-energy==1.46.11
+dragonfly-energy==1.46.26
     # via
     #   -r requirements.in
     #   dragonfly-designbuilder
@@ -86,11 +85,11 @@ dragonfly-energy==1.46.11
     #   lbt-dragonfly
 dragonfly-openstudio==0.2.5
     # via lbt-dragonfly
-dragonfly-radiance==0.4.229
+dragonfly-radiance==0.4.236
     # via
     #   -r requirements.in
     #   lbt-dragonfly
-dragonfly-schema==2.2.3
+dragonfly-schema==2.2.4
     # via dragonfly-core
 dragonfly-uwg==0.5.743
     # via
@@ -100,11 +99,11 @@ email-validator==2.3.0
     # via pydantic
 exceptiongroup==1.3.1
     # via fastmcp-slim
-fairyfly-core==0.2.38
+fairyfly-core==0.2.42
     # via
     #   -r requirements.in
     #   fairyfly-therm
-fairyfly-therm==0.10.19
+fairyfly-therm==0.10.23
     # via -r requirements.in
 fairyfly-therm-standards==0.1.0
     # via fairyfly-therm
@@ -122,14 +121,14 @@ h11==0.16.0
     # via
     #   httpcore2
     #   uvicorn
-honeybee-core==1.64.66
+honeybee-core==1.64.71
     # via
     #   -r requirements.in
     #   dragonfly-core
     #   honeybee-display
     #   honeybee-energy
     #   honeybee-radiance
-honeybee-designbuilder==0.4.5
+honeybee-designbuilder==0.4.6
     # via
     #   -r requirements.in
     #   dragonfly-designbuilder
@@ -138,11 +137,11 @@ honeybee-display==0.6.3
     #   -r requirements.in
     #   dragonfly-display
     #   lbt-honeybee
-honeybee-doe2==0.23.6
+honeybee-doe2==0.24.0
     # via
     #   -r requirements.in
     #   dragonfly-doe2
-honeybee-energy==1.123.25
+honeybee-energy==1.124.5
     # via
     #   -r requirements.in
     #   dragonfly-energy
@@ -151,11 +150,11 @@ honeybee-energy==1.123.25
     #   lbt-honeybee
 honeybee-energy-standards==2.3.4
     # via honeybee-energy
-honeybee-openstudio==0.6.0
+honeybee-openstudio==0.8.0
     # via
     #   dragonfly-openstudio
     #   honeybee-energy
-honeybee-radiance==1.66.286
+honeybee-radiance==1.66.291
     # via
     #   -r requirements.in
     #   dragonfly-radiance
@@ -164,9 +163,9 @@ honeybee-radiance-command==1.23.0
     # via honeybee-radiance
 honeybee-radiance-folder==2.11.17
     # via honeybee-radiance
-honeybee-radiance-postprocess==0.5.12
+honeybee-radiance-postprocess==0.5.17
     # via lbt-honeybee
-honeybee-schema==2.2.0
+honeybee-schema==2.2.1
     # via
     #   dragonfly-schema
     #   honeybee-core
@@ -216,11 +215,11 @@ keyring==25.7.0
     # via py-key-value-aio
 kiwisolver==1.5.1
     # via matplotlib
-ladybug-comfort==0.19.6
+ladybug-comfort==0.19.10
     # via
     #   -r requirements.in
     #   lbt-ladybug
-ladybug-core==0.44.57
+ladybug-core==0.44.61
     # via
     #   -r requirements.in
     #   fairyfly-core
@@ -228,7 +227,7 @@ ladybug-core==0.44.57
     #   ladybug-comfort
     #   ladybug-display
     #   ladybug-radiance
-ladybug-display==0.14.3
+ladybug-display==0.14.4
     # via
     #   -r requirements.in
     #   honeybee-display
@@ -236,24 +235,26 @@ ladybug-display==0.14.3
     #   lbt-ladybug
 ladybug-display-schema==1.0.1
     # via ladybug-vtk
-ladybug-geometry==1.35.4
+ladybug-geometry==1.35.6
     # via
     #   -r requirements.in
     #   ladybug-core
     #   ladybug-geometry-polyskel
-ladybug-geometry-polyskel==1.7.53
+ladybug-geometry-polyskel==1.7.55
     # via honeybee-core
 ladybug-radiance==0.2.12
     # via lbt-ladybug
 ladybug-vtk==0.16.1
     # via -r requirements.in
-lbt-dragonfly==0.13.227
+lbt-dragonfly==0.13.253
     # via pollination-handlers
-lbt-honeybee==0.9.455
-    # via lbt-dragonfly
-lbt-ladybug==0.27.201
+lbt-honeybee==0.9.478
+    # via
+    #   lbt-dragonfly
+    #   lbt-recipes
+lbt-ladybug==0.27.206
     # via lbt-honeybee
-lbt-recipes==0.28.8
+lbt-recipes==0.29.0
     # via -r requirements.in
 lockfile==0.12.2
     # via python-daemon

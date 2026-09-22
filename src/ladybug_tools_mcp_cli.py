@@ -20,7 +20,7 @@ from ladybug_tools_mcp import __version__
 from flowerpot.installation import installation_path, read_installation
 
 
-PACKAGE = "ladybug-tools-mcp"
+PACKAGE = "lbt-mcp"
 SKILL = "ladybug-tools-mcp-use"
 
 

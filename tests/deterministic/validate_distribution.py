@@ -27,7 +27,7 @@ def invoke(args, *options, success=True, bootstrap=None):
         uvx = shutil.which("uvx")
         assert uvx, "uvx is required for the isolated previous-version bootstrap"
         command = [uvx, "--isolated", "--python", "3.12", "--prerelease", "allow",
-                   "--from", str(bootstrap), "ladybug-tools-mcp", *options]
+                   "--from", str(bootstrap), "lbt-mcp", *options]
     else:
         command = [sys.executable, "-I", "-m", "ladybug_tools_mcp_cli", *options]
     command += ["--state", str(args.root / "installation.json"), "--yes"]
@@ -65,8 +65,8 @@ def make_broken_wheel(source, destination):
 def make_previous_wheel(source, destination):
     """Create an explicitly synthetic pre-release wheel for upgrade coverage."""
     destination.parent.mkdir(parents=True, exist_ok=True)
-    old_dist = "ladybug_tools_mcp-1.2.1.dist-info"
-    new_dist = "ladybug_tools_mcp-1.2.1.dev0.dist-info"
+    old_dist = "lbt_mcp-1.2.1.dist-info"
+    new_dist = "lbt_mcp-1.2.1.dev0.dist-info"
     entries = {}
     with ZipFile(source) as archive:
         for entry in archive.infolist():
@@ -310,7 +310,7 @@ def main():
                "--skills-dir", str(skills), "--no-grasshopper")
     invoke(args, *options, "--generate-config")
     assert config.read_text(encoding="utf-8") == original and not skills.exists()
-    previous_wheel = make_previous_wheel(args.wheel, args.root / "previous-wheel" / "ladybug_tools_mcp-1.2.1.dev0-py3-none-any.whl")
+    previous_wheel = make_previous_wheel(args.wheel, args.root / "previous-wheel" / "lbt_mcp-1.2.1.dev0-py3-none-any.whl")
     old_options = ("install", "--wheel", str(previous_wheel), "--tool-dir", str(args.root / "runtime tools"),
                    "--garden-dir", str(args.root / "Gardens"), "--codex-config", str(config),
                    "--skills-dir", str(skills), "--no-grasshopper")
@@ -345,8 +345,8 @@ def main():
     assert b"# retain this comment" in configured
     settings = tomllib.loads(configured.decode("utf-8"))
     assert settings["mcp_servers"]["example"]["command"] == "example"
-    assert settings["mcp_servers"]["ladybug-tools-mcp"]["args"] == ["-I", "-m", "ladybug_tools_mcp.server"]
-    assert settings["mcp_servers"]["ladybug-tools-mcp"]["required"] is True
+    assert settings["mcp_servers"]["lbt-mcp"]["args"] == ["-I", "-m", "ladybug_tools_mcp.server"]
+    assert settings["mcp_servers"]["lbt-mcp"]["required"] is True
     assert "runtime tools" in record["python"]
     assert (Path(record["package_root"]) / "flowerpot" / "runtime.py").is_file()
     interactive_generate_config_check(args)
@@ -386,7 +386,7 @@ def main():
     # A user-edited server is protected, then explicitly backed up on replacement.
     import tomlkit
     document = tomlkit.parse(config.read_text(encoding="utf-8"))
-    document["mcp_servers"]["ladybug-tools-mcp"]["startup_timeout_sec"] = 75
+    document["mcp_servers"]["lbt-mcp"]["startup_timeout_sec"] = 75
     config.write_text(tomlkit.dumps(document), encoding="utf-8")
     user_config = config.read_bytes()
     invoke(args, *options, success=False)
@@ -400,7 +400,7 @@ def main():
     before = {str(path): path.read_bytes() for path in Path(garden).rglob("*") if path.is_file()}
     invoke(args, "uninstall")
     assert skill.read_bytes() == user_skill
-    assert tomllib.loads(config.read_text(encoding="utf-8"))["mcp_servers"]["ladybug-tools-mcp"]["startup_timeout_sec"] == 75
+    assert tomllib.loads(config.read_text(encoding="utf-8"))["mcp_servers"]["lbt-mcp"]["startup_timeout_sec"] == 75
     assert not Path(record["python"]).exists()
     assert not (args.root / "installation.json").exists()
     assert all(Path(path).read_bytes() == data for path, data in before.items())

@@ -84,10 +84,10 @@ Flowerpot 是 Ladybug Tools MCP 与其他交互界面交换信息的中间层。
 
 ### 安装向导
 
-`1.2.1` 是本分支待发布版本；以下 PyPI 命令在该版本正式发布后可用。发布前可按[分发说明](docs/distribution.md)验证本地 wheel。
+`1.2.1` 是固定的发布版本。使用下面的命令从 PyPI 安装；本地验证时，也可以通过 `--from <绝对 wheel 路径>` 使用同一个向导。
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow ladybug-tools-mcp@1.2.1 install
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install
 ```
 
 Windows、Linux 和 macOS 使用同一终端向导。选择运行环境目录、Garden 目录、是否自动配置 Codex 和本地 Skills，以及是否安装 Flowerpot / Grasshopper。下载完成后重启客户端。
@@ -97,20 +97,65 @@ Windows、Linux 和 macOS 使用同一终端向导。选择运行环境目录、
 只生成配置、不修改客户端与本地 Skills：
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow ladybug-tools-mcp@1.2.1 install --generate-config
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install --generate-config
+```
+
+使用本地 wheel 时，将它同时作为启动包和安装包；构建文件名类似 `lbt_mcp-1.2.1-py3-none-any.whl`：
+
+```text
+uvx --isolated --python 3.12 --prerelease allow --from <绝对 wheel 路径> lbt-mcp install --wheel <绝对 wheel 路径>
+```
+
+生成的输出是 Codex TOML 配置块，其中包含已安装 Python、Garden 根目录和安装记录路径。手动配置 Codex 时，将该配置块复制到 `~/.codex/config.toml`。
+
+其他 MCP 客户端可以使用同一个已安装 Python，并采用标准 stdio 配置：
+
+```json
+{
+  "mcpServers": {
+    "lbt-mcp": {
+      "command": "<已安装的 Python>",
+      "args": ["-I", "-m", "ladybug_tools_mcp.server"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<Garden 目录>",
+        "LADYBUG_TOOLS_MCP_INSTALLATION": "<安装记录路径>"
+      }
+    }
+  }
+}
+```
+
+OpenCode2 2.0.12 使用下面的本地服务配置：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": ["<已安装的 Skills 目录>"],
+  "mcp": {
+    "lbt-mcp": {
+      "type": "local",
+      "command": ["<已安装的 Python>", "-I", "-m", "ladybug_tools_mcp.server"],
+      "environment": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<Garden 目录>",
+        "LADYBUG_TOOLS_MCP_INSTALLATION": "<安装记录路径>"
+      },
+      "timeout": 120000
+    }
+  }
+}
 ```
 
 升级时退出正在使用 MCP 的客户端及 Rhino，再运行所选新版本的安装命令。版本固定，不自动升级。卸载保留 Garden 与用户修改过的文件：
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow ladybug-tools-mcp@1.2.1 uninstall
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 uninstall
 ```
 
 ### Flowerpot 与平台范围
 
 Flowerpot 为可选项。Windows / Rhino 8 用户选中后，重启 Grasshopper，在组件搜索中输入 `FP` 或到 `Flowerpot` 分类中拖入六个组件。Rhino、Ladybug Tools for Grasshopper 和 Ironbug 按工作流另行安装。已有源码组件和画布保留开发路径回退。
 
-Windows x86_64 优先完成原生验收；Linux x86_64 和 macOS Apple Silicon 通过同一 CI 流程验证基础 MCP。Flowerpot 与 Fairyfly/THERM 暂以 Windows 为边界；其他平台的外部引擎按实际可用性检查。当前验收状态、配置示例和发布步骤见[分发说明](docs/distribution.md)。
+Windows x86_64 优先完成原生验收；Linux x86_64 和 macOS Apple Silicon 通过同一 CI 流程验证基础 MCP。Flowerpot 与 Fairyfly/THERM 暂以 Windows 为边界；其他平台的外部引擎按实际可用性检查。已发布版本见 [Release Notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases)，自动分发验收见 [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml)。
 
 ### 模拟运行环境
 
@@ -195,7 +240,7 @@ Web View 模式下，Honeybee、Dragonfly、Fairyfly 和 VisualizationSet 的主
 ## 首次使用
 
 在代理应用中配置好 MCP 服务后，新建一个任务，并让代理使用 Ladybug Tools MCP。
-在 Codex 中，可以按照上方 TOML 示例配置 `~/.codex/config.toml`，重启后直接描述 Garden 或建模任务。
+在 Codex 中，将 `install --generate-config` 输出的配置块复制到 `~/.codex/config.toml`，重启后直接描述 Garden 或建模任务。
 
 如果宿主支持 Skill，可通过 `/` 调用 `ladybug-tools-mcp-use`，再输入 `HI , Ladybug Tools !`，启动三类主要使用方向的引导流程。
 完成引导后，即可按照自己的意图开始构建。

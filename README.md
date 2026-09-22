@@ -83,10 +83,10 @@ Basic modeling needs [uv](https://docs.astral.sh/uv/getting-started/installation
 
 ### Installation wizard
 
-`1.2.1` is the pending release on this branch. The PyPI command below becomes available after publication; see the [distribution guide](docs/distribution.md) for testing a local wheel beforehand.
+`1.2.1` is the pinned release version. Install it from PyPI with the command below. For local validation, the same wizard accepts a wheel with `--from <absolute-wheel-path>`.
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow ladybug-tools-mcp@1.2.1 install
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install
 ```
 
 The same terminal wizard runs on Windows, Linux, and macOS. Choose runtime and Garden directories, automatic Codex configuration and local Skills, and optional Flowerpot / Grasshopper integration. Restart the client after installation.
@@ -96,20 +96,65 @@ Installation is per user. Gardens default to `~/LadybugTools/Gardens`, outside t
 To install the runtime and print settings without changing client configuration or local Skills:
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow ladybug-tools-mcp@1.2.1 install --generate-config
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install --generate-config
+```
+
+For a local wheel, use the wheel for both bootstrap and installation; the built file is named like `lbt_mcp-1.2.1-py3-none-any.whl`:
+
+```text
+uvx --isolated --python 3.12 --prerelease allow --from <absolute-wheel-path> lbt-mcp install --wheel <absolute-wheel-path>
+```
+
+The generated output is a Codex TOML block containing the installed Python path, the Garden root, and the installation record. Copy that block into `~/.codex/config.toml` when configuring Codex manually.
+
+Other MCP clients can use the same installed Python with standard stdio configuration:
+
+```json
+{
+  "mcpServers": {
+    "lbt-mcp": {
+      "command": "<installed-python>",
+      "args": ["-I", "-m", "ladybug_tools_mcp.server"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<garden-directory>",
+        "LADYBUG_TOOLS_MCP_INSTALLATION": "<installation-record>"
+      }
+    }
+  }
+}
+```
+
+OpenCode2 2.0.12 uses this local server shape:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": ["<installed-skills-directory>"],
+  "mcp": {
+    "lbt-mcp": {
+      "type": "local",
+      "command": ["<installed-python>", "-I", "-m", "ladybug_tools_mcp.server"],
+      "environment": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<garden-directory>",
+        "LADYBUG_TOOLS_MCP_INSTALLATION": "<installation-record>"
+      },
+      "timeout": 120000
+    }
+  }
+}
 ```
 
 For upgrades, close clients using MCP and Rhino, then run the chosen new version's installer. Versions stay fixed until you explicitly upgrade. Uninstall keeps Gardens and user-edited files:
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow ladybug-tools-mcp@1.2.1 uninstall
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 uninstall
 ```
 
 ### Flowerpot and platform scope
 
 Flowerpot is optional. On Windows with Rhino 8, select it in the wizard, restart Grasshopper, then search for `FP` or drag the six components from the `Flowerpot` category. Install Rhino, Ladybug Tools for Grasshopper, and Ironbug separately as required by the workflow. Existing source components retain their development-path fallback.
 
-Windows x86_64 is the primary native acceptance platform. Linux x86_64 and macOS Apple Silicon run the same basic MCP checks in CI. Flowerpot and Fairyfly/THERM currently have Windows boundaries; external engines are checked per workflow. See the [distribution guide](docs/distribution.md) for current evidence, client examples, and release steps.
+Windows x86_64 is the primary native acceptance platform. Linux x86_64 and macOS Apple Silicon run the same basic MCP checks in CI. Flowerpot and Fairyfly/THERM currently have Windows boundaries; external engines are checked per workflow. See the [release notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases) and [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml) for published release evidence.
 
 ### Simulation runtimes
 
@@ -192,7 +237,7 @@ If the requested port is already occupied, startup fails clearly instead of sile
 
 ## First Use
 
-After the MCP server is configured in your agent application, start a new thread and ask it to use Ladybug Tools MCP. In Codex, the most direct path is to configure the server in `~/.codex/config.toml` with the TOML example above, restart Codex, then describe the Garden or modeling task directly.
+After the MCP server is configured in your agent application, start a new thread and ask it to use Ladybug Tools MCP. In Codex, copy the block printed by `install --generate-config` into `~/.codex/config.toml`, restart Codex, then describe the Garden or modeling task directly.
 
 If your host supports skills, invoke the `ladybug-tools-mcp-use` skill with `/`, then input `HI , Ladybug Tools !` to activate the onboarding flow for the three main usage intents that we provide.
 After the onboarding is complete, you can start building according to your intent.
