@@ -8,3 +8,6 @@ gardens/
 .env
 .env.*
 .obsidian
+tests/.artifacts/
+/docs/
+/CONTEXT.md

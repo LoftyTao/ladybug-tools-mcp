@@ -52,13 +52,12 @@ ENERGY_RUN_RECIPES = {
 ENERGY_RUNS_DIR = Path("runs") / "energy"
 ENERGY_RUN_INDEX = ENERGY_RUNS_DIR / "index.json"
 OUTPUT_NAMES = ("err", "eui", "html", "result-report", "sql", "visual-report", "zsz")
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
 GARDEN_VERSION_NEXT_TOOL = "GD_create_version"
 
 
 def _recipe_cli_path(path_value: str | None = None) -> str:
     """Ensure recipe subprocesses can find CLIs installed in the active venv."""
-    scripts_dir = Path(sys.executable).resolve().parent
+    scripts_dir = Path(sys.executable).absolute().parent
     path_parts = [
         part
         for part in (path_value or os.environ.get("PATH") or "").split(os.pathsep)
@@ -82,7 +81,7 @@ def _ensure_windows_install_env(env: dict[str, str]) -> None:
 
 def _console_executable(name: str) -> str:
     executable_name = f"{name}.exe" if os.name == "nt" else name
-    return str(Path(sys.executable).resolve().parent / executable_name)
+    return str(Path(sys.executable).absolute().parent / executable_name)
 
 
 @contextmanager
@@ -122,7 +121,7 @@ def _submit_energy_background(**kwargs: Any) -> subprocess.Popen:
         run_dir=run_dir,
         worker_module="garden.run_energy.worker",
         request={"garden_root": str(garden_root), "run_id": run_id},
-        cwd=PROJECT_ROOT,
+        cwd=garden_root,
         environment=env,
     )
 
@@ -949,7 +948,7 @@ def _run_honeybee_energy_cli(
         _ensure_windows_install_env(env)
         simulate = subprocess.run(
             command,
-            cwd=str(PROJECT_ROOT),
+            cwd=str(run_dir),
             env=env,
             check=False,
         )
@@ -968,7 +967,7 @@ def _run_honeybee_energy_cli(
             ]
             eui = subprocess.run(
                 eui_command,
-                cwd=str(PROJECT_ROOT),
+                cwd=str(run_dir),
                 env=env,
                 check=False,
             )

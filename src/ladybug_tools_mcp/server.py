@@ -15,8 +15,9 @@ from ladybug_tools_mcp.operation_protocol import (
 from ladybug_tools_mcp.registry import register_tools
 from ladybug_tools_mcp.weather_resources import register_weather_resources
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SKILL_PATH = PROJECT_ROOT / ".agents" / "skills" / "ladybug-tools-mcp-use"
+SKILL_PATH = Path(__file__).resolve().parent / "resources" / "skills" / "ladybug-tools-mcp-use"
+if not SKILL_PATH.is_dir():
+    SKILL_PATH = Path(__file__).resolve().parents[2] / ".agents" / "skills" / "ladybug-tools-mcp-use"
 
 
 def create_mcp() -> FastMCP:

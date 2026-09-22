@@ -1,10 +1,10 @@
 #! python 2
-# env: prefer LADYBUG_TOOLS_MCP_SRC, then file-relative bootstrap
+# env: installed runtime, then development source fallback
 
 """
 Rebuild a Garden Ironbug authoring model as a native Ironbug HVAC system.
 -
-This source-only component is the GHPython shell over the Flowerpot runtime.
+This component is the GHPython shell over the Flowerpot runtime.
 -
 
     Args:
@@ -16,6 +16,8 @@ This source-only component is the GHPython shell over the Flowerpot runtime.
         hvac_system: Native Ironbug.HVAC.IB_HVACSystem or None on hard failure.
         report: Handoff and hard-gate diagnostics.
 """
+import io
+import json
 import os
 import sys
 
@@ -31,6 +33,15 @@ def _script_src_root():
 def _ensure_src_root():
     env_src = os.environ.get("LADYBUG_TOOLS_MCP_SRC")
     candidates = []
+    record_path = os.environ.get("LADYBUG_TOOLS_MCP_INSTALLATION") or os.path.join(
+        os.path.expanduser("~"), ".ladybug-tools-mcp", "installation.json"
+    )
+    if os.path.isfile(record_path):
+        with io.open(record_path, "r", encoding="utf-8") as stream:
+            record = json.load(stream)
+        if record.get("schema_version") != 1:
+            raise ValueError("Unsupported Ladybug Tools MCP installation record.")
+        candidates.append(record.get("package_root"))
     if env_src:
         candidates.append(env_src)
     candidates.append(_script_src_root())
@@ -42,7 +53,7 @@ def _ensure_src_root():
             if src_root not in sys.path:
                 sys.path.insert(0, src_root)
             return src_root
-    raise ImportError("Could not locate Ladybug Tools MCP src root.")
+    raise ImportError("Run the Ladybug Tools MCP installer with Grasshopper enabled to configure its runtime.")
 
 
 _ensure_src_root()
@@ -58,7 +69,7 @@ except NameError:
 try:
     ghenv.Component.Name = "FP Detail HVAC"
     ghenv.Component.NickName = "DetailHVAC"
-    ghenv.Component.Message = "1.2.0"
+    ghenv.Component.Message = "1.2.1"
     ghenv.Component.Category = "Flowerpot"
     ghenv.Component.SubCategory = "3 :: Ironbug"
     ghenv.Component.AdditionalHelpFromDocStrings = "1"

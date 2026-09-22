@@ -1,22 +1,33 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ladybug-tools-mcp"
-version = "1.2.0"
+name = "lbt-mcp"
+version = "1.2.1"
 description = "A FastMCP server for Ladybug Tools workflows."
-requires-python = ">=3.12"
-license = { file = "LICENSE" }
-classifiers = [
-  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-]
+readme = "README.md"
+dynamic = ["dependencies"]
+requires-python = ">=3.12,<3.13"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 
 [project.scripts]
+lbt-mcp = "ladybug_tools_mcp_cli:main"
 python-ironbug-console = "garden.ironbug_console.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/LoftyTao/ladybug-tools-mcp"
+
+[tool.setuptools]
+py-modules = ["ladybug_tools_mcp_cli"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["grasshopper_components*"]
 
 [tool.setuptools.package-data]
 ladybug_tools_mcp = [

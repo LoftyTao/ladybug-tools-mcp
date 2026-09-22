@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any, Iterable
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_GARDENS_ROOT = PROJECT_ROOT / "gardens"
+DEFAULT_GARDENS_ROOT = Path(
+    os.environ.get("LADYBUG_TOOLS_GARDENS_ROOT")
+    or Path.home() / "LadybugTools" / "Gardens"
+).expanduser().resolve()
 _WINDOWS_INVALID_FILENAME_CHARACTERS = frozenset('<>:"/\\|?*')
 _WINDOWS_RESERVED_FILENAME_STEMS = frozenset(
     {

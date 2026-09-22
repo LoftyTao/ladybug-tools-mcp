@@ -1,0 +1,5 @@
+include requirements.in requirements.txt
+recursive-include .agents/skills/ladybug-tools-mcp-use *.md *.yaml
+recursive-include src/grasshopper_components/user_objects *.ghuser *.json
+recursive-include src/grasshopper_components *.py
+recursive-exclude .agents/skills/ladybug-tools-mcp-use AGENTS.md

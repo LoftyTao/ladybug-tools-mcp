@@ -1,7 +1,7 @@
 """Runtime helpers for Flowerpot platform shell components.
 
 This module is the GHPython/IronPython platform shell that delegates formal
-Garden and Flowerpot work to the Python 3 worker in the project `.venv`.
+Garden and Flowerpot work to the installed Python 3 worker.
 """
 
 from __future__ import print_function
@@ -11,6 +11,8 @@ import os
 import subprocess
 import sys
 import threading
+
+from flowerpot.installation import read_installation
 
 try:
     from collections.abc import Mapping
@@ -35,7 +37,8 @@ _REQUIRED_COMPONENT_STATE_API = (
 )
 _component_state = None
 
-_WORKER_SESSION = None
+# Component scripts reload this module; keep one worker until Rhino exits.
+_WORKER_SESSION = globals().get("_WORKER_SESSION")
 _FOLLOW_POLL_INTERVAL_MS = 1000
 
 
@@ -1001,7 +1004,7 @@ class _WorkerSession(object):
                 "action": action,
                 "request": request,
             },
-            ensure_ascii=False,
+            ensure_ascii=True,
         )
         self.process.stdin.write(_encode_text(message + "\n"))
         self.process.stdin.flush()
@@ -1026,7 +1029,7 @@ def _open_worker_process(action=None, session=False):
         command.append(action)
     return subprocess.Popen(
         command,
-        cwd=_repository_root(),
+        cwd=os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -1043,7 +1046,7 @@ def _worker_python_executable():
     searched = ", ".join(candidates) if candidates else "<none>"
     raise RuntimeError(
         "Flowerpot worker Python was not found. "
-        "Create the project .venv before using Grasshopper shell components. "
+        "Run the Ladybug Tools MCP installer with the Grasshopper option. "
         "Searched: %s" % searched
     )
 
@@ -1055,8 +1058,11 @@ def _worker_python_candidates():
         if candidate and candidate not in candidates:
             candidates.append(candidate)
 
+    _append(os.environ.get("LADYBUG_TOOLS_MCP_PYTHON"))
+    _append(read_installation().get("python"))
     root = _repository_root()
     _append(os.path.join(root, ".venv", "Scripts", "python.exe"))
+    _append(os.path.join(root, ".venv", "bin", "python"))
     parent = os.path.dirname(root)
     if os.path.basename(parent) == ".worktrees":
         _append(
@@ -1085,8 +1091,11 @@ def _worker_python_candidates():
 
 def _worker_environment():
     env = os.environ.copy()
-    src_root = os.path.join(_repository_root(), "src")
+    src_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     env["PYTHONIOENCODING"] = "utf-8"
+    settings = read_installation()
+    if settings:
+        env["LADYBUG_TOOLS_GARDENS_ROOT"] = settings["gardens_root"]
     existing_pythonpath = env.get("PYTHONPATH")
     env["PYTHONPATH"] = (
         src_root if not existing_pythonpath else src_root + os.pathsep + existing_pythonpath

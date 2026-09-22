@@ -80,190 +80,103 @@ Flowerpot 是 Ladybug Tools MCP 与其他交互界面交换信息的中间层。
 
 ## 快速开始
 
-### 环境要求
+基础建模需要 [uv](https://docs.astral.sh/uv/getting-started/installation/) 和一个 MCP 客户端。uv 自动准备 Python 3.12 与依赖；无需克隆仓库。Git 用于 Garden 版本管理，缺少 Git 不影响创建 Garden。
 
-使用 Ladybug Tools MCP 前，通常需要准备以下环境：
+### 安装向导
 
-- Python 3.12
-- 符合下方 `v1.2.0` 版本要求的 Ladybug Tools 运行环境
-- Git
-- uv
-- 任意代理应用，例如 [Codex](https://chatgpt.com/codex)、[Claude Code](https://code.claude.com/docs/en/desktop-quickstart)、[Open Code](https://opencode.ai/) 或 [OpenClaw](https://openclaw.ai/)
-
-如果你尚不熟悉代理应用，可以从 [Codex](https://chatgpt.com/codex) 开始。
-
-下表列出了 Ladybug Tools MCP `v1.2.0` 所采用的外部运行环境版本要求。
-请按具体工作流安装所需引擎；Ironbug 建模使用项目内的 Python 实现。
-
-Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.0` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NatLabRockies/OpenStudio/releases/tag/v3.11.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
-
-使用 `LB_get_runtime_config` 检查已安装引擎，并获取缺失运行环境的配置指引。
-
-### 安装指南
-
-如果你不了解 MCP，或希望由代理完成安装，可以将任务交给 [Codex](https://chatgpt.com/codex) 或其他代理应用。
-
-以 Codex 为例：
-
-- 安装 Codex。
-- 打开本地工作目录。
-- 将本项目链接发给 Codex。
-- 输入：
+`1.2.1` 是固定的发布版本。使用下面的命令从 PyPI 安装；本地验证时，也可以通过 `--from <绝对 wheel 路径>` 使用同一个向导。
 
 ```text
-请帮我将这个项目的 MCP 安装并配置到当前工作目录。
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install
 ```
 
-#### 本地安装命令
+Windows、Linux 和 macOS 使用同一终端向导。选择运行环境目录、Garden 目录、是否自动配置 Codex 和本地 Skills，以及是否安装 Flowerpot / Grasshopper。下载完成后重启客户端。
 
-在目标工作目录中运行以下命令。
-将 `<repo-url>` 替换为本项目的仓库地址，将 `<repo-dir>` 替换为克隆后的目录名称。
+默认按当前用户安装，Garden 位于 `~/LadybugTools/Gardens`，独立于程序和 uv 缓存。自动配置保留其他 MCP 服务与设置；同名冲突会停止并说明处理方式。首次下载包含科学计算依赖，可能需要数分钟；当前 Luigi 依赖由 uv 自动构建纯 Python wheel，无需编译器。
 
-Windows PowerShell：
-
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-uv --version
-```
-
-macOS / Linux：
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv --version
-```
-
-随后在各平台运行：
-
-```bash
-git clone <repo-url>
-cd <repo-dir>
-uv venv --python 3.12 .venv
-uv pip install -r requirements.txt
-uv pip install -e .
-uv run --no-project python -c "import ladybug_tools_mcp; print(ladybug_tools_mcp.__version__)"
-```
-
-`requirements.txt` 固定了依赖版本，便于重复安装相同环境。
-
-#### MCP 配置示例
-
-将 `<absolute-repo-path>` 替换为本机仓库的绝对路径，将 `<python-command>` 替换为项目虚拟环境中的 Python 可执行文件路径。
-
-Windows：
+只生成配置、不修改客户端与本地 Skills：
 
 ```text
-<absolute-repo-path>\.venv\Scripts\python.exe
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install --generate-config
 ```
 
-macOS / Linux：
+使用本地 wheel 时，将它同时作为启动包和安装包；构建文件名类似 `lbt_mcp-1.2.1-py3-none-any.whl`：
 
 ```text
-<absolute-repo-path>/.venv/bin/python
+uvx --isolated --python 3.12 --prerelease allow --from <绝对 wheel 路径> lbt-mcp install --wheel <绝对 wheel 路径>
 ```
 
-Codex 使用 TOML：
+生成的输出是 Codex TOML 配置块，其中包含已安装 Python、Garden 根目录和安装记录路径。手动配置 Codex 时，将该配置块复制到 `~/.codex/config.toml`。
 
-```toml
-[mcp_servers.ladybug-tools-mcp]
-command = "<python-command>"
-args = ["-m", "ladybug_tools_mcp.server"]
-cwd = "<absolute-repo-path>"
-```
-
-使用 `mcpServers` 配置的 Cursor、OpenCode 或其他代理应用可以采用 JSON：
+其他 MCP 客户端可以使用同一个已安装 Python，并采用标准 stdio 配置：
 
 ```json
 {
   "mcpServers": {
-    "ladybug-tools-mcp": {
-      "command": "<python-command>",
-      "args": ["-m", "ladybug_tools_mcp.server"],
-      "cwd": "<absolute-repo-path>"
-    }
-  }
-}
-```
-
-Claude Code 建议通过命令行添加本地标准输入输出 MCP 服务：
-
-```text
-claude mcp add ladybug-tools-mcp -- "<python-command>" -m ladybug_tools_mcp.server
-```
-
-如果需要项目级共享配置，可以使用：
-
-```text
-claude mcp add ladybug-tools-mcp --scope project -- "<python-command>" -m ladybug_tools_mcp.server
-```
-
-Claude Code 的项目级 `.mcp.json` 文件也使用 `mcpServers` 结构：
-
-```json
-{
-  "mcpServers": {
-    "ladybug-tools-mcp": {
-      "command": "<python-command>",
-      "args": ["-m", "ladybug_tools_mcp.server"],
-      "env": {}
-    }
-  }
-}
-```
-
-OpenClaw 在其 MCP 客户端配置中使用 `mcp.servers`：
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "ladybug-tools-mcp": {
-        "command": "<python-command>",
-        "args": ["-m", "ladybug_tools_mcp.server"],
-        "cwd": "<absolute-repo-path>"
+    "lbt-mcp": {
+      "command": "<已安装的 Python>",
+      "args": ["-I", "-m", "ladybug_tools_mcp.server"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<Garden 目录>",
+        "LADYBUG_TOOLS_MCP_INSTALLATION": "<安装记录路径>"
       }
     }
   }
 }
 ```
 
-配置完成后，重启代理应用并确认 MCP 服务已连接。
+OpenCode2 2.0.12 使用下面的本地服务配置：
 
-#### Grasshopper 组件路径
-
-如需与 Grasshopper 协同，请使用[开发仓库中的组件源码](https://github.com/LoftyTao/rec-ladybug-tools-mcp/tree/main/src/grasshopper_components)。
-本小节中的 `<absolute-repo-path>` 指开发仓库的本地路径，Grasshopper 需要能够找到该目录。
-
-建议先设置环境变量。
-
-Windows PowerShell：
-
-```powershell
-[Environment]::SetEnvironmentVariable("LADYBUG_TOOLS_MCP_ROOT", "<absolute-repo-path>", "User")
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": ["<已安装的 Skills 目录>"],
+  "mcp": {
+    "lbt-mcp": {
+      "type": "local",
+      "command": ["<已安装的 Python>", "-I", "-m", "ladybug_tools_mcp.server"],
+      "environment": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<Garden 目录>",
+        "LADYBUG_TOOLS_MCP_INSTALLATION": "<安装记录路径>"
+      },
+      "timeout": 120000
+    }
+  }
+}
 ```
 
-macOS / Linux：
-
-```bash
-export LADYBUG_TOOLS_MCP_ROOT="<absolute-repo-path>"
-```
-
-如果需要将组件脚本复制到另一台机器，或单独交付组件，还应检查并修改各个 `FP *.py` 文件顶部附近的 `_DEVELOPMENT_SRC_ROOT`。
-在 Windows 上，该路径应指向：
+升级时退出正在使用 MCP 的客户端及 Rhino，再运行所选新版本的安装命令。版本固定，不自动升级。卸载保留 Garden 与用户修改过的文件：
 
 ```text
-<absolute-repo-path>\src
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 uninstall
 ```
 
-在 macOS / Linux 上，应指向：
+### Flowerpot 与平台范围
+
+Flowerpot 为可选项。Windows / Rhino 8 用户选中后，重启 Grasshopper，在组件搜索中输入 `FP` 或到 `Flowerpot` 分类中拖入六个组件。Rhino、Ladybug Tools for Grasshopper 和 Ironbug 按工作流另行安装。已有源码组件和画布保留开发路径回退。
+
+Windows x86_64 优先完成原生验收；Linux x86_64 和 macOS Apple Silicon 通过同一 CI 流程验证基础 MCP。Flowerpot 与 Fairyfly/THERM 暂以 Windows 为边界；其他平台的外部引擎按实际可用性检查。已发布版本见 [Release Notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases)，自动分发验收见 [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml)。
+
+### 模拟运行环境
+
+模拟工具继续提供，外部引擎按需准备。下面沿用现有运行矩阵：
+
+Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `v1.2.1` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NatLabRockies/OpenStudio/releases/tag/v3.11.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
+
+使用 `LB_get_runtime_config` 检查已安装引擎，并获取缺失运行环境的配置指引。
+
+### 源码开发
+
+修改本项目时才需要源码环境：
 
 ```text
-<absolute-repo-path>/src
+git clone https://github.com/LoftyTao/ladybug-tools-mcp.git
+cd ladybug-tools-mcp
+uv venv --python 3.12
+uv pip install --prerelease allow -e .
 ```
-
-组件启动时会将该路径加入 `sys.path`，以加载 `flowerpot.runtime` 和项目内的 Grasshopper 协同代码。
 
 ## Web View 预览模式
 
@@ -327,7 +240,7 @@ Web View 模式下，Honeybee、Dragonfly、Fairyfly 和 VisualizationSet 的主
 ## 首次使用
 
 在代理应用中配置好 MCP 服务后，新建一个任务，并让代理使用 Ladybug Tools MCP。
-在 Codex 中，可以按照上方 TOML 示例配置 `~/.codex/config.toml`，重启后直接描述 Garden 或建模任务。
+在 Codex 中，将 `install --generate-config` 输出的配置块复制到 `~/.codex/config.toml`，重启后直接描述 Garden 或建模任务。
 
 如果宿主支持 Skill，可通过 `/` 调用 `ladybug-tools-mcp-use`，再输入 `HI , Ladybug Tools !`，启动三类主要使用方向的引导流程。
 完成引导后，即可按照自己的意图开始构建。

@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as error:
         response = {"error": str(error)}
 
-    sys.stdout.write(json.dumps(response, ensure_ascii=False))
+    sys.stdout.write(json.dumps(response, ensure_ascii=True))
     sys.stdout.flush()
     return 0
 
@@ -82,7 +82,7 @@ def _run_session() -> int:
             response = {"ok": True, "result": result}
         except Exception as error:
             response = {"ok": False, "error": str(error)}
-        sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+        sys.stdout.write(json.dumps(response, ensure_ascii=True) + "\n")
         sys.stdout.flush()
     return 0
 

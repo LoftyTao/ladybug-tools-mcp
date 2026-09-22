@@ -79,191 +79,103 @@ Because we want users to keep as much attention as possible on the interaction w
 
 ## Quick Start
 
-### Prerequisites
+Basic modeling needs [uv](https://docs.astral.sh/uv/getting-started/installation/) and an MCP client. uv prepares Python 3.12 and the dependencies automatically; no repository checkout is required. Git enables Garden version history, but Garden creation also works without it.
 
-Before using Ladybug Tools MCP, some system prerequisites usually need to be configured.
-At minimum, that often includes:
+### Installation wizard
 
-- Python 3.12
-- Ladybug Tools runtime matching the current `v1.2.0` matrix below
-- Git
-- uv
-- Any agent application, such as [Codex](https://chatgpt.com/codex), [Claude Code](https://code.claude.com/docs/en/desktop-quickstart), [Open Code](https://opencode.ai/), or [OpenClaw](https://openclaw.ai/)
-
-If you are not familiar with agent applications, I am very happy to recommend [Codex](https://chatgpt.com/codex).
-
-The table below records the external runtime versions expected by Ladybug Tools MCP `v1.2.0`. Install the engines needed for your workflows.
-Ironbug authoring uses the project-local Python layer.
-
-Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.0` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NatLabRockies/OpenStudio/releases/tag/v3.11.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
-
-Use `LB_get_runtime_config` to check installed engines and obtain setup guidance for any missing runtime.
-
-### Installation Guide
-
-If you do not really know what MCP is and do not want to do the setup manually, you can hand this job over to [Codex](https://chatgpt.com/codex) or another agent application.
-
-Using Codex as an example, you only need to:
-
-- Install Codex.
-- Open a local workspace.
-- Send this project link to Codex.
-- Say:
+`1.2.1` is the pinned release version. Install it from PyPI with the command below. For local validation, the same wizard accepts a wheel with `--from <absolute-wheel-path>`.
 
 ```text
-Help me install and configure the MCP from this project into this workspace.
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install
 ```
 
-#### Local Installation Commands
+The same terminal wizard runs on Windows, Linux, and macOS. Choose runtime and Garden directories, automatic Codex configuration and local Skills, and optional Flowerpot / Grasshopper integration. Restart the client after installation.
 
-Run the following commands in the target workspace.
-Replace `<repo-url>` with the repository URL of this project and `<repo-dir>` with the cloned folder name.
+Installation is per user. Gardens default to `~/LadybugTools/Gardens`, outside the runtime and uv cache. Unrelated MCP settings are retained; conflicting settings or edited assets stop installation with instructions. The first download includes scientific dependencies and can take several minutes. uv automatically builds the current pure-Python Luigi dependency; no compiler is needed.
 
-Windows PowerShell:
-
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-uv --version
-```
-
-macOS / Linux:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv --version
-```
-
-Then run the following on all systems:
-
-```bash
-git clone <repo-url>
-cd <repo-dir>
-uv venv --python 3.12 .venv
-uv pip install -r requirements.txt
-uv pip install -e .
-uv run --no-project python -c "import ladybug_tools_mcp; print(ladybug_tools_mcp.__version__)"
-```
-
-`requirements.txt` pins the dependencies for a reproducible installation.
-
-#### MCP Configuration Examples
-
-Replace `<absolute-repo-path>` with the absolute path of this repository on your machine, and replace `<python-command>` with the Python executable inside this project’s virtual environment.
-
-Windows:
+To install the runtime and print settings without changing client configuration or local Skills:
 
 ```text
-<absolute-repo-path>\.venv\Scripts\python.exe
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install --generate-config
 ```
 
-macOS / Linux:
+For a local wheel, use the wheel for both bootstrap and installation; the built file is named like `lbt_mcp-1.2.1-py3-none-any.whl`:
 
 ```text
-<absolute-repo-path>/.venv/bin/python
+uvx --isolated --python 3.12 --prerelease allow --from <absolute-wheel-path> lbt-mcp install --wheel <absolute-wheel-path>
 ```
 
-Codex uses TOML:
+The generated output is a Codex TOML block containing the installed Python path, the Garden root, and the installation record. Copy that block into `~/.codex/config.toml` when configuring Codex manually.
 
-```toml
-[mcp_servers.ladybug-tools-mcp]
-command = "<python-command>"
-args = ["-m", "ladybug_tools_mcp.server"]
-cwd = "<absolute-repo-path>"
-```
-
-Cursor, OpenCode, or other agent applications that use `mcpServers` can use JSON:
+Other MCP clients can use the same installed Python with standard stdio configuration:
 
 ```json
 {
   "mcpServers": {
-    "ladybug-tools-mcp": {
-      "command": "<python-command>",
-      "args": ["-m", "ladybug_tools_mcp.server"],
-      "cwd": "<absolute-repo-path>"
-    }
-  }
-}
-```
-
-Claude Code is recommended to add the local stdio MCP through the CLI:
-
-```text
-claude mcp add ladybug-tools-mcp -- "<python-command>" -m ladybug_tools_mcp.server
-```
-
-If you need project-level shared configuration, you can use:
-
-```text
-claude mcp add ladybug-tools-mcp --scope project -- "<python-command>" -m ladybug_tools_mcp.server
-```
-
-Claude Code project-level `.mcp.json` files also use the `mcpServers` structure:
-
-```json
-{
-  "mcpServers": {
-    "ladybug-tools-mcp": {
-      "command": "<python-command>",
-      "args": ["-m", "ladybug_tools_mcp.server"],
-      "env": {}
-    }
-  }
-}
-```
-
-OpenClaw uses `mcp.servers` in its MCP client registry:
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "ladybug-tools-mcp": {
-        "command": "<python-command>",
-        "args": ["-m", "ladybug_tools_mcp.server"],
-        "cwd": "<absolute-repo-path>"
+    "lbt-mcp": {
+      "command": "<installed-python>",
+      "args": ["-I", "-m", "ladybug_tools_mcp.server"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<garden-directory>",
+        "LADYBUG_TOOLS_MCP_INSTALLATION": "<installation-record>"
       }
     }
   }
 }
 ```
 
-After configuration is finished, restart the agent application and confirm that the MCP server is connected.
+OpenCode2 2.0.12 uses this local server shape:
 
-#### Grasshopper Component Path
-
-For Grasshopper integration, use the [component source in the development repository](https://github.com/LoftyTao/rec-ladybug-tools-mcp/tree/main/src/grasshopper_components).
-In this subsection, `<absolute-repo-path>` refers to that development checkout, which Grasshopper needs to locate.
-
-It is recommended to set an environment variable first:
-
-Windows PowerShell:
-
-```powershell
-[Environment]::SetEnvironmentVariable("LADYBUG_TOOLS_MCP_ROOT", "<absolute-repo-path>", "User")
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": ["<installed-skills-directory>"],
+  "mcp": {
+    "lbt-mcp": {
+      "type": "local",
+      "command": ["<installed-python>", "-I", "-m", "ladybug_tools_mcp.server"],
+      "environment": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<garden-directory>",
+        "LADYBUG_TOOLS_MCP_INSTALLATION": "<installation-record>"
+      },
+      "timeout": 120000
+    }
+  }
+}
 ```
 
-macOS / Linux:
-
-```bash
-export LADYBUG_TOOLS_MCP_ROOT="<absolute-repo-path>"
-```
-
-If you need to copy the component scripts to another machine or deliver them independently, also check and modify `_DEVELOPMENT_SRC_ROOT` near the top of each `FP *.py` file.
-On Windows it should point to:
+For upgrades, close clients using MCP and Rhino, then run the chosen new version's installer. Versions stay fixed until you explicitly upgrade. Uninstall keeps Gardens and user-edited files:
 
 ```text
-<absolute-repo-path>\src
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 uninstall
 ```
 
-On macOS / Linux it should point to:
+### Flowerpot and platform scope
+
+Flowerpot is optional. On Windows with Rhino 8, select it in the wizard, restart Grasshopper, then search for `FP` or drag the six components from the `Flowerpot` category. Install Rhino, Ladybug Tools for Grasshopper, and Ironbug separately as required by the workflow. Existing source components retain their development-path fallback.
+
+Windows x86_64 is the primary native acceptance platform. Linux x86_64 and macOS Apple Silicon run the same basic MCP checks in CI. Flowerpot and Fairyfly/THERM currently have Windows boundaries; external engines are checked per workflow. See the [release notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases) and [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml) for published release evidence.
+
+### Simulation runtimes
+
+Simulation tools remain available; prepare external engines only for the workflows that need them. The existing runtime matrix is retained:
+
+Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `v1.2.1` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NatLabRockies/OpenStudio/releases/tag/v3.11.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
+
+Use `LB_get_runtime_config` to check installed engines and obtain setup guidance for any missing runtime.
+
+### Source development
+
+A source environment is needed when changing the project:
 
 ```text
-<absolute-repo-path>/src
+git clone https://github.com/LoftyTao/ladybug-tools-mcp.git
+cd ladybug-tools-mcp
+uv venv --python 3.12
+uv pip install --prerelease allow -e .
 ```
-
-These components add that path into `sys.path` at startup so they can load `flowerpot.runtime` and the Grasshopper collaboration code inside the project.
 
 ## Web View Mode
 
@@ -325,7 +237,7 @@ If the requested port is already occupied, startup fails clearly instead of sile
 
 ## First Use
 
-After the MCP server is configured in your agent application, start a new thread and ask it to use Ladybug Tools MCP. In Codex, the most direct path is to configure the server in `~/.codex/config.toml` with the TOML example above, restart Codex, then describe the Garden or modeling task directly.
+After the MCP server is configured in your agent application, start a new thread and ask it to use Ladybug Tools MCP. In Codex, copy the block printed by `install --generate-config` into `~/.codex/config.toml`, restart Codex, then describe the Garden or modeling task directly.
 
 If your host supports skills, invoke the `ladybug-tools-mcp-use` skill with `/`, then input `HI , Ladybug Tools !` to activate the onboarding flow for the three main usage intents that we provide.
 After the onboarding is complete, you can start building according to your intent.

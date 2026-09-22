@@ -1,0 +1,26 @@
+# Direct dependencies; compile with:
+# uv pip compile --universal --python-version 3.12 --prerelease allow requirements.in -o requirements.txt
+tomlkit>=0.13,<1
+fastmcp[code-mode]==4.0.0b5
+PyYAML==6.0.3
+ladybug-core==0.44.61
+ladybug-comfort==0.19.10
+ladybug-geometry==1.35.6
+ladybug-display==0.14.4
+ladybug-vtk==0.16.1
+honeybee-core==1.64.71
+honeybee-energy==1.124.5
+honeybee-radiance==1.66.291
+honeybee-display==0.6.3
+honeybee-doe2==0.24.0
+honeybee-designbuilder==0.4.6
+dragonfly-core==1.77.14
+dragonfly-energy==1.46.26
+dragonfly-radiance==0.4.236
+dragonfly-uwg==0.5.743
+dragonfly-doe2==0.12.21
+dragonfly-designbuilder==0.1.11
+fairyfly-core==0.2.42
+fairyfly-therm==0.10.23
+# 0.29.0 fixes mixed naive/aware datetimes during recipe status finalization.
+lbt-recipes==0.29.0
