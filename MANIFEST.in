@@ -1,5 +1,9 @@
 include requirements.in requirements.txt
+prune docs
+prune tests
+exclude CONTEXT.md
 recursive-include .agents/skills/ladybug-tools-mcp-use *.md *.yaml
 recursive-include src/grasshopper_components/user_objects *.ghuser *.json
 recursive-include src/grasshopper_components *.py
 recursive-exclude .agents/skills/ladybug-tools-mcp-use AGENTS.md
+global-exclude AGENTS.md
