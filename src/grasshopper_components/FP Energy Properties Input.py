@@ -71,7 +71,7 @@ except NameError:
 try:
     ghenv.Component.Name = "FP Energy Properties Input"
     ghenv.Component.NickName = "EnergyProps"
-    ghenv.Component.Message = "1.3.0.dev0"
+    ghenv.Component.Message = "1.2.2"
     ghenv.Component.Category = "Flowerpot"
     ghenv.Component.SubCategory = "Flowerpot"
     ghenv.Component.AdditionalHelpFromDocStrings = "3"

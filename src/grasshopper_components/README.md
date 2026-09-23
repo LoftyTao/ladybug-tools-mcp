@@ -11,8 +11,7 @@ using `GH_Exposure`, mapped from `AdditionalHelpFromDocStrings` at build time.
 | Properties (tertiary) | FP Energy Properties Input, FP Radiance Properties Input | Existing Garden property dictionaries |
 | HVAC (quarternary) | FP Detail HVAC | Native Ironbug HVAC systems |
 
-Dragonfly Link is included in the `1.3.0.dev0` development build;
-the published `1.2.1` package contains the original six.
+Dragonfly Link is included in `1.2.2`; the previous `1.2.1` release contains six components.
 
 Flowerpot components use the MCP version; they have no separate release number.
 The generator copies `ladybug_tools_mcp.__version__` into every component script,
