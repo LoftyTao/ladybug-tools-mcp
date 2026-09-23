@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dragonfly.model import Model as DragonflyModel
 from honeybee.model import Model
 from ironbug import hvac as ironbug_hvac
 
@@ -25,9 +26,14 @@ from garden.ironbug_core.detailed_hvac import (
 from garden.ironbug_core.model_io import load_ironbug_model
 from garden.ironbug_core.readiness import validate_ironbug_energyplus_readiness
 from garden.store import create_garden, get_base_honeybee_model, list_gardens
+from garden.store import get_base_dragonfly_model
 from garden.honeybee_core.model_io import (
     load_honeybee_model,
     save_honeybee_model,
+)
+from garden.dragonfly_core.model_io import (
+    load_dragonfly_model,
+    save_dragonfly_model,
 )
 
 
@@ -46,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
             "garden_create",
             "garden_list",
             "honeybee_link",
+            "dragonfly_link",
             "ironbug_hvac_specification",
             "energy_properties_input",
             "radiance_properties_input",
@@ -95,6 +102,8 @@ def _dispatch(action: str, request: dict[str, Any]) -> dict[str, Any]:
         return _garden_list(request)
     if action == "honeybee_link":
         return _honeybee_link(request)
+    if action == "dragonfly_link":
+        return _dragonfly_link(request)
     if action == "ironbug_hvac_specification":
         return _ironbug_hvac_specification(request)
     if action == "energy_properties_input":
@@ -167,6 +176,38 @@ def _garden_list(request: dict[str, Any]) -> dict[str, Any]:
 
 def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
     """Write or read a Honeybee Model through a Flowerpot Garden context."""
+    return _model_link(
+        request,
+        domain="honeybee",
+        model_class=Model,
+        load_model=load_honeybee_model,
+        save_model=save_honeybee_model,
+        get_base_model=get_base_honeybee_model,
+    )
+
+
+def _dragonfly_link(request: dict[str, Any]) -> dict[str, Any]:
+    """Write or read a Dragonfly Model through a Flowerpot Garden context."""
+    return _model_link(
+        request,
+        domain="dragonfly",
+        model_class=DragonflyModel,
+        load_model=load_dragonfly_model,
+        save_model=save_dragonfly_model,
+        get_base_model=get_base_dragonfly_model,
+    )
+
+
+def _model_link(
+    request: dict[str, Any],
+    *,
+    domain: str,
+    model_class: Any,
+    load_model: Any,
+    save_model: Any,
+    get_base_model: Any,
+) -> dict[str, Any]:
+    """Share the Garden link lifecycle for Honeybee and Dragonfly models."""
     flowerpot = request.get("flowerpot")
     if not isinstance(flowerpot, dict):
         raise ValueError("flowerpot is required.")
@@ -175,45 +216,68 @@ def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
     payload = request.get("payload")
     write = bool(request.get("write"))
     follow = bool(request.get("follow"))
+    title = domain.title()
+    source = f"base_{domain}_model"
     if payload is not None and write:
-        model = Model.from_dict(payload)
+        model = model_class.from_dict(payload)
         garden_path = Path(garden_root).expanduser().resolve()
         manifest = GardenManifest.read(garden_path)
-        model_target, persisted_path = save_honeybee_model(
-            garden_path,
-            manifest,
-            model,
-            name=model.identifier,
-            set_base=True,
-        )
+        existing_target = getattr(manifest, source, None)
+        persisted_path = None
+        changed = True
+        if existing_target:
+            try:
+                existing_model = load_model(garden_path, existing_target)
+            except Exception:
+                existing_model = None
+            if existing_model is not None and existing_model.to_dict() == model.to_dict():
+                model_target = existing_target
+                persisted_path = existing_target.get("path")
+                changed = False
+        if changed:
+            model_target, persisted_path = save_model(
+                garden_path,
+                manifest,
+                model,
+                name=model.identifier,
+                set_base=True,
+            )
         created = create_flowerpot(
             garden_root=str(garden_path),
-            source="base_honeybee_model",
+            source=source,
             target=model_target,
             label=getattr(model, "display_name", None) or model.identifier,
             platform={"adapter": "grasshopper"},
         )
         report = make_report(
             status="ok",
-            message="Linked Honeybee model into Flowerpot Garden.",
-            details={"persisted_path": persisted_path},
+            message=(
+                f"Linked {title} model into Flowerpot Garden."
+                if changed
+                else f"{title} model is already linked; no change."
+            ),
+            details={
+                "persisted_path": persisted_path,
+                "persistence_status": "persisted" if changed else "no_change",
+            },
         )
         _write_grasshopper_context(
             garden_root=str(garden_path),
             flowerpot=created["flowerpot"],
             request=request,
             mode="write",
-            changed=True,
+            changed=changed,
             model_target=model_target,
             model_identifier=model.identifier,
             model_display_name=getattr(model, "display_name", None),
+            model_domain=domain,
             report_status=report["status"],
         )
         return {
             "model": model.to_dict(),
             "flowerpot": created["flowerpot"],
             "model_target": model_target,
-            "changed": True,
+            "changed": changed,
             "report": report,
         }
 
@@ -221,7 +285,7 @@ def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
         model_identifier, model_display_name = _model_identity_from_payload(payload)
         report = make_report(
             status="ok",
-            message="Honeybee model passed through; _write is False.",
+            message=f"{title} model passed through; _write is False.",
         )
         _write_grasshopper_context(
             garden_root=garden_root,
@@ -234,9 +298,13 @@ def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
                 garden_root=garden_root,
                 payload=payload,
                 model_identifier=model_identifier,
+                domain=domain,
+                model_class=model_class,
+                load_model=load_model,
             ),
             model_identifier=model_identifier,
             model_display_name=model_display_name,
+            model_domain=domain,
             report_status=report["status"],
         )
         return {
@@ -247,12 +315,12 @@ def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
             "report": report,
         }
 
-    base = get_base_honeybee_model(garden_root=garden_root)
+    base = get_base_model(garden_root=garden_root)
     model_target = base.get("model_target") or base.get("target")
     if not model_target:
         report = make_report(
             status="ok",
-            message="Flowerpot Garden has no Honeybee base model.",
+            message=f"Flowerpot Garden has no {title} base model.",
         )
         _write_grasshopper_context(
             garden_root=garden_root,
@@ -263,6 +331,7 @@ def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
             model_target=None,
             model_identifier=None,
             model_display_name=None,
+            model_domain=domain,
             report_status=report["status"],
         )
         return {
@@ -273,15 +342,15 @@ def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
             "report": report,
         }
 
-    model = load_honeybee_model(Path(garden_root), model_target)
+    model = load_model(Path(garden_root), model_target)
     created = create_flowerpot(
         garden_root=garden_root,
-        source="base_honeybee_model",
+        source=source,
         target=model_target,
         label=model_target.get("model_identifier"),
         platform={"adapter": "grasshopper", "follow": follow},
     )
-    report = make_report(status="ok", message="Loaded Honeybee base model.")
+    report = make_report(status="ok", message=f"Loaded {title} base model.")
     _write_grasshopper_context(
         garden_root=garden_root,
         flowerpot=created["flowerpot"],
@@ -291,6 +360,7 @@ def _honeybee_link(request: dict[str, Any]) -> dict[str, Any]:
         model_target=model_target,
         model_identifier=getattr(model, "identifier", None),
         model_display_name=getattr(model, "display_name", None),
+        model_domain=domain,
         report_status=report["status"],
     )
     return {
@@ -629,6 +699,7 @@ def _write_grasshopper_context(
     model_target: dict[str, Any] | None,
     model_identifier: str | None,
     model_display_name: str | None,
+    model_domain: str,
     report_status: str,
 ) -> None:
     write_active_context(
@@ -646,6 +717,7 @@ def _write_grasshopper_context(
         model_target=model_target,
         model_identifier=model_identifier,
         model_display_name=model_display_name,
+        model_domain=model_domain,
         report_status=report_status,
     )
 
@@ -662,17 +734,20 @@ def _model_target_from_flowerpot(
     garden_root: str,
     payload: Any,
     model_identifier: str | None,
+    domain: str,
+    model_class: Any,
+    load_model: Any,
 ) -> dict[str, Any] | None:
     target = flowerpot.get("target")
     if not (
         isinstance(target, dict)
-        and target.get("target_type") == "honeybee_model"
+        and target.get("target_type") == f"{domain}_model"
         and target.get("model_identifier") == model_identifier
     ):
         return None
     try:
-        current_model = Model.from_dict(payload)
-        persisted_model = load_honeybee_model(Path(garden_root), target)
+        current_model = model_class.from_dict(payload)
+        persisted_model = load_model(Path(garden_root), target)
     except Exception:
         return None
     if persisted_model.to_dict() == current_model.to_dict():

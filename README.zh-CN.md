@@ -84,10 +84,10 @@ Flowerpot 是 Ladybug Tools MCP 与其他交互界面交换信息的中间层。
 
 ### 安装向导
 
-`1.2.1` 是固定的发布版本。使用下面的命令从 PyPI 安装；本地验证时，也可以通过 `--from <绝对 wheel 路径>` 使用同一个向导。
+`1.2.2` 是固定的发布版本。使用下面的命令从 PyPI 安装；本地验证时，也可以通过 `--from <绝对 wheel 路径>` 使用同一个向导。
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 install
 ```
 
 Windows、Linux 和 macOS 使用同一终端向导。选择运行环境目录、Garden 目录、是否自动配置 Codex 和本地 Skills，以及是否安装 Flowerpot / Grasshopper。下载完成后重启客户端。
@@ -97,10 +97,10 @@ Windows、Linux 和 macOS 使用同一终端向导。选择运行环境目录、
 只生成配置、不修改客户端与本地 Skills：
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install --generate-config
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 install --generate-config
 ```
 
-使用本地 wheel 时，将它同时作为启动包和安装包；构建文件名类似 `lbt_mcp-1.2.1-py3-none-any.whl`：
+使用本地 wheel 时，将它同时作为启动包和安装包；构建文件名类似 `lbt_mcp-1.2.2-py3-none-any.whl`：
 
 ```text
 uvx --isolated --python 3.12 --prerelease allow --from <绝对 wheel 路径> lbt-mcp install --wheel <绝对 wheel 路径>
@@ -119,7 +119,7 @@ uvx --isolated --python 3.12 --prerelease allow --from <绝对 wheel 路径> lbt
 安装器会写入展开后的绝对路径，也支持系统重定向的用户主目录；MCP 客户端不需要解析 `%USERPROFILE%`、`$HOME` 或 `~`。Garden 目录可在向导中选择，也可以通过参数同时指定两个路径：
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 install --garden-dir "<Garden 绝对目录>" --state "<installation.json 绝对路径>"
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 install --garden-dir "<Garden 绝对目录>" --state "<installation.json 绝对路径>"
 ```
 
 显式选择的 Garden 目录优先于已有安装记录；未指定时保留原选择，再使用默认目录。安装记录路径优先级为 `--state`、`LADYBUG_TOOLS_MCP_INSTALLATION`、系统默认路径。升级、查看状态和卸载时继续使用同一个 `--state`。Flowerpot 使用自定义记录时，启动 Rhino 的环境中也须将 `LADYBUG_TOOLS_MCP_INSTALLATION` 指向同一文件。
@@ -164,12 +164,24 @@ OpenCode2 2.0.12 使用下面的本地服务配置：
 升级时退出正在使用 MCP 的客户端及 Rhino，再运行所选新版本的安装命令。版本固定，不自动升级。卸载保留 Garden 与用户修改过的文件：
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.1 uninstall
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 uninstall
 ```
+
+### 客户端预配置
+
+`1.2.2` 可在向导中多选 Codex、Claude Code、Gemini CLI、OpenCode、OpenCode2、Hermes、OpenClaw、ZCode、Kimi Code、Devin、Qoder、CodeBuddy、WorkBuddy、Cline、Cursor 和 VS Code 等客户端。查看完整选项：
+
+```text
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 clients
+```
+
+可重复使用 `--client` 选择多个客户端，并用 `--output-dir` 导出配置与导入说明；`--generate-config` 会准备持久运行环境，但不自动修改客户端配置。Codex 可以由向导自动配置，其他客户端需按导出的说明导入。
 
 ### Flowerpot 与平台范围
 
-Flowerpot 为可选项。Windows / Rhino 8 用户选中后，重启 Grasshopper，在组件搜索中输入 `FP` 或到 `Flowerpot` 分类中拖入六个组件。Rhino、Ladybug Tools for Grasshopper 和 Ironbug 按工作流另行安装。已有源码组件和画布保留开发路径回退。
+Flowerpot 为可选项。Windows / Rhino 8 用户选中后，重启 Grasshopper，在组件搜索中输入 `FP` 或到 `Flowerpot` 分类中拖入七个组件。Rhino、Ladybug Tools for Grasshopper 和 Ironbug 按工作流另行安装。已有源码组件和画布保留开发路径回退。
+
+`1.2.2` 新增 **FP Dragonfly Link**：七个组件统一放在一个 Flowerpot 子栏内，沿用 LBT 的 Exposure 分组方式，在子栏内部区分 Garden、模型交接、属性和 HVAC。已有 Garden 可通过 FP Garden List 配合 Grasshopper 的 List Item 选择；气象、数据序列和模型操作继续使用原生 Ladybug Tools 组件。详见[组件说明](src/grasshopper_components/README.md)。
 
 Windows x86_64 优先完成原生验收；Linux x86_64 和 macOS Apple Silicon 通过同一 CI 流程验证基础 MCP。Flowerpot 与 Fairyfly/THERM 暂以 Windows 为边界；其他平台的外部引擎按实际可用性检查。已发布版本见 [Release Notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases)，自动分发验收见 [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml)。
 

@@ -1,82 +1,81 @@
-# Grasshopper Components
+# Flowerpot for Grasshopper
 
-This folder contains standalone GHPython/IronPython adapter code for Ladybug Tools MCP Flowerpot workflows.
+All seven components belong to one **Flowerpot** tab with one **Flowerpot**
+subcategory. Like LBT-Grasshopper, components are grouped inside that subcategory
+using `GH_Exposure`, mapped from `AdditionalHelpFromDocStrings` at build time.
 
-These files are not part of the `ladybug_tools_mcp` service package. They should stay thin:
+| Group inside Flowerpot | Components | Handoff |
+| --- | --- | --- |
+| Garden (primary) | FP Create Garden, FP Garden List | Create or discover persistent Garden contexts |
+| Models (secondary) | FP Honeybee Link, FP Dragonfly Link | Native Honeybee and Dragonfly models |
+| Properties (tertiary) | FP Energy Properties Input, FP Radiance Properties Input | Existing Garden property dictionaries |
+| HVAC (quarternary) | FP Detail HVAC | Native Ironbug HVAC systems |
 
-- collect Grasshopper inputs
-- import and reload the local Flowerpot runtime
-- delegate formal work to the Python 3 worker in the project `.venv`
-- return opaque `flowerpot` values and compact `report` dictionaries
+Dragonfly Link is included in `1.2.2`; the previous `1.2.1` release contains six components.
 
-The MCP service remains the source of Flowerpot, Garden, and Honeybee behavior.
+Flowerpot components use the MCP version; they have no separate release number.
+The generator copies `ladybug_tools_mcp.__version__` into every component script,
+the saved `.ghuser` version label and the manifest. Package builds and installation
+reject version mismatches. After changing the MCP version, regenerate the
+Grasshopper assets before packaging.
 
-## Flowerpot Display
+## Runtime and installation
 
-Grasshopper outputs use a lightweight `FlowerpotHandle`. It is intentionally
-not a `dict` subclass, so Grasshopper should not expand it into dictionary keys
-in panels. It displays as `Flowerpot : <name>` while exposing `to_payload()`
-for downstream FP components.
+The installer copies prebuilt `.ghuser` files to the persistent Grasshopper
+UserObjects directory. Restart Grasshopper after upgrading to refresh its
+component library. Components already placed on a canvas retain their embedded
+script; replace those instances to use a newer component version.
 
-## Flowerpot Worker
+Installation updates only the files recorded as owned Flowerpot assets. It does
+not reload Grasshopper's full plugin library. For upgrades, restart Rhino /
+Grasshopper normally; calling `LoadExternalFiles` in a running session can
+register unrelated plugins again.
 
-There is no user-facing `transport_` input. The components follow the previous
-Ladybug Tools MCP Grasshopper design: a GHPython/IronPython shell calls
-`flowerpot.runtime`, and that runtime keeps a repository `.venv`
-Python worker session alive for domain actions such as `garden_create`,
-`garden_list`, or `honeybee_link`. The first call starts Python; later calls
-reuse the same worker process instead of paying the CLI startup cost again.
+Each script reads `LADYBUG_TOOLS_MCP_INSTALLATION` or the default installation
+record and imports its installed `flowerpot.runtime`. The runtime delegates
+Garden operations to that installation's persistent Python 3 worker. Development
+source paths remain a fallback. Component scripts only adapt inputs and outputs;
+Garden and SDK services own the domain behavior.
 
-The Python 3 worker and runtime helpers live in `src/flowerpot/`. They import
-the formal Garden, Flowerpot, and Honeybee services and return JSON that the GH
-runtime reshapes into component outputs.
+Flowerpot handles display as `Flowerpot : <name>` and connect directly between
+FP components. Users do not need to unpack their internal fields.
 
-## Properties Input Components
+## Model links
 
-`FP Energy Properties Input` and `FP Radiance Properties Input` read existing
-Garden Properties Library objects from a Flowerpot Garden. They do not create
-properties and do not apply properties to the current Honeybee Model.
+Honeybee Link and Dragonfly Link have the same inputs: `_flowerpot`, optional
+`model_`, optional `_write`, and optional `follow_`. They return a native model,
+the Flowerpot handle, a `changed` flag and a report.
 
-Inputs are `_flowerpot`, `_type`, `value_`, and `follow_`. Outputs are only
-`property` and `report`. The `property` output is a Ladybug Tools object dict or
-a list of object dicts. Internal Garden targets are kept inside `report.details`
-for MCP/Agent context.
+- Leave `_write` disconnected or False to read the Garden base model or pass
+  through a connected model.
+- Toggle `_write` from False to True to persist the connected model once.
+- Set `follow_` True to reload after external Garden model changes.
 
-`FP Honeybee Link` does not expose `display_name_`; it uses the connected
-Honeybee model's own display name or identifier. Its `_write` input is optional:
-leave it disconnected or False to pass through/read, and set it True only when
-you want to persist the connected model into the Flowerpot Garden.
+Honeybee and Dragonfly use independent base-model slots. Connect Dragonfly Link's
+`model` output directly to native Dragonfly components, including their existing
+deconstruction, visualization and Honeybee conversion workflows.
 
-When `follow_` is True, the component schedules a lightweight Grasshopper
-refresh poll. The poll checks the followed Garden/base model file signature and
-expires the component only after that file changes, so external Agent/MCP writes
-can appear in Grasshopper without manually toggling the component. A currently
-open Grasshopper document must solve the component once with the updated script
-loaded before the automatic polling loop exists.
+## Existing Garden and native components
 
-Each component script bootstraps `sys.path` before importing helpers. It first
-uses `LADYBUG_TOOLS_MCP_SRC` when set, then falls back to the `src` folder next
-to this component folder. The bootstrap adds:
+Connect FP Garden List's `flowerpots` output to Grasshopper's **List Item** to
+select an existing Garden, then connect that handle to the desired FP component.
+No separate Open Garden component is needed. Continue using native Ladybug Tools
+components for weather files, data collections, charts and model operations.
 
-- `src`
+## Properties and detailed HVAC
 
-## Detailed HVAC handoff
+Energy and Radiance Properties Input read existing Garden library objects.
+They return property dictionaries and do not modify model assignments.
 
-`FP Detail HVAC` is a source-only thin loader. Its exact interface is:
+Detail HVAC takes `_flowerpot`, optional Ironbug model identifier `model_`, and
+optional `follow_`. Its `hvac_system` output is a native
+`Ironbug.HVAC.IB_HVACSystem` for **HB Detailed HVAC**. Handoff checks the allowed
+serialized types, Ironbug assembly version `1.26.0`, native type and `ToJson`.
+EMS and ElectricLoadCenter data are excluded from the HVAC snapshot.
 
-- Inputs: `_flowerpot`, optional `model_`, and optional `follow_`.
-- Outputs: native `hvac_system` and `report`.
+## Building
 
-The loader reads the selected Garden Ironbug model through the Python 3 worker,
-keeps the internal `.ibjson` snapshot boundary opaque, and returns a detached
-native `Ironbug.HVAC.IB_HVACSystem` object to Grasshopper. The downstream
-`HB Detailed HVAC` component receives that native object directly; no
-`FromJson`, JSON panel, dictionary, or proxy component is part of the handoff.
-
-The native gates are deliberately strict: every serialized `$type` is checked
-against the source-backed allowlist before deserialization, the loaded
-Ironbug assembly is preferred (with the configured Ironbug path as fallback),
-the CLR type must be `Ironbug.HVAC.IB_HVACSystem`, the assembly must be
-Ironbug `1.26.0`, and native `ToJson` must succeed. EMS and
-ElectricLoadCenter objects are excluded from the HVAC snapshot and are not
-silently carried into the downstream model.
+Run `scripts/distribution/build_grasshopper.py` through Rhino Python 3. It reads
+the component source interfaces and writes the assets under stable filenames
+with a versioned manifest. Wheel builds reject stale
+sources, missing components or mismatched checksums.

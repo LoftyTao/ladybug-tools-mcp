@@ -1,9 +1,12 @@
 {
-  "version": "1.2.1",
+  "version": "1.2.2",
   "components": [
     {
       "name": "FP Create Garden",
       "file": "FP Create Garden.ghuser",
+      "category": "Flowerpot",
+      "subcategory": "Flowerpot",
+      "exposure": 2,
       "inputs": [
         "_name",
         "folder_",
@@ -14,12 +17,15 @@
         "garden_root",
         "report"
       ],
-      "source_sha256": "970a82c9f881c3436b5c9917d8ca1ffcb25db86b05a0659fb440bab75a7902f7",
-      "sha256": "211a6b8c74f817d5f2a2d483c7e21782cfd34ec72a614f4ba4d4795c2d944341"
+      "source_sha256": "0953f02ce12059117f9430190f3e8844ad4fc1a15d85cfbc6daa9f0e8c8a0c5a",
+      "sha256": "d01d067b50736577f5a3a245fadd2b33db9256522750e4cbe05156855622e6d8"
     },
     {
       "name": "FP Detail HVAC",
       "file": "FP Detail HVAC.ghuser",
+      "category": "Flowerpot",
+      "subcategory": "Flowerpot",
+      "exposure": 16,
       "inputs": [
         "_flowerpot",
         "model_",
@@ -29,44 +35,15 @@
         "hvac_system",
         "report"
       ],
-      "source_sha256": "e08fc80461d2dcceda6f138b9e68f87234505dc9967a4f89b48f3cffc9f29f73",
-      "sha256": "ea29dbdd7790089a53e2c45f14056fa74fa02e249ab7b81d339251eb681bfbb2"
+      "source_sha256": "803851372b17dc89043a880189cd1bab0551a254029186427f75ab2664c8341c",
+      "sha256": "896df39b1c5d20c7f95ceb3e323e8d1a277078c151b301085e45a44e90049d83"
     },
     {
-      "name": "FP Energy Properties Input",
-      "file": "FP Energy Properties Input.ghuser",
-      "inputs": [
-        "_flowerpot",
-        "_type",
-        "value_",
-        "follow_"
-      ],
-      "outputs": [
-        "property",
-        "report"
-      ],
-      "source_sha256": "30fcee382aeade76e0f47f286454b3f24dd8d1d1bc4f59f98925291b4d1e5aef",
-      "sha256": "c7f4908333c6cea5a5278b8b206380d17ce3254f57ab36611f655526d100cf04"
-    },
-    {
-      "name": "FP Garden List",
-      "file": "FP Garden List.ghuser",
-      "inputs": [
-        "folder_",
-        "refresh_"
-      ],
-      "outputs": [
-        "flowerpots",
-        "garden_roots",
-        "names",
-        "report"
-      ],
-      "source_sha256": "7d741f8cd8ebe05bc0971d3a359f72b3a96b8d30482c2481c6f0fd295c9e8f90",
-      "sha256": "44e0a08e76b07f730bd23f61b1ba6e525064fba29f574ebcd7fda8e704f0edf0"
-    },
-    {
-      "name": "FP Honeybee Link",
-      "file": "FP Honeybee Link.ghuser",
+      "name": "FP Dragonfly Link",
+      "file": "FP Dragonfly Link.ghuser",
+      "category": "Flowerpot",
+      "subcategory": "Flowerpot",
+      "exposure": 4,
       "inputs": [
         "_flowerpot",
         "model_",
@@ -79,12 +56,15 @@
         "changed",
         "report"
       ],
-      "source_sha256": "15761efbafe907e355efff82f0ed71cdfcaf02c291eea89377b8b1e8875a0ff2",
-      "sha256": "189cb880f7f6decfd73834204140f90f1d461bc114ec3e8af1063fa362444d98"
+      "source_sha256": "98ef535283b3ab152655b389fe2fb466b9529eae34ada2b8e8dd42b94ad4c727",
+      "sha256": "fd0bfa1d3a277a3f37851183030f23db5fda89b28202b07967e2f0ec07081b3b"
     },
     {
-      "name": "FP Radiance Properties Input",
-      "file": "FP Radiance Properties Input.ghuser",
+      "name": "FP Energy Properties Input",
+      "file": "FP Energy Properties Input.ghuser",
+      "category": "Flowerpot",
+      "subcategory": "Flowerpot",
+      "exposure": 8,
       "inputs": [
         "_flowerpot",
         "_type",
@@ -95,8 +75,67 @@
         "property",
         "report"
       ],
-      "source_sha256": "25dda7974c7897f33332020f6c8c4ce15a335406e17bd5b2774a5d859de708e3",
-      "sha256": "054a6b98011382cf10c8cdacb39a56e8aefa4a500e8c8a2692c070fc922365db"
+      "source_sha256": "48fb023ff6ffdb3cd994cf169175dac3b74ad5d5b75f0c27944404a515edaaad",
+      "sha256": "7a6355fcf681466e5bb5c826127f04e262a71ec0da41c6cd1960282f2471edea"
+    },
+    {
+      "name": "FP Garden List",
+      "file": "FP Garden List.ghuser",
+      "category": "Flowerpot",
+      "subcategory": "Flowerpot",
+      "exposure": 2,
+      "inputs": [
+        "folder_",
+        "refresh_"
+      ],
+      "outputs": [
+        "flowerpots",
+        "garden_roots",
+        "names",
+        "report"
+      ],
+      "source_sha256": "da06d3d916c28198c244e78ada9a7eccf06e94f3fff5e28af1252cb2030bf537",
+      "sha256": "f6408cfe7dcb0c329284d54bf52e7defadfe525975720015ccc083a2ab8a72c1"
+    },
+    {
+      "name": "FP Honeybee Link",
+      "file": "FP Honeybee Link.ghuser",
+      "category": "Flowerpot",
+      "subcategory": "Flowerpot",
+      "exposure": 4,
+      "inputs": [
+        "_flowerpot",
+        "model_",
+        "_write",
+        "follow_"
+      ],
+      "outputs": [
+        "model",
+        "flowerpot",
+        "changed",
+        "report"
+      ],
+      "source_sha256": "0f4ad8bae15ea462091ccafd648a32dccfeec7f668ed2becf352b00dfea4ba0c",
+      "sha256": "0b0ee355ad6d21be1561b0611f787d12bcfe9e6efce52e00e0183d01fe1428cb"
+    },
+    {
+      "name": "FP Radiance Properties Input",
+      "file": "FP Radiance Properties Input.ghuser",
+      "category": "Flowerpot",
+      "subcategory": "Flowerpot",
+      "exposure": 8,
+      "inputs": [
+        "_flowerpot",
+        "_type",
+        "value_",
+        "follow_"
+      ],
+      "outputs": [
+        "property",
+        "report"
+      ],
+      "source_sha256": "e088591a559b74aa1170c5ab02601390078a17623182dad3e79e9e2d6b6a492b",
+      "sha256": "a0254dbc84f4bca6d36b9dd3b43dfb7c8656e534f8e606d1f79f8ad37a635803"
     }
   ]
 }

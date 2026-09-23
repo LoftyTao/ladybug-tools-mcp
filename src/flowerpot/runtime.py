@@ -215,6 +215,66 @@ def link_honeybee_model(
     }
 
 
+def link_dragonfly_model(
+    flowerpot,
+    model,
+    write_flag,
+    follow_flag,
+    component=None,
+):
+    """Link a Dragonfly model to a Flowerpot Garden."""
+    if flowerpot is None:
+        raise ValueError("_flowerpot is required.")
+
+    payload = _payload_from_input(model, "Dragonfly") if model is not None else None
+    state = _load_component_state()
+    should_write = state.consume_write_pulse(component, write_flag)
+    if payload is not None and not should_write and not follow_flag:
+        response = _run_worker(
+            "dragonfly_link",
+            {
+                "flowerpot": _flowerpot_to_dict(flowerpot),
+                "payload": payload,
+                "write": False,
+                "follow": False,
+                "component": _component_context(component),
+            },
+        )
+        sync_follow_refresh(component, False)
+        return {
+            "model": model,
+            "flowerpot": _wrap_flowerpot(_flowerpot_to_dict(flowerpot)),
+            "changed": False,
+            "report": response.get("report"),
+        }
+
+    response = _run_worker(
+        "dragonfly_link",
+        {
+            "flowerpot": _flowerpot_to_dict(flowerpot),
+            "payload": payload,
+            "write": bool(should_write),
+            "follow": bool(follow_flag),
+            "component": _component_context(component),
+        },
+    )
+    try:
+        model_out = (
+            _dragonfly_model_from_dict(response["model"])
+            if response.get("model") is not None else None
+        )
+    except Exception:
+        sync_follow_refresh(component, False)
+        raise
+    sync_follow_refresh(component, follow_flag, response.get("flowerpot", flowerpot))
+    return {
+        "model": model_out,
+        "flowerpot": _wrap_flowerpot(response.get("flowerpot", flowerpot)),
+        "changed": bool(response.get("changed")),
+        "report": response.get("report"),
+    }
+
+
 def read_energy_properties_input(
     flowerpot,
     properties_type,
@@ -765,6 +825,23 @@ def _honeybee_model_from_dict(payload):
         return Model.from_dict(payload)
     except Exception:
         return payload
+
+
+def _dragonfly_model_from_dict(payload):
+    try:
+        from dragonfly.model import Model
+    except Exception as error:
+        raise RuntimeError(
+            "Dragonfly SDK is required to return a native Dragonfly Model: %s"
+            % error
+        )
+    try:
+        return Model.from_dict(payload)
+    except Exception as error:
+        raise RuntimeError(
+            "Could not convert the Garden payload to a native Dragonfly Model: %s"
+            % error
+        )
 
 
 def _payload_from_input(value, label):

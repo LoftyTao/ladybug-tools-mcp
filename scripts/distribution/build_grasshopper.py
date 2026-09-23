@@ -1,5 +1,6 @@
-"""Run through Rhino MCP / Rhino Python 3 to build the six Flowerpot user objects.
+"""Run through Rhino MCP / Rhino Python 3 to build Flowerpot user objects.
 
+Synchronizes component source version labels with the MCP version before building.
 No active document, canvas, or user-object installation is changed.
 """
 
@@ -21,6 +22,10 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCES = ROOT / "src" / "grasshopper_components"
 OUTPUT = SOURCES / "user_objects"
 SCRIPT_GUID = System.Guid("410755b1-224a-4c1e-a407-bf32fb45ea7e")
+# Match ladybug_rhino.versioning.userobject: one subcategory, exposure groups.
+EXPOSURES = (GH_Exposure.dropdown, GH_Exposure.primary, GH_Exposure.secondary,
+             GH_Exposure.tertiary, GH_Exposure.quarternary, GH_Exposure.quinary,
+             GH_Exposure.senary, GH_Exposure.septenary)
 VERSION = re.search(r'__version__ = "([^"]+)"', (ROOT / "src/ladybug_tools_mcp/__init__.py").read_text()).group(1)
 
 
@@ -37,9 +42,22 @@ def port_descriptions(text):
 
 def build():
     OUTPUT.mkdir(parents=True, exist_ok=True)
+    paths = sorted(SOURCES.glob("FP *.py"))
+    expected = {path.stem + ".ghuser" for path in paths}
+    for stale in OUTPUT.glob("*.ghuser"):
+        if stale.name not in expected:
+            stale.unlink()
     entries = []
-    for path in sorted(SOURCES.glob("FP *.py")):
+    for path in paths:
         source = path.read_text(encoding="utf-8")
+        source, version_fields = re.subn(
+            r'(ghenv\.Component\.Message\s*=\s*)[\'"][^\'"\r\n]*[\'"]',
+            lambda match: match.group(1) + json.dumps(VERSION), source,
+        )
+        if version_fields != 1:
+            raise ValueError("Expected one component version field: " + str(path))
+        if source != path.read_text(encoding="utf-8"):
+            path.write_text(source, encoding="utf-8")
         module = ast.parse(source)
         doc = ast.get_docstring(module)
         arguments, returns = doc.split("Args:", 1)[1].split("Returns:", 1)
@@ -83,11 +101,15 @@ def build():
         component.Description = doc.split("Args:", 1)[0].strip()
         for key, value in properties.items():
             setattr(component, key, value)
+        category = str(component.Category)
+        subcategory = str(component.SubCategory).strip()
+        assert category == "Flowerpot", category
+        assert subcategory == "Flowerpot", path
         assert component.Message == VERSION
         user_object = GH_UserObject()
         user_object.BaseGuid = component.ComponentGuid
         user_object.Icon = component.Icon_24x24
-        user_object.Exposure = GH_Exposure.primary
+        user_object.Exposure = EXPOSURES[int(properties["AdditionalHelpFromDocStrings"])]
         user_object.Description.Name = component.Name
         user_object.Description.NickName = component.NickName
         user_object.Description.Description = component.Description
@@ -97,16 +119,28 @@ def build():
         destination = OUTPUT / (path.stem + ".ghuser")
         user_object.Path = str(destination)
         assert user_object.SaveToFile(), destination
-        restored = GH_UserObject(str(destination)).InstantiateObject()
+        restored_user_object = GH_UserObject(str(destination))
+        restored_user_object.ReadFromFile()
+        assert restored_user_object.BaseGuid == component.ComponentGuid
+        assert restored_user_object.Exposure == user_object.Exposure
+        restored = restored_user_object.InstantiateObject()
+        assert restored.Name == component.Name
+        assert restored.NickName == component.NickName
+        assert restored.Code == source
+        assert restored.Category == category
+        assert restored.SubCategory == subcategory
         assert [p.NickName for p in restored.Params.Input] == [p[0] for p in inputs]
         assert [p.NickName for p in restored.Params.Output] == [p[0] for p in outputs]
         entries.append({
             "name": path.stem, "file": destination.name,
+            "category": category, "subcategory": subcategory,
+            "exposure": int(user_object.Exposure),
             "inputs": [p[0] for p in inputs], "outputs": [p[0] for p in outputs],
             "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
             "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
         })
-    assert len(entries) == 6
+    assert entries and len({entry["name"] for entry in entries}) == len(entries)
+    assert len({entry["file"] for entry in entries}) == len(entries)
     (OUTPUT / "manifest.json").write_text(json.dumps({"version": VERSION, "components": entries}, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"version": VERSION, "output": str(OUTPUT), "components": [entry["name"] for entry in entries]}))
 

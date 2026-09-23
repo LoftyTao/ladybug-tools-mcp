@@ -107,9 +107,9 @@ fairyfly-therm==0.10.23
     # via -r requirements.in
 fairyfly-therm-standards==0.1.0
     # via fairyfly-therm
-fastmcp==4.0.0b5
+fastmcp==4.0.5
     # via -r requirements.in
-fastmcp-slim==4.0.0b5
+fastmcp-slim==4.0.5
     # via fastmcp
 fastrlock==0.8.3 ; sys_platform != 'darwin'
     # via cupy-cuda12x
@@ -324,8 +324,12 @@ pydantic==2.13.5
     #   queenbee
 pydantic-core==2.46.5
     # via pydantic
-pydantic-monty==0.0.18
+pydantic-monty==0.0.21
     # via fastmcp-slim
+pydantic-monty-client==0.0.21
+    # via pydantic-monty
+pydantic-monty-runtime==0.0.21
+    # via pydantic-monty
 pydantic-openapi-helper==1.0.5
     # via
     #   honeybee-schema
@@ -419,7 +423,7 @@ typing-extensions==4.16.0
     #   py-key-value-aio
     #   pydantic
     #   pydantic-core
-    #   pydantic-monty
+    #   pydantic-monty-client
     #   referencing
     #   starlette
     #   typing-inspection

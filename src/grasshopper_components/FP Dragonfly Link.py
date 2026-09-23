@@ -2,20 +2,22 @@
 # env: installed runtime, then development source fallback
 
 """
-Read a Honeybee Energy Properties Library object from a Flowerpot Garden.
+Link a Dragonfly Model to a Flowerpot Garden.
 -
-This component reads existing Garden Properties Library objects. It does not
-apply the selected property to the current model.
+This component is the GHPython shell over the formal Python 3 worker.
 -
 
     Args:
         _flowerpot: Opaque Flowerpot dictionary from an FP component.
-        _type: Honeybee Energy properties type to read.
-        value_: Optional identifier or search text for the properties object.
-        follow_: Set to True to refresh when the Garden library changes.
+        model_: Optional Dragonfly Model input.
+        _write: Optional write trigger. Set to True to persist the connected
+            Dragonfly Model into the Flowerpot Garden once for this component.
+        follow_: Set to True to refresh from the Garden context.
 
     Returns:
-        property: Honeybee Energy properties object dictionary from the Garden.
+        model: Dragonfly Model passed through or refreshed from the Garden.
+        flowerpot: Opaque Flowerpot dictionary for downstream FP components.
+        changed: Boolean flag indicating whether this solve persisted a model.
         report: Reports, errors, warnings, etc.
 """
 import io
@@ -69,26 +71,26 @@ except NameError:
     from importlib import reload as _reload
 
 try:
-    ghenv.Component.Name = "FP Energy Properties Input"
-    ghenv.Component.NickName = "EnergyProps"
+    ghenv.Component.Name = "FP Dragonfly Link"
+    ghenv.Component.NickName = "DragonflyLink"
     ghenv.Component.Message = "1.2.2"
     ghenv.Component.Category = "Flowerpot"
     ghenv.Component.SubCategory = "Flowerpot"
-    ghenv.Component.AdditionalHelpFromDocStrings = "3"
+    ghenv.Component.AdditionalHelpFromDocStrings = "2"
     ghenv.Component.Params.Input[0].Optional = False
-    ghenv.Component.Params.Input[1].Optional = False
+    ghenv.Component.Params.Input[1].Optional = True
     ghenv.Component.Params.Input[2].Optional = True
     ghenv.Component.Params.Input[3].Optional = True
 except Exception:
     pass
 
 
-def run(_flowerpot, _type, value_, follow_):
-    """Read Honeybee Energy properties from a Flowerpot Garden."""
-    return _load_runtime().read_energy_properties_input(
+def run(_flowerpot, model_, _write, follow_):
+    """Link a Dragonfly model to a Flowerpot Garden through the worker."""
+    return _load_runtime().link_dragonfly_model(
         flowerpot=_flowerpot,
-        properties_type=_type,
-        value=value_,
+        model=model_,
+        write_flag=_write,
         follow_flag=bool(follow_),
         component=_component_from_ghenv(),
     )
@@ -107,21 +109,25 @@ def _component_from_ghenv():
         return None
 
 
-property = None
+model = globals().get("model_")
+flowerpot = globals().get("_flowerpot")
+changed = False
 report = {
     "status": "idle",
-    "message": "No Energy properties input requested.",
+    "message": "No Flowerpot action requested.",
     "warnings": [],
     "details": {},
 }
 
-if "_flowerpot" in globals() and "_type" in globals():
+if "_flowerpot" in globals() and _flowerpot is not None:
     if all_required_inputs_ready(ghenv.Component):
         _result = run(
             _flowerpot,
-            _type,
-            globals().get("value_"),
+            globals().get("model_"),
+            globals().get("_write", False),
             globals().get("follow_", False),
         )
-        property = _result["property"]
+        model = _result["model"]
+        flowerpot = _result["flowerpot"]
+        changed = _result["changed"]
         report = _result["report"]
