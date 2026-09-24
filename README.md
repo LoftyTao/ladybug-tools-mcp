@@ -83,25 +83,25 @@ Basic modeling needs [uv](https://docs.astral.sh/uv/getting-started/installation
 
 ### Installation wizard
 
-`1.2.2` is the pinned release version. Install it from PyPI with the command below. For local validation, the same wizard accepts a wheel with `--from <absolute-wheel-path>`.
+`1.2.3` is the pinned release version. Install it from PyPI with the command below. For local validation, the same wizard accepts a wheel with `--from <absolute-wheel-path>`.
 
-The current source tree has unreleased installer fixes: new installations default to `~/.ladybug-tools-mcp/tools` and `~/Gardens`, Rhino 8 is detected from its Windows installation record, and an existing installation offers an uninstall choice. Published `1.2.2` retains the defaults documented below; saved paths are retained on upgrade.
+Version `1.2.3` defaults new installations to `~/.ladybug-tools-mcp/tools` and `~/Gardens`, checks Rhino 8's usual Windows location before its installation record, and offers uninstall from an existing installation's wizard. Saved paths are retained on upgrade.
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 install
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install
 ```
 
 The same terminal wizard runs on Windows, Linux, and macOS. Choose runtime and Garden directories, automatic Codex configuration and local Skills, and optional Flowerpot / Grasshopper integration. Restart the client after installation.
 
-Installation is per user. Gardens default to `~/LadybugTools/Gardens`, outside the runtime and uv cache. Unrelated MCP settings are retained; conflicting settings or edited assets stop installation with instructions. The first download includes scientific dependencies and can take several minutes. uv automatically builds the current pure-Python Luigi dependency; no compiler is needed.
+Installation is per user. Gardens default to `~/Gardens`, outside the runtime and uv cache. Unrelated MCP settings are retained; conflicting settings or edited assets stop installation with instructions. The first download includes scientific dependencies and can take several minutes. uv automatically builds the current pure-Python Luigi dependency; no compiler is needed.
 
 To install the runtime and print settings without changing client configuration or local Skills:
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 install --generate-config
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install --generate-config
 ```
 
-For a local wheel, use the wheel for both bootstrap and installation; the built file is named like `lbt_mcp-1.2.2-py3-none-any.whl`:
+For a local wheel, use the wheel for both bootstrap and installation; the built file is named like `lbt_mcp-1.2.3-py3-none-any.whl`:
 
 ```text
 uvx --isolated --python 3.12 --prerelease allow --from <absolute-wheel-path> lbt-mcp install --wheel <absolute-wheel-path>
@@ -113,14 +113,14 @@ The two environment values use the current user's home directory on the target s
 
 | System | `LADYBUG_TOOLS_GARDENS_ROOT` | `LADYBUG_TOOLS_MCP_INSTALLATION` |
 | --- | --- | --- |
-| Windows | `%USERPROFILE%\LadybugTools\Gardens` | `%USERPROFILE%\.ladybug-tools-mcp\installation.json` |
-| macOS | `/Users/<user>/LadybugTools/Gardens` | `/Users/<user>/.ladybug-tools-mcp/installation.json` |
-| Linux | `/home/<user>/LadybugTools/Gardens` | `/home/<user>/.ladybug-tools-mcp/installation.json` |
+| Windows | `%USERPROFILE%\Gardens` | `%USERPROFILE%\.ladybug-tools-mcp\installation.json` |
+| macOS | `/Users/<user>/Gardens` | `/Users/<user>/.ladybug-tools-mcp/installation.json` |
+| Linux | `/home/<user>/Gardens` | `/home/<user>/.ladybug-tools-mcp/installation.json` |
 
 The installer writes resolved absolute paths, including redirected home directories; MCP clients do not need to expand `%USERPROFILE%`, `$HOME`, or `~`. Choose the Garden directory in the wizard, or select both paths explicitly:
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 install --garden-dir "<absolute-garden-directory>" --state "<absolute-installation.json>"
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install --garden-dir "<absolute-garden-directory>" --state "<absolute-installation.json>"
 ```
 
 An explicit Garden choice overrides the saved installation; otherwise the saved choice is retained before using the default. `--state` overrides `LADYBUG_TOOLS_MCP_INSTALLATION`, which overrides the default record location. Keep using the same `--state` for later upgrades/status/uninstall. When Flowerpot uses a custom record, Rhino must inherit `LADYBUG_TOOLS_MCP_INSTALLATION` pointing to that same file.
@@ -165,23 +165,23 @@ OpenCode2 2.0.12 uses this local server shape:
 For upgrades, close clients using MCP and Rhino, then run the chosen new version's installer. Versions stay fixed until you explicitly upgrade. Uninstall keeps Gardens and user-edited files:
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 uninstall
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 uninstall
 ```
 
 ### Client presets
 
 Version `1.2.2` adds selectable presets for Codex, Claude Code, Gemini CLI, OpenCode, OpenCode2, Hermes Agent, OpenClaw, ZCode, Kimi Code, Devin, Qoder, CodeBuddy, WorkBuddy, Cline, Cursor and VS Code. List the exact preset IDs without changing client settings:
 
-The current source tree also offers an unreleased `deepseek-harness` preset. It exports a `cordis.patch.yml` insert row for the official `@deepseek-ai/dsh-mcp-client`; merge it into the active Harness home or profile patch.
+Version `1.2.3` also includes the `deepseek-harness` preset. It exports a `cordis.patch.yml` insert row for the official `@deepseek-ai/dsh-mcp-client`; merge it into the active Harness home or profile patch.
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 clients
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 clients
 ```
 
 Choose multiple clients in the terminal wizard, or repeat `--client`. For example:
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 install --client opencode2 --client hermes --client workbuddy --generate-config --output-dir "<preset-directory>"
+uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install --client opencode2 --client hermes --client workbuddy --generate-config --output-dir "<preset-directory>"
 ```
 
 `--client all` selects every preset; `--client none` installs only the runtime and any selected Flowerpot integration. `--generate-config` still prepares the persistent runtime. Exported files use its absolute Python path and the selected Garden and installation-record paths. Without `--output-dir`, generated fragments print in the terminal. With it, each client gets a separate file and `lbt-mcp-README.md` explains where to merge/import it and where the bundled Skill lives. Existing differing export files require `--replace` and receive backups.

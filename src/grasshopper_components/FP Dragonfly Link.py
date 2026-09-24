@@ -73,7 +73,7 @@ except NameError:
 try:
     ghenv.Component.Name = "FP Dragonfly Link"
     ghenv.Component.NickName = "DragonflyLink"
-    ghenv.Component.Message = "1.2.2"
+    ghenv.Component.Message = "1.2.3"
     ghenv.Component.Category = "Flowerpot"
     ghenv.Component.SubCategory = "Flowerpot"
     ghenv.Component.AdditionalHelpFromDocStrings = "2"

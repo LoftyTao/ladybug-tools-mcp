@@ -71,7 +71,7 @@ except NameError:
 try:
     ghenv.Component.Name = "FP Radiance Properties Input"
     ghenv.Component.NickName = "RadianceProps"
-    ghenv.Component.Message = "1.2.2"
+    ghenv.Component.Message = "1.2.3"
     ghenv.Component.Category = "Flowerpot"
     ghenv.Component.SubCategory = "Flowerpot"
     ghenv.Component.AdditionalHelpFromDocStrings = "3"
