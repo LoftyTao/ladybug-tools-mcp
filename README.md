@@ -85,6 +85,8 @@ Basic modeling needs [uv](https://docs.astral.sh/uv/getting-started/installation
 
 `1.2.2` is the pinned release version. Install it from PyPI with the command below. For local validation, the same wizard accepts a wheel with `--from <absolute-wheel-path>`.
 
+The current source tree has unreleased installer fixes: new installations default to `~/.ladybug-tools-mcp/tools` and `~/Gardens`, Rhino 8 is detected from its Windows installation record, and an existing installation offers an uninstall choice. Published `1.2.2` retains the defaults documented below; saved paths are retained on upgrade.
+
 ```text
 uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 install
 ```
@@ -169,6 +171,8 @@ uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 uninstall
 ### Client presets
 
 Version `1.2.2` adds selectable presets for Codex, Claude Code, Gemini CLI, OpenCode, OpenCode2, Hermes Agent, OpenClaw, ZCode, Kimi Code, Devin, Qoder, CodeBuddy, WorkBuddy, Cline, Cursor and VS Code. List the exact preset IDs without changing client settings:
+
+The current source tree also offers an unreleased `deepseek-harness` preset. It exports a `cordis.patch.yml` insert row for the official `@deepseek-ai/dsh-mcp-client`; merge it into the active Harness home or profile patch.
 
 ```text
 uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 clients

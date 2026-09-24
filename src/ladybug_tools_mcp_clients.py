@@ -49,6 +49,12 @@ CLIENTS = {
         "docs": "https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md",
         "instructions": "Merge mcp_servers.lbt-mcp into the active Hermes config.yaml (default ~/.hermes/config.yaml). Connect with hermes mcp test lbt-mcp. Copy the bundled Skill to the selected profile's skills directory, normally ~/.hermes/skills."
     },
+    "deepseek-harness": {
+        "label": "DeepSeek Harness",
+        "format": "yaml",
+        "docs": "https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md",
+        "instructions": "Merge this insert row into $DSH_HOME/cordis.patch.yml (default ~/.dsh/cordis.patch.yml), or the active profile's cordis.patch.yml. Confirm the profile resolves @deepseek-ai/dsh-mcp-client, then restart that profile. Its filesystem Skill provider scans ~/.agents/skills by default; copy the bundled Skill there if needed."
+    },
     "openclaw": {
         "label": "OpenClaw",
         "format": "json",
@@ -174,6 +180,13 @@ def render_client(client_id: str, server: dict, skill_source: Path) -> str:
     elif client_id == "hermes":
         import yaml
         return yaml.safe_dump({"mcp_servers": {SERVER_NAME: entry}},
+                              allow_unicode=True, sort_keys=False)
+    elif client_id == "deepseek-harness":
+        import yaml
+        return yaml.safe_dump([{"insert": [{"id": "mcp-lbt-mcp",
+                                           "name": "@deepseek-ai/dsh-mcp-client",
+                                           "config": {"serverName": SERVER_NAME,
+                                                      "transport": "stdio", **entry}}]}],
                               allow_unicode=True, sort_keys=False)
     elif client_id in {"openclaw", "zcode"}:
         if client_id == "zcode":

@@ -10,7 +10,7 @@ from typing import Any, Iterable
 
 DEFAULT_GARDENS_ROOT = Path(
     os.environ.get("LADYBUG_TOOLS_GARDENS_ROOT")
-    or Path.home() / "LadybugTools" / "Gardens"
+    or Path.home() / "Gardens"
 ).expanduser().resolve()
 _WINDOWS_INVALID_FILENAME_CHARACTERS = frozenset('<>:"/\\|?*')
 _WINDOWS_RESERVED_FILENAME_STEMS = frozenset(

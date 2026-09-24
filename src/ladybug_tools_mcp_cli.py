@@ -98,7 +98,9 @@ def uv_command() -> str:
 
 
 def tool_environment(directory: Path) -> dict[str, str]:
-    return {**os.environ, "UV_TOOL_DIR": str(directory), "UV_TOOL_BIN_DIR": str(directory / "bin")}
+    bin_dir = directory / "bin"
+    return {**os.environ, "UV_TOOL_DIR": str(directory), "UV_TOOL_BIN_DIR": str(bin_dir),
+            "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", "")}
 
 
 def tool_python(directory: Path) -> Path:
@@ -212,9 +214,17 @@ def preset_updates(clients: list[str], server: dict, skill_source: Path,
 def grasshopper_directory() -> Path:
     if sys.platform != "win32":
         raise RuntimeError("Flowerpot's verified first release supports Windows with Rhino 8.")
-    rhino = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "Rhino 8/System/Rhino.exe"
-    if not rhino.is_file():
-        raise RuntimeError("Install Rhino 8 before selecting Flowerpot / Grasshopper.")
+    import winreg
+
+    locations = [Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "Rhino 8"]
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(hive, r"SOFTWARE\McNeel\Rhinoceros\8.0\Install") as key:
+                locations.insert(0, Path(winreg.QueryValueEx(key, "InstallPath")[0]))
+        except (OSError, TypeError, ValueError):
+            pass
+    if not any((location / "System" / "Rhino.exe").is_file() for location in locations):
+        raise RuntimeError("Rhino 8 was not found. Select its Grasshopper UserObjects directory with --grasshopper-dir if it is installed elsewhere.")
     appdata = os.environ.get("APPDATA")
     if not appdata:
         raise RuntimeError("APPDATA is unavailable; cannot locate Grasshopper UserObjects.")
@@ -385,13 +395,22 @@ def install(args) -> dict:
     state = absolute(args.state)
     state_before = file_bytes(state)
     previous = read_installation(str(state))
+    if previous and not args.yes:
+        if not sys.stdin.isatty():
+            raise ValueError("Interactive install requires a terminal. Use --yes with explicit options for automation.")
+        action = input("Existing installation: [I]nstall/update, [U]ninstall, or [Q]uit [I]: ").strip().lower()
+        if action in {"u", "uninstall"}:
+            return uninstall(args)
+        if action in {"q", "quit"}:
+            return {"status": "cancelled"}
+        if action not in {"", "i", "install", "update"}:
+            raise ValueError("Choose install, uninstall, or quit.")
     requested = getattr(args, "client", None)
     clients = normalize_clients(requested if requested is not None else previous.get("client_presets", ["codex"]))
     output = absolute(args.output_dir) if getattr(args, "output_dir", None) else None
     uv = uv_command()
-    default_tools = subprocess.run([uv, "tool", "dir"], check=True, capture_output=True, text=True).stdout.strip()
-    tools_dir = absolute(args.tool_dir or previous.get("tool_dir") or default_tools)
-    gardens = absolute(args.garden_dir or previous.get("gardens_root") or Path.home() / "LadybugTools/Gardens")
+    tools_dir = absolute(args.tool_dir or previous.get("tool_dir") or Path.home() / ".ladybug-tools-mcp" / "tools")
+    gardens = absolute(args.garden_dir or previous.get("gardens_root") or Path.home() / "Gardens")
     codex = absolute(args.codex_config or (previous.get("codex") or {}).get("path") or Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml")
     skills = absolute(args.skills_dir or previous.get("skills_dir") or Path.home() / ".agents/skills")
     gh_enabled = args.grasshopper if args.grasshopper is not None else bool(previous.get("grasshopper_dir"))
@@ -415,10 +434,19 @@ def install(args) -> dict:
         raise ValueError("Keep the installed Skills directory when only generating configuration.")
     gh = None
     if gh_enabled:
-        default_gh = grasshopper_directory()
-        gh = absolute(args.grasshopper_dir or previous.get("grasshopper_dir") or default_gh)
-        if not args.yes:
-            gh = ask_path("Grasshopper component directory", gh)
+        if sys.platform != "win32":
+            raise RuntimeError("Flowerpot's verified first release supports Windows with Rhino 8.")
+        try:
+            gh = absolute(args.grasshopper_dir or previous.get("grasshopper_dir") or grasshopper_directory())
+        except RuntimeError as error:
+            if args.yes:
+                raise
+            print(error)
+            answer = input("Grasshopper UserObjects/Flowerpot directory (blank = skip Flowerpot): ").strip()
+            gh = absolute(answer) if answer else None
+        else:
+            if not args.yes:
+                gh = ask_path("Grasshopper component directory", gh)
     python = tool_python(tools_dir)
     check_not_running_in_target(python, "install")
     cache_dir = absolute(subprocess.run([uv, "cache", "dir"], check=True, capture_output=True, text=True).stdout.strip())
@@ -508,6 +536,10 @@ def uninstall(args) -> dict:
     if python != tool_python(tools_dir):
         raise ValueError("Installation record has an unexpected Python location.")
     check_not_running_in_target(python, "uninstall")
+    if not args.yes:
+        print(f"Runtime: {tools_dir}\nManaged Codex config: {(record.get('codex') or {}).get('path') or 'none'}")
+        print(f"Flowerpot: {record.get('grasshopper_dir') or 'none'}\nGardens retained: {record['gardens_root']}")
+        print("Only unchanged managed integrations will be removed; modified files will remain.")
     if not args.yes and (not sys.stdin.isatty() or not ask_yes("Uninstall MCP and its unmodified integrations? Gardens will remain.", False)):
         return {"status": "cancelled"}
     changes, kept, expected = {}, [], {}

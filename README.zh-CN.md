@@ -86,6 +86,8 @@ Flowerpot 是 Ladybug Tools MCP 与其他交互界面交换信息的中间层。
 
 `1.2.2` 是固定的发布版本。使用下面的命令从 PyPI 安装；本地验证时，也可以通过 `--from <绝对 wheel 路径>` 使用同一个向导。
 
+当前源码包含尚未发布的安装器修复：新安装默认使用 `~/.ladybug-tools-mcp/tools` 和 `~/Gardens`，从 Windows 安装记录识别 Rhino 8，已有安装的向导提供卸载选项。已发布的 `1.2.2` 仍使用下文所述旧默认值；升级时保留已保存的路径。
+
 ```text
 uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 install
 ```
@@ -170,6 +172,8 @@ uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 uninstall
 ### 客户端预配置
 
 `1.2.2` 可在向导中多选 Codex、Claude Code、Gemini CLI、OpenCode、OpenCode2、Hermes、OpenClaw、ZCode、Kimi Code、Devin、Qoder、CodeBuddy、WorkBuddy、Cline、Cursor 和 VS Code 等客户端。查看完整选项：
+
+当前源码另提供尚未发布的 `deepseek-harness` 预配置，导出官方 `@deepseek-ai/dsh-mcp-client` 所需的 `cordis.patch.yml` 插入项；将其合并到当前 Harness 的用户级或 profile 配置中。
 
 ```text
 uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.2 clients
