@@ -214,17 +214,19 @@ def preset_updates(clients: list[str], server: dict, skill_source: Path,
 def grasshopper_directory() -> Path:
     if sys.platform != "win32":
         raise RuntimeError("Flowerpot's verified first release supports Windows with Rhino 8.")
-    import winreg
+    default_rhino = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "Rhino 8" / "System" / "Rhino.exe"
+    if not default_rhino.is_file():
+        import winreg
 
-    locations = [Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "Rhino 8"]
-    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
-        try:
-            with winreg.OpenKey(hive, r"SOFTWARE\McNeel\Rhinoceros\8.0\Install") as key:
-                locations.insert(0, Path(winreg.QueryValueEx(key, "InstallPath")[0]))
-        except (OSError, TypeError, ValueError):
-            pass
-    if not any((location / "System" / "Rhino.exe").is_file() for location in locations):
-        raise RuntimeError("Rhino 8 was not found. Select its Grasshopper UserObjects directory with --grasshopper-dir if it is installed elsewhere.")
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(hive, r"SOFTWARE\McNeel\Rhinoceros\8.0\Install") as key:
+                    if (Path(winreg.QueryValueEx(key, "InstallPath")[0]) / "System" / "Rhino.exe").is_file():
+                        break
+            except (OSError, TypeError, ValueError):
+                pass
+        else:
+            raise RuntimeError("Rhino 8 was not found. Select its Grasshopper UserObjects directory with --grasshopper-dir if it is installed elsewhere.")
     appdata = os.environ.get("APPDATA")
     if not appdata:
         raise RuntimeError("APPDATA is unavailable; cannot locate Grasshopper UserObjects.")
