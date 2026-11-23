@@ -8,10 +8,6 @@ from fastmcp.server.transforms.visibility import Visibility
 
 from ladybug_tools_mcp import __version__
 from ladybug_tools_mcp.code_mode import create_code_mode_transform
-from ladybug_tools_mcp.operation_protocol import (
-    GardenOperationMiddleware,
-    GardenOperationTransform,
-)
 from ladybug_tools_mcp.registry import register_tools
 from ladybug_tools_mcp.weather_resources import register_weather_resources
 
@@ -31,7 +27,6 @@ def create_mcp() -> FastMCP:
             False,
             tags={"debug", "internal", "experimental"},
         ),
-        GardenOperationTransform(),
         create_code_mode_transform(),
     ]
 
@@ -46,12 +41,21 @@ def create_mcp() -> FastMCP:
     )
     register_tools(mcp)
     register_weather_resources(mcp)
-    mcp.add_middleware(GardenOperationMiddleware())
     return mcp
 
 
-mcp = create_mcp()
+_DEFAULT_MCP: FastMCP | None = None
+
+
+def __getattr__(name: str):
+    """Build the default module-level server lazily when accessed."""
+    global _DEFAULT_MCP
+    if name == "mcp":
+        if _DEFAULT_MCP is None:
+            _DEFAULT_MCP = create_mcp()
+        return _DEFAULT_MCP
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 if __name__ == "__main__":
-    mcp.run(show_banner=False)
+    create_mcp().run(show_banner=False)

@@ -8,7 +8,7 @@ from honeybee_radiance_command.options.rfluxmtx import RfluxmtxOptions
 from honeybee_radiance_command.options.rpict import RpictOptions
 from honeybee_radiance_command.options.rtrace import RtraceOptions
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 RTRACE = {
     "ab": [2, 3, 6],

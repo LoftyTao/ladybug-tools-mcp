@@ -11,7 +11,7 @@ from honeybee_radiance.modifier.material.plastic import Plastic
 from honeybee_radiance.modifier.material.trans import Trans
 from honeybee_radiance.modifier.modifierbase import Modifier
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.libraries.properties import save_garden_properties_library_object
 
 

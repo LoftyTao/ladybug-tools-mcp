@@ -16,7 +16,7 @@ from honeybee_energy.lib.programtypes import PROGRAM_TYPES
 from honeybee_energy.lib.schedules import SCHEDULES
 from honeybee_energy.lib.scheduletypelimits import SCHEDULE_TYPE_LIMITS
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 
 @dataclass(frozen=True)

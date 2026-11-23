@@ -140,7 +140,7 @@ def resolve_runtime_paths(
             "External Ironbug runtime requirements are missing: "
             + "; ".join(missing)
             + ". Install Ladybug Tools (with Ironbug and OpenStudio C# bindings) and .NET 8+, "
-            "or inspect LB_get_runtime_config for configured paths.",
+            "or inspect LB_Get_Runtime_Config for configured paths.",
             missing=missing,
             details={
                 "ironbug_dir": str(ironbug_dir) if ironbug_dir else None,

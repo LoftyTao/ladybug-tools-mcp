@@ -7,7 +7,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.manifest import GardenManifest
 from garden.paths import slugify_name, to_posix_relative
 from garden.radiance.run import (

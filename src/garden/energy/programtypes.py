@@ -19,7 +19,7 @@ from honeybee_energy.schedule.day import ScheduleDay
 from honeybee_energy.schedule.fixedinterval import ScheduleFixedInterval
 from honeybee_energy.schedule.ruleset import ScheduleRuleset
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.libraries.properties import (
     get_garden_properties_library_object,
     save_garden_properties_library_object,

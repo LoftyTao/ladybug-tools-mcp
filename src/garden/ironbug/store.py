@@ -11,7 +11,6 @@ from garden.ironbug.targets import (
     normalize_ironbug_model_target,
 )
 from garden.manifest import GardenManifest
-from garden.operations import commit_manifest, read_operation_record
 from garden.paths import (
     reject_windows_alias,
     to_posix_relative,
@@ -100,7 +99,7 @@ def resolve_ironbug_system(
             spec_path = _ensure_contained(garden_root, garden_root / target["path"])
             sys_id = str(target["id"])
         elif not candidates:
-            raise ValueError("Garden has no Ironbug HVAC systems. Call IB_create_system first.")
+            raise ValueError("Garden has no Ironbug HVAC systems. Call IB_Create_System first.")
         else:
             ids = ", ".join(str(c.get("id")) for c in candidates)
             raise ValueError(
@@ -145,11 +144,8 @@ def save_ironbug_system(
     specification_json: str,
     draft: dict[str, Any],
     overwrite: bool = True,
-    operation_type: str = "ironbug_system_save",
-    operation_id: str | None = None,
 ) -> tuple[dict[str, Any], str, str]:
     """Commit official IB_HVACSystem JSON + authoring draft atomically into Garden."""
-    expected_revision = manifest.revision
     spec_rel = (IRONBUG_MODELS_DIR / spec_filename(identifier)).as_posix()
     draft_rel = (IRONBUG_MODELS_DIR / draft_filename(identifier)).as_posix()
 
@@ -163,11 +159,9 @@ def save_ironbug_system(
 
     spec_path = garden_root / spec_rel
     if spec_path.exists() and not overwrite:
-        replay = read_operation_record(garden_root, operation_id) if operation_id else None
-        if replay is None:
-            raise ValueError(
-                f"Ironbug system '{identifier}' already exists. Pass overwrite=true to replace it."
-            )
+        raise ValueError(
+            f"Ironbug system '{identifier}' already exists. Pass overwrite=true to replace it."
+        )
 
     # Pretty-format official IB_HVACSystem JSON cleanly while preserving every $type and field
     parsed_spec = json.loads(specification_json)
@@ -186,12 +180,8 @@ def save_ironbug_system(
     ]
     manifest.models.append(target)
 
-    commit_manifest(
+    manifest.write(
         garden_root,
-        manifest,
-        operation_type=operation_type,
-        operation_id=operation_id,
-        expected_revision=expected_revision,
         staged_writes={
             spec_rel: spec_bytes,
             draft_rel: draft_bytes,

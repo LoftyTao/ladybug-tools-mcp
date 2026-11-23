@@ -20,7 +20,7 @@ from garden.run_energy.results import (
     _garden_root,
     _sql_result,
 )
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 SUMMARY_KINDS = {"energy_use", "loads", "peaks"}
 _PERIODS = {"annual": "annual", "year": "annual", "yearly": "annual", "monthly": "monthly", "month": "monthly"}
@@ -214,7 +214,7 @@ def _suggestion(kind: str, period: str) -> dict[str, Any]:
         }
         required = list(_LOAD_OUTPUTS)
     return {
-        "tool": "EP_create_output_request",
+        "tool": "EP_Create_Output_Request",
         "arguments": arguments,
         "required_outputs": required,
         "next_run_argument": "output_request_target",
@@ -300,7 +300,7 @@ def _blocked(
         "required_outputs": required,
         "available_output_names": available,
         "output_request_suggestion": suggestion,
-        "recommended_next_tools": ["EP_create_output_request", "EP_start_simulation"],
+        "recommended_next_tools": ["EP_Create_Output_Request", "EP_Start_Simulation"],
         "no_implicit_rerun": True,
     }
     return _result(

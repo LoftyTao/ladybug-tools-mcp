@@ -18,11 +18,11 @@ from garden.dragonfly_core.model_io import (
 )
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
-from ladybug_tools_mcp.contracts.receipts import (
+from ladybug_tools_mcp.contracts import (
     make_artifact_receipt,
     make_persistence_receipt,
+    make_report,
 )
-from ladybug_tools_mcp.contracts.report import make_report
 
 
 DRAGONFLY_MODEL_FILE_ARTIFACT_TYPE = "dragonfly_model_file"

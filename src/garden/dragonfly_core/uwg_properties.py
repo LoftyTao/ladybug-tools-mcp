@@ -19,8 +19,7 @@ from garden.dragonfly_core.targets import (
     is_dragonfly_model_target,
     normalize_dragonfly_object_target,
 )
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 
 
 MODEL_UWG_FIELDS = (

@@ -13,7 +13,7 @@ from garden.dragonfly_core.targets import (
     normalize_dragonfly_object_target,
 )
 from garden.manifest import GardenManifest
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 
 DEFAULT_GEOMETRY_ATTRIBUTES = [
@@ -500,7 +500,7 @@ def list_dragonfly_room2d_attributes(
     garden_root: str,
     model_target: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """List compact Room2D attributes supported by DF_room2ds_by_attribute."""
+    """List compact Room2D attributes supported by DF_Room2Ds_By_Attribute."""
     garden_root_path = _garden_root(garden_root)
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
     attributes = [dict(record) for record in ROOM2D_ATTRIBUTE_CATALOG]

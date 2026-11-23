@@ -18,7 +18,7 @@ from ladybug_radiance.skymatrix import SkyMatrix
 from ladybug_radiance.visualize.raddome import RadiationDome
 from ladybug_radiance.visualize.skydome import SkyDome
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.manifest import GardenManifest
 from garden.paths import slugify_name, to_posix_relative
 from garden.radiance.sky import SKY_MATRIX_TARGET_TYPE

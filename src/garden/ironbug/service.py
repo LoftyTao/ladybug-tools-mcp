@@ -29,12 +29,10 @@ from garden.ironbug.runtime import IronbugRuntimeUnavailable
 from garden.ironbug.store import (
     empty_draft,
     load_ironbug_system_files,
-    resolve_ironbug_system,
     save_ironbug_system,
 )
 from garden.manifest import GardenManifest
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 
 _CN_QUERY_ALIASES: tuple[tuple[str, str], ...] = (
     ("冷水机组", "chiller"),
@@ -275,7 +273,6 @@ def create_ironbug_system(
         specification_json=spec_json,
         draft=draft,
         overwrite=bool(overwrite),
-        operation_type="ironbug_create_system",
     )
     receipt = make_persistence_receipt(
         status="persisted",
@@ -283,7 +280,7 @@ def create_ironbug_system(
         model_target=target,
         persisted_path=spec_rel,
         change_summary={
-            "operation": "IB_create_system",
+            "operation": "IB_Create_System",
             "identifier": clean_id,
             "draft_path": draft_rel,
             "imported_only": bool(draft.get("imported_only", False)),
@@ -363,7 +360,6 @@ def upsert_ironbug_components(
         specification_json=str(built["specification_json"]),
         draft=next_draft,
         overwrite=True,
-        operation_type="ironbug_upsert_components",
     )
     receipt = make_persistence_receipt(
         status="persisted",
@@ -371,7 +367,7 @@ def upsert_ironbug_components(
         model_target=saved_target,
         persisted_path=spec_rel,
         change_summary={
-            "operation": "IB_upsert_components",
+            "operation": "IB_Upsert_Components",
             "identifier": sys_id,
             "upserted_ids": sorted(incoming),
             "removed_ids": removed_ids,
@@ -476,7 +472,6 @@ def configure_ironbug_loops(
         specification_json=str(built["specification_json"]),
         draft=next_draft,
         overwrite=True,
-        operation_type="ironbug_configure_loops",
     )
     summary = dict(built.get("summary") or {})
     receipt = make_persistence_receipt(
@@ -485,7 +480,7 @@ def configure_ironbug_loops(
         model_target=saved_target,
         persisted_path=spec_rel,
         change_summary={
-            "operation": "IB_configure_loops",
+            "operation": "IB_Configure_Loops",
             "identifier": sys_id,
             **summary,
         },
@@ -1002,7 +997,7 @@ def apply_ironbug_to_model(
                 model_target=updated_target,
                 persisted_path=persisted_path,
                 change_summary={
-                    "operation": "IB_apply_to_model",
+                    "operation": "IB_Apply_To_Model",
                     "model_family": "dragonfly",
                     "ironbug_model_target": ib_target,
                     "detailed_hvac_identifier": hvac_id,
@@ -1196,7 +1191,7 @@ def apply_ironbug_to_model(
         model_target=primary_target,
         persisted_path=primary_path,
         change_summary={
-            "operation": "IB_apply_to_model",
+            "operation": "IB_Apply_To_Model",
             "model_family": family,
             "ironbug_model_target": ib_target,
             "detailed_hvac_identifier": hvac_id,

@@ -10,7 +10,7 @@ from flowerpot.registry import get_flowerpot
 from garden.libraries.properties import (
     get_garden_properties_library_object,
 )
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 PROPERTIES_TYPES = {
     "energy": "honeybee_energy",

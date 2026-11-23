@@ -24,7 +24,7 @@ class PreviewMontySandboxProvider(MontySandboxProvider):
 
             async def call_tool_with_preview(tool_name: str, arguments: Any) -> Any:
                 result = await call_tool(tool_name, arguments)
-                from web_view.auto_preview import maybe_record_code_mode_preview
+                from web_view import maybe_record_code_mode_preview
 
                 maybe_record_code_mode_preview(
                     tool_name=tool_name,

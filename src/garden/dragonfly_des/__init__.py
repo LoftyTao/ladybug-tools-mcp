@@ -12,6 +12,10 @@ from .authoring import (
     create_ground_heat_exchanger,
     create_horizontal_pipe_parameter,
     create_thermal_connector,
+    load_des_object,
+    make_des_object_target,
+    normalize_des_object_target,
+    save_des_object,
 )
 from .export import export_model_to_des, export_urbanopt_model
 from .runs import (
@@ -26,8 +30,6 @@ from .runs import (
     start_urbanopt_simulation,
     write_modelica_project,
 )
-from .serialization import load_des_object, save_des_object
-from .targets import make_des_object_target, normalize_des_object_target
 
 __all__ = [
     "assign_building_loads",

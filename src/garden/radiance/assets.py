@@ -18,11 +18,11 @@ from garden.honeybee_core.locate import find_object
 from garden.honeybee_core.targets import normalize_honeybee_object_target
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
-from ladybug_tools_mcp.contracts.receipts import (
+from ladybug_tools_mcp.contracts import (
     make_artifact_receipt,
     make_persistence_receipt,
+    make_report,
 )
-from ladybug_tools_mcp.contracts.report import make_report
 
 SENSOR_GRID_TARGET_TYPE = "radiance_sensor_grid"
 SENSOR_GRID_ARTIFACT_TYPE = "radiance_sensor_grid"

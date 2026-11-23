@@ -202,7 +202,7 @@ Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `v1.2.1` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NatLabRockies/OpenStudio/releases/tag/v3.11.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
 
-Use `LB_get_runtime_config` to check installed engines and obtain setup guidance for any missing runtime.
+Use `LB_Get_Runtime_Config` to check installed engines and obtain setup guidance for any missing runtime.
 
 ### Source development
 
@@ -233,7 +233,7 @@ Enable Web View Mode for this Garden, then create or edit the Honeybee model.
 Through MCP Code Mode, the agent calls:
 
 ```text
-GD_web_view_start_mode(garden_root, name="...")
+GD_Web_View_Start_Mode(garden_root, name="...")
 ```
 
 Starting the mode creates a Garden-local session and returns its local `viewer.url`, for example:
@@ -249,7 +249,7 @@ Open the returned `viewer.url` to display the preview.
 Ask the agent to stop Web View Mode, or call:
 
 ```text
-GD_web_view_stop_mode(garden_root)
+GD_Web_View_Stop_Mode(garden_root)
 ```
 
 This disables future automatic previews and stops the matching local fallback viewer if one was started.
@@ -268,7 +268,7 @@ In Web View Mode, significant Honeybee, Dragonfly, Fairyfly, and VisualizationSe
 
 The viewer polls Garden session state and reloads the latest `.vtkjs` package without a manual refresh.
 These automatic previews are local session state, not formal user-requested Garden artifacts.
-If you need a durable reusable artifact, still ask the agent to export a VisualizationSet with `LB_set_to_vtkjs`.
+If you need a durable reusable artifact, still ask the agent to export a VisualizationSet with `LB_Set_To_VTKJS`.
 
 The fallback viewer intentionally uses an explicit local port.
 If the requested port is already occupied, startup fails clearly instead of silently choosing another port or leaving the browser pointed at an older Garden.

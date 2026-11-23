@@ -25,8 +25,7 @@ from garden.dragonfly_core.model_io import (
     save_dragonfly_model,
 )
 from garden.dragonfly_core.targets import normalize_dragonfly_object_target
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 
 
 _ENERGY_MODEL_LIST_FIELDS = (

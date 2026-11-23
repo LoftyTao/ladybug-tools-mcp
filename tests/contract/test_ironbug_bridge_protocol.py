@@ -260,15 +260,15 @@ class TestIronbugBridgeProtocol(unittest.TestCase):
                 mcp = create_mcp()
                 code = textwrap.dedent(
                     f"""
-                    g = await call_tool("GD_create", {{"name": "live_ptac_garden", "root_dir": {garden_root!r}}})
+                    g = await call_tool("GD_Create", {{"name": "live_ptac_garden", "root_dir": {garden_root!r}}})
                     g_root = g["garden_root"]
-                    sys_res = await call_tool("IB_create_system", {{
+                    sys_res = await call_tool("IB_Create_System", {{
                         "garden_root": g_root,
                         "identifier": "ptac_contract",
                         "overwrite": True,
                     }})
                     ib_target = sys_res["target"]
-                    await call_tool("IB_upsert_components", {{
+                    await call_tool("IB_Upsert_Components", {{
                         "garden_root": g_root,
                         "ironbug_model_target": ib_target,
                         "components": {{
@@ -281,12 +281,12 @@ class TestIronbugBridgeProtocol(unittest.TestCase):
                             }},
                         }},
                     }})
-                    await call_tool("IB_configure_loops", {{
+                    await call_tool("IB_Configure_Loops", {{
                         "garden_root": g_root,
                         "ironbug_model_target": ib_target,
                         "thermal_zones": [{{"room_name": "Room1", "zone_equipments": ["ptac"]}}],
                     }})
-                    val = await call_tool("IB_validate_system", {{
+                    val = await call_tool("IB_Validate_System", {{
                         "garden_root": g_root,
                         "ironbug_model_target": ib_target,
                     }})
@@ -368,11 +368,11 @@ class TestIronbugBridgeProtocol(unittest.TestCase):
                     mcp = create_mcp()
                     code = textwrap.dedent(
                         f"""
-                        g = await call_tool("GD_create", {{"name": "ib_live_autosize", "root_dir": {g2!r}}})
+                        g = await call_tool("GD_Create", {{"name": "ib_live_autosize", "root_dir": {g2!r}}})
                         gr = g["garden_root"]
-                        s = await call_tool("IB_create_system", {{"garden_root": gr, "identifier": "autosize_sys", "overwrite": True}})
+                        s = await call_tool("IB_Create_System", {{"garden_root": gr, "identifier": "autosize_sys", "overwrite": True}})
                         t = s["target"]
-                        await call_tool("IB_upsert_components", {{
+                        await call_tool("IB_Upsert_Components", {{
                             "garden_root": gr,
                             "ironbug_model_target": t,
                             "components": {{
@@ -385,7 +385,7 @@ class TestIronbugBridgeProtocol(unittest.TestCase):
                                 "coil_cw": {{"type": "IB_CoilCoolingWater"}},
                             }},
                         }})
-                        await call_tool("IB_configure_loops", {{
+                        await call_tool("IB_Configure_Loops", {{
                             "garden_root": gr,
                             "ironbug_model_target": t,
                             "thermal_zones": [{{"room_name": "Room1", "zone_equipments": ["ptac"]}}],
@@ -398,7 +398,7 @@ class TestIronbugBridgeProtocol(unittest.TestCase):
                                 "demand_branches": [["coil_cw"]],
                             }}],
                         }})
-                        return await call_tool("IB_validate_system", {{"garden_root": gr, "ironbug_model_target": t}})
+                        return await call_tool("IB_Validate_System", {{"garden_root": gr, "ironbug_model_target": t}})
                         """
                     ).strip()
                     async with Client(mcp) as client:

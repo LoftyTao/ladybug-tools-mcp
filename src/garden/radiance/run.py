@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from calendar import month_abbr
 from functools import lru_cache
 import json
-import logging
 import os
 from pathlib import Path
 import shlex
@@ -19,20 +17,21 @@ from honeybee_radiance.writer import _filter_by_pattern
 from lbt_recipes.recipe import Recipe
 from lbt_recipes.settings import RecipeSettings
 
-from garden.background import submit_worker_process
+from garden.background import capture_recipe_stdio, submit_worker_process
 from garden.honeybee_core.model_io import load_honeybee_model, resolve_model_target
 from garden.manifest import GardenManifest, utc_now_iso
-from garden.paths import simulation_folder_name, to_posix_relative
-from garden.radiance.sky import RADIANCE_SKY_FILE_TARGET_TYPE, WEA_TARGET_TYPE
-from garden.run_ledger import (
-    RunLedger,
-    make_run_target,
-    normalize_run_id,
-    project_run,
-    serialized_run_start,
+from garden.paths import (
+    require_garden_root,
+    simulation_folder_name,
+    to_posix_relative,
 )
-from garden.run_ledger import run_id_from_target_or_value
-from ladybug_tools_mcp.contracts.report import make_report
+from garden.radiance.sky import (
+    RADIANCE_SKY_FILE_TARGET_TYPE,
+    WEA_TARGET_TYPE,
+    _resolve_epw_path,
+)
+from garden.run_ledger import RunManager, serialized_run_start
+from ladybug_tools_mcp.contracts import make_report
 
 RADIANCE_RUN_TARGET_TYPE = "radiance_run"
 RADIANCE_RUN_DOMAIN = "honeybee_radiance"
@@ -110,49 +109,64 @@ def _submit_radiance_background(**kwargs: Any) -> subprocess.Popen:
     return submit_worker_process(
         garden_root=garden_root,
         run_dir=run_dir,
-        worker_module="garden.radiance.worker",
+        worker_module="garden.radiance.run:run_radiance_recipe",
         request=kwargs,
         cwd=garden_root,
         environment=env,
     )
 
 
-def _garden_root(value: str) -> Path:
-    return Path(value).expanduser().resolve()
+_garden_root = require_garden_root
+_capture_recipe_stdio = capture_recipe_stdio
+
+RADIANCE_RUN_PUBLIC_FIELDS = (
+    "target",
+    "run_id",
+    "recipe",
+    "calculation_family",
+    "calculation_type",
+    "command_name",
+    "status",
+    "created_at",
+    "completed_at",
+    "model_target",
+    "model_display_name",
+    "model_path",
+    "run_folder",
+    "outputs",
+    "workers",
+    "warnings",
+    "radiance_parameters_path",
+)
+
+_RADIANCE_RUNS = RunManager(
+    domain=RADIANCE_RUN_DOMAIN,
+    target_type=RADIANCE_RUN_TARGET_TYPE,
+    runs_dir=RADIANCE_RUNS_DIR,
+    default_recipe="point-in-time-grid",
+    allowed_recipes=None,
+    run_id_prefix="radiance",
+    target_run_id_required=False,
+    not_found_label="Radiance",
+    public_fields=RADIANCE_RUN_PUBLIC_FIELDS,
+)
+_RADIANCE_RUN_LEDGER = _RADIANCE_RUNS.ledger
 
 
 def _run_index_path(garden_root: Path) -> Path:
-    return garden_root / RADIANCE_RUN_INDEX
-
-
-_RADIANCE_RUN_LEDGER = RunLedger(
-    lock="file",
-    atomic=True,
-    recover_trailing_json=True,
-    sort_by_created_at=True,
-)
+    return _RADIANCE_RUNS.index_path(garden_root)
 
 
 def _read_index(garden_root: Path) -> list[dict[str, Any]]:
-    return _RADIANCE_RUN_LEDGER.list(_run_index_path(garden_root))
+    return _RADIANCE_RUNS.list(garden_root)
 
 
 def _run_target(garden_id: str, run_id: str, recipe_name: str) -> dict[str, str]:
-    return make_run_target(
-        target_type=RADIANCE_RUN_TARGET_TYPE,
-        garden_id=garden_id,
-        domain=RADIANCE_RUN_DOMAIN,
-        recipe=recipe_name,
-        run_id=run_id,
-    )
+    return _RADIANCE_RUNS.make_target(garden_id, run_id, recipe=recipe_name)
 
 
 def _normalize_run_id(value: str | None) -> str:
-    return normalize_run_id(
-        value,
-        value
-        or f"radiance_{utc_now_iso().replace(':', '').replace('-', '').replace('Z', '').lower()}",
-    )
+    return _RADIANCE_RUNS.normalize_run_id(value)
 
 
 def _validate_target_garden(
@@ -395,14 +409,11 @@ def _clear_recipe_status_logs(run_dir: Path, recipe_name: str) -> None:
 
 
 def _upsert_record(garden_root: Path, record: dict[str, Any]) -> None:
-    _RADIANCE_RUN_LEDGER.upsert(_run_index_path(garden_root), record)
+    _RADIANCE_RUNS.upsert(garden_root, record)
 
 
 def _run_record_by_id(garden_root: Path, run_id: str) -> dict[str, Any]:
-    record = _RADIANCE_RUN_LEDGER.get(_run_index_path(garden_root), run_id)
-    if record is not None:
-        return record
-    raise ValueError(f"Radiance run was not found: {run_id}")
+    return _RADIANCE_RUNS.require(garden_root, run_id)
 
 
 def _run_id_from_target_or_value(
@@ -410,13 +421,7 @@ def _run_id_from_target_or_value(
     run_target: dict[str, Any] | None,
     run_id: str | None,
 ) -> str:
-    return run_id_from_target_or_value(
-        run_target,
-        run_id,
-        target_type=RADIANCE_RUN_TARGET_TYPE,
-        domain=RADIANCE_RUN_DOMAIN,
-        target_run_id_required=False,
-    )
+    return _RADIANCE_RUNS.resolve_run_id(run_target, run_id)
 
 
 def _outputs_map(record: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -533,26 +538,7 @@ def _missing_required_outputs(outputs: list[dict[str, Any]]) -> list[str]:
 
 
 def _public_run(record: dict[str, Any]) -> dict[str, Any]:
-    keys = (
-        "target",
-        "run_id",
-        "recipe",
-        "calculation_family",
-        "calculation_type",
-        "command_name",
-        "status",
-        "created_at",
-        "completed_at",
-        "model_target",
-        "model_display_name",
-        "model_path",
-        "run_folder",
-        "outputs",
-        "workers",
-        "warnings",
-        "radiance_parameters_path",
-    )
-    return project_run(record, keys)
+    return _RADIANCE_RUNS.public_run(record)
 
 
 def _reconcile_running_record(
@@ -671,68 +657,13 @@ def _run_response(
     }
     if status == "running":
         result["summary_view"]["poll_next"] = {
-            "tool": "RAD_poll_simulation",
+            "tool": "RAD_Poll_Simulation",
             "arguments": {
                 "garden_root": str(garden_root_path),
                 "run_target": target,
             },
         }
     return result
-
-
-@contextmanager
-def _capture_recipe_stdio(run_dir: Path):
-    """Keep recipe logs out of stdio-based MCP JSON-RPC."""
-    log_path = run_dir / "recipe_stdio.log"
-    previous_streams: list[tuple[logging.StreamHandler, Any]] = []
-    saved_fds: list[tuple[int, int]] = []
-    with log_path.open("a", encoding="utf-8", errors="replace") as log_file:
-        for stream in (sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__):
-            try:
-                stream.flush()
-            except Exception:
-                pass
-        for fd in (1, 2):
-            try:
-                saved_fd = os.dup(fd)
-                os.dup2(log_file.fileno(), fd)
-            except OSError:
-                continue
-            saved_fds.append((fd, saved_fd))
-        for logger in [
-            logging.getLogger(),
-            *(
-                logger
-                for logger in logging.Logger.manager.loggerDict.values()
-                if isinstance(logger, logging.Logger)
-            ),
-        ]:
-            for handler in logger.handlers:
-                if isinstance(handler, logging.StreamHandler) and handler.stream in {
-                    sys.stdout,
-                    sys.stderr,
-                    sys.__stdout__,
-                    sys.__stderr__,
-                }:
-                    previous_streams.append((handler, handler.stream))
-                    handler.setStream(log_file)
-        try:
-            with redirect_stdout(log_file), redirect_stderr(log_file):
-                yield log_path
-        finally:
-            for stream in (sys.stdout, sys.stderr):
-                try:
-                    stream.flush()
-                except Exception:
-                    pass
-            log_file.flush()
-            for fd, saved_fd in reversed(saved_fds):
-                try:
-                    os.dup2(saved_fd, fd)
-                finally:
-                    os.close(saved_fd)
-            for handler, stream in previous_streams:
-                handler.setStream(stream)
 
 
 def run_radiance_recipe(
@@ -906,8 +837,8 @@ def _start_radiance_run(
     ).resolve()
     run_dir.relative_to(garden_root_path)
     run_folder = to_posix_relative(run_dir, garden_root_path)
-    _RADIANCE_RUN_LEDGER.prepare_folder(
-        _run_index_path(garden_root_path),
+    _RADIANCE_RUNS.prepare_folder(
+        garden_root_path,
         run_folder,
         recipe=recipe_name,
         model_target=resolved_model_target,
@@ -1004,7 +935,7 @@ def _start_radiance_run(
             "run_folder": run_folder,
             "outputs": _outputs_map(record),
             "poll_next": {
-                "tool": "RAD_poll_simulation",
+                "tool": "RAD_Poll_Simulation",
                 "arguments": poll_arguments,
             },
         },
@@ -1380,3 +1311,99 @@ def list_radiance_run_outputs(
             message=f"Found {len(outputs)} output(s) for Radiance run {resolved_run_id}.",
         ),
     }
+
+
+def start_radiance_compliance_run(
+    *,
+    garden_root: str,
+    recipe_name: str,
+    model_target: dict[str, Any] | None = None,
+    wea_target: dict[str, Any] | None = None,
+    weather_file_target: dict[str, Any] | None = None,
+    grid_filter: str = "*",
+    north: float | None = None,
+    min_sensor_count: int = 1,
+    radiance_parameters: str | dict[str, Any] | None = None,
+    run_id: str | None = None,
+    workers: int | None = None,
+    reload_old: bool = False,
+    silent: bool = True,
+    recipe_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve typed weather and model inputs before starting a compliance run."""
+    if recipe_name not in {
+        "leed-daylight-option-two", "annual-daylight-en17037",
+        "leed-daylight-option-one", "well-daylight", "breeam-daylight-4b",
+    }:
+        raise ValueError(f"Unsupported daylight compliance recipe: {recipe_name}")
+    if min_sensor_count < 1 or (workers is not None and workers < 1):
+        raise ValueError("min_sensor_count and workers must be positive integers.")
+    root = _garden_root(garden_root)
+    manifest, model_target = resolve_model_target(root, model_target)
+    model = load_honeybee_model(root, model_target)
+    grids = _filter_by_pattern(model.properties.radiance.sensor_grids, grid_filter)
+    if not grids:
+        raise ValueError("The model must have attached SensorGrids matching grid_filter.")
+    if len({grid.full_identifier for grid in grids}) != len(grids):
+        raise ValueError(
+            "Daylight compliance requires unique selected SensorGrid identifiers. "
+            "Use distinct names and select only the intended workplanes."
+        )
+    if recipe_name in {
+        "leed-daylight-option-two", "annual-daylight-en17037", "breeam-daylight-4b",
+    } and any(grid.group_identifier for grid in grids):
+        raise ValueError(
+            f"{recipe_name} does not support grouped SensorGrids in the installed SDK. "
+            "Use grids with an empty group_identifier."
+        )
+    if recipe_name == "breeam-daylight-4b":
+        room_ids = {room.identifier for room in model.rooms}
+        if any(grid.room_identifier not in room_ids or grid.mesh is None for grid in grids):
+            raise ValueError(
+                "BREEAM requires SensorGrids with meshes and valid room_identifier values. "
+                "Create attached grids from room floor faces."
+            )
+    inputs = dict(recipe_options or {})
+    inputs.update({"grid-filter": grid_filter, "min-sensor-count": min_sensor_count})
+    if north is not None:
+        inputs["north"] = north
+    if recipe_name in {"annual-daylight-en17037", "well-daylight"}:
+        if weather_file_target is None or wea_target is not None:
+            raise ValueError("This recipe requires an EPW weather_file_target.")
+        epw, _ = _resolve_epw_path(
+            garden_root=root, manifest=manifest,
+            weather_target=weather_file_target, epw_path=None,
+        )
+        inputs["epw"] = str(epw)
+    else:
+        if wea_target is None or weather_file_target is not None:
+            raise ValueError("This recipe requires a wea_target.")
+        inputs["wea"] = _resolve_wea_path(
+            garden_root=root, manifest=manifest, wea_target=wea_target, wea_path=None,
+        )
+    result = _start_radiance_run(
+        garden_root=garden_root,
+        model_target=model_target,
+        recipe_name=recipe_name,
+        calculation_family="compliance",
+        calculation_type=recipe_name.replace("-", "_"),
+        command_name="rtrace" if recipe_name == "leed-daylight-option-two" else "rfluxmtx",
+        inputs=inputs,
+        radiance_parameters=_radiance_parameters_from_input(radiance_parameters),
+        run_id=run_id,
+        workers=workers,
+        reload_old=reload_old,
+        silent=silent,
+    )
+    if recipe_name == "breeam-daylight-4b":
+        from honeybee_radiance_postprocess.breeam.breeam import program_type_metrics
+
+        rooms = model.rooms_by_identifier([grid.room_identifier for grid in grids])
+        if any(
+            room.properties.energy.program_type.identifier.replace("Creche", "Crèche")
+            not in program_type_metrics for room in rooms
+        ):
+            result["report"]["warnings"].append(
+                "The BREEAM recipe treats unrecognized room program types as office occupied spaces."
+            )
+    return result

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import json
-import shutil
-import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+import json
+import os
 from pathlib import Path
+import shutil
+import traceback
 from typing import Any
-from uuid import uuid4
 
 from dragonfly_energy.run import base_honeybee_osw as sdk_base_honeybee_osw
 from dragonfly_energy.run import prepare_urbanopt_folder as sdk_prepare_urbanopt_folder
@@ -21,25 +21,36 @@ from dragonfly_energy.run import set_building_district_loads as sdk_set_building
 from honeybee.config import folders as hb_folders
 
 from garden.ladybug_tools_config import (
-    REQUIRED_RUNTIME_VERSIONS,
     get_ladybug_tools_config,
-    iter_urbanopt_sdk_output_paths,
     urbanopt_runtime_env,
     write_urbanopt_bundle_config,
 )
 from garden.manifest import GardenManifest, utc_now_iso
-from garden.paths import slugify_name, to_posix_relative
-from garden.run_ledger import RunLedger, make_run_target, normalize_run_id, project_run
-from garden.run_ledger import run_id_from_target_or_value
+from garden.paths import (
+    require_garden_root,
+    resolve_existing_garden_path,
+    slugify_name,
+    to_posix_relative,
+)
 from garden.run_energy.config import resolve_garden_weather_epw
+from garden.run_ledger import RunLedger, RunManager
 from garden.urbanopt_cli import (
+    CONFIG_NEXT_TOOL,
+    DEFAULT_LOCAL_RUNTIME_NETWORK_POLICY,
+    attach_runtime_diagnostics,
+    blocked_preflight,
+    discover_urbanopt_outputs,
+    failed_urbanopt_job_error,
     has_urbanopt_cli_bundle,
+    operation_blocked_result,
+    output_for_path,
+    outputs_from_sdk_result,
+    preflight_urbanopt_runtime,
     run_urbanopt_energy_with_cli_bundle,
 )
-from ladybug_tools_mcp.contracts.receipts import make_artifact_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_artifact_receipt, make_report
 
-from .artifacts import (
+from .export import (
     DES_FEATURE_GEOJSON_ARTIFACT_TYPE,
     DES_MODELICA_PROJECT_ARTIFACT_TYPE,
     DES_SCENARIO_CSV_ARTIFACT_TYPE,
@@ -53,29 +64,44 @@ DES_RUN_TARGET_TYPE = "dragonfly_des_run"
 DES_RUN_DOMAIN = "dragonfly_des"
 DES_RUN_ROOT = Path("runs") / "dragonfly_des"
 DES_RUN_RECIPES = {"urbanopt", "sys_param", "modelica"}
-CONFIG_NEXT_TOOL = "LB_get_runtime_config"
-DEFAULT_DES_NETWORK_POLICY = {
-    "mode": "local_runtime_required",
-    "full_network_isolation_required": False,
-    "online_install_allowed": False,
-    "online_api_allowed": False,
-    "local_bundle_required": True,
-}
+DEFAULT_DES_NETWORK_POLICY = DEFAULT_LOCAL_RUNTIME_NETWORK_POLICY
 STALE_RUNNING_SECONDS = 60 * 60
-URBANOPT_STANDARD_OUTPUT_NAMES = {
-    "in.osm",
-    "in.idf",
-    "eplusout.sql",
-    "epluszsz.csv",
-    "eplusout.rdd",
-    "eplustbl.htm",
-    "eplustbl.html",
-    "eplusout.err",
-    "finished.job",
-    "failed.job",
-}
 
-_DES_RUN_LEDGER = RunLedger(lock="thread", empty_is_empty=True)
+_DES_RUNS = RunManager(
+    domain=DES_RUN_DOMAIN,
+    target_type=DES_RUN_TARGET_TYPE,
+    runs_dir=DES_RUN_ROOT,
+    default_recipe="urbanopt",
+    allowed_recipes=DES_RUN_RECIPES,
+    per_recipe_index=True,
+    run_id_prefix="des",
+    use_uuid_fallback=True,
+    slug_lookup=True,
+    domain_message="run_target must reference domain 'dragonfly_des'.",
+    missing_message="Pass run_target or run_id.",
+    not_found_label="Dragonfly DES",
+    public_fields=(
+        "run_id",
+        "target",
+        "recipe",
+        "status",
+        "runtime_status",
+        "candidate_status",
+        "created_at",
+        "started_at",
+        "completed_at",
+        "run_folder",
+        "feature_geojson_target",
+        "scenario_csv_target",
+        "system_parameter_json_target",
+        "modelica_project_target",
+        "preflight",
+        "outputs",
+        "error",
+    ),
+    ledger=RunLedger(lock="thread", empty_is_empty=True),
+)
+_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="des")
 
 
 def prepare_urbanopt_project(
@@ -87,7 +113,7 @@ def prepare_urbanopt_project(
     verbose: bool = False,
 ) -> dict[str, Any]:
     """Prepare a Garden URBANopt project folder from a feature GeoJSON artifact."""
-    garden_root_path = _garden_root(garden_root)
+    garden_root_path = require_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     feature_geojson = _resolve_feature_geojson(garden_root_path, manifest, feature_geojson_target)
     epw_path = (
@@ -99,13 +125,14 @@ def prepare_urbanopt_project(
         if weather_target is not None
         else None
     )
-    preflight = _preflight_urbanopt_runtime()
+    preflight = preflight_urbanopt_runtime()
     if preflight["runtime_status"] == "blocked":
-        return _operation_blocked_result(
+        return operation_blocked_result(
             garden_root=garden_root_path,
             manifest=manifest,
             operation="prepare_urbanopt_project",
             preflight=preflight,
+            label="Dragonfly DES",
         )
 
     runtime = preflight.get("runtime")
@@ -123,18 +150,17 @@ def prepare_urbanopt_project(
         )
     ).expanduser().resolve()
     write_urbanopt_bundle_config(feature_geojson.parent, runtime)
+    scenario_csv = resolve_existing_garden_path(
+        garden_root_path, scenario_csv, kind="file", suffix=".csv", label="Dragonfly DES runtime artifact"
+    )
     scenario_target = artifact_target_for_path(
         manifest=manifest,
         garden_root=garden_root_path,
         identifier=f"{slugify_name(feature_geojson.stem)}_prepared_scenario_csv",
         artifact_type=DES_SCENARIO_CSV_ARTIFACT_TYPE,
-        path=_bounded_existing_path(garden_root_path, scenario_csv, suffix=".csv"),
+        path=scenario_csv,
     )
-    register_des_artifacts(
-        manifest=manifest,
-        garden_root=garden_root_path,
-        targets=[scenario_target],
-    )
+    register_des_artifacts(manifest=manifest, garden_root=garden_root_path, targets=[scenario_target])
     receipt = make_artifact_receipt(
         status="persisted",
         garden_id=manifest.garden_id,
@@ -159,10 +185,7 @@ def prepare_urbanopt_project(
         "runtime_status": "ready",
         "summary_view": summary_view,
         "persistence_receipt": receipt,
-        "report": make_report(
-            status="ok",
-            message="Prepared URBANopt project folder.",
-        ),
+        "report": make_report(status="ok", message="Prepared URBANopt project folder."),
     }
 
 
@@ -175,27 +198,27 @@ def start_urbanopt_simulation(
     cpu_count: int | None = None,
 ) -> dict[str, Any]:
     """Start an URBANopt run after runtime preflight and write a DES run ledger."""
-    garden_root_path = _garden_root(garden_root)
+    garden_root_path = require_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     feature_geojson = _resolve_feature_geojson(garden_root_path, manifest, feature_geojson_target)
     scenario_csv = _resolve_scenario_csv(garden_root_path, manifest, scenario_csv_target)
-    normalized_run_id = _normalize_run_id(run_id, "urbanopt")
-    target = _run_target(manifest.garden_id, normalized_run_id, "urbanopt")
-    run_dir = garden_root_path / DES_RUN_ROOT / "urbanopt" / normalized_run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-    request = {
-        "operation": "run_urbanopt",
-        "feature_geojson_target": feature_geojson_target,
-        "scenario_csv_target": scenario_csv_target,
-        "cpu_count": cpu_count,
-    }
-    _write_background_request(run_dir, request)
-    preflight = _preflight_urbanopt_runtime()
+    normalized_run_id = _DES_RUNS.normalize_run_id(run_id, recipe="urbanopt")
+    run_dir = _DES_RUNS.run_dir(garden_root_path, normalized_run_id, recipe="urbanopt")
+    _write_background_request(
+        run_dir,
+        {
+            "operation": "run_urbanopt",
+            "feature_geojson_target": feature_geojson_target,
+            "scenario_csv_target": scenario_csv_target,
+            "cpu_count": cpu_count,
+        },
+    )
+    preflight = preflight_urbanopt_runtime()
     status = "blocked" if preflight["runtime_status"] == "blocked" else "running"
     record = _record(
         garden_root=garden_root_path,
         run_id=normalized_run_id,
-        target=target,
+        target=_DES_RUNS.make_target(manifest.garden_id, normalized_run_id, recipe="urbanopt"),
         recipe="urbanopt",
         status=status,
         run_dir=run_dir,
@@ -205,7 +228,7 @@ def start_urbanopt_simulation(
         completed_at=utc_now_iso() if status == "blocked" else None,
         error="; ".join(preflight["issues"]) if status == "blocked" else None,
     )
-    _upsert_record(garden_root_path, "urbanopt", record)
+    _DES_RUNS.upsert(garden_root_path, record, recipe="urbanopt")
     if status != "blocked":
         _BACKGROUND_EXECUTOR.submit(
             _run_urbanopt_job,
@@ -216,7 +239,7 @@ def start_urbanopt_simulation(
             cpu_count=cpu_count,
             runtime=preflight.get("runtime"),
         )
-    latest = _run_record_by_id(garden_root_path, "urbanopt", normalized_run_id) or record
+    latest = _DES_RUNS.get(garden_root_path, normalized_run_id, recipe="urbanopt") or record
     return _result_from_record(
         garden_root=garden_root_path,
         manifest=manifest,
@@ -242,12 +265,38 @@ def list_urbanopt_run_outputs(
     run_id: str | None = None,
 ) -> dict[str, Any]:
     """List output files for one URBANopt run ledger record."""
-    return _list_run_outputs(
-        garden_root=garden_root,
-        recipe="urbanopt",
-        run_target=run_target,
-        run_id=run_id,
-    )
+    garden_root_path = require_garden_root(garden_root)
+    manifest = GardenManifest.read(garden_root_path)
+    resolved_id = _DES_RUNS.resolve_run_id(run_target, run_id, recipe="urbanopt")
+    record = _DES_RUNS.get(garden_root_path, resolved_id, recipe="urbanopt")
+    if record is None:
+        raise ValueError(f"Dragonfly DES urbanopt run not found: {resolved_id}")
+    record = _stabilize_running_record(garden_root_path, "urbanopt", record)
+    outputs = list(record.get("outputs") or [])
+    if not outputs and isinstance(record.get("run_folder"), str):
+        outputs = discover_urbanopt_outputs(
+            garden_root_path, garden_root_path / record["run_folder"], include_kind=False
+        )
+    return {
+        "matches": outputs,
+        "outputs": outputs,
+        "runtime_status": record.get("runtime_status"),
+        "run_target": record.get("target"),
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "run_id": resolved_id,
+            "recipe": "urbanopt",
+            "status": record.get("runtime_status"),
+            "runtime_status": record.get("runtime_status"),
+            "run": _DES_RUNS.public_run(record),
+            "count": len(outputs),
+        },
+        "report": make_report(
+            status="warning" if record.get("runtime_status") in {"blocked", "failed"} else "ok",
+            message=f"Found {len(outputs)} output(s) for Dragonfly DES urbanopt run {resolved_id}.",
+            warnings=[record["error"]] if record.get("error") else [],
+        ),
+    }
 
 
 def assign_building_loads(
@@ -257,17 +306,18 @@ def assign_building_loads(
     scenario_csv_target: dict[str, Any],
 ) -> dict[str, Any]:
     """Assign building loads for DES simulation using SDK output files."""
-    garden_root_path = _garden_root(garden_root)
+    garden_root_path = require_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     _resolve_feature_geojson(garden_root_path, manifest, feature_geojson_target)
     scenario_csv = _resolve_scenario_csv(garden_root_path, manifest, scenario_csv_target)
     preflight = _preflight_gmt_runtime()
     if preflight["runtime_status"] == "blocked":
-        return _operation_blocked_result(
+        return operation_blocked_result(
             garden_root=garden_root_path,
             manifest=manifest,
             operation="assign_building_loads",
             preflight=preflight,
+            label="Dragonfly DES",
         )
     warnings = sdk_set_building_district_loads(str(scenario_csv))
     return {
@@ -297,20 +347,14 @@ def start_sys_param(
     run_id: str | None = None,
 ) -> dict[str, Any]:
     """Start a DES system-parameter update run after GMT preflight."""
-    garden_root_path = _garden_root(garden_root)
+    garden_root_path = require_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     feature_geojson = _resolve_feature_geojson(garden_root_path, manifest, feature_geojson_target)
     scenario_csv = _resolve_scenario_csv(garden_root_path, manifest, scenario_csv_target)
     if system_parameter_json_target is not None:
-        _resolve_system_parameter_json(
-            garden_root_path,
-            manifest,
-            system_parameter_json_target,
-        )
-    normalized_run_id = _normalize_run_id(run_id, "sys_param")
-    target = _run_target(manifest.garden_id, normalized_run_id, "sys_param")
-    run_dir = garden_root_path / DES_RUN_ROOT / "sys_param" / normalized_run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+        _resolve_system_parameter_json(garden_root_path, manifest, system_parameter_json_target)
+    normalized_run_id = _DES_RUNS.normalize_run_id(run_id, recipe="sys_param")
+    run_dir = _DES_RUNS.run_dir(garden_root_path, normalized_run_id, recipe="sys_param")
     _write_background_request(
         run_dir,
         {
@@ -325,7 +369,7 @@ def start_sys_param(
     record = _record(
         garden_root=garden_root_path,
         run_id=normalized_run_id,
-        target=target,
+        target=_DES_RUNS.make_target(manifest.garden_id, normalized_run_id, recipe="sys_param"),
         recipe="sys_param",
         status=status,
         run_dir=run_dir,
@@ -336,7 +380,7 @@ def start_sys_param(
         completed_at=utc_now_iso() if status == "blocked" else None,
         error="; ".join(preflight["issues"]) if status == "blocked" else None,
     )
-    _upsert_record(garden_root_path, "sys_param", record)
+    _DES_RUNS.upsert(garden_root_path, record, recipe="sys_param")
     if status != "blocked":
         _BACKGROUND_EXECUTOR.submit(
             _run_sys_param_job,
@@ -346,7 +390,7 @@ def start_sys_param(
             scenario_csv=str(scenario_csv),
             system_parameter_json_target=system_parameter_json_target,
         )
-    latest = _run_record_by_id(garden_root_path, "sys_param", normalized_run_id) or record
+    latest = _DES_RUNS.get(garden_root_path, normalized_run_id, recipe="sys_param") or record
     return _result_from_record(
         garden_root=garden_root_path,
         manifest=manifest,
@@ -374,19 +418,16 @@ def write_modelica_project(
     run_id: str | None = None,
 ) -> dict[str, Any]:
     """Candidate: write a Modelica project from DES system-parameter artifacts."""
-    garden_root_path = _garden_root(garden_root)
+    garden_root_path = require_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     system_parameter = _resolve_system_parameter_json(
-        garden_root_path,
-        manifest,
-        system_parameter_json_target,
+        garden_root_path, manifest, system_parameter_json_target
     )
     feature_geojson = _resolve_feature_geojson(garden_root_path, manifest, feature_geojson_target)
     scenario_csv = _resolve_scenario_csv(garden_root_path, manifest, scenario_csv_target)
-    normalized_run_id = _normalize_run_id(run_id, "modelica")
-    target = _run_target(manifest.garden_id, normalized_run_id, "modelica")
-    run_dir = garden_root_path / DES_RUN_ROOT / "modelica" / normalized_run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    normalized_run_id = _DES_RUNS.normalize_run_id(run_id, recipe="modelica")
+    target = _DES_RUNS.make_target(manifest.garden_id, normalized_run_id, recipe="modelica")
+    run_dir = _DES_RUNS.run_dir(garden_root_path, normalized_run_id, recipe="modelica")
     _write_background_request(
         run_dir,
         {
@@ -414,7 +455,7 @@ def write_modelica_project(
             error="; ".join(preflight["issues"]),
             candidate_status="candidate",
         )
-        _upsert_record(garden_root_path, "modelica", record)
+        _DES_RUNS.upsert(garden_root_path, record, recipe="modelica")
         return _result_from_record(
             garden_root=garden_root_path,
             manifest=manifest,
@@ -430,7 +471,9 @@ def write_modelica_project(
         )
         if project_dir_value is None:
             raise RuntimeError("The SDK did not write a Modelica project for this DES loop.")
-        project_dir = _bounded_existing_directory(garden_root_path, project_dir_value)
+        project_dir = resolve_existing_garden_path(
+            garden_root_path, project_dir_value, kind="directory", label="Dragonfly DES project directory"
+        )
         project_target = artifact_target_for_path(
             manifest=manifest,
             garden_root=garden_root_path,
@@ -438,11 +481,7 @@ def write_modelica_project(
             artifact_type=DES_MODELICA_PROJECT_ARTIFACT_TYPE,
             path=project_dir,
         )
-        register_des_artifacts(
-            manifest=manifest,
-            garden_root=garden_root_path,
-            targets=[project_target],
-        )
+        register_des_artifacts(manifest=manifest, garden_root=garden_root_path, targets=[project_target])
         record = _record(
             garden_root=garden_root_path,
             run_id=normalized_run_id,
@@ -456,24 +495,33 @@ def write_modelica_project(
             modelica_project_target=project_target,
             preflight=preflight,
             completed_at=utc_now_iso(),
-            outputs=[_output_for_path(garden_root_path, project_dir, name="modelica_project")],
+            outputs=[
+                output_for_path(
+                    garden_root_path,
+                    project_dir,
+                    name="modelica_project",
+                    include_kind=False,
+                )
+            ],
             candidate_status="candidate",
         )
     except Exception as exc:
-        record = _failed_record(
+        record = _record(
             garden_root=garden_root_path,
             run_id=normalized_run_id,
             target=target,
             recipe="modelica",
+            status="failed",
             run_dir=run_dir,
             feature_geojson_target=feature_geojson_target,
             scenario_csv_target=scenario_csv_target,
             system_parameter_json_target=system_parameter_json_target,
             preflight=preflight,
+            completed_at=utc_now_iso(),
             error=str(exc),
             candidate_status="candidate",
         )
-    _upsert_record(garden_root_path, "modelica", record)
+    _DES_RUNS.upsert(garden_root_path, record, recipe="modelica")
     return _result_from_record(
         garden_root=garden_root_path,
         manifest=manifest,
@@ -489,7 +537,7 @@ def start_modelica_simulation(
     run_id: str | None = None,
 ) -> dict[str, Any]:
     """Candidate: start a runtime-gated Modelica Docker simulation."""
-    garden_root_path = _garden_root(garden_root)
+    garden_root_path = require_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     project_dir = resolve_des_artifact_path(
         garden_root=garden_root_path,
@@ -498,10 +546,8 @@ def start_modelica_simulation(
         expected_artifact_type=DES_MODELICA_PROJECT_ARTIFACT_TYPE,
         expect_directory=True,
     )
-    normalized_run_id = _normalize_run_id(run_id, "modelica")
-    target = _run_target(manifest.garden_id, normalized_run_id, "modelica")
-    run_dir = garden_root_path / DES_RUN_ROOT / "modelica" / normalized_run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    normalized_run_id = _DES_RUNS.normalize_run_id(run_id, recipe="modelica")
+    run_dir = _DES_RUNS.run_dir(garden_root_path, normalized_run_id, recipe="modelica")
     _write_background_request(
         run_dir,
         {
@@ -515,7 +561,7 @@ def start_modelica_simulation(
     record = _record(
         garden_root=garden_root_path,
         run_id=normalized_run_id,
-        target=target,
+        target=_DES_RUNS.make_target(manifest.garden_id, normalized_run_id, recipe="modelica"),
         recipe="modelica",
         status=status,
         run_dir=run_dir,
@@ -525,7 +571,7 @@ def start_modelica_simulation(
         error="; ".join(preflight["issues"]) if status == "blocked" else None,
         candidate_status="candidate",
     )
-    _upsert_record(garden_root_path, "modelica", record)
+    _DES_RUNS.upsert(garden_root_path, record, recipe="modelica")
     if status != "blocked":
         _BACKGROUND_EXECUTOR.submit(
             _run_modelica_simulation_job,
@@ -533,7 +579,7 @@ def start_modelica_simulation(
             run_id=normalized_run_id,
             modelica_project_dir=str(project_dir),
         )
-    latest = _run_record_by_id(garden_root_path, "modelica", normalized_run_id) or record
+    latest = _DES_RUNS.get(garden_root_path, normalized_run_id, recipe="modelica") or record
     return _result_from_record(
         garden_root=garden_root_path,
         manifest=manifest,
@@ -559,10 +605,10 @@ def _poll_run(
     run_target: dict[str, Any] | None,
     run_id: str | None,
 ) -> dict[str, Any]:
-    garden_root_path = _garden_root(garden_root)
+    garden_root_path = require_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
-    resolved_id = _run_id_from_target_or_value(run_target=run_target, run_id=run_id, recipe=recipe)
-    record = _run_record_by_id(garden_root_path, recipe, resolved_id)
+    resolved_id = _DES_RUNS.resolve_run_id(run_target, run_id, recipe=recipe)
+    record = _DES_RUNS.get(garden_root_path, resolved_id, recipe=recipe)
     if record is None:
         raise ValueError(f"Dragonfly DES {recipe} run not found: {resolved_id}")
     record = _stabilize_running_record(garden_root_path, recipe, record)
@@ -574,47 +620,6 @@ def _poll_run(
     )
 
 
-def _list_run_outputs(
-    *,
-    garden_root: str,
-    recipe: str,
-    run_target: dict[str, Any] | None,
-    run_id: str | None,
-) -> dict[str, Any]:
-    garden_root_path = _garden_root(garden_root)
-    manifest = GardenManifest.read(garden_root_path)
-    resolved_id = _run_id_from_target_or_value(run_target=run_target, run_id=run_id, recipe=recipe)
-    record = _run_record_by_id(garden_root_path, recipe, resolved_id)
-    if record is None:
-        raise ValueError(f"Dragonfly DES {recipe} run not found: {resolved_id}")
-    record = _stabilize_running_record(garden_root_path, recipe, record)
-    outputs = list(record.get("outputs") or [])
-    if not outputs:
-        run_folder = record.get("run_folder")
-        if isinstance(run_folder, str):
-            outputs = _discover_outputs(garden_root_path, garden_root_path / run_folder)
-    return {
-        "matches": outputs,
-        "outputs": outputs,
-        "runtime_status": record.get("runtime_status"),
-        "run_target": record.get("target"),
-        "summary_view": {
-            "garden_target": manifest.target(),
-            "run_id": resolved_id,
-            "recipe": recipe,
-            "status": record.get("runtime_status"),
-            "runtime_status": record.get("runtime_status"),
-            "run": _public_run(record),
-            "count": len(outputs),
-        },
-        "report": make_report(
-            status="warning" if record.get("runtime_status") in {"blocked", "failed"} else "ok",
-            message=f"Found {len(outputs)} output(s) for Dragonfly DES {recipe} run {resolved_id}.",
-            warnings=[record["error"]] if record.get("error") else [],
-        ),
-    }
-
-
 def _run_urbanopt_job(
     *,
     garden_root: str,
@@ -624,8 +629,8 @@ def _run_urbanopt_job(
     cpu_count: int | None,
     runtime: dict[str, Any] | None = None,
 ) -> None:
-    garden_root_path = _garden_root(garden_root)
-    record = _run_record_by_id(garden_root_path, "urbanopt", run_id)
+    garden_root_path = require_garden_root(garden_root)
+    record = _DES_RUNS.get(garden_root_path, run_id, recipe="urbanopt")
     if record is None:
         return
     try:
@@ -640,17 +645,19 @@ def _run_urbanopt_job(
         else:
             with urbanopt_runtime_env(runtime):
                 outputs = sdk_run_urbanopt(feature_geojson, scenario_csv, cpu_count=cpu_count)
-            discovered = _outputs_from_sdk_result(garden_root_path, outputs)
+            discovered = outputs_from_sdk_result(garden_root_path, outputs, include_kind=False)
         if not discovered:
-            discovered = _discover_outputs(garden_root_path, Path(feature_geojson).parent)
+            discovered = discover_urbanopt_outputs(
+                garden_root_path, Path(feature_geojson).parent, include_kind=False
+            )
         if not discovered:
             raise RuntimeError("URBANopt run finished without discoverable outputs.")
-        failed_job_error = _failed_job_error(garden_root_path, Path(feature_geojson).parent)
+        failed_job_error = failed_urbanopt_job_error(garden_root_path, Path(feature_geojson).parent)
         if failed_job_error:
-            failure = _failure_fields(failed_job_error, failed_job_error)
+            failure = _DES_RUNS.failure_fields(failed_job_error, failed_job_error)
             failure["outputs"] = discovered
             record.update(failure)
-            _upsert_record(garden_root_path, "urbanopt", record)
+            _DES_RUNS.upsert(garden_root_path, record, recipe="urbanopt")
             return
         record.update(
             {
@@ -661,8 +668,8 @@ def _run_urbanopt_job(
             }
         )
     except Exception as exc:
-        record.update(_failure_fields(str(exc), traceback.format_exc()))
-    _upsert_record(garden_root_path, "urbanopt", record)
+        record.update(_DES_RUNS.failure_fields(str(exc), traceback.format_exc()))
+    _DES_RUNS.upsert(garden_root_path, record, recipe="urbanopt")
 
 
 def _run_sys_param_job(
@@ -673,27 +680,32 @@ def _run_sys_param_job(
     scenario_csv: str,
     system_parameter_json_target: dict[str, Any] | None,
 ) -> None:
-    garden_root_path = _garden_root(garden_root)
-    record = _run_record_by_id(garden_root_path, "sys_param", run_id)
+    garden_root_path = require_garden_root(garden_root)
+    record = _DES_RUNS.get(garden_root_path, run_id, recipe="sys_param")
     if record is None:
         return
     try:
         sys_param_path = Path(sdk_run_des_sys_param(feature_geojson, scenario_csv)).resolve()
-        outputs = [_output_for_path(garden_root_path, sys_param_path, name="system_params")]
         record.update(
             {
                 "status": "completed",
                 "runtime_status": "completed",
                 "completed_at": utc_now_iso(),
-                "outputs": outputs,
-                "system_parameter_json_target": system_parameter_json_target or record.get(
-                    "system_parameter_json_target", {}
-                ),
+                "outputs": [
+                    output_for_path(
+                        garden_root_path,
+                        sys_param_path,
+                        name="system_params",
+                        include_kind=False,
+                    )
+                ],
+                "system_parameter_json_target": system_parameter_json_target
+                or record.get("system_parameter_json_target", {}),
             }
         )
     except Exception as exc:
-        record.update(_failure_fields(str(exc), traceback.format_exc()))
-    _upsert_record(garden_root_path, "sys_param", record)
+        record.update(_DES_RUNS.failure_fields(str(exc), traceback.format_exc()))
+    _DES_RUNS.upsert(garden_root_path, record, recipe="sys_param")
 
 
 def _run_modelica_simulation_job(
@@ -702,40 +714,38 @@ def _run_modelica_simulation_job(
     run_id: str,
     modelica_project_dir: str,
 ) -> None:
-    garden_root_path = _garden_root(garden_root)
-    record = _run_record_by_id(garden_root_path, "modelica", run_id)
+    garden_root_path = require_garden_root(garden_root)
+    record = _DES_RUNS.get(garden_root_path, run_id, recipe="modelica")
     if record is None:
         return
     try:
-        result_dir = _bounded_existing_directory(
-            garden_root_path,
-            sdk_run_modelica_docker(modelica_project_dir),
+        result_dir_val = sdk_run_modelica_docker(modelica_project_dir)
+        if result_dir_val is None:
+            raise ValueError("Expected a Modelica project directory path.")
+        result_dir = resolve_existing_garden_path(
+            garden_root_path, result_dir_val, kind="directory", label="Dragonfly DES project directory"
         )
         record.update(
             {
                 "status": "completed",
                 "runtime_status": "completed",
                 "completed_at": utc_now_iso(),
-                "outputs": [_output_for_path(garden_root_path, result_dir, name="modelica_results")],
+                "outputs": [
+                    output_for_path(
+                        garden_root_path,
+                        result_dir,
+                        name="modelica_results",
+                        include_kind=False,
+                    )
+                ],
             }
         )
     except Exception as exc:
-        record.update(_failure_fields(str(exc), traceback.format_exc()))
-    _upsert_record(garden_root_path, "modelica", record)
+        record.update(_DES_RUNS.failure_fields(str(exc), traceback.format_exc()))
+    _DES_RUNS.upsert(garden_root_path, record, recipe="modelica")
 
 
-_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="des")
-
-
-def _garden_root(value: str | Path) -> Path:
-    return Path(value).expanduser().resolve()
-
-
-def _resolve_feature_geojson(
-    garden_root: Path,
-    manifest: GardenManifest,
-    target: dict[str, Any],
-) -> Path:
+def _resolve_feature_geojson(garden_root: Path, manifest: GardenManifest, target: dict[str, Any]) -> Path:
     return resolve_des_artifact_path(
         garden_root=garden_root,
         manifest=manifest,
@@ -745,11 +755,7 @@ def _resolve_feature_geojson(
     )
 
 
-def _resolve_scenario_csv(
-    garden_root: Path,
-    manifest: GardenManifest,
-    target: dict[str, Any],
-) -> Path:
+def _resolve_scenario_csv(garden_root: Path, manifest: GardenManifest, target: dict[str, Any]) -> Path:
     return resolve_des_artifact_path(
         garden_root=garden_root,
         manifest=manifest,
@@ -759,11 +765,7 @@ def _resolve_scenario_csv(
     )
 
 
-def _resolve_system_parameter_json(
-    garden_root: Path,
-    manifest: GardenManifest,
-    target: dict[str, Any],
-) -> Path:
+def _resolve_system_parameter_json(garden_root: Path, manifest: GardenManifest, target: dict[str, Any]) -> Path:
     return resolve_des_artifact_path(
         garden_root=garden_root,
         manifest=manifest,
@@ -773,87 +775,35 @@ def _resolve_system_parameter_json(
     )
 
 
-def _bounded_existing_path(garden_root: Path, value: str | Path, *, suffix: str) -> Path:
-    path = Path(value).expanduser().resolve()
-    try:
-        path.relative_to(garden_root.resolve())
-    except ValueError as exc:
-        raise ValueError("Dragonfly DES runtime artifacts must stay inside the Garden.") from exc
-    if path.suffix.lower() != suffix:
-        raise ValueError(f"Expected a {suffix} artifact: {path}")
-    if not path.is_file():
-        raise ValueError(f"Dragonfly DES artifact not found: {path}")
-    return path
-
-
-def _bounded_existing_directory(garden_root: Path, value: str | Path | None) -> Path:
-    if value is None:
-        raise ValueError("Expected a Modelica project directory path.")
-    path = Path(value).expanduser().resolve()
-    try:
-        path.relative_to(garden_root.resolve())
-    except ValueError as exc:
-        raise ValueError("Dragonfly DES project directories must stay inside the Garden.") from exc
-    if not path.is_dir():
-        raise ValueError(f"Dragonfly DES project directory not found: {path}")
-    return path
-
-
-def _preflight_urbanopt_runtime() -> dict[str, Any]:
-    config = get_ladybug_tools_config()
-    urbanopt = config["summary_view"]["engines"].get("urbanopt", {})
-    issues = []
-    if not urbanopt.get("available"):
-        issues.append("URBANopt CLI or Gemfile is not available to dragonfly_energy.")
-    if not has_urbanopt_cli_bundle(urbanopt):
-        issues.append(
-            f"A local URBANopt CLI {REQUIRED_RUNTIME_VERSIONS['urbanopt']} bundle Gemfile is required."
-        )
-    if urbanopt.get("version_status") in {"older", "newer", "unknown"}:
-        issues.append("URBANopt runtime version does not match the required version.")
-    if issues:
-        return _blocked_preflight(issues, missing=["urbanopt"], runtime=urbanopt)
-    return {"status": "ok", "runtime_status": "ready", "issues": [], "runtime": urbanopt}
-
-
 def _preflight_gmt_runtime() -> dict[str, Any]:
     try:
-        config = get_ladybug_tools_config()
-        des_gmt = config.get("summary_view", {}).get("engines", {}).get("des_gmt")
+        des_gmt = get_ladybug_tools_config().get("summary_view", {}).get("engines", {}).get("des_gmt")
     except Exception:
         des_gmt = None
     if isinstance(des_gmt, dict):
         if des_gmt.get("available") is True:
-            return {
-                "status": "ok",
-                "runtime_status": "ready",
-                "issues": [],
-                "runtime": des_gmt,
-            }
+            return {"status": "ok", "runtime_status": "ready", "issues": [], "runtime": des_gmt}
         exe = des_gmt.get("exe")
         exe_path = exe.get("path") if isinstance(exe, dict) else None
         missing = [str(item) for item in des_gmt.get("missing", []) if item]
         details = ", ".join(missing) if missing else "DES GMT dependencies"
-        return _blocked_preflight(
+        return blocked_preflight(
             [f"GMT / uo_des command is not ready at {exe_path}; missing: {details}."],
             missing=["gmt"],
             runtime=des_gmt,
+            diagnostics=_des_diagnostics(des_gmt, ["gmt"]),
         )
     scripts_path = Path(str(hb_folders.python_scripts_path or "")).expanduser()
-    exe_name = "uo_des.exe" if _is_windows() else "uo_des"
-    gmt_exe = scripts_path / exe_name
+    gmt_exe = scripts_path / ("uo_des.exe" if os.name == "nt" else "uo_des")
+    runtime = {"python_scripts_path": str(scripts_path), "gmt_exe": str(gmt_exe)}
     if not gmt_exe.is_file():
-        return _blocked_preflight(
+        return blocked_preflight(
             [f"GMT / uo_des command was not found at {gmt_exe}."],
             missing=["gmt"],
             runtime={"python_scripts_path": str(scripts_path), "expected_exe": str(gmt_exe)},
+            diagnostics=_des_diagnostics({"python_scripts_path": str(scripts_path), "expected_exe": str(gmt_exe)}, ["gmt"]),
         )
-    return {
-        "status": "ok",
-        "runtime_status": "ready",
-        "issues": [],
-        "runtime": {"python_scripts_path": str(scripts_path), "gmt_exe": str(gmt_exe)},
-    }
+    return {"status": "ok", "runtime_status": "ready", "issues": [], "runtime": runtime}
 
 
 def _preflight_modelica_runtime() -> dict[str, Any]:
@@ -868,51 +818,19 @@ def _preflight_modelica_runtime() -> dict[str, Any]:
     if omc is None:
         issues.append("OpenModelica omc command is not available on PATH.")
         missing.append("openmodelica")
+    runtime = {"gmt": gmt.get("runtime"), "docker": docker, "omc": omc}
     if issues:
-        return _blocked_preflight(
+        return blocked_preflight(
             issues,
             missing=missing,
-            runtime={"gmt": gmt.get("runtime"), "docker": docker, "omc": omc},
+            runtime=runtime,
+            diagnostics=_des_diagnostics(runtime, missing),
         )
-    return {
-        "status": "ok",
-        "runtime_status": "ready",
-        "issues": [],
-        "runtime": {"gmt": gmt.get("runtime"), "docker": docker, "omc": omc},
-    }
+    return {"status": "ok", "runtime_status": "ready", "issues": [], "runtime": runtime}
 
 
-def _blocked_preflight(
-    issues: list[str],
-    *,
-    missing: list[str],
-    runtime: dict[str, Any],
-) -> dict[str, Any]:
-    result = {
-        "status": "blocked",
-        "runtime_status": "blocked",
-        "issues": issues,
-        "missing": sorted(set(missing)),
-        "runtime": runtime,
-        "recommended_next_tools": [CONFIG_NEXT_TOOL],
-    }
-    diagnostics = _runtime_diagnostics_from_preflight(result)
-    if diagnostics:
-        result["runtime_diagnostics"] = diagnostics
-    return result
-
-
-def _runtime_diagnostics_from_preflight(preflight: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(preflight, dict):
-        return {}
-    runtime = preflight.get("runtime")
-    if not isinstance(runtime, dict):
-        return {}
+def _des_diagnostics(runtime: dict[str, Any], missing: list[str]) -> dict[str, Any]:
     diagnostics: dict[str, Any] = {"network_policy": dict(DEFAULT_DES_NETWORK_POLICY)}
-    runtime_name = runtime.get("name")
-    if runtime_name == "urbanopt" or "cli_runtime_gemfile" in runtime:
-        diagnostics["urbanopt"] = runtime
-        return diagnostics
     gmt = runtime.get("gmt") if isinstance(runtime.get("gmt"), dict) else runtime
     if isinstance(gmt, dict):
         diagnostics["des_gmt"] = gmt
@@ -920,101 +838,16 @@ def _runtime_diagnostics_from_preflight(preflight: dict[str, Any] | None) -> dic
         diagnostics["modelica_runtime"] = {
             "docker": runtime.get("docker"),
             "omc": runtime.get("omc"),
-            "missing": list(preflight.get("missing") or []),
+            "missing": list(missing),
         }
     return diagnostics
 
 
-def _preflight_runtime_diagnostics(preflight: dict[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(preflight, dict):
-        return {}
-    existing = preflight.get("runtime_diagnostics")
-    if isinstance(existing, dict) and existing:
-        return existing
-    return _runtime_diagnostics_from_preflight(preflight)
-
-
-def _attach_runtime_diagnostics(
-    summary_view: dict[str, Any],
-    report_details: dict[str, Any],
-    preflight: dict[str, Any] | None,
-) -> None:
-    diagnostics = _preflight_runtime_diagnostics(preflight)
-    if diagnostics:
-        summary_view["runtime_diagnostics"] = diagnostics
-        report_details["runtime_diagnostics"] = diagnostics
-
-
-def _operation_blocked_result(
-    *,
-    garden_root: Path,
-    manifest: GardenManifest,
-    operation: str,
-    preflight: dict[str, Any],
-) -> dict[str, Any]:
-    recommended = list(preflight.get("recommended_next_tools") or [CONFIG_NEXT_TOOL])
-    summary_view = {
-        "garden_target": manifest.target(),
-        "operation": operation,
-        "runtime_status": "blocked",
-        "preflight": preflight,
-        "recommended_next_tools": recommended,
-    }
-    report_details = {
-        "garden_root": str(garden_root),
-        "recommended_next_tools": recommended,
-        "preflight": preflight,
-    }
-    _attach_runtime_diagnostics(summary_view, report_details, preflight)
-    return {
-        "runtime_status": "blocked",
-        "summary_view": summary_view,
-        "report": make_report(
-            status="warning",
-            message=f"Dragonfly DES operation blocked by missing runtime: {operation}",
-            warnings=list(preflight.get("issues") or []),
-            details=report_details,
-        ),
-    }
-
-
-def _is_windows() -> bool:
-    import os
-
-    return os.name == "nt"
-
-
-def _normalize_run_id(value: str | None, recipe: str) -> str:
-    return normalize_run_id(value, value or f"des_{recipe}_{utc_now_iso()}_{uuid4().hex[:8]}")
-
-
-def _run_target(garden_id: str, run_id: str, recipe: str) -> dict[str, Any]:
-    if recipe not in DES_RUN_RECIPES:
-        raise ValueError(f"Unsupported Dragonfly DES run recipe: {recipe}.")
-    return make_run_target(
-        target_type=DES_RUN_TARGET_TYPE,
-        garden_id=garden_id,
-        domain=DES_RUN_DOMAIN,
-        recipe=recipe,
-        run_id=run_id,
-    )
-
-
-def _run_id_from_target_or_value(
-    *,
-    run_target: dict[str, Any] | None,
-    run_id: str | None,
-    recipe: str,
-) -> str:
-    return run_id_from_target_or_value(
-        run_target,
-        run_id,
-        target_type=DES_RUN_TARGET_TYPE,
-        domain=DES_RUN_DOMAIN,
-        domain_message="run_target must reference domain 'dragonfly_des'.",
-        recipe=recipe,
-        missing_message="Pass run_target or run_id.",
-        slug_value=True,
+def _write_background_request(run_dir: Path, payload: dict[str, Any]) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "background_request.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
 
 
@@ -1034,7 +867,7 @@ def _record(
     **targets: Any,
 ) -> dict[str, Any]:
     started_at = utc_now_iso()
-    record = {
+    record: dict[str, Any] = {
         "run_id": run_id,
         "target": target,
         "recipe": recipe,
@@ -1058,82 +891,21 @@ def _record(
     return record
 
 
-def _failed_record(
-    *,
-    garden_root: Path,
-    run_id: str,
-    target: dict[str, Any],
-    recipe: str,
-    run_dir: Path,
-    preflight: dict[str, Any],
-    error: str,
-    candidate_status: str | None = None,
-    **targets: Any,
-) -> dict[str, Any]:
-    record = _record(
-        garden_root=garden_root,
-        run_id=run_id,
-        target=target,
-        recipe=recipe,
-        status="failed",
-        run_dir=run_dir,
-        preflight=preflight,
-        completed_at=utc_now_iso(),
-        error=error,
-        candidate_status=candidate_status,
-        **targets,
-    )
-    return record
-
-
-def _failure_fields(error: str, traceback_text: str) -> dict[str, Any]:
-    return {
-        "status": "failed",
-        "runtime_status": "failed",
-        "completed_at": utc_now_iso(),
-        "error": error,
-        "traceback": traceback_text,
-    }
-
-
-def _write_background_request(run_dir: Path, payload: dict[str, Any]) -> None:
-    run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "background_request.json").write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _index_path(garden_root: Path, recipe: str) -> Path:
-    return garden_root / DES_RUN_ROOT / recipe / "index.json"
-
-
-def _upsert_record(garden_root: Path, recipe: str, record: dict[str, Any]) -> None:
-    _DES_RUN_LEDGER.upsert(_index_path(garden_root, recipe), record)
-
-
-def _run_record_by_id(garden_root: Path, recipe: str, run_id: str) -> dict[str, Any] | None:
-    return _DES_RUN_LEDGER.get(_index_path(garden_root, recipe), run_id)
-
-
-def _stabilize_running_record(
-    garden_root: Path,
-    recipe: str,
-    record: dict[str, Any],
-) -> dict[str, Any]:
+def _stabilize_running_record(garden_root: Path, recipe: str, record: dict[str, Any]) -> dict[str, Any]:
     """Turn abandoned in-process background ledgers into honest blocked records."""
     if record.get("runtime_status") != "running":
         return record
-    if not _running_record_is_stale(record):
+    started = _parse_utc(record.get("started_at") or record.get("created_at"))
+    if started is None or (datetime.now(UTC) - started).total_seconds() < STALE_RUNNING_SECONDS:
         return record
     run_folder = record.get("run_folder")
-    discovered: list[dict[str, Any]] = []
-    if isinstance(run_folder, str):
-        discovered = _discover_outputs(garden_root, garden_root / run_folder)
+    discovered = (
+        discover_urbanopt_outputs(garden_root, garden_root / run_folder, include_kind=False)
+        if isinstance(run_folder, str)
+        else []
+    )
     if discovered:
-        record = dict(record)
-        record["outputs"] = discovered
-        return record
+        return {**record, "outputs": discovered}
 
     record = dict(record)
     message = (
@@ -1161,51 +933,18 @@ def _stabilize_running_record(
             "error": message,
         }
     )
-    _upsert_record(garden_root, recipe, record)
+    _DES_RUNS.upsert(garden_root, record, recipe=recipe)
     return record
-
-
-def _running_record_is_stale(record: dict[str, Any]) -> bool:
-    started = _parse_utc(record.get("started_at") or record.get("created_at"))
-    if started is None:
-        return False
-    return (datetime.now(UTC) - started).total_seconds() >= STALE_RUNNING_SECONDS
 
 
 def _parse_utc(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     try:
-        normalized = value.replace("Z", "+00:00")
-        parsed = datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
-
-
-def _public_run(record: dict[str, Any]) -> dict[str, Any]:
-    keys = (
-        "run_id",
-        "target",
-        "recipe",
-        "status",
-        "runtime_status",
-        "candidate_status",
-        "created_at",
-        "started_at",
-        "completed_at",
-        "run_folder",
-        "feature_geojson_target",
-        "scenario_csv_target",
-        "system_parameter_json_target",
-        "modelica_project_target",
-        "preflight",
-        "outputs",
-        "error",
-    )
-    return project_run(record, keys)
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
 def _result_from_record(
@@ -1220,18 +959,20 @@ def _result_from_record(
     recommended = list((record.get("preflight") or {}).get("recommended_next_tools") or [])
     if runtime_status in {"blocked", "failed"} and not recommended:
         recommended = [CONFIG_NEXT_TOOL]
-    poll_next = {
-        "tool": _poll_tool_name(record["recipe"]),
-        "arguments": {"garden_root": str(garden_root), "run_target": target},
-    }
-    summary_view = {
+    poll_tool = {
+        "urbanopt": "DF_DES_Poll_URBANopt_Simulation",
+        "sys_param": "DF_DES_Poll_Sys_Param",
+        "modelica": "DF_DES_Poll_Modelica_Simulation",
+    }[record["recipe"]]
+    poll_next = {"tool": poll_tool, "arguments": {"garden_root": str(garden_root), "run_target": target}}
+    summary_view: dict[str, Any] = {
         "garden_target": manifest.target(),
         "target": target,
         "run_id": record["run_id"],
         "recipe": record["recipe"],
         "status": runtime_status,
         "runtime_status": runtime_status,
-        "run": _public_run(record),
+        "run": _DES_RUNS.public_run(record),
         "outputs": record.get("outputs") or [],
         "poll_next": poll_next,
         "preflight": record.get("preflight"),
@@ -1239,20 +980,16 @@ def _result_from_record(
     }
     if record.get("candidate_status"):
         summary_view["candidate_status"] = record["candidate_status"]
-    report_status = "warning" if runtime_status in {"blocked", "failed"} else "ok"
-    report_details = {
-        "recommended_next_tools": recommended,
-        "preflight": record.get("preflight"),
-    }
-    _attach_runtime_diagnostics(summary_view, report_details, record.get("preflight"))
-    result = {
+    report_details = {"recommended_next_tools": recommended, "preflight": record.get("preflight")}
+    attach_runtime_diagnostics(summary_view, report_details, record.get("preflight"))
+    result: dict[str, Any] = {
         "target": target,
         "run_target": target,
         "runtime_status": runtime_status,
         "poll_next": poll_next,
         "summary_view": summary_view,
         "report": make_report(
-            status=report_status,
+            status="warning" if runtime_status in {"blocked", "failed"} else "ok",
             message=message,
             warnings=list((record.get("preflight") or {}).get("issues") or []),
             details=report_details,
@@ -1262,54 +999,3 @@ def _result_from_record(
         if key in record:
             result[key] = record[key]
     return result
-
-
-def _poll_tool_name(recipe: str) -> str:
-    return {
-        "urbanopt": "DF_des_poll_urbanopt_simulation",
-        "sys_param": "DF_des_poll_sys_param",
-        "modelica": "DF_des_poll_modelica_simulation",
-    }[recipe]
-
-
-def _output_for_path(garden_root: Path, path: Path, *, name: str | None = None) -> dict[str, Any]:
-    return {
-        "name": name or path.name,
-        "path": to_posix_relative(path, garden_root),
-        "exists": path.exists(),
-        "is_directory": path.is_dir(),
-    }
-
-
-def _outputs_from_sdk_result(garden_root: Path, value: Any) -> list[dict[str, Any]]:
-    outputs: list[dict[str, Any]] = []
-    for output_type, path in iter_urbanopt_sdk_output_paths(value):
-        path_obj = Path(path).resolve()
-        name = f"{output_type}:{path_obj.name}" if output_type else None
-        outputs.append(_output_for_path(garden_root, path_obj, name=name))
-    return outputs
-
-
-def _discover_outputs(garden_root: Path, run_dir: Path) -> list[dict[str, Any]]:
-    if not run_dir.is_dir():
-        return []
-    outputs = []
-    for path in sorted(run_dir.rglob("*")):
-        if not path.is_file() or path.name == "background_request.json":
-            continue
-        if path.name.lower() not in URBANOPT_STANDARD_OUTPUT_NAMES:
-            continue
-        outputs.append(_output_for_path(garden_root, path))
-    return outputs
-
-
-def _failed_job_error(garden_root: Path, run_dir: Path) -> str | None:
-    if not run_dir.is_dir():
-        return None
-    failed_jobs = sorted(run_dir.rglob("failed.job"))
-    if not failed_jobs:
-        return None
-    markers = ", ".join(to_posix_relative(path, garden_root) for path in failed_jobs[:5])
-    if len(failed_jobs) > 5:
-        markers += f", ... ({len(failed_jobs)} total)"
-    return f"URBANopt run wrote failed.job marker(s): {markers}"

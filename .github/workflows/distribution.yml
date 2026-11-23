@@ -164,21 +164,21 @@ jobs:
                   tools = {item.name for item in await client.list_tools()}
                   assert {"search", "get_schema", "execute"} <= tools
                   created = await execute(client, f'''\
-          created = await call_tool("GD_create", {{"name": "Distribution smoke", "root_dir": {str(gardens / "Distribution smoke")!r}}})
+          created = await call_tool("GD_Create", {{"name": "Distribution smoke", "root_dir": {str(gardens / "Distribution smoke")!r}}})
           return {{"created": created}}
           ''')
                   garden_root = created["created"]["garden_root"]
                   viewer_data = await execute(client, f'''\
-          viewer = await call_tool("GD_web_view_start_mode", {{"garden_root": {garden_root!r}, "name": "Distribution smoke"}})
+          viewer = await call_tool("GD_Web_View_Start_Mode", {{"garden_root": {garden_root!r}, "name": "Distribution smoke"}})
           return {{"viewer": viewer}}
           ''')
                   model_data = await execute(client, f'''\
-          model = await call_tool("HB_create_model", {{"garden_root": {garden_root!r}, "identifier": "package_model", "set_base": True}})
-          room = await call_tool("HB_create_room", {{"garden_root": {garden_root!r}, "identifier": "PackageRoom", "x_dim": 6, "y_dim": 5, "height": 3}})
+          model = await call_tool("HB_Create_Model", {{"garden_root": {garden_root!r}, "identifier": "package_model", "set_base": True}})
+          room = await call_tool("HB_Create_Room", {{"garden_root": {garden_root!r}, "identifier": "PackageRoom", "x_dim": 6, "y_dim": 5, "height": 3}})
           return {{"model": model, "room": room}}
           ''')
                   validation_data = await execute(client, f'''\
-          validation = await call_tool("HB_validate_model", {{"garden_root": {garden_root!r}}})
+          validation = await call_tool("HB_Validate_Model", {{"garden_root": {garden_root!r}}})
           return {{"validation": validation}}
           ''')
                   assert validation_data["validation"].get("valid", validation_data["validation"].get("is_valid"))
@@ -189,7 +189,7 @@ jobs:
                       preview_state = json.load(response)
                       assert "package_model" in json.dumps(preview_state)
                   (root / "protocol.json").write_text(json.dumps({**created, **viewer_data, **model_data, **validation_data}, indent=2, default=str), encoding="utf-8")
-                  await execute(client, f'return await call_tool("GD_web_view_stop_mode", {{"garden_root": {garden_root!r}}})')
+                  await execute(client, f'return await call_tool("GD_Web_View_Stop_Mode", {{"garden_root": {garden_root!r}}})')
               assert garden_root and (Path(garden_root) / "garden.json").is_file()
 
           asyncio.run(protocol_smoke())

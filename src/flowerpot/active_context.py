@@ -8,7 +8,7 @@ from typing import Any
 
 from garden.manifest import GardenManifest, utc_now_iso, write_json_file
 from garden.paths import slugify_name
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 ACTIVE_CONTEXT_DIR = "flowerpots/active_context"
 FLOWERPOT_KEYS = {

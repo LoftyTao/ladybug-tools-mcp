@@ -12,11 +12,10 @@ from dragonfly.model import Model
 
 from garden.dragonfly_core.model_io import load_dragonfly_model, resolve_model_target
 from garden.dragonfly_core.targets import (
-    is_dragonfly_object_target,
     make_dragonfly_object_target,
     normalize_dragonfly_object_target,
 )
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 
 SUPPORTED_OBJECT_TYPES = {"all", "building", "story", "room2d", "context_shade"}

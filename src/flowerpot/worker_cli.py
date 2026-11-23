@@ -11,7 +11,7 @@ from typing import Any
 from dragonfly.model import Model as DragonflyModel
 from honeybee.model import Model
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from flowerpot.active_context import write_active_context
 from flowerpot.properties_input import read_properties_input
 from flowerpot.registry import create_flowerpot, get_flowerpot

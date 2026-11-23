@@ -1,23 +1,54 @@
-"""Garden manifest model and file I/O."""
+"""Garden manifest, atomic file persistence, and process/thread locking."""
 
 from __future__ import annotations
 
-import json
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+import json
+import os
 from pathlib import Path
-from typing import Any
+from threading import Lock, RLock, local
+import time
+from typing import Any, Iterator, Mapping
 from uuid import uuid4
 
-from ladybug_tools_mcp.contracts.targets import make_garden_target
+from garden.paths import resolve_contained_path, windows_path_key
+from ladybug_tools_mcp.contracts import make_garden_target
 
 
 CURRENT_SCHEMA_VERSION = "1"
+LOCK_ACQUIRE_TIMEOUT_SECONDS = 60.0
+
+_PROCESS_LOCKS_GUARD = Lock()
+_PROCESS_LOCKS: dict[tuple[int, str], RLock] = {}
+_LOCK_STATE = local()
 
 
 def utc_now_iso() -> str:
     """Return a compact UTC timestamp."""
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def atomic_write_bytes(path: Path, content: bytes) -> None:
+    """Atomically write bytes via a sibling temp file and ``os.replace``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{uuid4().hex}.tmp")
+    try:
+        with tmp_path.open("xb") as handle:
+            handle.write(content)
+            handle.flush()
+        for attempt in range(5):
+            try:
+                os.replace(tmp_path, path)
+                break
+            except PermissionError:
+                if os.name != "nt" or attempt == 4:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
 
 
 def write_json_file(
@@ -26,16 +57,90 @@ def write_json_file(
     *,
     ensure_ascii: bool = True,
 ) -> None:
-    """Write a UTF-8 JSON object with a stable trailing newline."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(data, handle, indent=2, ensure_ascii=ensure_ascii)
-        handle.write("\n")
+    """Atomically write a UTF-8 JSON object with a stable trailing newline."""
+    payload = (json.dumps(data, indent=2, ensure_ascii=ensure_ascii) + "\n").encode("utf-8")
+    atomic_write_bytes(path, payload)
+
+
+def _process_lock(root: Path) -> RLock:
+    key = (os.getpid(), str(root))
+    with _PROCESS_LOCKS_GUARD:
+        lock = _PROCESS_LOCKS.get(key)
+        if lock is None:
+            lock = RLock()
+            _PROCESS_LOCKS[key] = lock
+        return lock
+
+
+@contextmanager
+def garden_lock(garden_root: Path) -> Iterator[None]:
+    """Serialize Garden mutations across threads and OS processes."""
+    root = garden_root.expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"Garden root directory not found: {root}")
+    key = (os.getpid(), str(root))
+    with _process_lock(root):
+        depths = getattr(_LOCK_STATE, "depths", None)
+        if depths is None:
+            depths = {}
+            _LOCK_STATE.depths = depths
+        depth = depths.get(key, 0)
+        if depth:
+            depths[key] = depth + 1
+            try:
+                yield
+            finally:
+                depths[key] -= 1
+            return
+
+        lock_path = root / ".garden" / "garden.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+b") as lock_file:
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
+            started = time.monotonic()
+            while True:
+                lock_file.seek(0)
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+
+                        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as exc:
+                    if time.monotonic() - started > LOCK_ACQUIRE_TIMEOUT_SECONDS:
+                        raise TimeoutError(
+                            f"Timed out waiting for Garden lock at {lock_path}."
+                        ) from exc
+                    time.sleep(0.05)
+
+            owner_pid = os.getpid()
+            depths[key] = 1
+            try:
+                yield
+            finally:
+                depths.pop(key, None)
+                if os.getpid() == owner_pid:
+                    lock_file.seek(0)
+                    if os.name == "nt":
+                        import msvcrt
+
+                        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 @dataclass(slots=True)
 class GardenManifest:
-    """Minimal Garden manifest for the first implementation slice."""
+    """Garden project manifest persisted in ``garden.json``."""
 
     garden_id: str
     name: str
@@ -62,13 +167,7 @@ class GardenManifest:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "GardenManifest":
-        """Load a manifest from a JSON-compatible dict."""
-        try:
-            json.dumps(data, ensure_ascii=False, allow_nan=False)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Garden manifest must contain JSON-compatible values: {exc}"
-            ) from exc
+        """Load and validate a manifest from a JSON-compatible dict."""
         schema_version = data.get("schema_version")
         if not isinstance(schema_version, str) or not schema_version:
             raise ValueError("Garden manifest schema_version must be a non-empty string.")
@@ -95,6 +194,7 @@ class GardenManifest:
             raise ValueError("Garden manifest created_at must be a non-empty string.")
         if not isinstance(updated_at, str) or not updated_at:
             raise ValueError("Garden manifest updated_at must be a non-empty string.")
+
         base_models: dict[str, dict[str, Any] | None] = {}
         for field_name in (
             "base_honeybee_model",
@@ -107,6 +207,7 @@ class GardenManifest:
                     f"Garden manifest {field_name} must be an object or null."
                 )
             base_models[field_name] = value
+
         collections: dict[str, list[dict[str, Any]]] = {}
         for field_name in ("models", "weather_files", "artifacts"):
             value = data.get(field_name, [])
@@ -117,6 +218,7 @@ class GardenManifest:
                     f"Garden manifest {field_name} must be a list of objects."
                 )
             collections[field_name] = list(value)
+
         return cls(
             garden_id=garden_id,
             name=name,
@@ -135,21 +237,9 @@ class GardenManifest:
 
     @classmethod
     def read(cls, garden_root: Path) -> "GardenManifest":
-        """Read `garden.json` from a Garden root."""
-        from garden.operations import (
-            garden_authoring_lock,
-            recover_interrupted_operations,
-        )
-
-        garden_root = garden_root.expanduser().resolve()
-        with garden_authoring_lock(garden_root):
-            recover_interrupted_operations(garden_root)
-            return cls._read_unlocked(garden_root)
-
-    @classmethod
-    def _read_unlocked(cls, garden_root: Path) -> "GardenManifest":
-        """Read the manifest while the caller owns the Garden authoring lock."""
-        with (garden_root / "garden.json").open("r", encoding="utf-8") as handle:
+        """Read ``garden.json`` from a Garden root without creating lock files."""
+        root = garden_root.expanduser().resolve()
+        with (root / "garden.json").open("r", encoding="utf-8") as handle:
             data = json.load(handle)
         if not isinstance(data, dict):
             raise ValueError("Garden manifest must be a JSON object.")
@@ -198,22 +288,52 @@ class GardenManifest:
         self,
         garden_root: Path,
         *,
-        expected_revision: int | None = None,
-        operation_id: str | None = None,
-        operation_type: str = "manifest_write",
+        staged_writes: Mapping[str, bytes] | None = None,
     ) -> Path:
-        """Atomically commit `garden.json` with revision conflict detection."""
-        from garden.operations import commit_manifest
+        """Atomically persist optional staged files and ``garden.json`` under lock."""
+        self.validate()
+        root = garden_root.expanduser().resolve()
+        resolved_writes: list[tuple[str, Path, bytes]] = []
+        seen_keys: set[str] = set()
+        for raw_path, content in (staged_writes or {}).items():
+            if not isinstance(content, bytes):
+                raise TypeError("Garden staged_writes values must be bytes.")
+            target = resolve_contained_path(root, raw_path, label="Garden staged path")
+            rel_posix = target.relative_to(root).as_posix()
+            key = windows_path_key(rel_posix)
+            if key == "garden.json" or key.startswith("garden.json/"):
+                raise ValueError("staged_writes cannot replace garden.json directly.")
+            if key == ".garden" or key.startswith(".garden/"):
+                raise ValueError("staged_writes cannot write internal .garden state.")
+            if key in seen_keys:
+                raise ValueError(f"staged_writes contains duplicate path alias: {raw_path}.")
+            seen_keys.add(key)
+            resolved_writes.append((rel_posix, target, content))
+        resolved_writes.sort(key=lambda item: item[0])
 
-        garden_root = garden_root.expanduser().resolve()
-        commit_manifest(
-            garden_root,
-            self,
-            operation_type=operation_type,
-            operation_id=operation_id,
-            expected_revision=expected_revision,
-        )
-        return garden_root / "garden.json"
+        with garden_lock(root):
+            previous_revision = self.revision
+            previous_updated_at = self.updated_at
+            try:
+                for _, target, content in resolved_writes:
+                    atomic_write_bytes(target, content)
+                self.revision += 1
+                self.updated_at = utc_now_iso()
+                manifest_bytes = (
+                    json.dumps(
+                        self.to_dict(),
+                        indent=2,
+                        ensure_ascii=False,
+                        allow_nan=False,
+                    )
+                    + "\n"
+                ).encode("utf-8")
+                atomic_write_bytes(root / "garden.json", manifest_bytes)
+            except Exception:
+                self.revision = previous_revision
+                self.updated_at = previous_updated_at
+                raise
+        return root / "garden.json"
 
     def target(self) -> dict[str, str]:
         """Return this Garden's public target."""

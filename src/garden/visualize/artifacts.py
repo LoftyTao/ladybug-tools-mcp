@@ -9,8 +9,7 @@ from typing import Any
 import ladybug_vtk._extend_visualization_set  # noqa: F401
 from ladybug_display.visualization import VisualizationSet
 
-from ladybug_tools_mcp.contracts.receipts import make_artifact_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_artifact_receipt, make_report
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
 

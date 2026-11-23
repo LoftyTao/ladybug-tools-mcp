@@ -8,10 +8,6 @@ from typing import Any
 from honeybee.model import Model
 from honeybee.room import Room
 
-from garden.operations import (
-    GardenRevisionConflictError,
-    active_operation_controls,
-)
 from garden.honeybee_core.edit import (
     _construction_set_from_input,
     _hvac_from_dict,
@@ -32,8 +28,7 @@ from garden.honeybee_core.targets import (
     make_honeybee_object_target,
     normalize_honeybee_object_target,
 )
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 
 
 _ENERGY_FIELDS = (
@@ -92,7 +87,6 @@ def apply_room_energy_properties(
     sample = room_identifiers[:_MAX_IDENTIFIER_SAMPLE]
     updated_sample = updated_room_identifiers[:_MAX_IDENTIFIER_SAMPLE]
     updated_fields = list(property_inputs)
-    controls = active_operation_controls()
     change_summary = {
         "operation": "apply_room_energy_properties",
         "target": resolved_model_target,
@@ -117,13 +111,6 @@ def apply_room_energy_properties(
         updated_model_target = resolved_model_target
         persisted_path = str(resolved_model_target.get("path", ""))
         receipt_status = "no_change"
-        if controls is not None and controls[1] is not None:
-            expected_revision = controls[1]
-            if expected_revision != manifest.revision:
-                raise GardenRevisionConflictError(
-                    expected_revision=expected_revision,
-                    current_revision=manifest.revision,
-                )
 
     change_summary["model_target"] = updated_model_target
     response = {

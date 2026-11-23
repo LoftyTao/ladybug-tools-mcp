@@ -9,7 +9,7 @@ from typing import Any
 from honeybee_energy.simulation.output import SimulationOutput
 from honeybee_energy.simulation.parameter import SimulationParameter
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
 

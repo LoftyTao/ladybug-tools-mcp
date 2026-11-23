@@ -99,7 +99,7 @@ def apply_honeybee_postprocess(
     if selected == "suggest_validate":
         warning = (
             "Postprocess strategy suggest_validate did not modify relationships. "
-            "Run HB_validate_model if this change should be checked."
+            "Run HB_Validate_Model if this change should be checked."
         )
         return model, _summary(selected, "suggested", warnings=[warning])
     if selected == "auto_validate":
@@ -179,7 +179,7 @@ def _apply_auto_relate(
     except Exception as exc:  # pragma: no cover - SDK-specific diagnostics vary
         message = (
             "Automatic Honeybee postprocess failed; the original edit was preserved. "
-            "Run HB_relate_model or HB_validate_model to inspect the model. "
+            "Run HB_Relate_Model or HB_Validate_Model to inspect the model. "
             f"{exc}"
         )
         return model, _summary(

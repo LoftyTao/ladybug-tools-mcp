@@ -1,9 +1,9 @@
-"""Dragonfly Model to URBANopt / DES artifact export services."""
+"""Dragonfly Model to URBANopt / DES artifact helpers and export services."""
 
 from __future__ import annotations
 
-import json
 from hashlib import sha1
+import json
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -15,27 +15,112 @@ from ladybug.location import Location
 from ladybug_geometry.geometry2d.pointvector import Point2D
 
 from garden.dragonfly_core.model_io import load_dragonfly_model, resolve_model_target
-from garden.dragonfly_grid.serialization import load_grid_object
+from garden.dragonfly_grid.authoring import load_grid_object
 from garden.manifest import GardenManifest
-from garden.paths import simulation_folder_name, slugify_name, to_posix_relative, windows_path_key
-from garden.run_ledger import serialized_run_start
-from ladybug_tools_mcp.contracts.receipts import make_artifact_receipt
-from ladybug_tools_mcp.contracts.report import make_report
-
-from .artifacts import (
-    DES_EXPORT_BUNDLE_ARTIFACT_TYPE,
-    DES_FEATURE_GEOJSON_ARTIFACT_TYPE,
-    DES_HONEYBEE_HBJSON_ARTIFACT_TYPE,
-    DES_SCENARIO_CSV_ARTIFACT_TYPE,
-    DES_SYSTEM_PARAMETER_JSON_ARTIFACT_TYPE,
-    artifact_target_for_path,
-    register_des_artifacts,
+from garden.paths import (
+    resolve_existing_garden_path,
+    simulation_folder_name,
+    slugify_name,
+    to_posix_relative,
+    windows_path_key,
 )
-from .serialization import load_des_object
+from garden.run_ledger import serialized_run_start
+from ladybug_tools_mcp.contracts import make_artifact_receipt, make_report
+
+from .authoring import load_des_object
+
+DES_ARTIFACT_DOMAIN = "dragonfly_des"
+DES_EXPORT_BUNDLE_ARTIFACT_TYPE = "dragonfly_des_export_bundle"
+DES_FEATURE_GEOJSON_ARTIFACT_TYPE = "dragonfly_des_feature_geojson"
+DES_HONEYBEE_HBJSON_ARTIFACT_TYPE = "dragonfly_des_honeybee_hbjson"
+DES_SCENARIO_CSV_ARTIFACT_TYPE = "dragonfly_des_scenario_csv"
+DES_SYSTEM_PARAMETER_JSON_ARTIFACT_TYPE = "dragonfly_des_system_parameter_json"
+DES_MODELICA_PROJECT_ARTIFACT_TYPE = "dragonfly_des_modelica_project"
 
 DES_EXPORTS_DIR = Path("")
 MAX_EXPORT_ID_LENGTH = 32
 URBANOPT_RUN_ROOT = Path("runs") / "urbanopt"
+
+
+def make_des_artifact_target(
+    *,
+    manifest: GardenManifest,
+    identifier: str,
+    artifact_type: str,
+    path: str,
+) -> dict[str, Any]:
+    """Build a compact Dragonfly DES Garden artifact target."""
+    return {
+        "target_type": "artifact",
+        "domain": DES_ARTIFACT_DOMAIN,
+        "garden_id": manifest.garden_id,
+        "artifact_type": artifact_type,
+        "identifier": identifier,
+        "path": path,
+    }
+
+
+def register_des_artifacts(
+    *,
+    manifest: GardenManifest,
+    garden_root: Path,
+    targets: list[dict[str, Any]],
+) -> None:
+    """Register DES artifact targets in the Garden manifest."""
+    for target in targets:
+        manifest.upsert_artifact(target, key_fields=("domain", "artifact_type", "identifier"))
+    manifest.write(garden_root)
+
+
+def artifact_target_for_path(
+    *,
+    manifest: GardenManifest,
+    garden_root: Path,
+    identifier: str,
+    artifact_type: str,
+    path: Path,
+) -> dict[str, Any]:
+    """Build a DES artifact target from an absolute Garden-bounded path."""
+    return make_des_artifact_target(
+        manifest=manifest,
+        identifier=identifier,
+        artifact_type=artifact_type,
+        path=to_posix_relative(path, garden_root),
+    )
+
+
+def resolve_des_artifact_path(
+    *,
+    garden_root: Path,
+    manifest: GardenManifest,
+    target: dict[str, Any],
+    expected_artifact_type: str | None = None,
+    suffix: str | None = None,
+    expect_directory: bool = False,
+) -> Path:
+    """Resolve and validate a DES artifact target path inside one Garden."""
+    if not isinstance(target, dict):
+        raise ValueError("Expected a Dragonfly DES artifact target dictionary.")
+    if target.get("target_type") != "artifact":
+        raise ValueError("DES artifact target must have target_type 'artifact'.")
+    if target.get("domain") != DES_ARTIFACT_DOMAIN:
+        raise ValueError("DES artifact target must reference domain 'dragonfly_des'.")
+    if target.get("garden_id") != manifest.garden_id:
+        raise ValueError("DES artifact target belongs to a different Garden.")
+    if expected_artifact_type is not None and target.get("artifact_type") != expected_artifact_type:
+        raise ValueError(f"Expected DES artifact type '{expected_artifact_type}'.")
+    path_value = target.get("path")
+    if not isinstance(path_value, str) or not path_value:
+        raise ValueError("DES artifact target requires a non-empty path.")
+    if Path(path_value).is_absolute():
+        raise ValueError("DES artifact target path must be Garden-relative.")
+    return resolve_existing_garden_path(
+        garden_root,
+        path_value,
+        kind="directory" if expect_directory else "file",
+        suffix=suffix,
+        label="DES artifact target",
+    )
 
 
 @serialized_run_start
@@ -146,7 +231,9 @@ def export_urbanopt_model(
         garden_root=garden_root_path,
         identifier=f"{export_id}_feature_geojson",
         artifact_type=DES_FEATURE_GEOJSON_ARTIFACT_TYPE,
-        path=_bounded_existing_path(garden_root_path, feature_geojson, suffix=".geojson"),
+        path=resolve_existing_garden_path(
+            garden_root_path, feature_geojson, kind="file", suffix=".geojson", label="Dragonfly DES export artifact"
+        ),
     )
     feature_target["model_target"] = resolved_model_target
     hb_targets = [
@@ -155,7 +242,9 @@ def export_urbanopt_model(
             garden_root=garden_root_path,
             identifier=f"{export_id}_{slugify_name(Path(path).stem)}",
             artifact_type=DES_HONEYBEE_HBJSON_ARTIFACT_TYPE,
-            path=_bounded_existing_path(garden_root_path, path, suffix=".hbjson"),
+            path=resolve_existing_garden_path(
+                garden_root_path, path, kind="file", suffix=".hbjson", label="Dragonfly DES export artifact"
+            ),
         )
         for path in hb_model_jsons
     ]
@@ -199,10 +288,7 @@ def export_urbanopt_model(
             ],
         },
         "persistence_receipt": receipt,
-        "artifact_receipts": [
-            _artifact_receipt(manifest, target, garden_root_path)
-            for target in targets
-        ],
+        "artifact_receipts": [_artifact_receipt(manifest, target, garden_root_path) for target in targets],
         "report": make_report(
             status="ok",
             message=f"Exported Dragonfly Model to URBANopt artifacts: {export_id}",
@@ -263,21 +349,27 @@ def export_model_to_des(
         garden_root=garden_root_path,
         identifier=f"{export_id}_feature_geojson",
         artifact_type=DES_FEATURE_GEOJSON_ARTIFACT_TYPE,
-        path=_bounded_existing_path(garden_root_path, feature_geojson, suffix=".geojson"),
+        path=resolve_existing_garden_path(
+            garden_root_path, feature_geojson, kind="file", suffix=".geojson", label="Dragonfly DES export artifact"
+        ),
     )
     scenario_target = artifact_target_for_path(
         manifest=manifest,
         garden_root=garden_root_path,
         identifier=f"{export_id}_scenario_csv",
         artifact_type=DES_SCENARIO_CSV_ARTIFACT_TYPE,
-        path=_bounded_existing_path(garden_root_path, scenario_csv, suffix=".csv"),
+        path=resolve_existing_garden_path(
+            garden_root_path, scenario_csv, kind="file", suffix=".csv", label="Dragonfly DES export artifact"
+        ),
     )
     system_target = artifact_target_for_path(
         manifest=manifest,
         garden_root=garden_root_path,
         identifier=f"{export_id}_system_parameter_json",
         artifact_type=DES_SYSTEM_PARAMETER_JSON_ARTIFACT_TYPE,
-        path=_bounded_existing_path(garden_root_path, system_parameters, suffix=".json"),
+        path=resolve_existing_garden_path(
+            garden_root_path, system_parameters, kind="file", suffix=".json", label="Dragonfly DES export artifact"
+        ),
     )
     targets = [bundle_target, feature_target, scenario_target, system_target]
     register_des_artifacts(manifest=manifest, garden_root=garden_root_path, targets=targets)
@@ -313,10 +405,7 @@ def export_model_to_des(
             "system_parameter_json_target": system_target,
         },
         "persistence_receipt": receipt,
-        "artifact_receipts": [
-            _artifact_receipt(manifest, target, garden_root_path)
-            for target in targets
-        ],
+        "artifact_receipts": [_artifact_receipt(manifest, target, garden_root_path) for target in targets],
         "report": make_report(
             status="ok",
             message=f"Exported Dragonfly Model to DES artifacts: {export_id}",
@@ -334,7 +423,7 @@ def _prepare_urbanopt_folder(
     export_dir: Path,
     model_target: dict[str, Any],
 ) -> None:
-    from garden.run_urbanopt.run import URBANOPT_RUN_INDEX, _URBANOPT_RUN_LEDGER
+    from garden.run_urbanopt import URBANOPT_RUN_INDEX, _URBANOPT_RUN_LEDGER
 
     _URBANOPT_RUN_LEDGER.prepare_folder(
         garden_root / URBANOPT_RUN_INDEX,
@@ -361,8 +450,7 @@ def _ensure_existing_urbanopt_model(
             if (
                 isinstance(previous, dict)
                 and previous.get("model_identifier")
-                and previous.get("model_identifier")
-                != model_target.get("model_identifier")
+                and previous.get("model_identifier") != model_target.get("model_identifier")
             ):
                 raise ValueError(
                     f"URBANopt project folder belongs to another model: {path}. "
@@ -378,10 +466,7 @@ def _patch_urbanopt_detailed_model_filenames(
     feature_path = Path(feature_geojson).expanduser()
     if not feature_path.is_file():
         return
-    hbjson_by_stem = {
-        Path(path).stem: str(Path(path).expanduser().resolve())
-        for path in hb_model_jsons
-    }
+    hbjson_by_stem = {Path(path).stem: str(Path(path).expanduser().resolve()) for path in hb_model_jsons}
     if not hbjson_by_stem:
         return
     geo_dict = json.loads(feature_path.read_text(encoding="utf-8"))
@@ -390,18 +475,12 @@ def _patch_urbanopt_detailed_model_filenames(
         properties = feature.get("properties") if isinstance(feature, dict) else None
         if not isinstance(properties, dict) or properties.get("type") != "Building":
             continue
-        building_id = properties.get("id")
-        hbjson = hbjson_by_stem.get(str(building_id))
-        if hbjson is None:
-            continue
-        if properties.get("detailed_model_filename") != hbjson:
+        hbjson = hbjson_by_stem.get(str(properties.get("id")))
+        if hbjson is not None and properties.get("detailed_model_filename") != hbjson:
             properties["detailed_model_filename"] = hbjson
             changed = True
     if changed:
-        feature_path.write_text(
-            json.dumps(geo_dict, indent=4, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        feature_path.write_text(json.dumps(geo_dict, indent=4, ensure_ascii=False), encoding="utf-8")
 
 
 def _export_id(folder_name: str | None, model_identifier: str, suffix: str) -> str:
@@ -477,19 +556,6 @@ def _point2d(value: list[float] | None) -> Point2D:
     return Point2D(value[0], value[1])
 
 
-def _bounded_existing_path(garden_root: Path, value: str | Path, *, suffix: str) -> Path:
-    path = Path(value).expanduser().resolve()
-    try:
-        path.relative_to(garden_root.resolve())
-    except ValueError as exc:
-        raise ValueError("Dragonfly DES export artifacts must stay inside the Garden.") from exc
-    if path.suffix.lower() != suffix:
-        raise ValueError(f"Expected a {suffix} export artifact: {path}")
-    if not path.is_file():
-        raise ValueError(f"Dragonfly DES export artifact not found: {path}")
-    return path
-
-
 def _resolve_weather_epw(
     *,
     garden_root: Path,
@@ -507,23 +573,12 @@ def _resolve_weather_epw(
         raise ValueError("weather_target requires epw_path.")
     if Path(path_value).is_absolute():
         raise ValueError("weather_target epw_path must be Garden-relative.")
-    epw_path = (garden_root / path_value).resolve()
-    try:
-        epw_path.relative_to(garden_root.resolve())
-    except ValueError as exc:
-        raise ValueError("weather_target epw_path must stay inside the Garden.") from exc
-    if epw_path.suffix.lower() != ".epw":
-        raise ValueError("weather_target epw_path must reference a .epw file.")
-    if not epw_path.is_file():
-        raise ValueError(f"EPW file not found: {path_value}")
-    return epw_path
+    return resolve_existing_garden_path(
+        garden_root, path_value, kind="file", suffix=".epw", label="weather_target epw_path"
+    )
 
 
-def _artifact_receipt(
-    manifest: GardenManifest,
-    target: dict[str, Any],
-    garden_root: Path,
-) -> dict[str, Any]:
+def _artifact_receipt(manifest: GardenManifest, target: dict[str, Any], garden_root: Path) -> dict[str, Any]:
     return make_artifact_receipt(
         status="persisted",
         garden_id=manifest.garden_id,

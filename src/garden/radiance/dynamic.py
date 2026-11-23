@@ -18,7 +18,7 @@ from garden.honeybee_core.edit import (
 )
 from garden.honeybee_core.geometry import face3d_from_dict
 from garden.libraries.properties import get_garden_properties_library_object
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 
 def _modifier_from_input(

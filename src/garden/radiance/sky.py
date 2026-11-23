@@ -18,8 +18,7 @@ from ladybug_radiance.skymatrix import SkyMatrix
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
 from garden.run_energy.config import WEATHER_TARGET_TYPE
-from ladybug_tools_mcp.contracts.receipts import make_artifact_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_artifact_receipt, make_report
 
 WEA_TARGET_TYPE = "wea_file"
 WEA_ARTIFACT_TYPE = "wea_file"

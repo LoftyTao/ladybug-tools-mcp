@@ -8,7 +8,7 @@ from typing import Any
 from honeybee_radiance.lib.modifiers import MODIFIERS
 from honeybee_radiance.lib.modifiersets import MODIFIER_SETS
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 
 @dataclass(frozen=True)

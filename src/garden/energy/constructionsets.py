@@ -48,7 +48,7 @@ from honeybee_energy.material.shade import (
     EnergyWindowMaterialShade,
 )
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.energy.programtypes import _schedule_from_input
 from garden.libraries.properties import (
     get_garden_properties_library_object,

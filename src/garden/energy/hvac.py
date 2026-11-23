@@ -14,7 +14,7 @@ from honeybee_energy.hvac.idealair import IdealAirSystem
 from honeybee_energy.lib.schedules import schedule_by_identifier
 from honeybee_energy.schedule.dictutil import dict_to_schedule
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.libraries.properties import save_garden_properties_library_object
 
 

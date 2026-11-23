@@ -20,7 +20,7 @@ from garden.manifest import GardenManifest
 from garden.paths import slugify_name
 from garden.visualize.artifacts import save_visualization_set
 from garden.visualize.legend import legend_parameter_from_dict
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 
 def _load_collection(

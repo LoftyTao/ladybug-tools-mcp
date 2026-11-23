@@ -18,8 +18,7 @@ from garden.honeybee_core.model_io import (
     resolve_model_target as resolve_honeybee_model_target,
     save_honeybee_model,
 )
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 
 
 def dragonfly_model_to_honeybee(

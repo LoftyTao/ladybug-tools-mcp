@@ -20,7 +20,7 @@ from garden.dragonfly_core.model_io import load_dragonfly_model, resolve_model_t
 from garden.dragonfly_core.targets import normalize_dragonfly_object_target
 from garden.paths import slugify_name
 from garden.visualize.artifacts import save_visualization_set
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 
 def _summarize_visualization_set(
@@ -564,7 +564,7 @@ def dragonfly_room2d_attribute_to_visualization_set(
     name: str | None = None,
     return_visualization_set: bool = True,
 ) -> dict[str, Any]:
-    """Create a Room2D attribute-group preview from DF_room2ds_by_attribute output."""
+    """Create a Room2D attribute-group preview from DF_Room2Ds_By_Attribute output."""
     if not isinstance(attribute_result, dict):
         raise ValueError("attribute_result must be a dictionary.")
     selection = attribute_result.get("selection")

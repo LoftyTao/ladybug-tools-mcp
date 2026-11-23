@@ -12,8 +12,7 @@ from honeybee.model import Model
 from honeybee.room import Room
 from honeybee.shade import Shade
 
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 from garden.honeybee_core.geometry import (
     plane_from_dict,
     point3d_from_dict,
@@ -256,7 +255,7 @@ def _transform_warnings(target: dict[str, Any], obj: Transformable) -> list[str]
     warnings = [
         "Partial object transforms can break adjacency, host boundary containment, "
         "coplanar sub-face relationships, or dynamic state geometry. Run "
-        "HB_relate_model and HB_validate_model when those relationships matter."
+        "HB_Relate_Model and HB_Validate_Model when those relationships matter."
     ]
     if target.get("parent"):
         warnings.append(

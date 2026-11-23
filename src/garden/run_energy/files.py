@@ -10,7 +10,7 @@ from typing import Any
 from honeybee_energy.result.eui import eui_from_sql
 from honeybee_energy.run import run_idf, run_osw
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import to_posix_relative
 from garden.run_energy.annual import (

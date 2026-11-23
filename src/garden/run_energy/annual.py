@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from contextlib import contextmanager
 import json
-import logging
 from pathlib import Path
 import os
 import shutil
@@ -15,18 +14,16 @@ from typing import Any
 from ladybug.ddy import DDY
 from ladybug.epw import EPW
 
-from ladybug_tools_mcp.contracts.report import make_report
-from garden.background import submit_worker_process
+from ladybug_tools_mcp.contracts import make_report
+from garden.background import capture_recipe_stdio, submit_worker_process
 from garden.manifest import GardenManifest, utc_now_iso
-from garden.paths import simulation_folder_name, to_posix_relative
-from garden.run_ledger import (
-    RunLedger,
-    make_run_target,
-    normalize_run_id,
-    project_run,
-    serialized_run_start,
+from garden.paths import (
+    require_garden_root,
+    resolve_existing_garden_path,
+    simulation_folder_name,
+    to_posix_relative,
 )
-from garden.run_ledger import run_id_from_target_or_value
+from garden.run_ledger import RunManager, serialized_run_start
 from garden.honeybee_core.model_io import resolve_model_target
 from garden.ironbug.runtime import (
     resolve_ironbug_console_exe,
@@ -52,7 +49,7 @@ ENERGY_RUN_RECIPES = {
 ENERGY_RUNS_DIR = Path("runs") / "energy"
 ENERGY_RUN_INDEX = ENERGY_RUNS_DIR / "index.json"
 OUTPUT_NAMES = ("err", "eui", "html", "result-report", "sql", "visual-report", "zsz")
-GARDEN_VERSION_NEXT_TOOL = "GD_create_version"
+GARDEN_VERSION_NEXT_TOOL = "GD_Create_Version"
 
 
 def _recipe_cli_path(path_value: str | None = None) -> str:
@@ -119,31 +116,68 @@ def _submit_energy_background(**kwargs: Any) -> subprocess.Popen:
     return submit_worker_process(
         garden_root=garden_root,
         run_dir=run_dir,
-        worker_module="garden.run_energy.worker",
+        worker_module="garden.run_energy.annual:run_energy_worker",
         request={"garden_root": str(garden_root), "run_id": run_id},
         cwd=garden_root,
         environment=env,
     )
 
 
-def _garden_root(value: str) -> Path:
-    return Path(value).expanduser().resolve()
+_garden_root = require_garden_root
+_capture_recipe_stdio = capture_recipe_stdio
+
+ENERGY_RUN_PUBLIC_FIELDS = (
+    "run_id",
+    "target",
+    "recipe",
+    "status",
+    "created_at",
+    "completed_at",
+    "model_target",
+    "model_display_name",
+    "model_path",
+    "weather_target",
+    "epw_path",
+    "ddy_path",
+    "run_folder",
+    "outputs",
+    "units",
+    "workers",
+    "preflight",
+    "simulation_parameter_target",
+    "design_day_resolution",
+    "output_request_target",
+    "sim_par_path",
+    "additional_idf_path",
+    "additional_idf_source",
+    "measures_path",
+    "input_file_path",
+    "workflow_path",
+    "source_file_path",
+    "run_input_path",
+    "expand_objects",
+)
+
+_ENERGY_RUNS = RunManager(
+    domain=ENERGY_RUN_DOMAIN,
+    target_type=ENERGY_RUN_TARGET_TYPE,
+    runs_dir=ENERGY_RUNS_DIR,
+    default_recipe=ENERGY_RUN_RECIPE,
+    allowed_recipes=ENERGY_RUN_RECIPES,
+    run_id_prefix="energy",
+    target_run_id_required=False,
+    not_found_label="Energy",
+    public_fields=ENERGY_RUN_PUBLIC_FIELDS,
+)
+_ENERGY_RUN_LEDGER = _ENERGY_RUNS.ledger
 
 
 def _run_index_path(garden_root: Path) -> Path:
-    return garden_root / ENERGY_RUN_INDEX
-
-
-_ENERGY_RUN_LEDGER = RunLedger(
-    lock="file",
-    atomic=True,
-    recover_trailing_json=True,
-    sort_by_created_at=True,
-)
+    return _ENERGY_RUNS.index_path(garden_root)
 
 
 def _read_index(garden_root: Path) -> list[dict[str, Any]]:
-    return _ENERGY_RUN_LEDGER.list(_run_index_path(garden_root))
+    return _ENERGY_RUNS.list(garden_root)
 
 
 def _run_target(
@@ -152,21 +186,11 @@ def _run_target(
     *,
     recipe: str = ENERGY_RUN_RECIPE,
 ) -> dict[str, str]:
-    return make_run_target(
-        target_type=ENERGY_RUN_TARGET_TYPE,
-        garden_id=garden_id,
-        domain=ENERGY_RUN_DOMAIN,
-        recipe=recipe,
-        run_id=run_id,
-    )
+    return _ENERGY_RUNS.make_target(garden_id, run_id, recipe=recipe)
 
 
 def _normalize_run_id(value: str | None) -> str:
-    return normalize_run_id(
-        value,
-        value
-        or f"energy_{utc_now_iso().replace(':', '').replace('-', '').replace('Z', '').lower()}",
-    )
+    return _ENERGY_RUNS.normalize_run_id(value)
 
 
 def _validate_weather_path(value: str, *, field_name: str, suffix: str) -> str:
@@ -188,25 +212,13 @@ def _resolve_garden_path(
 ) -> Path | None:
     if value is None:
         return None
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        path = garden_root / path
-    path = path.resolve()
-    try:
-        path.relative_to(garden_root)
-    except ValueError as exc:
-        raise ValueError(f"{field_name} must be inside the Garden root.") from exc
-    if kind == "file":
-        if not path.is_file():
-            raise ValueError(f"{field_name} must reference an existing file.")
-        if suffix is not None and path.suffix.lower() != suffix:
-            raise ValueError(f"{field_name} must reference a {suffix} file.")
-    elif kind == "directory":
-        if not path.is_dir():
-            raise ValueError(f"{field_name} must reference an existing directory.")
-    else:  # pragma: no cover - internal guard
-        raise ValueError(f"Unsupported path kind: {kind}")
-    return path
+    return resolve_existing_garden_path(
+        garden_root,
+        value,
+        kind=kind,
+        suffix=suffix,
+        label=field_name,
+    )
 
 
 def _matches_registered_weather_target(
@@ -265,7 +277,7 @@ def _weather_paths_from_inputs(
         raise ValueError(
             "Provide epw_path and ddy_path, or provide a complete weather_target "
             "with both epw_path and ddy_path. If you only have an identifier/path "
-                "for a registered Garden weather file, call EP_search_weather_files with "
+                "for a registered Garden weather file, call EP_Search_Weather_Files with "
             "require_ddy=true and pass matches[i].target."
         )
     epw = Path(epw_path).expanduser()
@@ -407,61 +419,6 @@ def _resolve_additional_idf_input(
     return path, "path" if path is not None else None
 
 
-@contextmanager
-def _capture_recipe_stdio(run_dir: Path):
-    """Keep recipe logs out of stdio-based MCP JSON-RPC."""
-    log_path = run_dir / "recipe_stdio.log"
-    previous_streams: list[tuple[logging.StreamHandler, Any]] = []
-    saved_fds: list[tuple[int, int]] = []
-    with log_path.open("a", encoding="utf-8", errors="replace") as log_file:
-        for stream in (sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__):
-            try:
-                stream.flush()
-            except Exception:
-                pass
-        for fd in (1, 2):
-            try:
-                saved_fd = os.dup(fd)
-                os.dup2(log_file.fileno(), fd)
-            except OSError:
-                continue
-            saved_fds.append((fd, saved_fd))
-        for logger in [
-            logging.getLogger(),
-            *(
-                logger
-                for logger in logging.Logger.manager.loggerDict.values()
-                if isinstance(logger, logging.Logger)
-            ),
-        ]:
-            for handler in logger.handlers:
-                if isinstance(handler, logging.StreamHandler) and handler.stream in {
-                    sys.stdout,
-                    sys.stderr,
-                    sys.__stdout__,
-                    sys.__stderr__,
-                }:
-                    previous_streams.append((handler, handler.stream))
-                    handler.setStream(log_file)
-        try:
-            with redirect_stdout(log_file), redirect_stderr(log_file):
-                yield log_path
-        finally:
-            for stream in (sys.stdout, sys.stderr):
-                try:
-                    stream.flush()
-                except Exception:
-                    pass
-            log_file.flush()
-            for fd, saved_fd in reversed(saved_fds):
-                try:
-                    os.dup2(saved_fd, fd)
-                finally:
-                    os.close(saved_fd)
-            for handler, stream in previous_streams:
-                handler.setStream(stream)
-
-
 def _parse_key_value_lines(values: list[Any]) -> dict[str, Any] | None:
     parsed: dict[str, Any] = {}
     for value in values:
@@ -548,14 +505,11 @@ def _output_record(
 
 
 def _upsert_record(garden_root: Path, record: dict[str, Any]) -> None:
-    _ENERGY_RUN_LEDGER.upsert(_run_index_path(garden_root), record)
+    _ENERGY_RUNS.upsert(garden_root, record)
 
 
 def _run_record_by_id(garden_root: Path, run_id: str) -> dict[str, Any]:
-    record = _ENERGY_RUN_LEDGER.get(_run_index_path(garden_root), run_id)
-    if record is not None:
-        return record
-    raise ValueError(f"Energy run was not found: {run_id}")
+    return _ENERGY_RUNS.require(garden_root, run_id)
 
 
 def _run_id_from_target_or_value(
@@ -563,14 +517,7 @@ def _run_id_from_target_or_value(
     run_target: dict[str, Any] | None,
     run_id: str | None,
 ) -> str:
-    return run_id_from_target_or_value(
-        run_target,
-        run_id,
-        target_type=ENERGY_RUN_TARGET_TYPE,
-        domain=ENERGY_RUN_DOMAIN,
-        allowed_recipes=ENERGY_RUN_RECIPES,
-        target_run_id_required=False,
-    )
+    return _ENERGY_RUNS.resolve_run_id(run_target, run_id)
 
 
 def _outputs_map(record: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -654,9 +601,9 @@ def _err_repair_hints(text: str) -> list[dict[str, str]]:
                 "message": (
                     "For Ironbug IB_CoilHeatingWater, set numeric "
                     "UFactorTimesAreaValue and MaximumWaterFlowRate via "
-                    "IB_upsert_components, then re-apply DetailedHVAC before rerunning."
+                    "IB_Upsert_Components, then re-apply DetailedHVAC before rerunning."
                 ),
-                "recommended_tool": "IB_upsert_components",
+                "recommended_tool": "IB_Upsert_Components",
             }
         ]
     return []
@@ -693,27 +640,27 @@ def _energy_run_result_evidence(
         completed_with_diagnostics and not severe_count and not fatal_count
     )
     if status in {"queued", "running"}:
-        recommended_next_tools = ["EP_poll_simulation"]
+        recommended_next_tools = ["EP_Poll_Simulation"]
         final_answer_guidance = (
-            "Energy simulation is currently queued or running; poll this run_target with EP_poll_simulation."
+            "Energy simulation is currently queued or running; poll this run_target with EP_Poll_Simulation."
         )
     elif final_answer_ready:
-        recommended_next_tools = ["EP_read_eui", GARDEN_VERSION_NEXT_TOOL]
+        recommended_next_tools = ["EP_Read_EUI", GARDEN_VERSION_NEXT_TOOL]
         final_answer_guidance = (
-            "Energy simulation completed with EUI, SQL, and clean ERR outputs available via EP_read_eui."
+            "Energy simulation completed with EUI, SQL, and clean ERR outputs available via EP_Read_EUI."
         )
     elif completed_with_diagnostics:
-        recommended_next_tools = ["EP_read_eui", "EP_read_errors"]
+        recommended_next_tools = ["EP_Read_EUI", "EP_Read_Errors"]
         final_answer_guidance = (
             "Energy simulation completed with EUI and SQL outputs, and ERR diagnostics contain severe or fatal entries."
         )
     elif status == "completed":
-        recommended_next_tools = ["EP_list_run_outputs", "EP_read_errors"]
+        recommended_next_tools = ["EP_List_Run_Outputs", "EP_Read_Errors"]
         final_answer_guidance = (
             "Energy simulation completed, though some EUI, SQL, or ERR outputs are absent; inspect outputs and diagnostics."
         )
     else:
-        recommended_next_tools = ["EP_list_run_outputs", "EP_read_errors"]
+        recommended_next_tools = ["EP_List_Run_Outputs", "EP_Read_Errors"]
         final_answer_guidance = (
             "Energy simulation did not complete successfully; inspect outputs and ERR diagnostics."
         )
@@ -736,38 +683,7 @@ def _energy_run_result_evidence(
 
 
 def _public_run(record: dict[str, Any]) -> dict[str, Any]:
-    keys = (
-        "run_id",
-        "target",
-        "recipe",
-        "status",
-        "created_at",
-        "completed_at",
-        "model_target",
-        "model_display_name",
-        "model_path",
-        "weather_target",
-        "epw_path",
-        "ddy_path",
-        "run_folder",
-        "outputs",
-        "units",
-        "workers",
-        "preflight",
-        "simulation_parameter_target",
-        "design_day_resolution",
-        "output_request_target",
-        "sim_par_path",
-        "additional_idf_path",
-        "additional_idf_source",
-        "measures_path",
-        "input_file_path",
-        "workflow_path",
-        "source_file_path",
-        "run_input_path",
-        "expand_objects",
-    )
-    return project_run(record, keys)
+    return _ENERGY_RUNS.public_run(record)
 
 
 def _completed_reload_response(
@@ -801,7 +717,7 @@ def _completed_reload_response(
                 record=record,
             ),
             "poll_next": {
-                "tool": "EP_poll_simulation",
+                "tool": "EP_Poll_Simulation",
                 "arguments": poll_arguments,
             },
         },
@@ -852,7 +768,7 @@ def _existing_run_response(
             "design_day_resolution": record.get("design_day_resolution"),
             "result_evidence": evidence,
             "poll_next": {
-                "tool": "EP_poll_simulation",
+                "tool": "EP_Poll_Simulation",
                 "arguments": poll_arguments,
             },
         },
@@ -1071,9 +987,7 @@ def _prepare_annual_energy_run(
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     normalized_run_id = _normalize_run_id(run_id)
-    existing = _ENERGY_RUN_LEDGER.get(
-        _run_index_path(garden_root_path), normalized_run_id
-    )
+    existing = _ENERGY_RUNS.get(garden_root_path, normalized_run_id)
     if existing is not None:
         return {"manifest": manifest, "record": existing, "reused": True}
 
@@ -1167,8 +1081,8 @@ def _prepare_annual_energy_run(
                 f"{field} must be outside the calculation folder being replaced: {native_dir}."
             )
     run_folder = to_posix_relative(run_dir, garden_root_path)
-    _ENERGY_RUN_LEDGER.prepare_folder(
-        _run_index_path(garden_root_path),
+    _ENERGY_RUNS.prepare_folder(
+        garden_root_path,
         run_folder,
         recipe=ENERGY_RUN_RECIPE,
         model_target=resolved_model_target,
@@ -1296,7 +1210,7 @@ def _execute_annual_energy_run(
             blocker_msg = (
                 "Model uses Ironbug DetailedHVAC, but external Ironbug.Console was not found. "
                 "Install Ladybug Tools / Ironbug (https://github.com/MingboPeng/Ironbug) and verify "
-                "the path with LB_get_runtime_config."
+                "the path with LB_Get_Runtime_Config."
             )
             warnings.append(blocker_msg)
             record.update(
@@ -1563,7 +1477,7 @@ def start_energy_run(
         message="Annual energy-use simulation started; poll the energy_run target for status.",
     )
     result["summary_view"]["poll_next"] = {
-        "tool": "EP_poll_simulation",
+        "tool": "EP_Poll_Simulation",
         "arguments": {
             "garden_root": str(garden_root_path),
             "run_target": record["target"],
@@ -1700,8 +1614,8 @@ def read_energy_eui(
             "missing_path": missing_path,
             "available_output_names": existing_output_names,
             "recommended_next_tools": [
-                "EP_list_run_outputs",
-                "EP_read_errors",
+                "EP_List_Run_Outputs",
+                "EP_Read_Errors",
             ],
         }
         message = (
@@ -1750,8 +1664,8 @@ def read_energy_eui(
         completed_with_diagnostics and not severe_count and not fatal_count
     )
     recommended_next_tools = [GARDEN_VERSION_NEXT_TOOL] if final_answer_ready else [
-        "EP_list_run_outputs",
-        "EP_read_errors",
+        "EP_List_Run_Outputs",
+        "EP_Read_Errors",
     ]
     if final_answer_ready:
         final_answer_guidance = (
@@ -1855,7 +1769,7 @@ def read_energy_errors(
             "run_id": resolved_run_id,
             "run_status": record.get("status"),
             "available_output_names": output_names,
-            "recommended_next_tools": ["EP_poll_simulation", "EP_list_run_outputs"],
+            "recommended_next_tools": ["EP_Poll_Simulation", "EP_List_Run_Outputs"],
         }
         return {
             "text": "",
@@ -1882,7 +1796,7 @@ def read_energy_errors(
                 "fatal_errors": [],
                 "available_output_names": output_names,
                 "energy_blocker": energy_blocker,
-                "recommended_next_tools": ["EP_poll_simulation", "EP_list_run_outputs"],
+                "recommended_next_tools": ["EP_Poll_Simulation", "EP_List_Run_Outputs"],
             },
             "report": make_report(
                 status="blocked",

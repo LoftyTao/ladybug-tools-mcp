@@ -7,7 +7,7 @@ from typing import Any
 from ladybug.color import Color
 from ladybug.legend import LegendParameters
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 
 ORIENTATIONS = {"vertical", "horizontal"}

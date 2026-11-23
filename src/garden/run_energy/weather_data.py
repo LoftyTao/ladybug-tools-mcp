@@ -9,7 +9,7 @@ from typing import Any
 
 from ladybug.epw import EPW
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.analysis_period import analysis_period_from_input, analysis_period_summary
 from garden.data_collection import save_data_collection
 from garden.manifest import GardenManifest

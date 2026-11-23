@@ -14,8 +14,7 @@ from honeybee.model import Model
 from honeybee.room import Room
 from ladybug_geometry.geometry3d.face import Face3D
 
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
@@ -115,7 +114,7 @@ def relate_honeybee_model(
     if intersect:
         warnings.append(
             "intersect=True can modify Room Face geometry before adjacency solving; "
-            "run HB_validate_model to review the resulting model."
+            "run HB_Validate_Model to review the resulting model."
         )
     warnings.extend(patch_summary["warnings"])
     return {

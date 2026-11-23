@@ -27,7 +27,7 @@ from garden.honeybee_core.postprocess import (
     attach_postprocess_result,
 )
 from garden.honeybee_core.targets import make_honeybee_object_target, object_summary
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 
 
 def create_honeybee_apertures_by_guide_surface(

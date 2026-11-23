@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.honeybee_core.locate import iter_honeybee_objects
 from garden.honeybee_core.model_io import (
     load_honeybee_model,

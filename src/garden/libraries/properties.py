@@ -24,11 +24,12 @@ from honeybee_radiance.luminaire import Luminaire
 from honeybee_radiance.modifier.modifierbase import Modifier
 from honeybee_radiance.modifierset import ModifierSet
 
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
-from ladybug_tools_mcp.contracts.targets import make_garden_properties_library_target
+from ladybug_tools_mcp.contracts import (
+    make_garden_properties_library_target,
+    make_persistence_receipt,
+    make_report,
+)
 from garden.manifest import GardenManifest, utc_now_iso
-from garden.operations import commit_manifest, read_operation_record
 from garden.paths import slugify_name, to_posix_relative
 
 
@@ -265,29 +266,7 @@ def _read_record(garden_root: Path, target: dict[str, Any]) -> dict[str, Any]:
         return json.load(handle)
 
 
-def _is_legacy_record(data: Any) -> bool:
-    return (
-        isinstance(data, dict)
-        and isinstance(data.get("object_dict"), dict)
-        and isinstance(data.get("domain"), str)
-        and isinstance(data.get("object_family"), str)
-    )
-
-
 def _extract_object_dict(data: Any) -> dict[str, Any]:
-    if _is_legacy_record(data):
-        raise ValueError(
-            "Garden Properties Library record uses legacy wrapped storage. "
-            "Run normalize_garden_properties_library_storage before reading it."
-        )
-    if not isinstance(data, dict):
-        raise ValueError("Garden Properties Library file must contain a JSON object.")
-    return dict(data)
-
-
-def _extract_object_dict_for_normalization(data: Any) -> dict[str, Any]:
-    if _is_legacy_record(data):
-        return dict(data["object_dict"])
     if not isinstance(data, dict):
         raise ValueError("Garden Properties Library file must contain a JSON object.")
     return dict(data)
@@ -349,7 +328,6 @@ def save_garden_properties_library_object(
     object_dict: dict[str, Any],
     identifier: str | None = None,
     overwrite: bool = True,
-    operation_id: str | None = None,
 ) -> dict[str, Any]:
     """Save one SDK object dict as a Garden Properties Library resource."""
     root = _garden_root(garden_root)
@@ -361,11 +339,7 @@ def save_garden_properties_library_object(
     object_type = _object_type(obj, object_dict)
 
     object_path = _family_dir(root, spec) / f"{slugify_name(identifier)}.json"
-    if (
-        object_path.exists()
-        and not overwrite
-        and (operation_id is None or read_operation_record(root, operation_id) is None)
-    ):
+    if object_path.exists() and not overwrite:
         raise ValueError(f"Garden Properties Library object already exists: {identifier}")
 
     persisted_path = to_posix_relative(object_path, root)
@@ -377,16 +351,7 @@ def save_garden_properties_library_object(
         path=persisted_path,
     )
     index = _read_index(root, spec)
-    existing_entry = _find_index_entry(index, identifier=identifier)
-    updated_at = (
-        str(existing_entry["updated_at"])
-        if (
-            operation_id
-            and existing_entry
-            and isinstance(existing_entry.get("updated_at"), str)
-        )
-        else manifest.updated_at if operation_id else utc_now_iso()
-    )
+    updated_at = utc_now_iso()
     objects = [
         item
         for item in index.get("objects", [])
@@ -404,11 +369,8 @@ def save_garden_properties_library_object(
     objects.sort(key=lambda item: item["identifier"])
     index["objects"] = objects
     index_path = _index_path(root, spec)
-    operation = commit_manifest(
+    manifest.write(
         root,
-        manifest,
-        operation_type="garden_properties_library_save",
-        operation_id=operation_id,
         staged_writes={
             persisted_path: _json_bytes(object_dict),
             to_posix_relative(index_path, root): _json_bytes(index),
@@ -434,8 +396,7 @@ def save_garden_properties_library_object(
                 "operation": "save_garden_properties_library_object",
                 "target": target,
                 "index_path": to_posix_relative(index_path, root),
-                "operation_id": operation.operation_id,
-                "revision": operation.after_revision,
+                "revision": manifest.revision,
             },
         ),
         "report": make_report(
@@ -588,119 +549,4 @@ def search_garden_properties_library_objects(
             status="ok",
             message=f"Found {len(limited)} Garden Properties Library object(s).",
         ),
-    }
-
-
-def normalize_garden_properties_library_storage(
-    *,
-    garden_root: str,
-    domain: str | None = None,
-    object_family: str | None = None,
-    dry_run: bool = False,
-    operation_id: str | None = None,
-) -> dict[str, Any]:
-    """Rewrite legacy MCP-wrapped Garden library files into native SDK dict files."""
-    root = _garden_root(garden_root)
-    manifest = GardenManifest.read(root)
-    rewritten: list[dict[str, Any]] = []
-    already_native: list[dict[str, Any]] = []
-    skipped: list[dict[str, Any]] = []
-    staged_writes: dict[str, bytes] = {}
-
-    selected_family = object_family if object_family is not None else "all"
-    for spec in _selected_specs(domain, object_family):
-        index = _read_index(root, spec)
-        for item in index.get("objects", []):
-            target = item.get("target")
-            if not isinstance(target, dict):
-                skipped.append(
-                    {
-                        "domain": spec.domain,
-                        "object_family": spec.key,
-                        "identifier": item.get("identifier"),
-                        "reason": "missing_target",
-                    }
-                )
-                continue
-            try:
-                record = _read_record(root, target)
-                object_dict = _extract_object_dict_for_normalization(record)
-                spec.validator(object_dict)
-            except Exception as exc:
-                skipped.append(
-                    {
-                        "domain": spec.domain,
-                        "object_family": spec.key,
-                        "identifier": item.get("identifier") or target.get("identifier"),
-                        "path": target.get("path"),
-                        "reason": str(exc),
-                    }
-                )
-                continue
-
-            summary = {
-                "domain": spec.domain,
-                "object_family": spec.key,
-                "identifier": item.get("identifier") or target.get("identifier"),
-                "path": target.get("path"),
-            }
-            if _is_legacy_record(record):
-                rewritten.append(summary)
-                if not dry_run:
-                    staged_writes[to_posix_relative(_record_path(root, target), root)] = (
-                        _json_bytes(object_dict)
-                    )
-            else:
-                already_native.append(summary)
-
-    status = "persisted" if rewritten and not dry_run else "no_change"
-    action = "Would rewrite" if dry_run else "Rewrote"
-    message = (
-        f"{action} {len(rewritten)} Garden Properties Library file(s); "
-        f"{len(already_native)} already native."
-    )
-    operation = None
-    if staged_writes and not dry_run:
-        operation = commit_manifest(
-            root,
-            manifest,
-            operation_type="garden_properties_library_normalize",
-            operation_id=operation_id,
-            staged_writes=staged_writes,
-        )
-    return {
-        "normalized": rewritten,
-        "already_native": already_native,
-        "skipped": skipped,
-        "summary_view": {
-            "garden_target": manifest.target(),
-            "domain": domain or "all",
-            "object_family": selected_family,
-            "dry_run": dry_run,
-            "normalized_count": len(rewritten),
-            "already_native_count": len(already_native),
-            "skipped_count": len(skipped),
-        },
-        "persistence_receipt": make_persistence_receipt(
-            status=status,
-            garden_id=manifest.garden_id,
-            persisted_path="libraries" if rewritten and not dry_run else None,
-            change_summary={
-                "operation": "normalize_garden_properties_library_storage",
-                "domain": domain or "all",
-                "object_family": selected_family,
-                "dry_run": dry_run,
-                "normalized": rewritten,
-                "skipped": skipped,
-                **(
-                    {
-                        "operation_id": operation.operation_id,
-                        "revision": operation.after_revision,
-                    }
-                    if operation
-                    else {}
-                ),
-            },
-        ),
-        "report": make_report(status="ok", message=message),
     }

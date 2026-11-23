@@ -1,7 +1,8 @@
-"""Dragonfly DES authoring services."""
+"""Dragonfly DES targets, persistence, geometry adapters, and authoring services."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from dragonfly_energy.des.connector import HorizontalPipeParameter, ThermalConnector
@@ -18,14 +19,143 @@ from dragonfly_energy.des.loop import (
     FourthGenThermalLoop,
     GHEThermalLoop,
 )
-from ladybug_tools_mcp.contracts.report import make_report
 
-from .geometry import (
-    connector_geometry_from_points,
-    ghe_borehole_positions_from_points,
-    ghe_geometry_from_points,
+from garden.model_io import (
+    load_typed_object,
+    load_typed_objects,
+    make_typed_object_target,
+    normalize_typed_object_target,
+    points2d_polygon,
+    points2d_polyline,
+    points3d_list,
+    save_typed_object,
 )
-from .serialization import load_des_object, load_des_objects, save_des_object
+from ladybug_tools_mcp.contracts import make_report
+
+DES_OBJECT_TARGET_TYPE = "dragonfly_des_object"
+DES_DOMAIN = "dragonfly_des"
+DES_DOMAIN_LABEL = "Dragonfly DES"
+
+KIND_TO_CLASS = {
+    "thermal_connector": ThermalConnector,
+    "horizontal_pipe_parameter": HorizontalPipeParameter,
+    "ghe_soil_parameter": SoilParameter,
+    "ghe_fluid_parameter": FluidParameter,
+    "ghe_pipe_parameter": PipeParameter,
+    "ghe_borehole_parameter": BoreholeParameter,
+    "ghe_design_parameter": GHEDesignParameter,
+    "ground_heat_exchanger": GroundHeatExchanger,
+    "fourth_gen_thermal_loop": FourthGenThermalLoop,
+    "fifth_gen_thermal_loop": FifthGenThermalLoop,
+    "ghe_thermal_loop": GHEThermalLoop,
+}
+DES_OBJECT_KINDS = set(KIND_TO_CLASS)
+
+
+def make_des_object_target(
+    *,
+    garden_id: str,
+    kind: str,
+    identifier: str,
+    path: str,
+) -> dict[str, Any]:
+    """Build a Dragonfly DES object target."""
+    return make_typed_object_target(
+        target_type=DES_OBJECT_TARGET_TYPE,
+        domain=DES_DOMAIN,
+        garden_id=garden_id,
+        kind=kind,
+        identifier=identifier,
+        path=path,
+        allowed_kinds=DES_OBJECT_KINDS,
+        domain_label=DES_DOMAIN_LABEL,
+    )
+
+
+def normalize_des_object_target(
+    value: Any,
+    *,
+    expected_kind: str | None = None,
+) -> dict[str, Any]:
+    """Validate one Dragonfly DES object target dict."""
+    return normalize_typed_object_target(
+        value,
+        target_type=DES_OBJECT_TARGET_TYPE,
+        domain=DES_DOMAIN,
+        allowed_kinds=DES_OBJECT_KINDS,
+        domain_label=DES_DOMAIN_LABEL,
+        expected_kind=expected_kind,
+    )
+
+
+def save_des_object(
+    *,
+    garden_root: str | Path,
+    kind: str,
+    identifier: str,
+    obj: Any,
+    include_body: bool = False,
+) -> dict[str, Any]:
+    """Save a Dragonfly DES object as native SDK JSON under the Garden."""
+    return save_typed_object(
+        garden_root=garden_root,
+        domain=DES_DOMAIN,
+        target_type=DES_OBJECT_TARGET_TYPE,
+        domain_label=DES_DOMAIN_LABEL,
+        kind=kind,
+        identifier=identifier,
+        obj=obj,
+        kind_to_class=KIND_TO_CLASS,
+        include_body=include_body,
+    )
+
+
+def load_des_object(
+    *,
+    garden_root: str | Path,
+    target: dict[str, Any],
+    expected_kind: str | None = None,
+) -> Any:
+    """Load one Dragonfly DES SDK object from a Garden target."""
+    return load_typed_object(
+        garden_root=garden_root,
+        target=target,
+        domain=DES_DOMAIN,
+        target_type=DES_OBJECT_TARGET_TYPE,
+        domain_label=DES_DOMAIN_LABEL,
+        kind_to_class=KIND_TO_CLASS,
+        expected_kind=expected_kind,
+    )
+
+
+def load_des_objects(
+    *,
+    garden_root: str | Path,
+    targets: list[dict[str, Any]],
+    expected_kind: str,
+) -> list[Any]:
+    """Load a non-empty list of Dragonfly DES objects of one kind."""
+    return load_typed_objects(
+        targets=targets,
+        expected_kind=expected_kind,
+        loader=load_des_object,
+        garden_root=garden_root,
+    )
+
+
+def connector_geometry_from_points(points: list[list[float]]) -> Any:
+    """Create a ThermalConnector LineSegment2D or Polyline2D from 2D points."""
+    return points2d_polyline(points, field_name="connector polyline_points")
+
+
+def ghe_geometry_from_points(points: list[list[float]]) -> Any:
+    """Create a GroundHeatExchanger Polygon2D footprint from 2D points."""
+    return points2d_polygon(points, field_name="ground heat exchanger footprint_points")
+
+
+def ghe_borehole_positions_from_points(points: list[list[float]] | None) -> list[Any] | None:
+    """Create SDK-required Point3D borehole positions from coordinate lists."""
+    return points3d_list(points, field_name="ground heat exchanger borehole_positions")
 
 
 def _without_none(values: dict[str, Any]) -> dict[str, Any]:

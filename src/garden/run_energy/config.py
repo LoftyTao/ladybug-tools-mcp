@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from honeybee_energy.config import folders as energy_folders
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from ladybug_tools_mcp.weather_resources import resolve_weather_source
 from garden.manifest import GardenManifest
 from garden.paths import to_posix_relative

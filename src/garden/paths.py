@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Iterable
 
 
@@ -24,8 +24,6 @@ _WINDOWS_RESERVED_FILENAME_STEMS = frozenset(
         "CLOCK$",
         *(f"COM{index}" for index in range(1, 10)),
         *(f"LPT{index}" for index in range(1, 10)),
-        *(f"COM{suffix}" for suffix in ("\u00b9", "\u00b2", "\u00b3")),
-        *(f"LPT{suffix}" for suffix in ("\u00b9", "\u00b2", "\u00b3")),
     }
 )
 
@@ -79,6 +77,42 @@ def reject_windows_alias(
             raise ValueError(f"{label} conflicts with existing value {existing!r} on Windows.")
 
 
+def require_garden_root(value: str | Path) -> Path:
+    """Resolve a user-supplied Garden root directory path."""
+    return Path(value).expanduser().resolve()
+
+
+def resolve_existing_garden_path(
+    garden_root: Path,
+    value: str | Path,
+    *,
+    kind: str = "file",
+    suffix: str | None = None,
+    label: str = "Garden path",
+) -> Path:
+    """Resolve an absolute or Garden-relative path and enforce Garden containment."""
+    root_resolved = require_garden_root(garden_root)
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        candidate = root_resolved / candidate
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError as exc:
+        raise ValueError(f"{label} must stay inside the Garden.") from exc
+    if kind == "file":
+        if suffix is not None and resolved.suffix.lower() != suffix.lower():
+            raise ValueError(f"{label} must reference a {suffix} file.")
+        if not resolved.is_file():
+            raise ValueError(f"{label} was not found: {value}")
+    elif kind == "directory":
+        if not resolved.is_dir():
+            raise ValueError(f"{label} directory was not found: {value}")
+    else:  # pragma: no cover - internal guard
+        raise ValueError(f"Unsupported path kind: {kind}")
+    return resolved
+
+
 def resolve_garden_root(name: str, root_dir: str | None) -> Path:
     """Resolve the Garden root directory."""
     if root_dir:
@@ -89,3 +123,32 @@ def resolve_garden_root(name: str, root_dir: str | None) -> Path:
 def to_posix_relative(path: Path, root: Path) -> str:
     """Return a stable POSIX-style path relative to a root."""
     return path.resolve().relative_to(root.resolve()).as_posix()
+
+
+def resolve_contained_path(
+    root: Path,
+    relative_path: str | Path,
+    *,
+    label: str = "Garden path",
+) -> Path:
+    """Resolve a relative path and ensure it stays inside ``root``."""
+    if relative_path is None or isinstance(relative_path, bool):
+        raise ValueError(f"{label} must be a relative path string.")
+    text = str(relative_path).strip().replace("\\", "/")
+    posix_path = PurePosixPath(text)
+    windows_path = PureWindowsPath(text)
+    if (
+        not text
+        or posix_path.is_absolute()
+        or windows_path.drive
+        or windows_path.root
+        or any(part in {"", ".", ".."} for part in posix_path.parts)
+    ):
+        raise ValueError(f"{label} must be relative and contained: {relative_path!r}.")
+    for part in posix_path.parts:
+        validate_portable_file_name(part, label=f"{label} component")
+    root_resolved = root.expanduser().resolve()
+    candidate = (root_resolved / posix_path).resolve()
+    if not candidate.is_relative_to(root_resolved):
+        raise ValueError(f"{label} must stay inside the Garden: {relative_path!r}.")
+    return candidate

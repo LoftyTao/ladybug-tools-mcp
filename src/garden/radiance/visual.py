@@ -14,8 +14,7 @@ from honeybee_radiance_command.options.falsecolor import FalsecolorOptions
 from honeybee_radiance_command.options.ra_gif import Ra_GIFOptions
 from honeybee_radiance_command.ra_gif import Ra_GIF
 
-from ladybug_tools_mcp.contracts.receipts import make_artifact_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_artifact_receipt, make_report
 from garden.honeybee_core.model_io import load_honeybee_model, resolve_model_target
 from garden.ladybug_tools_config import apply_ladybug_tools_runtime_to_path
 from garden.manifest import GardenManifest, utc_now_iso
@@ -403,7 +402,7 @@ def radiance_hdr_to_falsecolor(
         )
 
     source = {
-        "producer": "RAD_hdr_to_falsecolor",
+        "producer": "RAD_HDR_To_Falsecolor",
         "input_path": to_posix_relative(input_path, garden_root_path),
         "run_id": record.get("run_id") if record else None,
         "command": command.to_radiance(),
@@ -488,7 +487,7 @@ def radiance_hdr_to_gif(
         raise ValueError("ra_gif command completed without writing an output file.")
 
     source = {
-        "producer": "RAD_hdr_to_gif",
+        "producer": "RAD_HDR_To_GIF",
         "input_path": to_posix_relative(input_path, garden_root_path),
         "run_id": record.get("run_id") if record else None,
         "command": command.to_radiance(),
@@ -683,7 +682,7 @@ def radiance_grid_result_to_visualization_set(
         record.get("model_target") if record else None
     )
     if not resolved_model_target:
-        raise ValueError("RAD_grid_result_to_visualization_set requires a model target.")
+        raise ValueError("RAD_Grid_Result_To_Visualization_Set requires a model target.")
     _, resolved_model_target = resolve_model_target(garden_root_path, resolved_model_target)
     model = load_honeybee_model(garden_root_path, resolved_model_target)
     safe_name = slugify_name(name)
@@ -737,7 +736,7 @@ def radiance_grid_result_to_visualization_set(
         visualization_set=visualization_set,
         name=safe_name,
         source={
-            "producer": "RAD_grid_result_to_visualization_set",
+            "producer": "RAD_Grid_Result_To_Visualization_Set",
             "run_id": record.get("run_id") if record else None,
             "grid_data_path": grid_summary["path"],
         },

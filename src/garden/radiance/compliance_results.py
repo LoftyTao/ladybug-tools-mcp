@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.manifest import GardenManifest
 from garden.paths import slugify_name, to_posix_relative
 from garden.radiance.metrics import (
@@ -261,7 +261,7 @@ def read_daylight_compliance(
     if recipe not in COMPLIANCE_RECIPES:
         allowed = ", ".join(sorted(COMPLIANCE_RECIPES))
         raise ValueError(
-            f"RAD_read_daylight_compliance only supports completed compliance recipes: {allowed}."
+            f"RAD_Read_Daylight_Compliance only supports completed compliance recipes: {allowed}."
         )
 
     warnings: list[str] = []

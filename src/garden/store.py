@@ -6,9 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
-from garden.git_policy import garden_gitignore_text
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 from garden.manifest import GardenManifest
 from garden.paths import (
     DEFAULT_GARDENS_ROOT,
@@ -38,11 +36,28 @@ CLEANUP_SCOPE_PATHS = {
 }
 RECENT_GARDEN_DISPLAY_LIMIT = 5
 CLEANUP_RECOMMENDATION_THRESHOLD = 10
+GARDEN_GITIGNORE = """# Garden authoring truth is intentionally narrow.
+*
+!garden.json
+!models/
+!models/**
+!libraries/
+!libraries/**
+
+# Generated or exchange-only content stays out of Garden Git.
+artifacts/
+runs/
+flowerpots/
+payloads/
+imports/
+tmp/
+.cache/
+"""
 
 
 def _write_garden_gitignore(garden_root: Path) -> Path:
     gitignore_path = garden_root / ".gitignore"
-    gitignore_path.write_text(garden_gitignore_text(), encoding="utf-8", newline="\n")
+    gitignore_path.write_text(GARDEN_GITIGNORE, encoding="utf-8", newline="\n")
     return gitignore_path
 
 

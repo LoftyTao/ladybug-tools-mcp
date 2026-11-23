@@ -26,8 +26,7 @@ from garden.dragonfly_core.targets import (
     normalize_dragonfly_object_target,
     object_summary,
 )
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 
 
 def _save_changed_model(

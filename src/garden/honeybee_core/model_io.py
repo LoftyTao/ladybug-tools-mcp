@@ -1,12 +1,14 @@
-"""Honeybee model I/O inside a Garden."""
+"""Honeybee model I/O, HBJSON import, and validation inside a Garden."""
 
 from __future__ import annotations
 
+from collections import Counter
 import json
 from pathlib import Path
 from typing import Any
 
 from honeybee.model import Model
+from honeybee.typing import clean_string
 
 from garden.honeybee_core.locate import iter_honeybee_objects
 from garden.honeybee_core.targets import normalize_honeybee_model_target
@@ -18,6 +20,8 @@ from garden.model_io import (
     _resolve_model_target,
     _save_model,
 )
+from garden.paths import require_garden_root, resolve_existing_garden_path, to_posix_relative
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 
 HONEYBEE_MODELS_DIR = Path("models") / "honeybee"
 
@@ -77,7 +81,6 @@ def save_honeybee_model(
     triangulate_sub_faces: bool = False,
     set_base: bool = False,
     set_default_base: bool = True,
-    operation_id: str | None = None,
     staged_writes: dict[str, bytes] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Save a Honeybee model into Garden authoring truth and update manifest."""
@@ -101,7 +104,6 @@ def save_honeybee_model(
         content=content,
         set_base=set_base,
         set_default_base=set_default_base,
-        operation_id=operation_id,
         staged_writes=staged_writes,
     )
 
@@ -116,21 +118,9 @@ def _patch_hbjson_extension_resources(data: dict[str, Any], model: Model) -> Non
     energy_type_limits = energy.setdefault("schedule_type_limits", [])
     radiance_modifiers = radiance.setdefault("modifiers", [])
 
-    schedule_ids = {
-        item.get("identifier")
-        for item in energy_schedules
-        if isinstance(item, dict)
-    }
-    type_limit_ids = {
-        item.get("identifier")
-        for item in energy_type_limits
-        if isinstance(item, dict)
-    }
-    modifier_ids = {
-        item.get("identifier")
-        for item in radiance_modifiers
-        if isinstance(item, dict)
-    }
+    schedule_ids = {item.get("identifier") for item in energy_schedules if isinstance(item, dict)}
+    type_limit_ids = {item.get("identifier") for item in energy_type_limits if isinstance(item, dict)}
+    modifier_ids = {item.get("identifier") for item in radiance_modifiers if isinstance(item, dict)}
 
     for obj, _ in iter_honeybee_objects(
         model,
@@ -210,3 +200,115 @@ def _append_modifier(
         return
     modifiers.append(modifier.to_dict())
     modifier_ids.add(modifier.identifier)
+
+
+def import_honeybee_model_file(
+    *,
+    garden_root: str,
+    file_path: str,
+    identifier: str | None = None,
+    set_base: bool = True,
+) -> dict[str, Any]:
+    """Import a Garden-local HBJSON file as Honeybee authoring truth."""
+    garden_root_path = require_garden_root(garden_root)
+    manifest = GardenManifest.read(garden_root_path)
+    source_path = resolve_existing_garden_path(
+        garden_root_path, file_path, kind="file", suffix=".hbjson", label="Honeybee model file"
+    )
+    model = Model.from_hbjson(str(source_path), cleanup_irrational=False)
+    if identifier:
+        model.identifier = clean_string(identifier, "honeybee model identifier")
+        model.display_name = identifier
+    model_target, persisted_path = save_honeybee_model(
+        garden_root_path,
+        manifest,
+        model,
+        name=model.identifier,
+        set_base=set_base,
+        set_default_base=False,
+    )
+    source_relative_path = to_posix_relative(source_path, garden_root_path)
+    return {
+        "target": model_target,
+        "model_target": model_target,
+        "summary_view": {
+            "source_path": source_relative_path,
+            "model_identifier": model.identifier,
+            "room_count": len(model.rooms),
+            "orphaned_shade_count": len(model.orphaned_shades),
+            "base_honeybee_model_changed": bool(set_base),
+        },
+        "persistence_receipt": make_persistence_receipt(
+            status="persisted",
+            garden_id=manifest.garden_id,
+            base_honeybee_model_changed=bool(set_base),
+            model_target=model_target,
+            persisted_path=persisted_path,
+            change_summary={
+                "operation": "import_honeybee_model_file",
+                "source_path": source_relative_path,
+                "source_file_type": "hbjson",
+            },
+        ),
+        "report": make_report(status="ok", message="Imported Honeybee HBJSON model."),
+    }
+
+
+def validate_honeybee_model(
+    *,
+    garden_root: str,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate a Honeybee model and return structured validation issues."""
+    garden_root_path = require_garden_root(garden_root)
+    manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
+    model = load_honeybee_model(garden_root_path, resolved_model_target)
+
+    try:
+        issues = model.check_all(raise_exception=False, detailed=True)
+    except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
+        raise ValueError(f"Failed to validate Honeybee model. {exc}") from exc
+
+    issue_codes = [issue["code"] for issue in issues if isinstance(issue, dict) and isinstance(issue.get("code"), str)]
+    issue_types = [issue["error_type"] for issue in issues if isinstance(issue, dict) and isinstance(issue.get("error_type"), str)]
+    element_types = [issue["element_type"] for issue in issues if isinstance(issue, dict) and isinstance(issue.get("element_type"), str)]
+    is_valid = len(issues) == 0
+
+    return {
+        "is_valid": is_valid,
+        "valid": is_valid,
+        "issues": issues,
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "model_target": resolved_model_target,
+            "model_identifier": str(resolved_model_target["model_identifier"]),
+            "is_valid": is_valid,
+            "issue_count": len(issues),
+            "issue_codes": sorted(set(issue_codes)),
+            "issue_types": sorted(set(issue_types)),
+            "issue_counts_by_code": dict(sorted(Counter(issue_codes).items())),
+            "issue_counts_by_type": dict(sorted(Counter(issue_types).items())),
+            "issue_element_types": sorted(set(element_types)),
+            "object_counts": {
+                "rooms": len(model.rooms),
+                "faces": len(model.faces),
+                "apertures": len(model.apertures),
+                "doors": len(model.doors),
+                "shades": len(model.shades),
+            },
+        },
+        "report": make_report(
+            status="ok" if is_valid else "invalid",
+            message=(
+                f"Honeybee model is valid: {model.identifier}"
+                if is_valid
+                else f"Honeybee model has {len(issues)} validation issue(s): {model.identifier}"
+            ),
+            details={
+                "is_valid": is_valid,
+                "issue_count": len(issues),
+                "issue_codes": sorted(set(issue_codes)),
+                "issue_types": sorted(set(issue_types)),
+            },
+        ),
+    }

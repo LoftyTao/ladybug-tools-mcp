@@ -15,7 +15,7 @@ from garden.analysis_period import (
     analysis_period_from_input,
     analysis_period_summary,
 )
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.data_collection import data_collection_summary, save_data_collection
 from garden.libraries.properties import save_garden_properties_library_object
 

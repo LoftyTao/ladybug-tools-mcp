@@ -27,14 +27,7 @@ from garden.dragonfly_core.targets import (
     normalize_dragonfly_object_target,
     object_summary,
 )
-from garden.operations import (
-    GardenRevisionConflictError,
-    active_operation_controls,
-    commit_manifest,
-    read_operation_record,
-)
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 
 
 def _load_target_model(
@@ -406,31 +399,6 @@ def _batch_result(
         updated_model_target = resolved_model_target
         persisted_path = str(resolved_model_target.get("path", ""))
         receipt_status = "no_change"
-        controls = active_operation_controls()
-        existing_record = (
-            read_operation_record(garden_root_path, controls[0])
-            if controls is not None
-            else None
-        )
-        if existing_record is not None:
-            model_path = garden_root_path / str(resolved_model_target["path"])
-            commit_manifest(
-                garden_root_path,
-                manifest,
-                operation_type="dragonfly_model_save",
-                operation_id=controls[0],
-                expected_revision=controls[1],
-                staged_writes={
-                    str(resolved_model_target["path"]): model_path.read_bytes()
-                },
-            )
-        elif controls is not None and controls[1] is not None:
-            expected_revision = controls[1]
-            if expected_revision != manifest.revision:
-                raise GardenRevisionConflictError(
-                    expected_revision=expected_revision,
-                    current_revision=manifest.revision,
-                )
     target = _host_target(
         garden_id=manifest.garden_id,
         model_target=updated_model_target,

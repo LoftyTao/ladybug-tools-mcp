@@ -16,8 +16,7 @@ from honeybee.shade import Shade
 from ladybug_geometry.geometry3d.face import Face3D
 from ladybug_geometry.geometry3d.pointvector import Point3D
 
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 from garden.manifest import GardenManifest
 from garden.honeybee_core.geometry import (
     face3d_from_dict,
@@ -101,7 +100,7 @@ def _ensure_unique_object_identifier(model: Model, identifier: str) -> None:
         return
     raise ValueError(
         f"Honeybee object identifier already exists: {identifier}. "
-        "Use HB_search_model_objects to reuse the existing target, remove "
+        "Use HB_Search_Model_Objects to reuse the existing target, remove "
         "the existing object first, or choose a new unique identifier."
     )
 
@@ -217,7 +216,7 @@ def create_honeybee_room(
     has_box = any(value is not None for value in (x_dim, y_dim, height, origin))
     if sum((has_faces, has_room_geometry, has_box)) != 1:
         raise ValueError(
-            "HB_create_room requires exactly one geometry mode: faces, "
+            "HB_Create_Room requires exactly one geometry mode: faces, "
             "room_geometry, or x_dim/y_dim/height."
         )
     if has_box and any(value is None for value in (x_dim, y_dim, height)):

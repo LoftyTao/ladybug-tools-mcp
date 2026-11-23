@@ -13,8 +13,7 @@ from honeybee.model import Model
 from honeybee.room import Room
 from honeybee.shade import Shade
 
-from ladybug_tools_mcp.contracts.receipts import make_persistence_receipt
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 from garden.honeybee_core.locate import find_object
 from garden.honeybee_core.model_io import (
     load_honeybee_model,

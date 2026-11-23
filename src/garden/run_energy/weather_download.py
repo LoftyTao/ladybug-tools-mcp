@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 
 from garden.manifest import GardenManifest
 from garden.paths import slugify_name, to_posix_relative, validate_portable_file_name
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.run_energy.config import make_garden_weather_target
 
 
@@ -409,7 +409,7 @@ def _blocked_response(
         "api_health_error": str(api_error) if api_error else None,
         "manual_recovery": (
             "Retry the same request when the weather service is reachable, or download "
-            "the EPW/ZIP object from object_url and import it with EP_import_local_weather."
+            "the EPW/ZIP object from object_url and import it with EP_Import_Local_Weather."
         ),
     }
     if object_key:

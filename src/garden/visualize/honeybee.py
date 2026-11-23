@@ -18,7 +18,7 @@ from honeybee_display.room import room_to_vis_set, room_to_vis_set_wireframe
 from honeybee.room import Room
 from ladybug_display.visualization import VisualizationSet
 
-from ladybug_tools_mcp.contracts.report import make_report
+from ladybug_tools_mcp.contracts import make_report
 from garden.manifest import GardenManifest
 from garden.honeybee_core.locate import find_object
 from garden.honeybee_core.model_io import (
