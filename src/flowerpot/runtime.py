@@ -320,7 +320,8 @@ class _NativeHvacGateError(Exception):
 
 
 _IRONBUG_ASSEMBLY_NAME = "Ironbug.HVAC"
-_IRONBUG_ASSEMBLY_VERSION = "1.26.0"
+_IRONBUG_ASSEMBLY_VERSION = ">=1.22.0"
+_IRONBUG_MIN_VERSION = (1, 22, 0)
 _IRONBUG_CLR_TYPE = "Ironbug.HVAC.IB_HVACSystem"
 
 
@@ -527,7 +528,15 @@ def _validate_native_hvac_specification(specification, allowlist):
         if isinstance(value, Mapping):
             if "$type" in value:
                 type_name = value["$type"]
-                if not isinstance(type_name, basestring) or type_name not in allowed:
+                is_allowed = isinstance(type_name, basestring) and (
+                    type_name in allowed
+                    or (
+                        "Ironbug.HVAC.*" in allowed
+                        and type_name.startswith("Ironbug.HVAC.")
+                        and ", Ironbug.HVAC" in type_name
+                    )
+                )
+                if not is_allowed:
                     raise _NativeHvacGateError(
                         "allowlist",
                         "Disallowed $type at %s: %s."
@@ -659,12 +668,10 @@ def _clr_assembly_name(value):
 
 
 def _is_expected_ironbug_version(version):
-    parts = str(version or "").split(".")
+    parts = [int(p) for p in str(version or "").split(".") if p.isdigit()]
     if len(parts) < 3:
         return False
-    if parts[:3] != ["1", "26", "0"]:
-        return False
-    return all(part == "0" for part in parts[3:])
+    return tuple(parts[:3]) >= _IRONBUG_MIN_VERSION
 
 
 def _sync_ironbug_follow_refresh(component, follow_flag, follow_path=None):

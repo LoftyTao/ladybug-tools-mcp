@@ -14,7 +14,6 @@ license-files = ["LICENSE"]
 
 [project.scripts]
 lbt-mcp = "ladybug_tools_mcp_cli:main"
-python-ironbug-console = "garden.ironbug_console.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/LoftyTao/ladybug-tools-mcp"

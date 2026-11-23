@@ -23,7 +23,7 @@ descriptions, or Skill references.
   subfamilies; `FP_` is Flowerpot; `GD_` is Garden;
   `GD_library_` is Garden libraries; `GD_web_view_` is Web View.
 - Examples: `GD_create`, `HB_create_room`, `EP_start_simulation`,
-  `RAD_create_sensor_grid`, `FF_start_simulation`, `IB_zone_equipment_ptac`,
+  `RAD_create_sensor_grid`, `FF_start_simulation`, `IB_create_system`,
   `DF_model`, `DF_grid_substation`, `DF_des_thermal_connector`,
   `DF_uwg_start_simulation`, `DF_urbanopt_prepare_project`,
   `GD_library_search_garden_properties_objects`, and

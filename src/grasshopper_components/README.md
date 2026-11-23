@@ -70,7 +70,7 @@ They return property dictionaries and do not modify model assignments.
 Detail HVAC takes `_flowerpot`, optional Ironbug model identifier `model_`, and
 optional `follow_`. Its `hvac_system` output is a native
 `Ironbug.HVAC.IB_HVACSystem` for **HB Detailed HVAC**. Handoff checks the allowed
-serialized types, Ironbug assembly version `1.26.0`, native type and `ToJson`.
+serialized types, Ironbug assembly version `>=1.22.0`, native type and `ToJson`.
 EMS and ElectricLoadCenter data are excluded from the HVAC snapshot.
 
 ## Building

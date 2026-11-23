@@ -3,9 +3,12 @@
 from pathlib import Path
 import hashlib
 import json
+import os
 import runpy
 import shutil
+import subprocess
 import tomllib
+import warnings
 
 from setuptools import setup
 from setuptools.command.build_py import build_py
@@ -54,6 +57,44 @@ class BuildPy(build_py):
             shutil.rmtree(output)
         super().run()
         resources = Path(self.build_lib) / "ladybug_tools_mcp" / "resources"
+        bridge_out = root / "src/ironbug_bridge/bin/Release/net8.0"
+        bridge_dll = bridge_out / "IronbugBridge.dll"
+        require_bridge = os.environ.get("LBT_MCP_REQUIRE_IRONBUG_BRIDGE") == "1"
+        if not bridge_dll.is_file():
+            dotnet = shutil.which("dotnet")
+            if dotnet:
+                subprocess.run(
+                    [dotnet, "build", str(root / "src/ironbug_bridge/IronbugBridge.csproj"), "-c", "Release"],
+                    check=True,
+                )
+                if not bridge_dll.is_file():
+                    raise RuntimeError(
+                        f"dotnet build completed but did not produce {bridge_dll}."
+                    )
+            elif require_bridge:
+                raise RuntimeError(
+                    "LBT_MCP_REQUIRE_IRONBUG_BRIDGE=1 requires IronbugBridge.dll, "
+                    "but neither prebuilt src/ironbug_bridge/bin/Release/net8.0/IronbugBridge.dll "
+                    "nor `dotnet` on PATH was found. Install the .NET 8 SDK or prebuild "
+                    "src/ironbug_bridge/IronbugBridge.csproj."
+                )
+            else:
+                warnings.warn(
+                    "Prebuilt IronbugBridge.dll was not found and `dotnet` is unavailable on PATH; "
+                    "continuing without bundling the .NET 8 IronbugBridge sidecar "
+                    "(set LBT_MCP_REQUIRE_IRONBUG_BRIDGE=1 to require it).",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+        if bridge_dll.is_file():
+            bridge_target = resources / "ironbug_bridge"
+            bridge_target.mkdir(parents=True, exist_ok=True)
+            for pattern in ("*.dll", "*.deps.json", "*.runtimeconfig.json"):
+                for asset in bridge_out.glob(pattern):
+                    shutil.copy2(asset, bridge_target / asset.name)
+            runtimes_dir = bridge_out / "runtimes"
+            if runtimes_dir.is_dir():
+                shutil.copytree(runtimes_dir, bridge_target / "runtimes", dirs_exist_ok=True)
         for source, target in (
             (root / ".agents/skills/ladybug-tools-mcp-use", resources / "skills/ladybug-tools-mcp-use"),
             (root / "src/grasshopper_components/user_objects", resources / "grasshopper"),

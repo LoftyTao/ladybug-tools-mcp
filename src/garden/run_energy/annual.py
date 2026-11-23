@@ -28,10 +28,10 @@ from garden.run_ledger import (
 )
 from garden.run_ledger import run_id_from_target_or_value
 from garden.honeybee_core.model_io import resolve_model_target
-from garden.ironbug_console.energy_runtime import (
-    PYTHON_ONLY_ENV,
-    PythonIronbugRuntimeUnsupported,
-    prepare_python_only_energy_model,
+from garden.ironbug.runtime import (
+    resolve_ironbug_console_exe,
+    resolve_ironbug_dir,
+    resolve_openstudio_csharp_dir,
 )
 from garden.run_energy.output_requests import (
     simulation_parameter_with_output_request,
@@ -653,11 +653,10 @@ def _err_repair_hints(text: str) -> list[dict[str, str]]:
                 "code": "ironbug_heating_water_coil_ua_or_flow_not_numeric",
                 "message": (
                     "For Ironbug IB_CoilHeatingWater, set numeric "
-                    "u_factor_times_area_value and numeric maximum_water_flow_rate, "
-                    "then rebuild the owning FCU, unit-heater, reheat terminal, or "
-                    "HVAC graph before applying DetailedHVAC again."
+                    "UFactorTimesAreaValue and MaximumWaterFlowRate via "
+                    "IB_upsert_components, then re-apply DetailedHVAC before rerunning."
                 ),
-                "recommended_tool": "IB_coil_heating_water",
+                "recommended_tool": "IB_upsert_components",
             }
         ]
     return []
@@ -778,7 +777,6 @@ def _public_run(record: dict[str, Any]) -> dict[str, Any]:
         "source_file_path",
         "run_input_path",
         "expand_objects",
-        "python_ironbug_console_runtime",
     )
     return project_run(record, keys)
 
@@ -807,9 +805,6 @@ def _completed_reload_response(
             "preflight": record.get("preflight"),
             "simulation_parameter_target": record.get("simulation_parameter_target"),
             "design_day_resolution": record.get("design_day_resolution"),
-            "python_ironbug_console_runtime": record.get(
-                "python_ironbug_console_runtime"
-            ),
             "reloaded": True,
             "result_evidence": _energy_run_result_evidence(
                 garden_root=garden_root,
@@ -866,9 +861,6 @@ def _existing_run_response(
             "preflight": record.get("preflight"),
             "simulation_parameter_target": record.get("simulation_parameter_target"),
             "design_day_resolution": record.get("design_day_resolution"),
-            "python_ironbug_console_runtime": record.get(
-                "python_ironbug_console_runtime"
-            ),
             "result_evidence": evidence,
             "poll_next": {
                 "tool": "EP_poll_simulation",
@@ -922,9 +914,9 @@ def _run_honeybee_energy_cli(
     recipe_dir = run_dir / "openstudio"
     recipe_dir.mkdir(parents=True, exist_ok=True)
     command = [
-        _console_executable("honeybee-energy"),
-        "simulate",
-        "model",
+        sys.executable,
+        "-m",
+        "garden.run_energy.simulate_runner",
         str(model_path),
         epw_path,
         "--report-units",
@@ -944,7 +936,15 @@ def _run_honeybee_energy_cli(
 
     with _recipe_cli_environment(), _capture_recipe_stdio(run_dir):
         env = os.environ.copy()
-        env["PATH"] = _recipe_cli_path(env.get("PATH"))
+        extra_paths: list[str] = []
+        ib_dir = resolve_ironbug_dir()
+        os_cs_dir = resolve_openstudio_csharp_dir(ib_dir)
+        if os_cs_dir:
+            extra_paths.append(str(os_cs_dir))
+        if ib_dir:
+            extra_paths.append(str(ib_dir))
+        base_path = _recipe_cli_path(env.get("PATH"))
+        env["PATH"] = os.pathsep.join([*extra_paths, base_path]) if extra_paths else base_path
         _ensure_windows_install_env(env)
         simulate = subprocess.run(
             command,
@@ -979,11 +979,8 @@ def _missing_outputs() -> list[dict[str, Any]]:
     return [{"name": name, "path": None, "exists": False} for name in OUTPUT_NAMES]
 
 
-def _should_prepare_python_ironbug_runtime(model_path: Path) -> bool:
-    """Return True when a Honeybee model needs Python Ironbug translation."""
-
-    if os.environ.get(PYTHON_ONLY_ENV) == "1":
-        return True
+def _requires_external_ironbug_console(model_path: Path) -> bool:
+    """Return True when a Honeybee model references Ironbug DetailedHVAC."""
     try:
         text = model_path.read_text(encoding="utf-8")
     except OSError:
@@ -1022,9 +1019,6 @@ def _energy_response(
             "preflight": record.get("preflight"),
             "simulation_parameter_target": record.get("simulation_parameter_target"),
             "design_day_resolution": record.get("design_day_resolution"),
-            "python_ironbug_console_runtime": record.get(
-                "python_ironbug_console_runtime"
-            ),
         },
         "report": make_report(
             status=report_status or ("ok" if status in {"running", "completed"} else "error"),
@@ -1307,30 +1301,15 @@ def _execute_annual_energy_run(
         if record.get("measures_path")
         else None
     )
-    python_runtime_translation = None
-    if _should_prepare_python_ironbug_runtime(model_path):
-        try:
-            model_path, python_runtime_translation = prepare_python_only_energy_model(
-                model_path=model_path,
-                run_dir=run_dir,
-                garden_root=garden_root,
-                epw_path=str(epw_path),
-                sim_par_path=(
-                    str(sim_par_path) if sim_par_path is not None else None
-                ),
+    if _requires_external_ironbug_console(model_path):
+        ib_dir = resolve_ironbug_dir()
+        if resolve_ironbug_console_exe(ib_dir) is None:
+            blocker_msg = (
+                "Model uses Ironbug DetailedHVAC, but external Ironbug.Console was not found. "
+                "Install Ladybug Tools / Ironbug (https://github.com/MingboPeng/Ironbug) and verify "
+                "the path with LB_get_runtime_config."
             )
-            if python_runtime_translation is not None:
-                python_runtime_translation["run_id"] = run_id
-        except PythonIronbugRuntimeUnsupported as exc:
-            warnings.append(str(exc))
-            python_runtime_translation = {
-                "status": "blocked",
-                "run_id": run_id,
-                "csharp_ironbug_console_required": False,
-                "python_console_parity_gap": True,
-                "error": str(exc),
-                "unsupported_graphs": exc.unsupported_graphs,
-            }
+            warnings.append(blocker_msg)
             record.update(
                 {
                     "status": "failed",
@@ -1341,49 +1320,14 @@ def _execute_annual_energy_run(
                         warnings=warnings,
                     ),
                     "warnings": warnings,
-                    "python_ironbug_console_runtime": python_runtime_translation,
                 }
             )
             _upsert_record(garden_root, record)
             return _energy_response(
                 manifest=manifest,
                 record=record,
-                message=(
-                    "Python-only Ironbug Console runtime translation failed; "
-                    "run record was saved."
-                ),
+                message=blocker_msg,
                 report_status="blocked",
-                warnings=warnings,
-            )
-        except Exception as exc:
-            warnings.append(str(exc))
-            python_runtime_translation = {
-                "status": "error",
-                "run_id": run_id,
-                "csharp_ironbug_console_required": False,
-                "error": str(exc),
-            }
-            record.update(
-                {
-                    "status": "failed",
-                    "completed_at": utc_now_iso(),
-                    "outputs": _recipe_outputs(
-                        garden_root_path=garden_root,
-                        run_dir=run_dir,
-                        warnings=warnings,
-                    ),
-                    "warnings": warnings,
-                    "python_ironbug_console_runtime": python_runtime_translation,
-                }
-            )
-            _upsert_record(garden_root, record)
-            return _energy_response(
-                manifest=manifest,
-                record=record,
-                message=(
-                    "Python-only Ironbug Console runtime translation errored; "
-                    "run record was saved."
-                ),
                 warnings=warnings,
             )
 
@@ -1434,8 +1378,6 @@ def _execute_annual_energy_run(
             "warnings": warnings,
         }
     )
-    if python_runtime_translation is not None:
-        record["python_ironbug_console_runtime"] = python_runtime_translation
     _upsert_record(garden_root, record)
     return _energy_response(
         manifest=manifest,
@@ -1687,9 +1629,6 @@ def get_energy_run(
         "status": status,
         "run_id": resolved_run_id,
         "outputs": outputs,
-        "python_ironbug_console_runtime": record.get(
-            "python_ironbug_console_runtime"
-        ),
         "result_evidence": evidence,
         "final_answer_ready": evidence["final_answer_ready"],
         "summary_view": {
@@ -1698,9 +1637,6 @@ def get_energy_run(
             "run_id": resolved_run_id,
             "status": status,
             "outputs": outputs,
-            "python_ironbug_console_runtime": record.get(
-                "python_ironbug_console_runtime"
-            ),
             "result_evidence": evidence,
             "final_answer_ready": evidence["final_answer_ready"],
             "should_start_another_run": False,
@@ -1786,9 +1722,6 @@ def read_energy_eui(
         return {
             "eui": None,
             "path": None,
-            "python_ironbug_console_runtime": record.get(
-                "python_ironbug_console_runtime"
-            ),
             "energy_blocker": {
                 "status": "missing_eui_output",
                 "message": message,
@@ -1802,9 +1735,6 @@ def read_energy_eui(
                 "path": None,
                 "available_outputs": outputs,
                 "available_output_names": existing_output_names,
-                "python_ironbug_console_runtime": record.get(
-                    "python_ironbug_console_runtime"
-                ),
                 "recommended_next_tools": details["recommended_next_tools"],
             },
             "report": make_report(status="blocked", message=message, details=details),
@@ -1877,9 +1807,6 @@ def read_energy_eui(
         "files": outputs,
         "err_exists": err_exists,
         "sql_exists": sql_exists,
-        "python_ironbug_console_runtime": record.get(
-            "python_ironbug_console_runtime"
-        ),
         "warning_count": int((err_summary or {}).get("warning_count") or 0),
         "severe_count": severe_count,
         "fatal_count": fatal_count,
@@ -1892,9 +1819,6 @@ def read_energy_eui(
             "path": to_posix_relative(eui_path, garden_root_path),
             "err_exists": err_exists,
             "sql_exists": sql_exists,
-            "python_ironbug_console_runtime": record.get(
-                "python_ironbug_console_runtime"
-            ),
             "warning_count": int((err_summary or {}).get("warning_count") or 0),
             "severe_count": severe_count,
             "fatal_count": fatal_count,

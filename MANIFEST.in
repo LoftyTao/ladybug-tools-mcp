@@ -1,9 +1,12 @@
 include requirements.in requirements.txt
-prune docs
-prune tests
-exclude CONTEXT.md
+recursive-include src/ironbug_bridge *.cs *.csproj
 recursive-include .agents/skills/ladybug-tools-mcp-use *.md *.yaml
 recursive-include src/grasshopper_components/user_objects *.ghuser *.json
 recursive-include src/grasshopper_components *.py
+prune docs
+prune tests
+prune src/ironbug_bridge/bin
+prune src/ironbug_bridge/obj
+exclude CONTEXT.md
 recursive-exclude .agents/skills/ladybug-tools-mcp-use AGENTS.md
 global-exclude AGENTS.md

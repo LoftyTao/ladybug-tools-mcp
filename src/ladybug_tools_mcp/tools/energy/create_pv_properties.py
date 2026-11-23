@@ -20,7 +20,7 @@ def register(mcp: FastMCP) -> None:
             "TwoAxis. Save the target for HB_edit_shade.pv_properties. "
             "Inverter efficiency and DC-to-AC sizing belong in "
             "EP_create_electric_load_center. Ironbug photovoltaic "
-            "generators use the ironbug_core tools."
+            "generators use the Ironbug (IB_*) tools."
         ),
         tags={
             "energy",

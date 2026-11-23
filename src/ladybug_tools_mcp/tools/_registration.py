@@ -27,7 +27,7 @@ def iter_tool_module_names(
         sorted(
             path.stem
             for path in Path(package_file).parent.glob("*.py")
-            if path.stem != "__init__" and path.stem not in excluded
+            if not path.stem.startswith("_") and path.stem not in excluded
         )
     )
 

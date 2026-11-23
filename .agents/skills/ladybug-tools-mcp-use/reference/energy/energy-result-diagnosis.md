@@ -31,10 +31,10 @@ Use this when the user asks why an Energy result looks high, low, or suspicious 
 - Schedule/program assumptions relevant to the user question.
 - Validation status and run status.
 - ERR repair hints if `EP_read_errors` returns them. If the hint code
-  is `ironbug_heating_water_coil_ua_or_flow_not_numeric`, rebuild the affected
-  Ironbug hot-water coil with numeric `u_factor_times_area_value` and
-  `maximum_water_flow_rate`, then rebuild the owning FCU, terminal, or plant
-  graph before another Energy run.
+  is `ironbug_heating_water_coil_ua_or_flow_not_numeric`, update the affected
+  Ironbug hot-water coil with numeric `UFactorTimesAreaValue` and
+  `MaximumWaterFlowRate` via `IB_upsert_components`, then re-validate and
+  re-apply DetailedHVAC before another Energy run.
 - Result-data truncation fields: use `collection_count`,
   `returned_collection_count`, and `collections_truncated`; do not invent alias
   counts.

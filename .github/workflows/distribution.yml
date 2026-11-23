@@ -11,15 +11,49 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  contract-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: '3.12'
-      - name: Build wheel from source distribution
-        run: uv build
+      - name: Install editable package and run contract tests
+        shell: pwsh
+        run: |
+          uv venv --python 3.12
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $python = if ($IsWindows) { '.venv/Scripts/python.exe' } else { '.venv/bin/python' }
+          uv pip install --python $python --prerelease allow -e .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python -m unittest discover -s tests/contract -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  build:
+    runs-on: ubuntu-latest
+    env:
+      LBT_MCP_REQUIRE_IRONBUG_BRIDGE: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build .NET 8 IronbugBridge sidecar
+        run: dotnet build src/ironbug_bridge/IronbugBridge.csproj -c Release
+      - name: Build source distribution and wheel
+        run: |
+          uv build --sdist
+          uv build --wheel
+      - name: Verify IronbugBridge is bundled in wheel
+        run: |
+          uv run --no-project --python 3.12 python -c 'import glob, zipfile; wheels = glob.glob("dist/*.whl"); assert len(wheels) == 1, wheels; zf = zipfile.ZipFile(wheels[0]); names = set(zf.namelist()); required = {"ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.dll", "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.deps.json", "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.runtimeconfig.json"}; missing = sorted(required - names); assert not missing, f"Missing {missing} in {wheels[0]}"'
       - name: Check metadata and release version
         run: |
           uvx twine check dist/*
@@ -179,7 +213,7 @@ jobs:
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, test]
+    needs: [contract-tests, build, test]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

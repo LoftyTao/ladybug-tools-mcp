@@ -61,8 +61,8 @@ edited = await call_tool("HB_edit_room", {
 ## Stop Conditions
 
 - Do not invent `create_template_hvac`; `EP_search_hvac_templates` combines search and instantiation.
-- Do not use this path for Ironbug source-backed custom HVAC graphs; switch to
-  `reference/ironbug/ironbug-custom-hvac-agent-workflows.md`.
+- Do not use this path for Ironbug custom HVAC graphs; switch to
+  `reference/ironbug.md` and `reference/ironbug-examples.md`.
 - Do not copy expanded Setpoint schedule JSON when a saved target exists.
 - For `EP_create_ideal_air_system`, do not use room setpoint temperatures as supply air temperatures. Omit supply air temperatures unless the user means supply air.
 - Keep HVAC smoke and run metrics in LLM-Wiki.

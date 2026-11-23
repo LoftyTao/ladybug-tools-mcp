@@ -132,12 +132,15 @@ _ENGINE_HELP: dict[str, dict[str, str | list[str]]] = {
         "documentation_url": "https://github.com/MingboPeng/Ironbug",
         "compatibility_url": "https://github.com/ladybug-tools/lbt-grasshopper/wiki/1.4-Compatibility-Matrix",
         "install_hint": (
-            "Install Ironbug into the Ladybug Tools grasshopper/ironbug folder, "
-            "usually through the Pollination/Ladybug Tools installer or the "
-            "Ironbug installer, then point Honeybee Energy config to "
-            "Ironbug.Console.exe."
+            "Install Ironbug (providing Ironbug.Console and Ironbug.HVAC.dll), OpenStudio C# bindings "
+            "(OpenStudio.dll), and .NET 8+ runtime. On Windows, Ladybug Tools / Pollination installs "
+            "Ironbug into grasshopper/ironbug; on macOS/Linux, configure honeybee_energy ironbug_path "
+            "or LADYBUG_TOOLS_IRONBUG_PATH."
         ),
-        "required_for": ["Ironbug DetailedHVAC translation to OpenStudio"],
+        "required_for": [
+            "Ironbug DetailedHVAC authoring/validation via .NET 8 IronbugBridge",
+            "Ironbug DetailedHVAC translation to OpenStudio via Ironbug.Console",
+        ],
     },
 }
 
@@ -1332,16 +1335,35 @@ def _des_gmt_config() -> dict[str, Any]:
 
 
 def _ironbug_console_config() -> dict[str, Any]:
-    exe = getattr(energy_folders, "ironbug_exe", None)
-    path = getattr(energy_folders, "ironbug_path", None)
-    if not path and exe:
-        path = str(Path(exe).expanduser().parent)
-    return _engine_record(
+    from garden.ironbug.runtime import (
+        _repo_or_packaged_bridge_dll,
+        resolve_ironbug_console_exe,
+        resolve_ironbug_dir,
+        resolve_openstudio_csharp_dir,
+    )
+
+    ib_dir = resolve_ironbug_dir()
+    exe = resolve_ironbug_console_exe(ib_dir)
+    os_cs_dir = resolve_openstudio_csharp_dir(ib_dir)
+    bridge_dll = _repo_or_packaged_bridge_dll()
+    dotnet_exe = shutil.which("dotnet")
+    record = _engine_record(
         "ironbug_console",
-        path=path,
-        exe=exe,
+        path=str(ib_dir) if ib_dir else getattr(energy_folders, "ironbug_path", None),
+        exe=str(exe) if exe else getattr(energy_folders, "ironbug_exe", None),
         version_getter=lambda: getattr(energy_folders, "ironbug_version_str", None),
     )
+    record.update(
+        {
+            "ironbug_hvac_dll_exists": bool(ib_dir and (ib_dir / "Ironbug.HVAC.dll").is_file()),
+            "openstudio_csharp_path": str(os_cs_dir) if os_cs_dir else None,
+            "openstudio_csharp_dll_exists": bool(os_cs_dir and (os_cs_dir / "OpenStudio.dll").is_file()),
+            "dotnet_available": bool(dotnet_exe),
+            "dotnet_exe": dotnet_exe,
+            "bridge_dll_exists": bool(bridge_dll and bridge_dll.is_file()),
+        }
+    )
+    return record
 
 
 def _path_prepend_values(engines: dict[str, dict[str, Any]]) -> list[str]:

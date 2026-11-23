@@ -10,21 +10,14 @@ from typing import Any
 
 from dragonfly.model import Model as DragonflyModel
 from honeybee.model import Model
-from ironbug import hvac as ironbug_hvac
 
 from ladybug_tools_mcp.contracts.report import make_report
 from flowerpot.active_context import write_active_context
 from flowerpot.properties_input import read_properties_input
 from flowerpot.registry import create_flowerpot, get_flowerpot
 from garden.manifest import GardenManifest
-from garden.ironbug_core.detailed_hvac import (
-    build_ironbug_model_detailed_hvac_specification,
-    _component_thermal_zones,
-    _ironbug_console_spec_value,
-    _thermal_zone_names,
-)
-from garden.ironbug_core.model_io import load_ironbug_model
-from garden.ironbug_core.readiness import validate_ironbug_energyplus_readiness
+from garden.ironbug.service import validate_ironbug_system
+from garden.ironbug.store import load_ironbug_system_files
 from garden.store import create_garden, get_base_honeybee_model, list_gardens
 from garden.store import get_base_dragonfly_model
 from garden.honeybee_core.model_io import (
@@ -411,72 +404,37 @@ def _ironbug_hvac_specification(request: dict[str, Any]) -> dict[str, Any]:
                 candidate_identifiers=candidate_ids,
             )
 
-        _, selected, model_path, model = load_ironbug_model(
-            Path(garden_root), ironbug_model_target=selected
+        manifest, selected, model_path, _, spec_dict, _ = load_ironbug_system_files(
+            Path(garden_root),
+            identifier=requested_id or None,
         )
-        identifier = str(model.identifier or selected["id"])
-        display_name = str(model.display_name or identifier)
-        if model.HVACSystem is None:
-            return _ironbug_hvac_error(
-                f"Ironbug authoring model has no HVAC system: {identifier}"
-            )
-        has_hvac_graph = bool(
-            model.HVACSystem.AirLoops
-            or model.HVACSystem.PlantLoops
-            or model.HVACSystem.VariableRefrigerantFlows
-            or _component_thermal_zones(model)
-        )
-        specification = (
-            build_ironbug_model_detailed_hvac_specification(
-                ironbug_model=model,
-                room_identifiers=[],
-                validate_room_links=False,
-            )
-            if has_hvac_graph
-            else _ironbug_console_spec_value(model.HVACSystem)
-        )
-        allowlist = _ironbug_hvac_type_allowlist()
-        try:
-            _validate_specification_types(specification, allowlist)
-        except ValueError as error:
-            return _ironbug_hvac_error(str(error), failed_gate="allowlist")
+        identifier = str(selected["id"])
+        display_name = str(spec_dict.get("DisplayName") or identifier)
+        specification = dict(spec_dict)
         specification.pop("$type", None)
         specification["DisplayName"] = display_name
-        excluded_roots = [
-            name
-            for name in ("EnergyManagementSystem", "ElectricLoadCenter")
-            if getattr(model, name, None) is not None
-        ]
-        for name in excluded_roots:
-            specification.pop(name, None)
-        readiness = _ironbug_hvac_readiness(
+        allowlist = _ironbug_hvac_type_allowlist()
+        _validate_specification_types(specification, allowlist)
+        validation = validate_ironbug_system(
             garden_root=garden_root,
             ironbug_model_target=selected,
         )
-        room_binding = _ironbug_room_binding(
-            garden_root=garden_root,
-            model=model,
-        )
-        all_readiness_issues = [
-            *room_binding.get("issues", []),
-            *readiness.get("issues", []),
-        ]
-        readiness_issues = [
-            issue
-            for issue in all_readiness_issues
-            if issue.get("severity") != "warning"
-        ]
-        blocked = bool(readiness_issues)
+        thermal_zones = list(validation.get("thermal_zones") or [])
+        all_readiness_issues = list(validation.get("blocking_issues") or [])
+        blocked = not bool(validation.get("ready"))
         metadata = {
             "model_identifier": identifier,
             "model_display_name": display_name,
             "expected_assembly_name": "Ironbug.HVAC",
-            "expected_assembly_version": "1.26.0",
-            "thermal_zones": room_binding["thermal_zone_names"],
-            "thermal_zone_details": room_binding["thermal_zones"],
-            "room_binding": room_binding,
-            "energy_readiness": readiness,
-            "excluded_roots": excluded_roots,
+            "expected_assembly_version": ">=1.22.0",
+            "thermal_zones": thermal_zones,
+            "openstudio_summary": validation.get("openstudio_summary") or {},
+            "energy_readiness": {
+                "status": "pass" if not blocked else "blocked",
+                "ready": not blocked,
+                "issues": all_readiness_issues,
+            },
+            "excluded_roots": [],
             "failed_gate": None,
         }
         return {
@@ -501,158 +459,21 @@ def _ironbug_hvac_specification(request: dict[str, Any]) -> dict[str, Any]:
         return _ironbug_hvac_error(str(error))
 
 
-def _ironbug_hvac_readiness(
-    *,
-    garden_root: str,
-    ironbug_model_target: dict[str, Any],
-) -> dict[str, Any]:
-    """Return compact EnergyPlus readiness without blocking native handoff."""
-    try:
-        result = validate_ironbug_energyplus_readiness(
-            garden_root=garden_root,
-            ironbug_model_target=ironbug_model_target,
-        )
-        report = result.get("report") or {}
-        issues = [
-            dict(issue)
-            for issue in report.get("issues", [])
-            if isinstance(issue, dict)
-        ]
-        return {
-            "status": str(report.get("status") or "unknown"),
-            "ready": report.get("status") == "pass",
-            "issue_count": len(issues),
-            "blocking_issue_count": sum(
-                1 for issue in issues if issue.get("severity") != "warning"
-            ),
-            "issues": issues,
-        }
-    except Exception as error:
-        return {
-            "status": "blocked",
-            "ready": False,
-            "issue_count": 1,
-            "blocking_issue_count": 1,
-            "issues": [
-                {
-                    "code": "ironbug_energy_readiness_check_failed",
-                    "message": str(error),
-                }
-            ],
-        }
-
-
-def _ironbug_room_binding(*, garden_root: str, model: Any) -> dict[str, Any]:
-    """Compare optional base Honeybee Room ids with Ironbug ThermalZone names."""
-    zones = _component_thermal_zones(model)
-    thermal_zones = [
-        {
-            "identifier": str(getattr(zone, "identifier", "") or ""),
-            "names": sorted(_thermal_zone_names(zone)),
-        }
-        for zone in zones
-    ]
-    base = get_base_honeybee_model(garden_root=garden_root)
-    base_target = base.get("target") or base.get("model_target")
-    if not base_target:
-        return {
-            "status": "not_checked",
-            "room_identifiers": [],
-            "thermal_zone_names": sorted(
-                {name for zone in thermal_zones for name in zone["names"]}
-            ),
-            "missing_room_identifiers": [],
-            "unmatched_thermal_zone_names": [],
-            "thermal_zones": thermal_zones,
-            "issues": [],
-        }
-
-    try:
-        honeybee_model = load_honeybee_model(Path(garden_root), base_target)
-        room_identifiers = sorted(str(room.identifier) for room in honeybee_model.rooms)
-    except Exception as error:
-        return {
-            "status": "blocked",
-            "room_identifiers": [],
-            "thermal_zone_names": sorted(
-                {name for zone in thermal_zones for name in zone["names"]}
-            ),
-            "missing_room_identifiers": [],
-            "unmatched_thermal_zone_names": [],
-            "thermal_zones": thermal_zones,
-            "issues": [
-                {
-                    "code": "honeybee_base_model_load_failed",
-                    "message": str(error),
-                }
-            ],
-        }
-
-    thermal_zone_names = sorted(
-        {name for zone in thermal_zones for name in zone["names"]}
-    )
-    zone_name_sets = [set(zone["names"]) for zone in thermal_zones]
-    room_ids = set(room_identifiers)
-    missing = sorted(
-        room_id
-        for room_id in room_identifiers
-        if not any(room_id in names for names in zone_name_sets)
-    )
-    unmatched = sorted(
-        {
-            name
-            for names in zone_name_sets
-            if names.isdisjoint(room_ids)
-            for name in names
-        }
-    )
-    issues = []
-    if missing or unmatched:
-        issues.append(
-            {
-                "code": "ironbug_thermal_zone_room_binding_mismatch",
-                "message": (
-                    "Honeybee Room identifiers must match Ironbug ThermalZone "
-                    "Name or identifier values."
-                ),
-                "missing_room_identifiers": missing,
-                "unmatched_thermal_zone_names": unmatched,
-            }
-        )
-    return {
-        "status": "mismatch" if issues else "matched",
-        "room_identifiers": room_identifiers,
-        "thermal_zone_names": thermal_zone_names,
-        "missing_room_identifiers": missing,
-        "unmatched_thermal_zone_names": unmatched,
-        "thermal_zones": thermal_zones,
-        "issues": issues,
-    }
-
-
 def _ironbug_hvac_type_allowlist() -> set[str]:
-    """Return exact Ironbug.HVAC types confirmed by the source-backed mirror."""
-    allowed: set[str] = set()
-    for value in vars(ironbug_hvac).values():
-        if not isinstance(value, type):
-            continue
-        source_class = getattr(value, "SOURCE_CLASS", None)
-        namespace = getattr(value, "SOURCE_NAMESPACE", None)
-        source_path = str(getattr(value, "SOURCE_PATH", "") or "")
-        if not source_class or not namespace or not source_path.startswith(
-            "src/Ironbug.HVAC"
-        ):
-            continue
-        allowed.add(f"{namespace}.{source_class}, Ironbug.HVAC")
-    return allowed
+    """Return allowed Ironbug.HVAC assembly type prefix marker."""
+    return {"Ironbug.HVAC.*"}
 
 
 def _validate_specification_types(value: Any, allowlist: set[str]) -> None:
-    """Reject unsupported type metadata before it reaches the CLR runtime."""
+    """Reject non-Ironbug type metadata before it reaches the CLR runtime."""
     if isinstance(value, dict):
         if "$type" in value:
             type_name = value["$type"]
-            if not isinstance(type_name, str) or type_name not in allowlist:
+            allowed = isinstance(type_name, str) and (
+                type_name in allowlist
+                or ("Ironbug.HVAC.*" in allowlist and type_name.startswith("Ironbug.HVAC.") and ", Ironbug.HVAC" in type_name)
+            )
+            if not allowed:
                 raise ValueError(
                     f"Ironbug specification contains disallowed $type: {type_name}"
                 )
@@ -672,7 +493,7 @@ def _ironbug_hvac_error(
     details = {
         "candidate_identifiers": candidate_identifiers or [],
         "expected_assembly_name": "Ironbug.HVAC",
-        "expected_assembly_version": "1.26.0",
+        "expected_assembly_version": ">=1.22.0",
         "failed_gate": failed_gate,
     }
     return {

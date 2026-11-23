@@ -18,7 +18,7 @@ def register(mcp: FastMCP) -> None:
             'HB_edit_room hvac. Supports all-air, DOAS, and heat-cool '
             "template HVAC systems. This Honeybee Energy template search does "
             "not build Ironbug DetailedHVAC component graphs; use the "
-            "ironbug_core or detailed_hvac tools for custom EnergyPlus HVAC "
+            "Ironbug (IB_*) tools for custom EnergyPlus HVAC "
             "component authoring."
         ),
         tags={

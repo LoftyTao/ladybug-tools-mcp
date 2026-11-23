@@ -12,7 +12,7 @@ _TOOL_FAMILIES = (
     "garden",
     "flowerpot",
     "honeybee_core",
-    "ironbug_core",
+    "ironbug",
     "dragonfly_core",
     "dragonfly_grid",
     "des",
