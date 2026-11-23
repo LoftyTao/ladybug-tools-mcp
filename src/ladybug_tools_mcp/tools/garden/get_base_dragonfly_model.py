@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='GD_get_base_dragonfly_model',
         description=(
-            "Read the current Garden base Dragonfly model slot and return its "
-            "target handoff with minimal summary_view context. Use this when a "
-            "later Dragonfly, UWG, visualization, Honeybee conversion, or export "
-            "tool needs the active Dragonfly model target. This is not a model-list, "
-            "full DFJSON read, or validation tool; use GD_list_models for all "
-            "model targets and DF_validate_model for issue checks."
+            'Read the current Garden base Dragonfly model slot and return its target handoff with '
+            'minimal summary_view context. Use this when a later Dragonfly, UWG, visualization, '
+            'Honeybee conversion, or export tool needs the active Dragonfly model target. Use '
+            'GD_list_models to list all models and DF_validate_model to validate.'
         ),
         tags={
             "base-model",

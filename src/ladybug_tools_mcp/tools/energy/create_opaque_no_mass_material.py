@@ -12,12 +12,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_create_opaque_no_mass_material',
         description=(
-            "Create a Honeybee Energy EnergyMaterialNoMass opaque material "
-            "from an R-value for walls, roofs, floors, or other opaque "
-            "construction layers. This returns a material layer for later use "
-            "in an opaque construction; it does not assign the layer to model "
-            "geometry. Returns object_dict plus summary_view; "
-            "return_detail='full' also includes a material property matrix."
+            'Create a Honeybee Energy EnergyMaterialNoMass opaque material from an R-value for '
+            'walls, roofs, floors, or other opaque construction layers. This returns a material '
+            'layer for later use in an opaque construction. Returns object_dict plus '
+            "summary_view; return_detail='full' also includes a material property matrix."
         ),
         tags={
             "energy",

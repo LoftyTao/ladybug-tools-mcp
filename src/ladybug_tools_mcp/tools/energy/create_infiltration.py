@@ -11,7 +11,15 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_infiltration',
-        description='Create a Honeybee Energy Infiltration load for uncontrolled outdoor air leakage through the envelope, using flow_per_exterior_area plus optional fractional schedule and EnergyPlus/BLAST/DOE2-style coefficients. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to EP_create_program_type.infiltration; set return_object_dict=false only when you want a low-token target/summary/receipt response. This is not design ventilation, fan-assisted zone ventilation, operable-window natural ventilation, or AirflowNetwork authoring.',
+        description=(
+            'Create a Honeybee Energy Infiltration load for uncontrolled outdoor air leakage '
+            'through the envelope, using flow_per_exterior_area plus optional fractional schedule '
+            'and EnergyPlus/BLAST/DOE2-style coefficients. The schedule accepts an object_dict, '
+            'Garden schedule target, or standards identifier. Use garden_root to save a Garden '
+            'Properties Library load target and pass target to '
+            'EP_create_program_type.infiltration; set return_object_dict=false for a compact '
+            'target/summary/receipt response.'
+        ),
         tags={
             "author",
             "energy",

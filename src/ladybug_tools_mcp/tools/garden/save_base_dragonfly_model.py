@@ -15,13 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='GD_save_base_dragonfly_model',
         description=(
-            "Persist the current Garden base Dragonfly model back to Garden "
-            "authoring truth as DFJSON. Use after Dragonfly edits have changed the "
-            "in-memory base model and you need a fresh model_target before "
-            "versioning, UWG, visualization, Honeybee conversion, or export. "
-            "Returns model_target, summary_view, and persistence_receipt; it does "
-            "not create a Garden version checkpoint and does not return the full "
-            "DFJSON body."
+            'Persist the current Garden base Dragonfly model back to Garden authoring truth as '
+            'DFJSON. Use after Dragonfly edits have changed the in-memory base model and you need '
+            'a fresh model_target before versioning, UWG, visualization, Honeybee conversion, or '
+            'export. Returns model_target, summary_view, and persistence_receipt.'
         ),
         tags={
             "author",
@@ -47,8 +44,7 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(
                 description=(
-                    "Optional short save note stored in the persistence receipt "
-                    "and summary_view; this is not a Garden version subject."
+                    'Optional short save note stored in the persistence receipt and summary_view.'
                 )
             ),
         ] = None,

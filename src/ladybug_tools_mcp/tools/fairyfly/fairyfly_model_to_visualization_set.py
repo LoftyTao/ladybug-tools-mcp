@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FF_model_to_visualization_set",
         description=(
-            "Create a Ladybug Display VisualizationSet from a Garden Fairyfly model. "
-            "Set return_visualization_set=false to save a compact visualization_set_target "
-            "for LB_set_to_html, SVG, or vtk.js export. This visualizes the "
-            "2D section geometry and does not read THERM result arrays."
+            'Create a Ladybug Display VisualizationSet from a Garden Fairyfly model. Set '
+            'return_visualization_set=false to save a compact visualization_set_target for '
+            'LB_set_to_html, SVG, or vtk.js export.'
         ),
         tags={"fairyfly", "therm", "visualization-set", "model", "visualize", "preview"},
         timeout=20,

@@ -16,14 +16,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='FP_get',
         description=(
-            "Read, list, or summarize Garden-local Flowerpot handoff context while "
-            "keeping Flowerpot dictionaries opaque. Use garden_root alone to list "
-            "registered Flowerpots, garden_root plus flowerpot_id to read one "
-            "registered item, or flowerpot to summarize a passed handoff dict. "
-            "Returns flowerpot, target, matches, summary_view, and report. It does "
-            "not unpack payload internals or return full Honeybee/Dragonfly model "
-            "bodies; include_body currently only adds a warning. Do not pass "
-            "arguments null."
+            'Read, list, or summarize Garden-local Flowerpot handoff context while keeping '
+            'Flowerpot dictionaries opaque. Use garden_root alone to list registered Flowerpots, '
+            'garden_root plus flowerpot_id to read one registered item, or flowerpot to summarize '
+            'a passed handoff dict. Returns flowerpot, target, matches, summary_view, and report.'
         ),
         tags={
             "context",
@@ -50,7 +46,7 @@ def register(mcp: FastMCP) -> None:
         flowerpot: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional opaque Flowerpot dict to summarize. Pass the whole Flowerpot unchanged; do not unpack internal fields manually."
+                description='Optional opaque Flowerpot dict to summarize (pass unchanged).'
             ),
         ] = None,
         include_body: Annotated[

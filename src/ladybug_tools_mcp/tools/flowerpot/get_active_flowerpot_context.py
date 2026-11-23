@@ -29,14 +29,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FP_get_active_context",
         description=(
-            "Read the Garden-local active Flowerpot context file for prompts about "
-            "Grasshopper, current model, active model, 当前模型, or 正在编辑的模型. Use "
-            "garden_root for an exact Garden or root_folder to find the most "
-            "recent active-context file under a folder of Gardens. Returns exists, "
-            "active_context, flowerpot, model_target, summary_view, and report with "
-            "sanitized context only. It does not read full HBJSON/DFJSON bodies, "
-            "export the model, or fall back to the latest registry entry when no "
-            "active-context file exists."
+            'Read the Garden-local active Flowerpot context file for prompts about Grasshopper, '
+            'current model, active model, 当前模型, or 正在编辑的模型. Use garden_root for an exact Garden '
+            'or root_folder to find the most recent active-context file under a folder of '
+            'Gardens. Returns exists, active_context, flowerpot, model_target, summary_view, and '
+            'report with sanitized context only. Returns sanitized context only without falling '
+            'back to the registry when no active-context file exists.'
         ),
         tags={
             "context",

@@ -92,7 +92,7 @@ def _normalize_xyz(data: Any, *, field_name: str) -> list[float]:
 
 
 def _normalize_face3d_plane(data: Any) -> dict[str, Any] | None:
-    """Normalize common Agent-written Plane dictionaries or let Face3D infer it."""
+    """Normalize Plane dictionaries or let Face3D infer the plane."""
     if not isinstance(data, dict) or data.get("type") not in {None, "Plane"}:
         return None
     if "n" not in data or "o" not in data:

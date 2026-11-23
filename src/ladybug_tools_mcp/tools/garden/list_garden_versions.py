@@ -15,13 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='GD_list_versions',
         description=(
-            "List compact Garden version history for choosing undo, restore, "
-            "go back, previous step, checkpoint, or rollback targets. Returns "
-            "newest-first records under matches and versions; pass a record's "
-            "version_id or target to GD_restore_version. Records include "
-            "subjects, summary_view-style metadata, and version targets only; "
-            "they never include Git diffs, patches, HBJSON bodies, DFJSON bodies, "
-            "or full file contents."
+            'List compact Garden version history for choosing undo, restore, go back, previous '
+            'step, checkpoint, or rollback targets. Returns newest-first records under matches '
+            "and versions; pass a record's version_id or target to GD_restore_version. Records "
+            'include subjects, metadata, and version targets without diffs or file bodies.'
         ),
         tags={
             "checkpoint",

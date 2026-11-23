@@ -34,11 +34,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_search_images",
         description=(
-            "Search Garden-managed Radiance image artifacts such as HDR, "
-            "falsecolor, and GIF outputs. Use this before image conversion or "
-            "preview tools. This searches registered image metadata and paths; "
-            "it does not render, convert, or embed image payloads. Returns "
-            "matches, image_targets, summary_view, and report."
+            'Search Garden-managed Radiance image artifacts such as HDR, falsecolor, and GIF '
+            'outputs. Use this before image conversion or preview tools. This searches registered '
+            'image metadata and paths. Returns matches, image_targets, summary_view, and report.'
         ),
         tags={
             "artifact",

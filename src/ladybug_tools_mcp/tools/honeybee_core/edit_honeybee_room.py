@@ -11,7 +11,15 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_edit_room",
-        description='Edit a Honeybee Room display name, story, zone, multiplier, floor-area flag, Honeybee Energy ProgramType/ConstructionSet/HVAC-template/ventilation/setpoint properties, and Honeybee Radiance ModifierSet in a Garden model. Use target from HB_search_model_objects matches[i].target or HB_create_room.target; an exact same-model room identifier string is accepted only with the intended model_target. This is not Ironbug ThermalZone or DetailedHVAC component placement. Returns target, summary_view.updated_fields, persistence_receipt, and report for later search, validation, EnergyPlus translation, or Radiance workflows.',
+        description=(
+            'Edit a Honeybee Room display name, story, zone, multiplier, floor-area flag, '
+            'Honeybee Energy ProgramType/ConstructionSet/HVAC-template/ventilation/setpoint '
+            'properties, and Honeybee Radiance ModifierSet in a Garden model. Use target from '
+            'HB_search_model_objects matches[i].target or HB_create_room.target; an exact '
+            'same-model room identifier string is accepted only with the intended model_target. '
+            'Returns target, summary_view.updated_fields, persistence_receipt, and report for '
+            'later search, validation, EnergyPlus translation, or Radiance workflows.'
+        ),
         tags={
             "construction-set",
             "edit",
@@ -64,7 +72,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional updated room multiplier. Must be >= 1."),
         ] = None,
         zone: Annotated[
-            str | None, Field(description="Optional updated Honeybee Room zone name; this is room metadata, not an Ironbug ThermalZone object.")
+            str | None, Field(description='Optional updated Honeybee Room zone name.')
         ] = None,
         story: Annotated[
             str | None, Field(description="Optional updated story name.")
@@ -75,7 +83,11 @@ def register(mcp: FastMCP) -> None:
         program_type: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Energy ProgramType dict, Garden target, or exact standards library identifier from EP_search_energy_library_objects matches[i].identifier, for example Generic Office Program. The parameter name is program_type, not energy_properties_program_type.'
+                description=(
+                    'Optional Honeybee Energy ProgramType dict, Garden target, or exact standards '
+                    'library identifier from EP_search_energy_library_objects '
+                    'matches[i].identifier, for example Generic Office Program.'
+                )
             ),
         ] = None,
         construction_set: Annotated[
@@ -87,7 +99,10 @@ def register(mcp: FastMCP) -> None:
         hvac: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Optional Honeybee Energy HVAC dict or Garden Properties Library hvac target from EP_create_ideal_air_system or EP_search_hvac_templates. Do not hand-write fake HVAC dicts.'
+                description=(
+                    'Optional Honeybee Energy HVAC dict or Garden Properties Library hvac target '
+                    'from EP_create_ideal_air_system or EP_search_hvac_templates.'
+                )
             ),
         ] = None,
         ventilation: Annotated[
@@ -105,7 +120,11 @@ def register(mcp: FastMCP) -> None:
         setpoint: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Optional Honeybee Energy Setpoint dict or Garden Properties Library load target from EP_create_setpoint.target. The parameter name is setpoint, not energy_properties_setpoint. Do not pass a bare number; create a Setpoint with EP_create_setpoint(heating_setpoint=..., cooling_setpoint=..., garden_root=..., return_object_dict=false) and pass its target. Agents may pass a lightweight Setpoint dict with schedule identifiers instead of expanded schedule JSON.'
+                description=(
+                    'Optional Honeybee Energy Setpoint dict (lightweight schedule identifiers '
+                    'supported) or Garden Properties Library target from '
+                    'EP_create_setpoint.target.'
+                )
             ),
         ] = None,
         modifier_set: Annotated[

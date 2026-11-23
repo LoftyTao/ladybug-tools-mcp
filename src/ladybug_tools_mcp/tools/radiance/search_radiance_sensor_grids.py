@@ -29,10 +29,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_search_sensor_grids",
         description=(
-            "Search Garden Radiance SensorGrid .pts artifacts and return "
-            "compact radiance_sensor_grid targets for grid recipe handoff. "
-            "This searches saved sensor-grid artifacts; it does not create "
-            "sensor points, attach grids to models, or read grid results."
+            'Search Garden Radiance SensorGrid .pts artifacts and return compact '
+            'radiance_sensor_grid targets for grid recipe handoff. This searches saved '
+            'sensor-grid artifacts.'
         ),
         tags={
             "artifact",

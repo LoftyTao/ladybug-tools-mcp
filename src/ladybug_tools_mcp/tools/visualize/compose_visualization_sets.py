@@ -12,16 +12,13 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_compose_visualization_sets',
         description=(
-            "Compose multiple Ladybug Display VisualizationSets into one scene "
-            "from visualization_set dictionaries or Garden-backed "
-            "visualization_set_targets. Preferred Agent path is garden_root "
-            "plus upstream targets and return_visualization_set=false, which "
-            "returns a compact visualization_set_target for "
-            "LB_set_to_html/svg/vtkjs. Target dicts use "
-            "target_type=visualization_set. For model and room preview "
-            "overlays, set conflict_strategy=rename because wireframe "
-            "identifiers often repeat. This tool composes display geometry; it "
-            "does not run analysis or convert source result files."
+            'Compose multiple Ladybug Display VisualizationSets into one scene from '
+            'visualization_set dictionaries or Garden-backed visualization_set_targets. Pass '
+            'garden_root and visualization_set_targets with return_visualization_set=false to '
+            'persist a compact visualization_set_target for LB_set_to_html, LB_set_to_svg, or '
+            'LB_set_to_vtkjs. Target dicts use target_type=visualization_set. For model and room '
+            'preview overlays, set conflict_strategy=rename because wireframe identifiers often '
+            'repeat. This tool composes display geometry.'
         ),
         tags={
             "visualization-set",
@@ -35,7 +32,10 @@ def register(mcp: FastMCP) -> None:
     def compose_visualization_sets(
         visualization_sets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="VisualizationSet dictionaries to combine into one VisualizationSet. Prefer visualization_set_targets for Agent Garden workflows."),
+            Field(description=(
+                'VisualizationSet dictionaries to combine into one VisualizationSet. Use '
+                'visualization_set_targets for compact Garden-backed composition.'
+            )),
         ] = None,
         garden_root: Annotated[
             str | None,
@@ -43,7 +43,10 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         visualization_set_targets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="Garden-backed visualization_set targets from upstream visualize tools. Use target_type=visualization_set; do not invent type=visualization_set."),
+            Field(description=(
+                'Garden-backed visualization_set targets from upstream visualize tools. Use '
+                'target_type=visualization_set.'
+            )),
         ] = None,
         name: Annotated[
             str | None,

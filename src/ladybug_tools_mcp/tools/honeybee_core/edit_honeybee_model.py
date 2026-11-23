@@ -11,7 +11,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_edit_model",
-        description='Edit a Honeybee Model display name, user data, units, tolerances, model-level Energy electric load center, complete object-dict additions/removals, and existing Radiance SensorGrid/View attachments while preserving its Garden persistence path. Requires garden_root and a Honeybee model target; HB_create_room already writes rooms to the model, so do not use add_objects to re-add room targets. Pass full Honeybee object dictionaries to add_objects, not typed targets. Returns target, model_target, summary_view, persistence_receipt, report, and optional radiance attachment summaries for downstream search, validation, visualization, Radiance, or EnergyPlus calls.',
+        description=(
+            'Edit a Honeybee Model display name, user data, units, tolerances, model-level Energy '
+            'electric load center, complete object-dict additions/removals, and existing Radiance '
+            'SensorGrid/View attachments while preserving its Garden persistence path. Requires '
+            'garden_root and a Honeybee model target; pass complete Honeybee object dictionaries '
+            'to add_objects (rooms from HB_create_room are already attached). Returns target, '
+            'model_target, summary_view, persistence_receipt, report, and optional radiance '
+            'attachment summaries for downstream search, validation, visualization, Radiance, or '
+            'EnergyPlus calls.'
+        ),
         tags={
             "edit",
             "energy",
@@ -34,7 +43,10 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee model target dict from HB_create_model, GD_get_base_honeybee_model, or GD_list_models; not full model body.'
+                description=(
+                    'Required Honeybee model target dict from HB_create_model, '
+                    'GD_get_base_honeybee_model, or GD_list_models.'
+                )
             ),
         ],
         display_name: Annotated[
@@ -62,7 +74,10 @@ def register(mcp: FastMCP) -> None:
         add_objects: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description='Optional complete Honeybee object dictionaries to append to the model. Supports Room, Face, Aperture, Door, and Shade dicts; not typed targets, not HB_create_room.target, and not HB_search_model_objects matches[i].target. Do not use this to add rooms already created by HB_create_room.'
+                description=(
+                    'Optional complete Honeybee Room, Face, Aperture, Door, or Shade object '
+                    'dictionaries to append to the model.'
+                )
             ),
         ] = None,
         add_sensor_grids: Annotated[

@@ -15,9 +15,8 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FF_get_base_model",
         description=(
-            "Read the Garden base Fairyfly model target and minimal context. This is "
-            "not a validation tool; use FF_validate_model for validation flags or "
-            "issue checks, and use THERM tools only after a model exists."
+            'Read the Garden base Fairyfly model target and minimal context. Use '
+            'FF_validate_model for model validation and THERM tools after a model exists.'
         ),
         tags={"fairyfly", "therm", "model", "summary", "garden"},
         annotations={"readOnlyHint": True},

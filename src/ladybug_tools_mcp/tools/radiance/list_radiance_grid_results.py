@@ -15,13 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_list_grid_results",
         description=(
-            "List SensorGrid result folders from a completed Radiance run "
-            "using SDK folder conventions: folders with grids_info.json and "
-            "result files such as .res or .ill. Use before "
-            "RAD_grid_result_to_visualization_set. This lists result "
-            "folders and metadata; it does not create VisualizationSets, "
-            "export HTML/SVG, or read full result arrays. Returns matches/grids, "
-            "summary_view, and report."
+            'List SensorGrid result folders from a completed Radiance run using SDK folder '
+            'conventions: folders with grids_info.json and result files such as .res or .ill. Use '
+            'before RAD_grid_result_to_visualization_set. This lists result folders and metadata. '
+            'Returns matches/grids, summary_view, and report.'
         ),
         tags={
             "artifact",

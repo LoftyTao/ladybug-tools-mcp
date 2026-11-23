@@ -11,7 +11,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_create_shades_by_parameters",
-        description='Create Honeybee Shade louvers, horizontal louver arrays, or aperture extruded borders on a Face or Aperture typed target. This is the parametric shade path for louver_by_count, louver_by_distance_between, and aperture-only extruded_border; it does not expose a parametric overhang mode. Use HB_create_shade only when the user provides explicit Face3D geometry. Prefer HB_search_model_objects matches[i].target or a prior result target as host_target. Requires garden_root, host_target, generation_mode, and parameters; do not pass arguments null or {}. Returns target, shade_target, targets, summary_view, persistence_receipt, and report.',
+        description=(
+            'Create Honeybee Shade louvers, horizontal louver arrays, or aperture extruded '
+            'borders on a Face or Aperture typed target. This is the parametric shade path for '
+            'louver_by_count, louver_by_distance_between, and aperture-only extruded_border; it '
+            'does not expose a parametric overhang mode. Use HB_create_shade only when the user '
+            'provides explicit Face3D geometry. Prefer HB_search_model_objects matches[i].target '
+            'or a prior result target as host_target. Requires garden_root, host_target, '
+            'generation_mode, and parameters. Returns target, shade_target, targets, '
+            'summary_view, persistence_receipt, and report.'
+        ),
         tags={
             "aperture",
             "author",
@@ -35,7 +44,7 @@ def register(mcp: FastMCP) -> None:
         host_target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee face or aperture typed target dict from nested target HB_search_model_objects matches[i].target or a prior create result target; full responses and identifier strings are rejected.'
+                description="Required Honeybee face or aperture typed target dict from HB_search_model_objects matches[i].target or a prior create result."
             ),
         ],
         generation_mode: Annotated[

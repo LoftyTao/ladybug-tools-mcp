@@ -11,7 +11,10 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_validate_model",
-        description='Validate an existing Honeybee model already stored in a Garden base Honeybee model or explicit model target using Honeybee Model.check_all with detailed issues. Use this tool, not GD_get_base_honeybee_model or an EnergyPlus simulation run, when a user asks to validate, check model validity, or list issues. Returns validation_status through is_valid/valid, issues, summary_view, and report. Requires garden_root; this is read-only and does not repair, relate, save the model, or accept a raise_exception parameter.',
+        description=(
+            'Validate an existing Honeybee model in a Garden using Honeybee Model.check_all '
+            '(read-only). Returns is_valid/valid, issues, summary_view, and report.'
+        ),
         tags={
             "check",
             "honeybee",
@@ -34,7 +37,10 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model; do not pass full model body."
+                description=(
+                    "Optional Honeybee model target dict, usually HB_create_model['target']; "
+                    'defaults to the Garden base Honeybee Model.'
+                )
             ),
         ] = None,
     ) -> dict[str, Any]:

@@ -15,13 +15,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_model_envelope_edges_to_visualization_set",
         description=(
-            "Create a Ladybug Display VisualizationSet showing Dragonfly model envelope "
-            "edges using Dragonfly Display model_envelope_edges_to_vis_set. If Web View "
-            "mode is active, this tool refreshes the demo panel; call LB_set_to_vtkjs "
-            "only when the user asks for a saved vtk.js asset. If the SDK edge view is "
-            "unavailable for the model geometry, this tool returns report.status=degraded "
-            "and a wireframe model VisualizationSet target. It does not edit the DFJSON "
-            "model or run Radiance."
+            'Create a Ladybug Display VisualizationSet showing Dragonfly model envelope edges '
+            'using Dragonfly Display model_envelope_edges_to_vis_set. If Web View mode is active, '
+            'this tool refreshes the demo panel; call LB_set_to_vtkjs only when the user asks for '
+            'a saved vtk.js asset. If the SDK edge view is unavailable for the model geometry, '
+            'this tool returns report.status=degraded and a wireframe model VisualizationSet '
+            'target.'
         ),
         tags={"dragonfly", "visualization-set", "geometry", "visualize", "preview"},
         annotations={"readOnlyHint": True},

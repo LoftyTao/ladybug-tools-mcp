@@ -26,7 +26,7 @@ def register(mcp: FastMCP) -> None:
     )
     def list_run_outputs(
         garden_root: Annotated[str, Field(description="Garden root containing garden.json; output paths are returned relative to this Garden.")],
-        run_target: Annotated[dict[str, Any] | None, Field(description="Optional urbanopt_run target returned by urbanopt_start_simulation.") ] = None,
+        run_target: Annotated[dict[str, Any] | None, Field(description='Optional urbanopt_run target returned by DF_urbanopt_start_simulation.') ] = None,
         run_id: Annotated[str | None, Field(description="Optional URBANopt run id when run_target is not available.") ] = None,
     ) -> dict[str, Any]:
         """List URBANopt Energy run outputs."""

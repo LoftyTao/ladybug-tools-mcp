@@ -25,7 +25,7 @@ SUPPORTED_PREVIEW_KINDS = (
     "analysis_overlay",
 )
 GEOMETRY_POLICY = (
-    "Use Ladybug Tools SDK/MCP exported vtkjs artifacts; do not invent geometry."
+    "Use Ladybug Tools SDK/MCP exported vtkjs artifacts."
 )
 
 

@@ -11,7 +11,13 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_create_face",
-        description="Create an orphaned Honeybee Face from a Ladybug Geometry Face3D dictionary and persist it in the Garden Honeybee Model. The Honeybee SDK infers default face type and boundary condition here; this tool does not accept face_type or boundary_condition parameters and is not a direct EnergyPlus surface or Radiance polygon authoring tool. Requires garden_root, identifier, and geometry; do not pass arguments null or {}. Downstream tools use the returned nested target dict. Returns target, object_target, model_target, face_target, summary_view, persistence_receipt, and report.",
+        description=(
+            'Create an orphaned Honeybee Face from a Ladybug Geometry Face3D dictionary and '
+            'persist it in the Garden Honeybee Model. The Honeybee SDK infers default face type '
+            'and boundary condition. Requires garden_root, identifier, and geometry. Downstream '
+            'tools use the returned nested target dict. Returns target, object_target, '
+            'model_target, face_target, summary_view, persistence_receipt, and report.'
+        ),
         tags={
             "author",
             "face",
@@ -33,7 +39,10 @@ def register(mcp: FastMCP) -> None:
         geometry: Annotated[
             dict[str, Any],
             Field(
-                description="Required Ladybug Geometry Face3D dict, for example {'type':'Face3D','boundary':[[x,y,z],...]}; not Rhino geometry, face_type, or boundary_condition."
+                description=(
+                    'Required Ladybug Geometry Face3D dict, for example '
+                    "{'type':'Face3D','boundary':[[x,y,z],...]}."
+                )
             ),
         ],
         model_target: Annotated[

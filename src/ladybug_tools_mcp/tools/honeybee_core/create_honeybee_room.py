@@ -11,7 +11,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_create_room",
-        description='Create a Honeybee Room, meaning a room/space envelope in a Garden Honeybee Model, from either a Honeybee Face list, a Ladybug Geometry Polyface3D envelope, or custom box dimensions. A Honeybee Room can later map partly to EnergyPlus zone concepts, but this tool does not create an Ironbug ThermalZone, assign ProgramType, assign ConstructionSet, set setpoints, or add HVAC. For simple boxes, use x_dim, y_dim, height, and optional origin. There is no host_target argument; the room is a top-level model object and auto-attaches to the selected model. Returns target, object_target, model_target, and room_target. Requires garden_root, identifier, and exactly one geometry mode; do not pass arguments null or {}.',
+        description=(
+            'Create a Honeybee Room, meaning a room/space envelope in a Garden Honeybee Model, '
+            'from either a Honeybee Face list, a Ladybug Geometry Polyface3D envelope, or custom '
+            'box dimensions. For simple boxes, pass x_dim, y_dim, height, and optional origin; '
+            'the room attaches automatically as a top-level object on the selected model. '
+            'Requires garden_root, identifier, and one geometry mode. Returns target, '
+            'object_target, model_target, and room_target.'
+        ),
         tags={
             "author",
             "geometry",
@@ -33,7 +40,10 @@ def register(mcp: FastMCP) -> None:
         faces: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description="Optional list of complete Honeybee Face dictionaries for the room. Must provide exactly one geometry mode; not typed targets."
+                description=(
+                    'Optional list of complete Honeybee Face dictionaries for the room. Must '
+                    'provide one geometry mode.'
+                )
             ),
         ] = None,
         room_geometry: Annotated[
@@ -69,7 +79,10 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model. This is not host_target; no host_target is supported because HB_create_room auto-attaches to the selected model."
+                description=(
+                    'Optional Honeybee model target dict from HB_create_model; defaults to the '
+                    'Garden base Honeybee Model.'
+                )
             ),
         ] = None,
     ) -> dict[str, Any]:

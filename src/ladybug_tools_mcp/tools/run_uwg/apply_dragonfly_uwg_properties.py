@@ -15,19 +15,14 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='DF_uwg_apply_dragonfly_properties',
         description=(
-            "Apply SDK-backed Dragonfly UWG properties to a Dragonfly model, "
-            "Building, or ContextShade target. Requires host_target; "
-            "use the Dragonfly model target for model-level tree_coverage_fraction "
-            "and grass_coverage_fraction, and use Building targets for program, "
-            "vintage, heat-to-canyon fraction, SHGC, wall/roof albedo, and roof "
-            "vegetation fraction. Omit terrain in simple workflows unless you "
-            "already have a Dragonfly UWG Terrain dictionary; terrain is not a "
-            "string such as Suburban. Building program values include LargeOffice, "
-            "MediumOffice, SmallOffice, and MidriseApartment; not Office. Vintage "
-            "values are New, 1980_Present, or Pre1980; not ASHRAE_2019. "
-            "ContextShade supports is_vegetation. "
-            "These UWG properties are separate from Dragonfly Energy/OpenStudio "
-            "properties and do not launch weather morphing."
+            'Apply SDK-backed Dragonfly UWG properties to a Dragonfly model, Building, or '
+            'ContextShade target. Requires host_target; use the Dragonfly model target for '
+            'model-level tree_coverage_fraction and grass_coverage_fraction, and use Building '
+            'targets for program, vintage, heat-to-canyon fraction, SHGC, wall/roof albedo, and '
+            'roof vegetation fraction. Terrain accepts a Dragonfly UWG Terrain dictionary. '
+            'Building program values include LargeOffice, MediumOffice, SmallOffice, and '
+            'MidriseApartment; vintage values are New, 1980_Present, or Pre1980. ContextShade '
+            'supports is_vegetation.'
         ),
         tags={
             "dragonfly",
@@ -60,9 +55,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional dragonfly_uwg Terrain dictionary for model-level UWG "
-                    "ground properties. Omit terrain unless you already have a real "
-                    "Terrain object dictionary; it is not a string like Suburban."
+                    'Optional dragonfly_uwg Terrain dictionary for model-level UWG ground properties.'
                 ),
             ),
         ] = None,
@@ -100,11 +93,10 @@ def register(mcp: FastMCP) -> None:
             | None,
             Field(
                 description=(
-                    "Optional UWG building program. Valid examples: LargeOffice, "
-                    "MediumOffice, SmallOffice, MidriseApartment, Retail, StripMall, "
-                    "PrimarySchool, SecondarySchool, SmallHotel, LargeHotel, Hospital, "
-                    "Outpatient, Warehouse, SuperMarket, FullServiceRestaurant, "
-                    "QuickServiceRestaurant. Not Office."
+                    'Optional UWG building program. Valid examples: LargeOffice, MediumOffice, '
+                    'SmallOffice, MidriseApartment, Retail, StripMall, PrimarySchool, '
+                    'SecondarySchool, SmallHotel, LargeHotel, Hospital, Outpatient, Warehouse, '
+                    'SuperMarket, FullServiceRestaurant, QuickServiceRestaurant.'
                 ),
             ),
         ] = None,
@@ -112,8 +104,7 @@ def register(mcp: FastMCP) -> None:
             Literal["New", "1980_Present", "Pre1980"] | None,
             Field(
                 description=(
-                    "Optional UWG building vintage. Valid values are New, "
-                    "1980_Present, or Pre1980. Not ASHRAE_2019."
+                    'Optional UWG building vintage. Valid values are New, 1980_Present, or Pre1980.'
                 ),
             ),
         ] = None,

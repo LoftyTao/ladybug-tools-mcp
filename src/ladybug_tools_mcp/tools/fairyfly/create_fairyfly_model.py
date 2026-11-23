@@ -15,14 +15,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FF_create_model",
         description=(
-            "Create an empty Fairyfly two-dimensional heat-transfer model in a "
-            "Garden and optionally set it as the base Fairyfly model. Fairyfly "
-            "SDK model identifiers are UUIDs; this tool's identifier is the stable "
-            "Garden model identifier and FFJSON file name. Use this for a create "
-            "Fairyfly two dimensional heat transfer model request before adding "
-            "Shapes, Boundaries, writing THMZ, or running THERM. Returns target "
-            "and model_target for downstream Fairyfly tools. This is not a Honeybee "
-            "or EnergyPlus model."
+            'Create an empty Fairyfly two-dimensional heat-transfer model in a Garden and '
+            'optionally set it as the base Fairyfly model. Fairyfly SDK model identifiers are '
+            "UUIDs; this tool's identifier is the stable Garden model identifier and FFJSON file "
+            'name. Use this for a create Fairyfly two dimensional heat transfer model request '
+            'before adding Shapes, Boundaries, writing THMZ, or running THERM. Returns target and '
+            'model_target for downstream Fairyfly tools.'
         ),
         tags={"fairyfly", "therm", "model", "author", "2d"},
         timeout=20,

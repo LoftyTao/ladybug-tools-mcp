@@ -46,7 +46,7 @@ def register(mcp: FastMCP) -> None:
         object_type: Annotated[
             str,
             Field(
-                description="Object type to return: all, building, story, room2d, or context_shade. Use room2d for Dragonfly rooms; do not pass room."
+                description='Object type to return: all, building, story, room2d, or context_shade.'
             ),
         ] = "all",
         identifier: Annotated[

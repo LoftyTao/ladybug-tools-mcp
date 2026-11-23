@@ -12,15 +12,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="LB_set_to_html",
         description=(
-            "Export a Ladybug Display VisualizationSet to a standalone "
-            "interactive HTML page artifact inside a Garden and record it in "
-            "garden.json artifacts. Use this when the user asks for an HTML "
-            "page, report page, or browser-openable preview file. Preferred "
-            "Agent path is visualization_set_target from an upstream visualize "
-            "tool. For Web 3D geometry packages, vtk.js assets, FastMCP App "
-            "viewer assets, reusable geometry assets, or vtk.js packages, use "
-            "LB_set_to_vtkjs. This exporter does not create or "
-            "modify the VisualizationSet source data."
+            'Export a Ladybug Display VisualizationSet to a standalone interactive HTML page '
+            'artifact inside a Garden and record it in garden.json artifacts. Use this when the '
+            'user asks for an HTML page, report page, or browser-openable preview file. Pass '
+            'visualization_set_target from an upstream visualize tool. For Web 3D geometry '
+            'packages, vtk.js assets, FastMCP App viewer assets, reusable geometry assets, or '
+            'vtk.js packages, use LB_set_to_vtkjs.'
         ),
         tags={
             "visualization-set",

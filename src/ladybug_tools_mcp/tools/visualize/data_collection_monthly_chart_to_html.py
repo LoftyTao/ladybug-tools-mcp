@@ -15,14 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_data_collection_monthly_chart_to_html',
         description=(
-            "Create a Garden HTML artifact from one or more Ladybug "
-            "DataCollections using Ladybug MonthlyChart. Use series items with "
-            "data_collection_target from Garden-backed upstream tools for "
-            "schedule, weather, comfort, energy result, daily, monthly, or "
-            "monthly-per-hour comparisons. Each series item uses "
-            "data_collection or data_collection_target and optional label. "
-            "This exports a chart artifact; it does not read SQL, EPW, or "
-            "Radiance result folders."
+            'Create a Garden HTML artifact from one or more Ladybug DataCollections using Ladybug '
+            'MonthlyChart. Use series items with data_collection_target from Garden-backed '
+            'upstream tools for schedule, weather, comfort, energy result, daily, monthly, or '
+            'monthly-per-hour comparisons. Each series item uses data_collection or '
+            'data_collection_target and optional label. This exports a chart artifact.'
         ),
         tags={
             "data-collection",

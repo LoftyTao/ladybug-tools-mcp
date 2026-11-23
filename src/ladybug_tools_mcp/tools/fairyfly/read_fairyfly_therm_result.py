@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FF_read_result",
         description=(
-            "Read compact temperature or heat-flux statistics from a Fairyfly "
-            "THERM THMZ file. Poll FF_poll_simulation before reading THERM "
-            "results from a run_target. If the THMZ has no result arrays, "
-            "returns status no_results with a clear diagnostic instead of fake values. "
-            "Returns therm_result_target, summary_view, and report when values exist; "
-            "it does not calculate U-factor summaries."
+            'Read compact temperature or heat-flux statistics from a Fairyfly THERM THMZ file. '
+            'Poll FF_poll_simulation before reading THERM results from a run_target. If the THMZ '
+            'has no result arrays, returns status no_results with a diagnostic. Returns '
+            'therm_result_target, summary_view, and report when values exist.'
         ),
         tags={"fairyfly", "therm", "result", "data-collection", "temperature"},
         annotations={"readOnlyHint": True},

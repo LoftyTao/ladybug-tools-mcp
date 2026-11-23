@@ -15,13 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='RAD_create_ashrae_clear_sky_wea',
         description=(
-            "Create a Radiance WEA file from ASHRAE Clear Sky conditions for "
-            "a Garden location. Use this for clear-sky daylight or irradiance "
-            "setup when the workflow needs synthetic WEA weather for "
-            "RAD_create_sky_matrix. This writes WEA data for Radiance "
-            "sky workflows; it does not download EPW files or run EnergyPlus. "
-            "Returns target, wea_target, summary_view, persistence_receipt, "
-            "and report."
+            'Create a Radiance WEA file from ASHRAE Clear Sky conditions for a Garden location. '
+            'Use this for clear-sky daylight or irradiance setup when the workflow needs '
+            'synthetic WEA weather for RAD_create_sky_matrix. This writes WEA data for Radiance '
+            'sky workflows. Returns target, wea_target, summary_view, persistence_receipt, and '
+            'report.'
         ),
         tags={
             "radiance",
@@ -91,7 +89,7 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         return_object_dict: Annotated[
             bool,
-            Field(description="Return the full Wea object_dict. Keep false for compact Agent handoff."),
+            Field(description='Return the full Wea object_dict. Keep false for compact target handoff.'),
         ] = False,
     ) -> dict[str, Any]:
         """Create a clear-sky WEA target."""

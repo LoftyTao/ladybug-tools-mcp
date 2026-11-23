@@ -15,10 +15,8 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_building_from_footprint",
         description=(
-            "Create a Dragonfly Building from explicit footprint point loops and "
-            "floor-to-floor heights. This is the MCP-native form of Grasshopper "
-            "DF Building from Footprint: pass Python point lists or Garden "
-            "targets, not Rhino Breps or Grasshopper data trees."
+            'Create a Dragonfly Building from explicit footprint point loops and floor-to-floor '
+            'heights.'
         ),
         tags={"dragonfly", "building", "footprint", "geometry", "author"},
         timeout=60,

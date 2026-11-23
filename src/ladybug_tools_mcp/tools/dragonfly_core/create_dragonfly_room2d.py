@@ -15,11 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_room2d",
         description=(
-            "Create a Dragonfly Room2D draft object in a Garden from 2D floor vertices. "
-            "Use Room2D targets with DF_story, then DF_building, "
-            "when assembling a building story room2d model. Returns target, summary_view, "
-            "persistence_receipt, and report; this is Dragonfly floor-plate authoring, "
-            "not Honeybee Room creation."
+            'Create a Dragonfly Room2D draft object in a Garden from 2D floor vertices. Use '
+            'Room2D targets with DF_story, then DF_building, when assembling a building story '
+            'room2d model. Returns target, summary_view, persistence_receipt, and report.'
         ),
         tags={"dragonfly", "room2d", "story", "building", "geometry", "author", "floor-plate"},
         timeout=20,

@@ -11,7 +11,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_setpoint',
-        description='Create a Honeybee Energy Setpoint thermostat/humidistat resource from heating and cooling schedules, or from numeric Celsius heating_setpoint and cooling_setpoint values that become constant schedules. Use it as the program-type thermostat companion to ventilation, infiltration, and service hot water demand loads; it does not size outdoor air or ACH. Schedules accept object_dicts, Garden schedule targets, or standards identifiers. Use garden_root to save a Garden Properties Library load target and pass target to EP_create_program_type.setpoint or HB_edit_room.setpoint; set return_object_dict=false only when you want a low-token target/summary/receipt response. This is zone thermostat/humidistat control data, not HVAC supply-air temperature or a DetailedHVAC setpoint manager.',
+        description=(
+            'Create a Honeybee Energy Setpoint thermostat/humidistat resource from heating and '
+            'cooling schedules, or from numeric Celsius heating_setpoint and cooling_setpoint '
+            'values that become constant schedules. Use it as the program-type thermostat '
+            'companion to ventilation, infiltration, and service hot water demand loads. '
+            'Schedules accept object_dicts, Garden schedule targets, or standards identifiers. '
+            'Use garden_root to save a Garden Properties Library load target and pass target to '
+            'EP_create_program_type.setpoint or HB_edit_room.setpoint; set '
+            'return_object_dict=false for a compact target/summary/receipt response.'
+        ),
         tags={
             "author",
             "energy",
@@ -26,7 +35,7 @@ def register(mcp: FastMCP) -> None:
         identifier: Annotated[
             str,
             Field(
-                description="Setpoint object identifier. Defaults to agent_setpoint when omitted by Code Mode Agents."
+                description="Setpoint object identifier (defaults to 'agent_setpoint')."
             ),
         ] = "agent_setpoint",
         heating_schedule: Annotated[
@@ -80,7 +89,10 @@ def register(mcp: FastMCP) -> None:
         return_object_dict: Annotated[
             bool,
             Field(
-                description="Whether to include the full SDK object_dict in the response. Use false for low-token Agent Garden workflows."
+                description=(
+                    'Include the full SDK object_dict in the response (set false for compact '
+                    'target responses).'
+                )
             ),
         ] = True,
     ) -> dict[str, Any]:

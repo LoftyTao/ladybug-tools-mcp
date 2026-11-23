@@ -28,19 +28,30 @@ def register(mcp: FastMCP) -> None:
         default_day_schedule: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Default ScheduleDay object_dict, usually returned by EP_create_schedule_day. If omitted, provide default_value for the Agent-friendly all-day shorthand.'
+                description=(
+                    'Default ScheduleDay object_dict from EP_create_schedule_day (or omit and '
+                    'pass default_value).'
+                )
             ),
         ] = None,
         schedule_rules: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description='Optional ScheduleRule object_dict rows ordered from highest to lowest priority, usually returned by EP_create_schedule_rule. Do not pass interval rows here; use rules for shorthand rows.'
+                description=(
+                    'Optional ScheduleRule object_dict rows ordered from highest to lowest '
+                    'priority from EP_create_schedule_rule (use rules for interval shorthand).'
+                )
             ),
         ] = None,
         rules: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description="Optional Agent-friendly interval shorthand. Each row must include start_time, end_time, value, and a day filter such as days='weekdays', weekdays='weekday', or apply_days as seven booleans Sunday through Saturday. Converted into a real Honeybee ScheduleRule."
+                description=(
+                    'Optional interval shorthand rows. Each row must include start_time, '
+                    "end_time, value, and a day filter such as days='weekdays', "
+                    "weekdays='weekday', or apply_days as seven booleans Sunday through Saturday. "
+                    'Converted into a real Honeybee ScheduleRule.'
+                )
             ),
         ] = None,
         schedule_type_limit: Annotated[
@@ -50,7 +61,10 @@ def register(mcp: FastMCP) -> None:
         default_value: Annotated[
             float | None,
             Field(
-                description="Agent-friendly all-day default value used when default_day_schedule is omitted, for example 0.0 for unoccupied hours."
+                description=(
+                    'Constant all-day default value used when default_day_schedule is omitted, '
+                    'for example 0.0 for unoccupied hours.'
+                )
             ),
         ] = None,
         summer_designday_schedule: Annotated[
@@ -74,7 +88,10 @@ def register(mcp: FastMCP) -> None:
         return_data: Annotated[
             bool,
             Field(
-                description="Return the full Ladybug DataCollection dict in data. Set false with garden_root to persist data_target/data_persistence_receipt instead of sending all schedule values through the Agent context."
+                description=(
+                    'Return the full Ladybug DataCollection dict in data (set false with '
+                    'garden_root to persist data_target/data_persistence_receipt).'
+                )
             ),
         ] = True,
         data_analysis_period: Annotated[

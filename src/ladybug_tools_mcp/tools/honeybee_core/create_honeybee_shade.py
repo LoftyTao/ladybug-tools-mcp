@@ -11,7 +11,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_create_shade",
-        description='Create an orphaned Honeybee Shade or attach it to a Room, Face, Aperture, or Door typed target from explicit Face3D geometry. This is the low-level explicit-geometry route for context shades, hosted shades, custom sunshades, or overhangs that already have Face3D geometry. For parametric louvers or aperture extruded borders, use HB_create_shades_by_parameters instead. Requires garden_root, unique identifier, and geometry; hosted shades also need host_target from HB_search_model_objects matches[i].target or a prior result target. The parameter names are geometry and host_target, not Face3D and not host_face. Returns target, object_target, model_target, shade_target, summary_view, persistence_receipt, and report.',
+        description=(
+            'Create an orphaned Honeybee Shade or attach it to a Room, Face, Aperture, or Door '
+            'typed target from explicit Face3D geometry. This is the low-level explicit-geometry '
+            'route for context shades, hosted shades, custom sunshades, or overhangs that already '
+            'have Face3D geometry. For parametric louvers or aperture extruded borders, use '
+            'HB_create_shades_by_parameters instead. Requires garden_root, unique identifier, and '
+            'geometry; hosted shades also need host_target from HB_search_model_objects '
+            'matches[i].target or a prior result target. Returns target, object_target, '
+            'model_target, shade_target, summary_view, persistence_receipt, and report.'
+        ),
         tags={
             "author",
             "geometry",
@@ -37,7 +46,12 @@ def register(mcp: FastMCP) -> None:
         geometry: Annotated[
             dict[str, Any],
             Field(
-                description="Required Ladybug Geometry Face3D dict, for example {'type':'Face3D','boundary':[[x,y,z],...]}; boundary points may also be {'x':0,'y':0,'z':0} Point3D dicts. Omit plane unless using exact Ladybug Plane keys n, o, and x. Pass this inline geometry dict directly; no separate Point3D tool and no separate Face3D tool are needed. Parameter name is geometry, not Face3D; not Rhino geometry."
+                description=(
+                    'Required Ladybug Geometry Face3D dict, for example '
+                    "{'type':'Face3D','boundary':[[x,y,z],...]}; boundary points may also be "
+                    "{'x':0,'y':0,'z':0} Point3D dicts. Omit plane unless providing Ladybug Plane "
+                    'keys n, o, and x.'
+                )
             ),
         ],
         model_target: Annotated[
@@ -49,7 +63,11 @@ def register(mcp: FastMCP) -> None:
         host_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Optional Honeybee room/face/aperture/door typed target dict from nested target HB_search_model_objects matches[i].target or a prior create result target; parameter name is host_target, not host_face. Full responses are rejected; omit for orphaned shade.'
+                description=(
+                    'Optional Honeybee room, face, aperture, or door typed target dict from '
+                    'HB_search_model_objects matches[i].target or a prior create result; omit for '
+                    'an orphaned shade.'
+                )
             ),
         ] = None,
         attach_side: Annotated[

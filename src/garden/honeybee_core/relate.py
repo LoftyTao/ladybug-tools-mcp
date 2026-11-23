@@ -115,7 +115,7 @@ def relate_honeybee_model(
     if intersect:
         warnings.append(
             "intersect=True can modify Room Face geometry before adjacency solving; "
-            "run validate_honeybee_model to review the resulting model."
+            "run HB_validate_model to review the resulting model."
         )
     warnings.extend(patch_summary["warnings"])
     return {

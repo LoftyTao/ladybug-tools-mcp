@@ -15,16 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_apply_radiance_properties",
         description=(
-            "Apply narrow SDK-backed Dragonfly Radiance properties to a Room2D, "
-            "Story, or Building target. Supports Honeybee Radiance ModifierSet "
-            "library identifiers and Dragonfly Radiance grid parameters; this "
-            "is not a Radiance simulation setup or generic properties-dict bridge. "
-            "For a whole building, pass the Building target once; grid parameters "
-            "are applied across its Room2Ds. Do not use Story targets for grid "
-            "parameters. Allowed grid_parameter_type values are exactly room_grid, "
-            "room_radial_grid, exterior_face_grid, or exterior_aperture_grid; do "
-            "not pass grid_from_room_2d or radial_grid. Radiance recipe runs stay in "
-            "the Radiance simulation tools."
+            'Apply narrow SDK-backed Dragonfly Radiance properties to a Room2D, Story, or '
+            'Building target. Supports Honeybee Radiance ModifierSet library identifiers and '
+            'Dragonfly Radiance grid parameters (room_grid, room_radial_grid, exterior_face_grid, '
+            'or exterior_aperture_grid). For a whole building, pass the Building target once; '
+            'grid parameters apply to Room2D and Building targets.'
         ),
         tags={"dragonfly", "radiance", "properties", "sensor-grid", "modifier-set", "edit"},
         timeout=20,
@@ -38,10 +33,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    "Required Dragonfly Room2D, Story, or Building target. Prefer "
-                    "Building for the same Radiance setup across all rooms; grid "
-                    "parameters support Room2D and Building, not Story. Canonical "
-                    "field name is host_target."
+                    'Required Dragonfly Room2D, Story, or Building target (grid parameters apply to '
+                    'Room2D and Building targets).'
                 )
             ),
         ],
@@ -62,10 +55,8 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(
                 description=(
-                    "Optional grid parameter type: room_grid, room_radial_grid, "
-                    "exterior_face_grid, or exterior_aperture_grid. Use room_grid "
-                    "for ordinary workplane sensor grids; use room_radial_grid "
-                    "for radial grids. Do not pass radial_grid."
+                    'Optional grid parameter type: room_grid, room_radial_grid, exterior_face_grid, '
+                    'or exterior_aperture_grid.'
                 )
             ),
         ] = None,

@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_list_run_outputs",
         description=(
-            "List indexed outputs for one Garden Radiance run, including grid "
-            "results, HDR images, matrices, parameters, and reports when "
-            "present. Use after RAD_poll_simulation reports a finished "
-            "runtime_status. This is an output inventory; it does not read "
-            "result payloads or convert artifacts. Returns matches, "
-            "summary_view, and report."
+            'List indexed outputs for one Garden Radiance run, including grid results, HDR '
+            'images, matrices, parameters, and reports when present. Use after '
+            'RAD_poll_simulation reports a finished runtime_status. Output inventory only. '
+            'Returns matches, summary_view, and report.'
         ),
         tags={
             "artifact",
@@ -36,7 +34,11 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional radiance_run target returned by a start_radiance_*_run tool. Poll the run before listing outputs."),
+            Field(description=(
+                'Optional radiance_run target returned by RAD_start_grid_simulation, '
+                'RAD_start_view_simulation, or RAD_start_matrix_simulation. Poll the run before '
+                'listing outputs.'
+            )),
         ] = None,
         run_id: Annotated[
             str | None,

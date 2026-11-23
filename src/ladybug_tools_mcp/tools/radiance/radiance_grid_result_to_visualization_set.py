@@ -15,11 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_grid_result_to_visualization_set",
         description=(
-            "Create a Ladybug Display VisualizationSet target from Radiance "
-            "SensorGrid result folders using "
-            "honeybee_display.model_to_vis_set(grid_data_path=...). This "
-            "converts existing grid results into a VisualizationSet; it does "
-            "not start a Radiance recipe or export HTML/SVG/vtk.js files."
+            'Create a Ladybug Display VisualizationSet target from Radiance SensorGrid result '
+            'folders using honeybee_display.model_to_vis_set(grid_data_path=...). This converts '
+            'existing grid results into a VisualizationSet.'
         ),
         tags={
             "artifact",

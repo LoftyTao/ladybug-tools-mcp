@@ -29,10 +29,8 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_search_views",
         description=(
-            "Search Garden Radiance View artifacts and return compact "
-            "radiance_view targets for point-in-time view runs. This searches "
-            "saved .vf inputs; it does not create views, attach views to "
-            "models, or render HDR images."
+            'Search Garden Radiance View artifacts and return compact radiance_view targets for '
+            'point-in-time view runs. This searches saved .vf inputs.'
         ),
         tags={
             "artifact",

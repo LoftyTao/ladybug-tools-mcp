@@ -15,15 +15,13 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_model_to_visualization_set",
         description=(
-            "Create a Ladybug Display VisualizationSet from a Garden Dragonfly model "
-            "using Dragonfly Display for web 3D, FastMCP App viewer, and geometry "
-            "asset workflows. Can return the VisualizationSet body or save it as a "
-            "Garden visualization_set target with return_visualization_set=false. If "
-            "Web View mode is active, this tool refreshes the demo panel; call "
-            "LB_set_to_vtkjs only when the user asks for a saved vtk.js asset. "
-            "Grasshopper quick/all/floors/wireframe visualize components are consolidated "
-            "through view_mode here. This tool has no object_type parameter and does not "
-            "edit Dragonfly geometry."
+            'Create a Ladybug Display VisualizationSet from a Garden Dragonfly model using '
+            'Dragonfly Display for web 3D, FastMCP App viewer, and geometry asset workflows. Can '
+            'return the VisualizationSet body or save it as a Garden visualization_set target '
+            'with return_visualization_set=false. If Web View mode is active, this tool refreshes '
+            'the demo panel; call LB_set_to_vtkjs only when the user asks for a saved vtk.js '
+            'asset. Grasshopper quick/all/floors/wireframe visualize components are consolidated '
+            'through view_mode here. Read-only visualization conversion.'
         ),
         tags={"dragonfly", "visualization-set", "model", "visualize", "preview"},
         annotations={"readOnlyHint": True},

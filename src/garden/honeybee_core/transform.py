@@ -256,7 +256,7 @@ def _transform_warnings(target: dict[str, Any], obj: Transformable) -> list[str]
     warnings = [
         "Partial object transforms can break adjacency, host boundary containment, "
         "coplanar sub-face relationships, or dynamic state geometry. Run "
-        "relate_honeybee_model and validate_honeybee_model when those relationships matter."
+        "HB_relate_model and HB_validate_model when those relationships matter."
     ]
     if target.get("parent"):
         warnings.append(

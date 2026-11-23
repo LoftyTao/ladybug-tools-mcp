@@ -92,7 +92,9 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/radiance/sensors",
         return_object_dict: Annotated[
             bool,
-            Field(description="Return the full SensorGrid object_dict. Keep false for compact Agent handoff."),
+            Field(description=(
+                'Return the full SensorGrid object_dict. Keep false for compact target handoff.'
+            )),
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance SensorGrid from an object surface."""

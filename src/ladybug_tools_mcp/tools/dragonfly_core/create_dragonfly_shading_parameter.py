@@ -15,12 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_create_shading_parameter",
         description=(
-            "Create a compact SDK-backed Dragonfly ShadingParameter artifact for "
-            "outdoor wall application. Supports parameter_type overhang and "
-            "extruded_border only; this is a Dragonfly envelope parameter, not a Honeybee "
-            "Shade or Radiance modifier. Returns "
-            "the compact artifact as parameter, shading_parameter, target, and "
-            "object_dict."
+            'Create a compact SDK-backed Dragonfly ShadingParameter artifact for outdoor wall '
+            'application. Supports parameter_type overhang and extruded_border only. Returns the '
+            'compact artifact as parameter, shading_parameter, target, and object_dict.'
         ),
         tags={"dragonfly", "shading", "parameter", "author", "overhang", "extruded-border"},
         timeout=20,

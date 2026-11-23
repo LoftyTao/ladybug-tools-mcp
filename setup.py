@@ -95,8 +95,16 @@ class BuildPy(build_py):
             runtimes_dir = bridge_out / "runtimes"
             if runtimes_dir.is_dir():
                 shutil.copytree(runtimes_dir, bridge_target / "runtimes", dirs_exist_ok=True)
-        for source, target in (
+        optional_assets = (
             (root / ".agents/skills/ladybug-tools-mcp-use", resources / "skills/ladybug-tools-mcp-use"),
+        )
+        for source, target in optional_assets:
+            if source.is_dir():
+                shutil.copytree(
+                    source, target, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("AGENTS.md", "__pycache__", "*.pyc"),
+                )
+        for source, target in (
             (root / "src/grasshopper_components/user_objects", resources / "grasshopper"),
         ):
             if not source.is_dir():

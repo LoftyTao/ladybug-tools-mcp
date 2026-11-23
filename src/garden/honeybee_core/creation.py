@@ -101,7 +101,7 @@ def _ensure_unique_object_identifier(model: Model, identifier: str) -> None:
         return
     raise ValueError(
         f"Honeybee object identifier already exists: {identifier}. "
-        "Use search_honeybee_model_objects to reuse the existing target, remove "
+        "Use HB_search_model_objects to reuse the existing target, remove "
         "the existing object first, or choose a new unique identifier."
     )
 
@@ -217,11 +217,11 @@ def create_honeybee_room(
     has_box = any(value is not None for value in (x_dim, y_dim, height, origin))
     if sum((has_faces, has_room_geometry, has_box)) != 1:
         raise ValueError(
-            "create_honeybee_room requires exactly one geometry mode: _faces, "
-            "_room_geometry, or x_dim_/y_dim_/height_."
+            "HB_create_room requires exactly one geometry mode: faces, "
+            "room_geometry, or x_dim/y_dim/height."
         )
     if has_box and any(value is None for value in (x_dim, y_dim, height)):
-        raise ValueError("Box room creation requires x_dim_, y_dim_, and height_.")
+        raise ValueError("Box room creation requires x_dim, y_dim, and height.")
 
     garden_root, manifest, model_target, model = _load_target_model(
         garden_root,

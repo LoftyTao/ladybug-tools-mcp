@@ -15,11 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_des_list_urbanopt_run_outputs",
         description=(
-            "List the saved output files for one Garden URBANopt DES run as "
-            "compact path records. Use after polling has found completed or "
-            "failed status when an Agent needs to locate SQL, ERR, HTML, CSV, "
-            "or log files without reading their contents. Accepts run_target or "
-            "run_id and returns matches, summary_view, and report."
+            'List the saved output files for one Garden URBANopt DES run as compact path records. '
+            'Use after polling has found completed or failed status to locate SQL, ERR, HTML, '
+            'CSV, or log file paths. Accepts run_target or run_id and returns matches, '
+            'summary_view, and report.'
         ),
         tags={"dragonfly", "district-energy", "urbanopt", "outputs", "run", "artifact", "target"},
         timeout=20,

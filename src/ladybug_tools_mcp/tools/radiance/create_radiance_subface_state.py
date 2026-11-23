@@ -15,13 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_subface_state",
         description=(
-            "Create a Honeybee RadianceSubFaceState dictionary for dynamic "
-            "Apertures or Doors. Optional modifier may be a modifier dict, "
-            "Garden Properties Library modifier target, or standards-library "
-            "identifier. Optional shades is a list of StateGeometry "
-            "dictionaries from RAD_create_state_geometry. This returns an "
-            "object_dict for dynamic state assembly; it does not save a Garden "
-            "target or run a recipe."
+            'Create a Honeybee RadianceSubFaceState dictionary for dynamic Apertures or Doors. '
+            'Optional modifier may be a modifier dict, Garden Properties Library modifier target, '
+            'or standards-library identifier. Optional shades is a list of StateGeometry '
+            'dictionaries from RAD_create_state_geometry. This returns an object_dict for dynamic '
+            'state assembly.'
         ),
         tags={
             "radiance",

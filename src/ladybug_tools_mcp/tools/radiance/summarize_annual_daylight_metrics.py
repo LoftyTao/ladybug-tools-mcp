@@ -15,13 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='RAD_summarize_annual_daylight_metrics',
         description=(
-            "Summarize completed Honeybee Radiance annual daylight metrics such "
-            "as sDA, ASE, DA, CDA, UDI, daylight autonomy, annual sunlight "
-            "exposure, and too-much-sun risk into a compact Garden-backed "
-            "report. Use after a completed annual daylight run. This reads "
-            "Radiance daylight metric artifacts; it does not run recipes or "
-            "evaluate EnergyPlus daylighting controls. Pass/fail "
-            "interpretation requires project or rating-system thresholds."
+            'Summarize completed Honeybee Radiance annual daylight metrics such as sDA, ASE, DA, '
+            'CDA, UDI, daylight autonomy, annual sunlight exposure, and too-much-sun risk into a '
+            'compact Garden-backed report. Use after a completed annual daylight run. This reads '
+            'Radiance daylight metric artifacts. Pass/fail interpretation requires project or '
+            'rating-system thresholds.'
         ),
         tags={
             "metrics",

@@ -15,11 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FF_result_to_visualization_set",
         description=(
-            "Create a Ladybug Display VisualizationSet from Fairyfly THERM "
-            "temperature or heat-flux results. Poll FF_poll_simulation before "
-            "visualizing results from a run_target. If the THMZ has no result "
-            "arrays, returns no_results instead of creating an empty view. "
-            "Returns visualization_set_target when saved and does not start THERM."
+            'Create a Ladybug Display VisualizationSet from Fairyfly THERM temperature or '
+            'heat-flux results. Poll FF_poll_simulation before visualizing results from a '
+            'run_target. If the THMZ has no result arrays, returns no_results instead of creating '
+            'an empty view. Returns visualization_set_target when saved.'
         ),
         tags={"fairyfly", "therm", "visualization-set", "result", "visualize", "preview"},
         annotations={"readOnlyHint": True},

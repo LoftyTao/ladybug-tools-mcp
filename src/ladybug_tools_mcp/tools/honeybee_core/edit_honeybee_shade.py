@@ -37,7 +37,7 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee shade typed target from HB_search_model_objects; not a shade identifier string.'
+                description='Required Honeybee shade typed target from HB_search_model_objects.'
             ),
         ],
         model_target: Annotated[
@@ -56,7 +56,10 @@ def register(mcp: FastMCP) -> None:
         geometry: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Ladybug Geometry Face3D dict, for example {'type':'Face3D','boundary':[[x,y,z],...]}; not Rhino geometry."
+                description=(
+                    'Optional Ladybug Geometry Face3D dict, for example '
+                    "{'type':'Face3D','boundary':[[x,y,z],...]}."
+                )
             ),
         ] = None,
         is_detached: Annotated[

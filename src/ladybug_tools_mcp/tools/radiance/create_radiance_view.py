@@ -51,13 +51,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_view",
         description=(
-            "Create a Radiance View / Honeybee Radiance View for rpict "
-            "daylight rendering from position, direction or look-at point, up "
-            "vector, view type, and view size. With garden_root, the tool "
-            "writes a Garden .vf artifact and returns a compact radiance_view "
-            "target. Set attach_to_model=true to add the View to the Honeybee "
-            "model Radiance properties for later view or glare recipes. This "
-            "creates view input data and does not render HDR images."
+            'Create a Radiance View / Honeybee Radiance View for rpict daylight rendering from '
+            'position, direction or look-at point, up vector, view type, and view size. With '
+            'garden_root, the tool writes a Garden .vf artifact and returns a compact '
+            'radiance_view target. Set attach_to_model=true to add the View to the Honeybee model '
+            'Radiance properties for later view or glare recipes.'
         ),
         tags={
             "radiance",
@@ -138,7 +136,7 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/radiance/views",
         return_object_dict: Annotated[
             bool,
-            Field(description="Return the full View object_dict. Keep false for compact Agent handoff."),
+            Field(description='Return the full View object_dict. Keep false for compact target handoff.'),
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance View."""

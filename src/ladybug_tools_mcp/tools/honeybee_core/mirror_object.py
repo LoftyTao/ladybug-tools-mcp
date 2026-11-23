@@ -11,7 +11,15 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='HB_mirror_object',
-        description="Mirror, or reflect, a Honeybee Model, Room, Face, Aperture, Door, or Shade target across a Ladybug Geometry Plane. This transform does not automatically repair adjacency, host containment, or dynamic state geometry. Requires a typed target and plane dict; do not pass an identifier string. Returns the original target, summary_view, persistence_receipt with updated model_target, and report; for whole-model transforms summary_view.target is the updated model target. Run search, relate_model, or validate_model after partial-object transforms when relationships matter.",
+        description=(
+            'Mirror, or reflect, a Honeybee Model, Room, Face, Aperture, Door, or Shade target '
+            'across a Ladybug Geometry Plane. This transform does not automatically repair '
+            'adjacency, host containment, or dynamic state geometry. Requires a typed target and '
+            'plane dict. Returns the original target, summary_view, persistence_receipt with '
+            'updated model_target, and report; for whole-model transforms summary_view.target is '
+            'the updated model target. Run HB_search_model_objects, HB_relate_model, or '
+            'HB_validate_model after partial-object transforms when relationships matter.'
+        ),
         tags={
             "edit",
             "geometry",

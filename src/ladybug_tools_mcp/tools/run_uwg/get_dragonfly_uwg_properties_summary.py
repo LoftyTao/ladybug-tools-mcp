@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='DF_uwg_get_dragonfly_properties_summary',
         description=(
-            "Read compact Dragonfly Urban Weather Generator extension properties for "
-            "the model, Buildings, and ContextShades. Use this to inspect UWG setup "
-            "before weather morphing; this is adjacent to URBANopt concepts but not a "
-            "URBANopt Scenario. Returns summary_view and report without changing the model."
+            'Read compact Dragonfly Urban Weather Generator extension properties for the model, '
+            'Buildings, and ContextShades. Use this to inspect UWG setup before weather morphing. '
+            'Returns summary_view and report without changing the model.'
         ),
         tags={
             "dragonfly",

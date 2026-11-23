@@ -12,12 +12,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_honeybee_face_to_visualization_set',
         description=(
-            "Visualize one Honeybee Face target as a Ladybug Display "
-            "VisualizationSet. Use this read-only preview after object search "
-            "finds the face target. For HTML/SVG/vtk.js export paths, set "
-            "return_visualization_set=false so the tool saves a compact "
-            "visualization_set_target for exporters. This previews existing "
-            "Honeybee geometry; it does not edit the model or run Radiance."
+            'Visualize one Honeybee Face target as a Ladybug Display VisualizationSet. Use this '
+            'read-only preview after object search finds the face target. For HTML/SVG/vtk.js '
+            'export paths, set return_visualization_set=false so the tool saves a compact '
+            'visualization_set_target for exporters. This previews existing Honeybee geometry.'
         ),
         tags={
             "honeybee",

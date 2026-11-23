@@ -11,7 +11,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_zone_ventilation_fan',
-        description='Create a Honeybee Energy VentilationFan for fan-assisted zone ventilation or ventilative cooling with Exhaust, Intake, or Balanced outdoor-air flow. Use garden_root to save a zone_ventilation_fan target for HB_edit_room.zone_ventilation_fans; set return_object_dict=false only when you want a compact target/summary/receipt response. This exports to EnergyPlus ZoneVentilation:DesignFlowRate and is not the ProgramType Ventilation load, Infiltration, operable-window natural ventilation, AirflowNetwork, or Ironbug DetailedHVAC fan component.',
+        description=(
+            'Create a Honeybee Energy VentilationFan for fan-assisted zone ventilation or '
+            'ventilative cooling with Exhaust, Intake, or Balanced outdoor-air flow. Use '
+            'garden_root to save a zone_ventilation_fan target for '
+            'HB_edit_room.zone_ventilation_fans; set return_object_dict=false only when you want '
+            'a compact target/summary/receipt response. Exports to EnergyPlus '
+            'ZoneVentilation:DesignFlowRate.'
+        ),
         tags={
             "author",
             "energy",

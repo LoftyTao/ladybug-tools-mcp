@@ -12,11 +12,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_create_window_blind_material',
         description=(
-            "Create a Honeybee Energy EnergyWindowMaterialBlind layer for "
-            "window constructions with blinds. This returns a window material "
-            "layer for later construction assembly; it does not assign blinds "
-            "to apertures. Returns object_dict plus summary_view; "
-            "return_detail='full' also includes a material property matrix."
+            'Create a Honeybee Energy EnergyWindowMaterialBlind layer for window constructions '
+            'with blinds. This returns a window material layer for later construction assembly. '
+            "Returns object_dict plus summary_view; return_detail='full' also includes a material "
+            'property matrix.'
         ),
         tags={
             "energy",

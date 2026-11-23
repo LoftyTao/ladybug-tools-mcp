@@ -14,7 +14,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="EP_read_result_data",
-        description='Read EnergyPlus SQL results from a completed Garden energy_run as compact Ladybug DataCollection summaries with result_context provenance. Use output names from EP_list_run_outputs or SQL output inventory filters. Without output_name/output_names/filters, returns available_outputs only. With save_data_collections=true, returns data_collection_targets and summary_view.first_data_collection_target for visualization tools; there is no top-level target or single data_collection_target.',
+        description=(
+            'Read EnergyPlus SQL results from a completed Garden energy_run as compact Ladybug '
+            'DataCollection summaries with result_context provenance. Use output names from '
+            'EP_list_run_outputs or SQL output inventory filters. Without '
+            'output_name/output_names/filters, returns available_outputs only. With '
+            'save_data_collections=true, returns data_collection_targets and '
+            'summary_view.first_data_collection_target for visualization tools.'
+        ),
         tags={
             "energy",
             "result",
@@ -81,7 +88,10 @@ def register(mcp: FastMCP) -> None:
         include_values: Annotated[
             bool,
             Field(
-                description="Whether to include bounded raw values from each DataCollection. Default false to keep Agent context small."
+                description=(
+                    'Whether to include bounded raw values from each DataCollection. Default '
+                    'false for compact responses.'
+                )
             ),
         ] = False,
         max_values: Annotated[

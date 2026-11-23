@@ -11,7 +11,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_ideal_air_system',
-        description="Create a Honeybee Energy IdealAirSystem HVAC object for simple ideal-loads conditioning and early-stage room energy properties. This is an HVAC-template/simple HVAC resource, not an Ironbug DetailedHVAC loop or component graph. Returns a full object_dict, or saves to Garden Properties Library and returns a target plus persistence_receipt when garden_root is provided and return_object_dict=false. For simple HVAC, omit heating_air_temperature and cooling_air_temperature; they are supply air temperatures, not room setpoints.",
+        description=(
+            'Create a Honeybee Energy IdealAirSystem HVAC object for simple ideal-loads '
+            'conditioning and early-stage room energy properties. Returns a full object_dict, or '
+            'saves to Garden Properties Library and returns a target plus persistence_receipt '
+            'when garden_root is provided and return_object_dict=false. For simple HVAC, omit '
+            'heating_air_temperature and cooling_air_temperature; they are supply air '
+            'temperatures, not room setpoints.'
+        ),
         tags={
             "energy",
             "hvac-template",
@@ -90,7 +97,10 @@ def register(mcp: FastMCP) -> None:
         return_object_dict: Annotated[
             bool,
             Field(
-                description="Whether to include the full SDK object_dict in the response. Use false for low-token Agent Garden workflows."
+                description=(
+                    'Include the full SDK object_dict in the response (set false for compact '
+                    'target responses).'
+                )
             ),
         ] = True,
     ) -> dict[str, Any]:

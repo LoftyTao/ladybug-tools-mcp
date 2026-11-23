@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FF_add_shape_to_model",
         description=(
-            "Add a Fairyfly Shape to a Garden-backed Fairyfly Model from Ladybug "
-            "Geometry 2D polygon input and a THERM material object_dict. The shape is "
-            "saved into the model, not as a separate target. This edits the 2D section "
-            "and does not run THERM."
+            'Add a Fairyfly Shape to a Garden-backed Fairyfly Model from Ladybug Geometry 2D '
+            'polygon input and a THERM material object_dict. The shape is saved into the model, '
+            'not as a separate target.'
         ),
         tags={"fairyfly", "therm", "model", "geometry", "shape", "2d"},
         timeout=20,

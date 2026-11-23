@@ -50,7 +50,10 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         mounting_type: Annotated[
             str,
-            Field(description="PV mounting type, for example FixedOpenRack, FixedRoofMounted, OneAxis, OneAxisBacktracking, or TwoAxis. Use exactly FixedRoofMounted, not FixedRoofMount."),
+            Field(description=(
+                'PV mounting type, for example FixedOpenRack, FixedRoofMounted, OneAxis, '
+                'OneAxisBacktracking, or TwoAxis. Use FixedRoofMounted for roof-mounted PV.'
+            )),
         ] = "FixedOpenRack",
         system_loss_fraction: Annotated[
             float,

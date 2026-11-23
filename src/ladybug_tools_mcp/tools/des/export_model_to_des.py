@@ -15,12 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_des_export_model",
         description=(
-            "Write the Dragonfly Energy DES handoff files for a Dragonfly Model, "
-            "thermal loop, and EPW weather target. The response gives Garden "
-            "artifact targets for feature GeoJSON, scenario CSV, and the SDK "
-            "system_params JSON file, plus summary_view, persistence_receipt, "
-            "and report. Use this before DES load, sys-param, or Modelica "
-            "candidate steps; file contents are not returned inline."
+            'Write the Dragonfly Energy DES handoff files for a Dragonfly Model, thermal loop, '
+            'and EPW weather target. The response gives Garden artifact targets for feature '
+            'GeoJSON, scenario CSV, and the SDK system_params JSON file, plus summary_view, '
+            'persistence_receipt, and report. Use this before DES load, sys-param, or Modelica '
+            'steps; file contents remain on disk.'
         ),
         tags={"dragonfly", "district-energy", "export", "artifact", "epw", "weather", "target"},
         timeout=60,

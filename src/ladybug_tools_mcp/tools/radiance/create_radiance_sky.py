@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_sky",
         description=(
-            "Create a Radiance sky definition artifact from standard sky "
-            "inputs for point-in-time daylight workflows. Use "
-            "RAD_create_sky_file when a recipe needs a persisted sky file "
-            "target. This creates sky input data only; it does not create WEA "
-            "weather, sky matrices, or simulation runs. Returns target, "
-            "sky_target, summary_view, persistence_receipt, and report."
+            'Create a Radiance sky definition artifact from standard sky inputs for point-in-time '
+            'daylight workflows. Use RAD_create_sky_file when a recipe needs a persisted sky file '
+            'target. This creates sky input data only. Returns target, sky_target, summary_view, '
+            'persistence_receipt, and report.'
         ),
         tags={
             "radiance",

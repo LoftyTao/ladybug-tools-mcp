@@ -12,14 +12,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_search_hvac_templates',
         description=(
-            "Search Honeybee Energy SDK HVAC templates and, when identifier is "
-            "provided with a unique template selection, return a ready-to-use "
-            "HVAC object_dict or Garden Properties Library target for "
-            'HB_edit_room hvac. Supports all-air, DOAS, and heat-cool '
-            "template HVAC systems. This Honeybee Energy template search does "
-            "not build Ironbug DetailedHVAC component graphs; use the "
-            "Ironbug (IB_*) tools for custom EnergyPlus HVAC "
-            "component authoring."
+            'Search Honeybee Energy SDK HVAC templates and, when identifier is provided with a '
+            'unique template selection, return a ready-to-use HVAC object_dict or Garden '
+            'Properties Library target for HB_edit_room hvac. Supports all-air, DOAS, and '
+            'heat-cool template HVAC systems. Use IB_* tools for custom Ironbug DetailedHVAC '
+            'component graphs.'
         ),
         tags={
             "energy",
@@ -122,7 +119,10 @@ def register(mcp: FastMCP) -> None:
         return_object_dict: Annotated[
             bool,
             Field(
-                description="Whether to include the full SDK object_dict in the response after creation. Use false for low-token Agent Garden workflows."
+                description=(
+                    'Include the full SDK object_dict in the response (set false for compact '
+                    'target responses).'
+                )
             ),
         ] = True,
         limit: Annotated[

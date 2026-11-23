@@ -11,7 +11,13 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_window_glazing_material',
-        description="Create a Honeybee Energy EnergyWindowMaterialGlazing pane layer for detailed WindowConstruction assemblies. This is one glass layer, not a full SimpleGlazSys window. Returns object_dict plus summary_view, or a saved material target when garden_root is provided and return_object_dict=false. Use return_detail='summary' for key optical and thermal values or 'full' for a matrix of material property values.",
+        description=(
+            'Create a Honeybee Energy EnergyWindowMaterialGlazing pane layer for detailed '
+            'WindowConstruction assemblies. Returns object_dict plus summary_view, or a saved '
+            'material target when garden_root is provided and return_object_dict=false. Use '
+            "return_detail='summary' for key optical and thermal values or 'full' for a matrix of "
+            'material property values.'
+        ),
         tags={
             "energy",
             "construction",

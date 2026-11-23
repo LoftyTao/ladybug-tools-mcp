@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_des_poll_urbanopt_simulation",
         description=(
-            "Read the compact Garden ledger for an URBANopt DES run. Use it "
-            "after the start tool to check runtime_status, poll_next, and the "
-            "output inventory before load assignment or system-parameter work. "
-            "The response does not open SQL, ERR, HTML, CSV, or log bodies."
+            'Read the compact Garden ledger for an URBANopt DES run. Use it after the start tool '
+            'to check runtime_status, poll_next, and the output inventory before load assignment '
+            'or system-parameter work.'
         ),
         tags={"dragonfly", "district-energy", "urbanopt", "poll", "runtime", "run", "target"},
         timeout=20,

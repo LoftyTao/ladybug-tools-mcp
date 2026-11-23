@@ -15,13 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_summarize_glare_metrics",
         description=(
-            "Summarize annual Radiance glare metrics from a completed "
-            "imageless-annual-glare or glare-capable run into compact DGP, GA, "
-            "and visual-discomfort statistics. Use "
-            "after RAD_poll_simulation and output listing confirm results "
-            "exist. This reads glare metric artifacts; it does not run view "
-            "recipes or convert HDR images. Returns target, summary_view, "
-            "metrics, and report."
+            'Summarize annual Radiance glare metrics from a completed imageless-annual-glare or '
+            'glare-capable run into compact DGP, GA, and visual-discomfort statistics. Use after '
+            'RAD_poll_simulation and output listing confirm results exist. This reads glare '
+            'metric artifacts. Returns target, summary_view, metrics, and report.'
         ),
         tags={
             "radiance",

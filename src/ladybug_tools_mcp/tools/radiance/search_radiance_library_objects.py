@@ -12,12 +12,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_search_library_objects",
         description=(
-            "Search Honeybee Radiance standards library identifiers for "
-            "modifiers, materials, and modifier sets. Use returned identifiers "
-            "in Radiance authoring tools or Honeybee Radiance properties. This "
-            "searches built-in Radiance libraries and does not search Garden "
-            "files, Energy materials, or Radiance result artifacts. Returns "
-            "matches, summary_view, and report."
+            'Search Honeybee Radiance standards library identifiers for modifiers, materials, and '
+            'modifier sets. Use returned identifiers in Radiance authoring tools or Honeybee '
+            'Radiance properties. Searches built-in Radiance standards libraries. Returns '
+            'matches, summary_view, and report.'
         ),
         tags={
             "search",
@@ -33,7 +31,7 @@ def register(mcp: FastMCP) -> None:
         query: Annotated[
             str,
             Field(
-                description="Required non-empty search text, such as 'generic wall' or 'modifier set'. Do not omit."
+                description="Required non-empty search text, such as 'generic wall' or 'modifier set'."
             ),
         ],
         object_family: Annotated[

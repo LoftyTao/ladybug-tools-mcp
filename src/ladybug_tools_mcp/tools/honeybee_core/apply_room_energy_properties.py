@@ -14,19 +14,16 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="HB_apply_room_energy_properties",
         description=(
-            "Apply one shared set of Honeybee Energy properties atomically to "
-            "multiple Room targets in one Garden Honeybee Model. Provide exactly "
-            "one of room_targets (typed targets from HB_search_model_objects) or "
-            "room_identifiers, plus energy_properties containing only "
-            "program_type, construction_set, template hvac, ventilation, setpoint, "
-            "or zone_ventilation_fans. The tool resolves and validates every Room "
-            "and property reference before one Garden save; any missing Room, "
-            "cross-model target, invalid reference, or revision conflict leaves "
-            "the model unchanged. Returns updated_room_count, a limited Room "
-            "identifier sample, model_target, persistence_receipt, and report. "
-            "Identical values return no_change without another model revision. "
-            "This is not a Face/Aperture/Door/Radiance batch editor or an Ironbug "
-            "DetailedHVAC placement tool."
+            'Apply one shared set of Honeybee Energy properties atomically to multiple Room '
+            'targets in one Garden Honeybee Model. Provide exactly one of room_targets (typed '
+            'targets from HB_search_model_objects) or room_identifiers, plus energy_properties '
+            'containing only program_type, construction_set, template hvac, ventilation, '
+            'setpoint, or zone_ventilation_fans. The tool resolves and validates every Room and '
+            'property reference before one Garden save; any missing Room, cross-model target, '
+            'invalid reference, or revision conflict leaves the model unchanged. Returns '
+            'updated_room_count, a limited Room identifier sample, model_target, '
+            'persistence_receipt, and report. Identical values return no_change without another '
+            'model revision.'
         ),
         tags={
             "apply",
@@ -67,9 +64,9 @@ def register(mcp: FastMCP) -> None:
             list[dict[str, Any]] | None,
             Field(
                 description=(
-                    "Optional non-empty list of Honeybee Room typed targets from "
-                    "HB_search_model_objects.matches[i].target. Do not provide "
-                    "this together with room_identifiers."
+                    'Optional non-empty list of Honeybee Room typed targets from '
+                    'HB_search_model_objects.matches[i].target. Mutually exclusive with '
+                    'room_identifiers.'
                 )
             ),
         ] = None,
@@ -77,9 +74,8 @@ def register(mcp: FastMCP) -> None:
             list[str] | None,
             Field(
                 description=(
-                    "Optional non-empty list of exact Room identifiers in the "
-                    "selected Honeybee Model. Do not provide this together with "
-                    "room_targets."
+                    'Optional non-empty list of exact Room identifiers in the selected Honeybee '
+                    'Model. Mutually exclusive with room_targets.'
                 )
             ),
         ] = None,

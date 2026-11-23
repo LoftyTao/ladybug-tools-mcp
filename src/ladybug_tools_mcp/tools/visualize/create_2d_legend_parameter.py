@@ -12,11 +12,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_create_2d_legend_parameter',
         description=(
-            "Create a Ladybug Display 2D legend parameter payload for "
-            "VisualizationSet chart and model exports. Use the returned "
-            "object_dict in visualization or chart tools when a custom legend "
-            "is needed. This is a display settings object, not a saved Garden "
-            "target or analysis result. Returns object_dict and summary_view."
+            'Create a Ladybug Display 2D legend parameter payload for VisualizationSet chart and '
+            'model exports. Use the returned object_dict in visualization or chart tools when a '
+            'custom legend is needed. Returns object_dict and summary_view.'
         ),
         tags={
             "visualization-set",

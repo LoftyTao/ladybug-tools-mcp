@@ -15,9 +15,8 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_room2ds_by_attribute",
         description=(
-            "Return Dragonfly Room2D targets and compact values for one SDK "
-            "attribute, such as floor_area, volume, or floor_height. This is a "
-            "read-only summary/query tool and does not return Room2D object bodies."
+            'Return Dragonfly Room2D targets and compact values for one SDK attribute, such as '
+            'floor_area, volume, or floor_height. Read-only summary/query tool.'
         ),
         tags={"dragonfly", "geometry", "summary", "query"},
         annotations={"readOnlyHint": True},

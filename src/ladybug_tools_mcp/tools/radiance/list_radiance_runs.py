@@ -15,11 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_list_runs",
         description=(
-            "List Radiance simulation runs recorded in a Garden run ledger. "
-            "Use this to find run_id, run_target, status, or run folder "
-            "metadata before polling or reading results. This reads the run "
-            "ledger only; it does not open grid, HDR, matrix, or report "
-            "artifacts. Returns matches, summary_view, and report."
+            'List Radiance simulation runs recorded in a Garden run ledger. Use this to find '
+            'run_id, run_target, status, or run folder metadata before polling or reading '
+            'results. This reads the run ledger only. Returns matches, summary_view, and report.'
         ),
         tags={
             "ledger",

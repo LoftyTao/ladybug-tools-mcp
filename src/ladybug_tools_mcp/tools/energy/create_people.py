@@ -11,7 +11,13 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_people',
-        description='Create a Honeybee Energy People occupancy load object from people_per_area and optional occupancy/activity schedules. Occupancy schedules should be Fractional. Only pass activity_schedule when it is an Activity Level schedule in W/person; omit activity_schedule to use the SDK default seated-activity schedule. Do not reuse a Fractional occupancy schedule as activity_schedule. Use garden_root and return_object_dict=false to save a load target for EP_create_program_type.',
+        description=(
+            'Create a Honeybee Energy People occupancy load object from people_per_area and '
+            'optional occupancy/activity schedules. Occupancy schedules use Fractional type; '
+            'activity_schedule accepts an Activity Level schedule in W/person (omit for default '
+            'seated activity). Use garden_root and return_object_dict=false to save a load target '
+            'for EP_create_program_type.'
+        ),
         tags={
             "energy",
             "program-type",
@@ -35,7 +41,10 @@ def register(mcp: FastMCP) -> None:
         activity_schedule: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description="Optional Activity Level schedule dict or library identifier in W/person. Do not pass a Fractional occupancy schedule here; omit for default seated activity."
+                description=(
+                    'Optional Activity Level schedule dict or library identifier in W/person; '
+                    'omit for default seated activity.'
+                )
             ),
         ] = None,
         radiant_fraction: Annotated[

@@ -15,11 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_apply_shading_parameter",
         description=(
-            "Apply a Dragonfly ShadingParameter artifact using public Dragonfly SDK "
-            "set_outdoor_shading_parameters methods. Supports Room2D, Story, Building, "
-            "and Model outdoor application. Returns target, report, and the updated "
-            "Dragonfly host context; this does not create Honeybee Shades or Radiance "
-            "modifiers."
+            'Apply a Dragonfly ShadingParameter artifact using public Dragonfly SDK '
+            'set_outdoor_shading_parameters methods. Supports Room2D, Story, Building, and Model '
+            'outdoor application. Returns target, report, and the updated Dragonfly host context.'
         ),
         tags={"dragonfly", "shading", "parameter", "edit", "overhang"},
         timeout=20,
@@ -33,9 +31,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required parameter dict returned by DF_create_shading_parameter. '
-                    "Use create result['parameter'] or result['shading_parameter']; do not "
-                    "look for value.shading_parameter."
+                    "Required parameter dict from DF_create_shading_parameter['parameter'] or "
+                    "['shading_parameter']."
                 )
             ),
         ],

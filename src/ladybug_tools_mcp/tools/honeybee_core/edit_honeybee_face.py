@@ -11,7 +11,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_edit_face",
-        description='Edit a Honeybee Face typed target for display name, user data, Face3D geometry, face type, non-Surface boundary condition, Honeybee Energy construction/AFNCrack, and Honeybee Radiance modifier or black modifier. Geometry edits are for supported Face targets and must respect hosted sub-face and shade constraints; this is not direct EnergyPlus surface authoring. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
+        description=(
+            'Edit a Honeybee Face typed target for display name, user data, Face3D geometry, face '
+            'type, non-Surface boundary condition, Honeybee Energy construction/AFNCrack, and '
+            'Honeybee Radiance modifier or black modifier. Geometry edits are for supported Face '
+            'targets and must respect hosted sub-face and shade constraints. Returns target, '
+            'summary_view.updated_fields, persistence_receipt, and report for re-search, '
+            'validation, or downstream Energy/Radiance translation.'
+        ),
         tags={
             "boundary-condition",
             "construction",
@@ -36,7 +43,7 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee face typed target from HB_search_model_objects; not a face identifier string.'
+                description='Required Honeybee face typed target from HB_search_model_objects.'
             ),
         ],
         model_target: Annotated[
@@ -55,7 +62,10 @@ def register(mcp: FastMCP) -> None:
         geometry: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Ladybug Geometry Face3D dict, for example {'type':'Face3D','boundary':[[x,y,z],...]}; not Rhino geometry."
+                description=(
+                    'Optional Ladybug Geometry Face3D dict, for example '
+                    "{'type':'Face3D','boundary':[[x,y,z],...]}."
+                )
             ),
         ] = None,
         type: Annotated[
@@ -65,7 +75,10 @@ def register(mcp: FastMCP) -> None:
         boundary_condition: Annotated[
             str | dict[str, Any] | None,
             Field(
-                description="Optional updated Honeybee boundary condition name or dict. Surface boundary-condition assignment is not supported through this edit path; run relate_model for adjacency solving."
+                description=(
+                    'Optional updated Honeybee boundary condition name or dict. Use '
+                    'HB_relate_model for Surface adjacency solving.'
+                )
             ),
         ] = None,
         construction: Annotated[

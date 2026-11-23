@@ -15,12 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_metal_modifier",
         description=(
-            "Create a Honeybee Radiance Metal modifier with RGB reflectance, "
-            "specularity, and roughness. Use garden_root and "
-            "return_object_dict=false to save a reusable Garden Properties "
-            "Library modifier target. This controls Radiance optical "
-            "appearance; it does not create Honeybee Energy metal materials or "
-            "thermal properties."
+            'Create a Honeybee Radiance Metal modifier with RGB reflectance, specularity, and '
+            'roughness. Use garden_root and return_object_dict=false to save a reusable Garden '
+            'Properties Library modifier target. This controls Radiance optical appearance.'
         ),
         tags={
             "radiance",

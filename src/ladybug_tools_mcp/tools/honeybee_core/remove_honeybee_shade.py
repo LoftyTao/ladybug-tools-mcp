@@ -11,7 +11,15 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_remove_shade",
-        description='Remove one Honeybee Shade from a Garden model using a shade typed target from HB_search_model_objects and persist the updated model. Orphaned and hosted shades are supported, including Room, Face, Aperture, and Door child shade contexts; the service removes the child from its parent list where needed. Requires garden_root and target; do not pass an identifier string. Returns summary_view.model_target, persistence_receipt.model_target, and report so the updated model can be searched or validated again.',
+        description=(
+            'Remove one Honeybee Shade from a Garden model using a shade typed target from '
+            'HB_search_model_objects and persist the updated model. Orphaned and hosted shades '
+            'are supported, including Room, Face, Aperture, and Door child shade contexts; the '
+            'service removes the child from its parent list where needed. Requires garden_root '
+            'and a typed target. Returns summary_view.model_target, '
+            'persistence_receipt.model_target, and report so the updated model can be searched or '
+            'validated again.'
+        ),
         tags={
             "edit",
             "hosted",
@@ -34,7 +42,7 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee shade typed target from HB_search_model_objects; not a shade identifier string.'
+                description='Required Honeybee shade typed target from HB_search_model_objects.'
             ),
         ],
         model_target: Annotated[

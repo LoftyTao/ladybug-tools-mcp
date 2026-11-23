@@ -91,13 +91,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_sensor_grid",
         description=(
-            "Create a Honeybee Radiance SensorGrid from explicit sensor "
-            "positions or rectangular workplane dimensions. With garden_root, "
-            "the tool writes a Garden .pts artifact and returns a compact "
-            "radiance_sensor_grid target. Set attach_to_model=true to add the "
-            "SensorGrid to the Honeybee model Radiance properties for later "
-            "daylight recipes. This creates sensor points, not room geometry "
-            "or EnergyPlus result data."
+            'Create a Honeybee Radiance SensorGrid from explicit sensor positions or rectangular '
+            'workplane dimensions. With garden_root, the tool writes a Garden .pts artifact and '
+            'returns a compact radiance_sensor_grid target. Set attach_to_model=true to add the '
+            'SensorGrid to the Honeybee model Radiance properties for later daylight recipes.'
         ),
         tags={
             "radiance",
@@ -186,7 +183,9 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/radiance/sensors",
         return_object_dict: Annotated[
             bool,
-            Field(description="Return the full SensorGrid object_dict. Keep false for compact Agent handoff."),
+            Field(description=(
+                'Return the full SensorGrid object_dict. Keep false for compact target handoff.'
+            )),
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance SensorGrid."""

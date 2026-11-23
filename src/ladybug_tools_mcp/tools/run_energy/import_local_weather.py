@@ -15,15 +15,13 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="EP_import_local_weather",
         description=(
-            "Copy bundled or local EPW/DDY/STAT weather files into a Garden "
-            "imports/weather directory and register it as a weather_file target. "
-            "Use weather://files/<station> for a bundled FastMCP weather resource, "
-            "or provide an absolute local file/folder path. Use "
-            "weather://catalog to list bundled stations before "
-            "EP_search_weather_files, UWG, URBANopt, EnergyPlus, or "
-            "Radiance weather handoffs. For other locations, obtain an archive from "
-            "https://climate.onebuilding.org/, extract it locally, and import it here. "
-            "This tool does not download remote files or run simulations."
+            'Copy bundled or local EPW/DDY/STAT weather files into a Garden imports/weather '
+            'directory and register it as a weather_file target. Use weather://files/<station> '
+            'for a bundled FastMCP weather resource, or provide an absolute local file/folder '
+            'path. Use weather://catalog to list bundled stations before EP_search_weather_files, '
+            'UWG, URBANopt, EnergyPlus, or Radiance weather handoffs. For other locations, obtain '
+            'an archive from https://climate.onebuilding.org/, extract it locally, and import it '
+            'here.'
         ),
         tags={"energy", "weather", "epw", "offline", "garden"},
         timeout=60,

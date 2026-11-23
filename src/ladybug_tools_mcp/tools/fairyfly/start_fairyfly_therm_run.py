@@ -15,15 +15,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FF_start_simulation",
         description=(
-            "Start a Fairyfly THERM two-dimensional heat-transfer run for a "
-            "Garden Fairyfly model and return a fairyfly_therm_run target. "
-            "Use this for a start Fairyfly THERM run request. "
-            "THERM execution is Windows-only; when the THERM executable is "
-            "unavailable, the tool saves readiness_status=blocked with "
-            "intervention_reason=missing_runtime. Returns run_target, "
-            "runtime_status, poll_next, and report; poll before reading THERM "
-            "or U-factor results. Treat a failed runtime_status as requiring "
-            "report review. This is the run starter, not a result reader."
+            'Start a Fairyfly THERM two-dimensional heat-transfer run for a Garden Fairyfly model '
+            'and return a fairyfly_therm_run target. Use this for a start Fairyfly THERM run '
+            'request. THERM execution is Windows-only; when the THERM executable is unavailable, '
+            'the tool saves readiness_status=blocked with intervention_reason=missing_runtime. '
+            'Returns run_target, runtime_status, poll_next, and report; poll before reading THERM '
+            'or U-factor results. Treat a failed runtime_status as requiring report review.'
         ),
         tags={"fairyfly", "therm", "simulate", "u-factor", "runtime", "start"},
         timeout=120,

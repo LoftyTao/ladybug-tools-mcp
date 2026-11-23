@@ -63,11 +63,9 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    "Required exact Honeybee Model or Dragonfly Model target. Pass the "
-                    "nested model_target dict from a model create/list/base-model tool, "
-                    "not a full tool response and not an identifier string. Targets "
-                    "from GD_list_models must include a Garden-relative path to "
-                    ".hbjson or .dfjson."
+                    'Required exact Honeybee Model or Dragonfly Model target. Pass the nested '
+                    'model_target dict from a model create, list, or base-model tool. Targets from '
+                    'GD_list_models must include a Garden-relative path to .hbjson or .dfjson.'
                 )
             ),
         ],
@@ -84,9 +82,8 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(
                 description=(
-                    "Return the exported DOE-2 INP or DesignBuilder dsbXML text as "
-                    "file_body. Keep False for ordinary Agent workflows that only "
-                    "need the artifact target."
+                    'Return the exported DOE-2 INP or DesignBuilder dsbXML text as file_body. Keep '
+                    'false for compact artifact targets.'
                 )
             ),
         ] = False,

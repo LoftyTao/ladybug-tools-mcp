@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_grid_ground_photovoltaics",
         description=(
-            "Create a Dragonfly Energy REopt GroundMountPV object from footprint "
-            "points. This authors PV geometry for Grid/REopt export handoff; it "
-            "does not run EnergyPlus, OpenDSS, or REopt. Returns target, "
-            "summary_view, persistence_receipt, and report."
+            'Create a Dragonfly Energy REopt GroundMountPV object from footprint points. This '
+            'authors PV geometry for Grid/REopt export handoff. Returns target, summary_view, '
+            'persistence_receipt, and report.'
         ),
         tags={"dragonfly", "electric-grid", "reopt", "photovoltaic", "pv", "author", "target"},
         timeout=20,

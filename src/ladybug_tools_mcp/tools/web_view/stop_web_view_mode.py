@@ -17,13 +17,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="GD_web_view_stop_mode",
         description=(
-            "Stop Garden Web View Mode by marking the local preview session "
-            "inactive. Code Mode stops exporting automatic session-managed vtk.js "
-            "previews for the Garden after this call. Returns session, "
-            "session_path, summary_view, and viewer status. It does not delete "
-            "preview history, remove Garden visualization artifacts, or close a "
-            "host App panel. If a local fallback URL was started for a host "
-            "without MCP Apps UI support, this call also stops that local URL."
+            'Stop Garden Web View Mode by marking the local preview session inactive. Code Mode '
+            'stops exporting automatic session-managed vtk.js previews for the Garden after this '
+            'call. Returns session, session_path, summary_view, and viewer status. If a local '
+            'fallback URL was started for a host without MCP Apps UI support, this call also '
+            'stops that local URL.'
         ),
         tags={
             "preview",

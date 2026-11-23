@@ -15,14 +15,13 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='GD_restore_version',
         description=(
-            "Restore, undo, go back, or roll back Garden authoring truth to a "
-            "previous Garden version checkpoint and record that restore as a new "
-            "history item. Pass either the version_id from GD_list_versions "
-            "matches/versions or the nested garden_version target as version_target. "
-            "Returns summary_view, restored_from_version, new_version, version_target, "
-            "and persistence_receipt metadata only. It refuses dirty authoring "
-            "truth, does not rewrite existing history, and never returns diffs, "
-            "patches, HBJSON bodies, DFJSON bodies, or full file contents."
+            'Restore, undo, go back, or roll back Garden authoring truth to a previous Garden '
+            'version checkpoint and record that restore as a new history item. Pass either the '
+            'version_id from GD_list_versions matches/versions or the nested garden_version '
+            'target as version_target. Returns summary_view, restored_from_version, new_version, '
+            'version_target, and persistence_receipt metadata only. Requires clean authoring '
+            'truth, appends a new history entry without rewriting history, and returns metadata '
+            'only.'
         ),
         tags={
             "checkpoint",
@@ -49,9 +48,8 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(
                 description=(
-                    "Garden version_id string from GD_list_versions "
-                    "matches/versions. Required unless version_target is provided; "
-                    "do not pass a raw Git hash from another repository."
+                    'Garden version_id string from GD_list_versions matches/versions. Required unless '
+                    'version_target is provided.'
                 )
             ),
         ] = None,
@@ -80,9 +78,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional compact restore summary. Do not include full "
-                    "HBJSON/DFJSON model bodies, exported file text, diffs, or "
-                    "patches."
+                    'Optional compact restore summary.'
                 )
             ),
         ] = None,

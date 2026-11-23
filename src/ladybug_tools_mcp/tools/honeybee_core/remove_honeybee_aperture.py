@@ -36,7 +36,7 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee aperture typed target from HB_search_model_objects; not an aperture identifier string.'
+                description='Required Honeybee aperture typed target from HB_search_model_objects.'
             ),
         ],
         model_target: Annotated[

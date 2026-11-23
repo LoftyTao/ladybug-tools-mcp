@@ -11,7 +11,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='HB_rotate_object',
-        description="Rotate a Honeybee Model, Room, Face, Aperture, Door, or Shade target around a Ladybug Geometry Vector3D axis and Point3D origin, with angle_degrees in degrees. This transform does not automatically repair adjacency, host containment, or dynamic state geometry. Requires a typed target plus axis and origin dicts; do not pass an identifier string. Returns the original target, summary_view, persistence_receipt with updated model_target, and report; for whole-model transforms summary_view.target is the updated model target. Run search, relate_model, or validate_model after partial-object transforms when relationships matter.",
+        description=(
+            'Rotate a Honeybee Model, Room, Face, Aperture, Door, or Shade target around a '
+            'Ladybug Geometry Vector3D axis and Point3D origin, with angle_degrees in degrees. '
+            'This transform does not automatically repair adjacency, host containment, or dynamic '
+            'state geometry. Requires a typed target plus axis and origin dicts. Returns the '
+            'original target, summary_view, persistence_receipt with updated model_target, and '
+            'report; for whole-model transforms summary_view.target is the updated model target. '
+            'Run HB_search_model_objects, HB_relate_model, or HB_validate_model after '
+            'partial-object transforms when relationships matter.'
+        ),
         tags={
             "edit",
             "geometry",

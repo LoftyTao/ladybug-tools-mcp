@@ -15,9 +15,8 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_grid_start_opendss",
         description=(
-            "Start or block an OpenDSS run from a feature GeoJSON target and "
-            "scenario CSV target. Missing OpenDSS returns a blocked run ledger "
-            "instead of pretending simulation completed."
+            'Start or block an OpenDSS run from a feature GeoJSON target and scenario CSV target. '
+            'Returns a blocked run ledger when OpenDSS is unavailable.'
         ),
         tags={"dragonfly", "electric-grid", "opendss", "run", "runtime", "target"},
         timeout=30,

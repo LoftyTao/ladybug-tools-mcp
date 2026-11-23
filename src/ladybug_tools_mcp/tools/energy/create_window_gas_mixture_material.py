@@ -12,11 +12,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_create_window_gas_mixture_material',
         description=(
-            "Create a Honeybee Energy EnergyWindowMaterialGasMixture gap layer "
-            "from gas types and fractions for WindowConstruction assemblies. "
-            "This is a reusable gas layer, not a full glazing construction. "
-            "Returns object_dict plus summary_view; return_detail='full' also "
-            "includes a material property matrix."
+            'Create a Honeybee Energy EnergyWindowMaterialGasMixture gap layer from gas types and '
+            'fractions for WindowConstruction assemblies. Returns object_dict plus summary_view; '
+            "return_detail='full' also includes a material property matrix."
         ),
         tags={
             "energy",

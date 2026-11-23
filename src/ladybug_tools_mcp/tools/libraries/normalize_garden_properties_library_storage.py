@@ -15,15 +15,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="GD_library_normalize_garden_properties_storage",
         description=(
-            "Rewrite legacy Garden Properties Library records that stored MCP "
-            "wrapper metadata beside object_dict into native Honeybee Energy or "
-            "Honeybee Radiance SDK JSON files. Use this one-time maintenance "
-            "migration before reading or handing saved reusable resources to "
-            "non-MCP workflows that expect native SDK dictionaries. Returns "
-            "normalized, already_native, skipped, summary_view, "
-            "persistence_receipt, and report while preserving existing typed "
-            "targets and index entries. It is not a generic JSON converter, "
-            "standards-library importer, or reindex tool."
+            'Rewrite legacy Garden Properties Library records that stored MCP wrapper metadata '
+            'beside object_dict into native Honeybee Energy or Honeybee Radiance SDK JSON files. '
+            'Use this one-time maintenance migration before reading or handing saved reusable '
+            'resources to non-MCP workflows that expect native SDK dictionaries. Returns '
+            'normalized, already_native, skipped, summary_view, persistence_receipt, and report '
+            'while preserving existing typed targets and index entries.'
         ),
         tags={
             "energy",

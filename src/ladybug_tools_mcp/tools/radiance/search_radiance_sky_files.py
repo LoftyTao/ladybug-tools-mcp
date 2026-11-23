@@ -29,10 +29,8 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_search_sky_files",
         description=(
-            "Search Garden Radiance sky_file artifacts and return compact "
-            "radiance_sky_file targets for point-in-time Radiance runs. This "
-            "searches saved .sky inputs; it does not create skies, WEA files, "
-            "or sky matrices."
+            'Search Garden Radiance sky_file artifacts and return compact radiance_sky_file '
+            'targets for point-in-time Radiance runs. This searches saved .sky inputs.'
         ),
         tags={
             "artifact",

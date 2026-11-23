@@ -11,7 +11,15 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_edit_aperture",
-        description='Edit a Honeybee Aperture/window typed target for display name, user data, supported Face3D geometry, operable flag, Honeybee Energy window construction or VentilationOpening, and Honeybee Radiance modifier/dynamic states. Surface-adjacent interior Apertures do not support single-side geometry or operability edits. Requires garden_root and an aperture target, not an identifier string. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
+        description=(
+            'Edit a Honeybee Aperture/window typed target for display name, user data, supported '
+            'Face3D geometry, operable flag, Honeybee Energy window construction or '
+            'VentilationOpening, and Honeybee Radiance modifier/dynamic states. Surface-adjacent '
+            'interior Apertures do not support single-side geometry or operability edits. '
+            'Requires garden_root and a typed aperture target. Returns target, '
+            'summary_view.updated_fields, persistence_receipt, and report for re-search, '
+            'validation, or downstream Energy/Radiance translation.'
+        ),
         tags={
             "aperture",
             "edit",
@@ -37,7 +45,7 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee aperture typed target from HB_search_model_objects; not an aperture identifier string.'
+                description='Required Honeybee aperture typed target from HB_search_model_objects.'
             ),
         ],
         model_target: Annotated[
@@ -56,7 +64,10 @@ def register(mcp: FastMCP) -> None:
         geometry: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Ladybug Geometry Face3D dict, for example {'type':'Face3D','boundary':[[x,y,z],...]}; not Rhino geometry."
+                description=(
+                    'Optional Ladybug Geometry Face3D dict, for example '
+                    "{'type':'Face3D','boundary':[[x,y,z],...]}."
+                )
             ),
         ] = None,
         is_operable: Annotated[

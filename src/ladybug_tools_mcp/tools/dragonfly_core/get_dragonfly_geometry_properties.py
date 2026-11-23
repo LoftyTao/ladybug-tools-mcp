@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_geometry_properties",
         description=(
-            "Return compact Dragonfly geometry property records for Buildings, "
-            "Stories, Room2Ds, and ContextShades in the Garden base Dragonfly "
-            "model or an explicit Dragonfly model/object target. This is a "
-            "summary/query tool and does not return DFJSON object bodies."
+            'Return compact Dragonfly geometry property records for Buildings, Stories, Room2Ds, '
+            'and ContextShades in the Garden base Dragonfly model or an explicit Dragonfly '
+            'model/object target. Summary/query tool; omits full DFJSON object bodies.'
         ),
         tags={"dragonfly", "geometry", "summary", "query"},
         annotations={"readOnlyHint": True},

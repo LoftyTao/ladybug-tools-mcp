@@ -12,13 +12,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_search_energy_library_objects',
         description=(
-            "Search Honeybee Energy standards library identifiers for "
-            "schedules, program types, materials, constructions, and "
-            "construction sets. Use returned identifiers in Energy authoring "
-            "tools. This searches built-in standards and does not search "
-            "Garden files, EnergyPlus result files, or Ironbug objects. For "
-            "thermostat setpoints use EP_create_setpoint. Returns matches, "
-            "identifiers, summary_view, and report."
+            'Search Honeybee Energy standards library identifiers for schedules, program types, '
+            'materials, constructions, and construction sets. Use returned identifiers in Energy '
+            'authoring tools. Searches built-in Energy standards libraries. For thermostat '
+            'setpoints use EP_create_setpoint. Returns matches, identifiers, summary_view, and '
+            'report.'
         ),
         tags={
             "energy",
@@ -39,7 +37,12 @@ def register(mcp: FastMCP) -> None:
         object_family: Annotated[
             str | None,
             Field(
-                description='Optional family filter: schedule, schedule_type_limit, program_type, opaque_material, window_material, opaque_construction, window_construction, shade_construction, construction_set, or all. Not setpoint; use EP_create_setpoint with heating_setpoint and cooling_setpoint for thermostat setpoints.'
+                description=(
+                    'Optional family filter: schedule, schedule_type_limit, program_type, '
+                    'opaque_material, window_material, opaque_construction, window_construction, '
+                    'shade_construction, construction_set, or all (use EP_create_setpoint for '
+                    'thermostat setpoints).'
+                )
             ),
         ] = None,
         limit: Annotated[

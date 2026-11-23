@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FF_validate_model",
         description=(
-            "Validate a Garden-backed Fairyfly Model with Fairyfly SDK checks. Returns "
-            "validation_status through summary_view/report, compact issues, object "
-            "counts, and report. This reports model issues and does not repair geometry "
-            "or run THERM."
+            'Validate a Garden-backed Fairyfly Model with Fairyfly SDK checks. Returns '
+            'validation_status through summary_view/report, compact issues, object counts, and '
+            'report.'
         ),
         tags={"fairyfly", "therm", "model", "validate", "check"},
         timeout=20,

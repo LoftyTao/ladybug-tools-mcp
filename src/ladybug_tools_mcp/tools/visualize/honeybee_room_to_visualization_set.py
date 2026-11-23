@@ -12,14 +12,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_honeybee_room_to_visualization_set',
         description=(
-            "Visualize one Honeybee Room target as a Ladybug Display "
-            "VisualizationSet. color_by accepts type, boundary_condition, or "
-            "none; use type for simple room previews. Use this read-only "
-            "preview after object search finds the room target. For "
-            "HTML/SVG/vtk.js export paths, set return_visualization_set=false "
-            "so the tool saves a compact visualization_set_target for "
-            "exporters. This previews existing room geometry; it does not edit "
-            "the model or run analysis."
+            'Visualize one Honeybee Room target as a Ladybug Display VisualizationSet. color_by '
+            'accepts type, boundary_condition, or none; use type for simple room previews. Use '
+            'this read-only preview after object search finds the room target. For '
+            'HTML/SVG/vtk.js export paths, set return_visualization_set=false so the tool saves a '
+            'compact visualization_set_target for exporters. This previews existing room '
+            'geometry.'
         ),
         tags={
             "honeybee",
@@ -34,7 +32,7 @@ def register(mcp: FastMCP) -> None:
     def honeybee_room_to_visualization_set(
         garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         target: Annotated[
-            dict[str, Any], Field(description="Honeybee Room typed target from object search or edit output; do not pass a full model dictionary.")
+            dict[str, Any], Field(description='Honeybee Room typed target from object search or edit output.')
         ],
         model_target: Annotated[
             dict[str, Any] | None,

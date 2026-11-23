@@ -16,14 +16,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='FP_create',
         description=(
-            "Create or reuse an opaque Garden-local Flowerpot handoff record from "
-            "existing Garden truth, a base Honeybee/Dragonfly model slot, or a "
-            "registered typed target. Use this for platform handoff, such as a "
-            "Grasshopper component context, while keeping the Flowerpot dictionary "
-            "opaque to the Agent. Returns flowerpot, flowerpot_id, target, "
-            "summary_view, persistence_receipt, and report. It is not a generic "
-            "payload wrapper and must not receive full model bodies, SDK object_dict "
-            "payloads, inline target bodies, or arguments null."
+            'Create or reuse an opaque Garden-local Flowerpot handoff record from existing Garden '
+            'truth, a base Honeybee/Dragonfly model slot, or a registered typed target. Use this '
+            'for platform handoff, such as a Grasshopper component context, treating the '
+            'Flowerpot dictionary as an opaque handoff handle. Returns flowerpot, flowerpot_id, '
+            'target, summary_view, persistence_receipt, and report.'
         ),
         tags={
             "context",
@@ -55,10 +52,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Registered typed target dict with target_type, usually from a "
-                    "previous MCP tool result; required when source='target'. Do "
-                    "not pass inline payload bodies, full model dictionaries, or "
-                    "SDK object_dict values."
+                    'Registered typed target dict with target_type from a prior MCP result; required '
+                    "when source='target'."
                 )
             ),
         ] = None,
@@ -70,9 +65,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional compact platform context, for example Grasshopper "
-                    "document or component metadata. Keep this as small metadata; "
-                    "do not include model payloads or large files."
+                    'Optional compact platform metadata, such as Grasshopper document or component '
+                    'context.'
                 )
             ),
         ] = None,

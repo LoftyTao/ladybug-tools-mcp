@@ -18,11 +18,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_list_artifacts",
         description=(
-            "List Garden-managed Radiance artifact records and compact "
-            "artifact_paths. Use this to find saved Radiance files without "
-            "reading large image, matrix, or grid payloads. This is artifact "
-            "inventory only; it does not convert files or run recipes. Returns "
-            "matches, artifact_paths, summary_view, and report."
+            'List Garden-managed Radiance artifact records and compact artifact_paths. Use this '
+            'to find saved Radiance files without reading large image, matrix, or grid payloads. '
+            'Artifact inventory only. Returns matches, artifact_paths, summary_view, and report.'
         ),
         tags={
             "artifact",

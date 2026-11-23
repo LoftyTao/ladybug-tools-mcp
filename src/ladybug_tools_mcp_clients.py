@@ -11,13 +11,13 @@ CLIENTS = {
         "label": "Codex",
         "format": "toml",
         "docs": "https://learn.chatgpt.com/docs/extend/mcp?surface=cli",
-        "instructions": "Merge mcp_servers.lbt-mcp into $CODEX_HOME/config.toml (default ~/.codex/config.toml). The installer can configure Codex and its local Skill with backups and conflict protection."
+        "instructions": "Merge mcp_servers.lbt-mcp into $CODEX_HOME/config.toml (default ~/.codex/config.toml). The installer can configure Codex with backups and conflict protection."
     },
     "claude-code": {
         "label": "Claude Code",
         "format": "json",
         "docs": "https://code.claude.com/docs/en/mcp",
-        "instructions": "Merge mcpServers.lbt-mcp into project .mcp.json, or pass ONLY its inner server object to claude mcp add-json --scope user lbt-mcp. Do not replace ~/.claude.json. Copy the bundled Skill to ~/.claude/skills if needed."
+        "instructions": "Merge mcpServers.lbt-mcp into project .mcp.json, or pass ONLY its inner server object to claude mcp add-json --scope user lbt-mcp. Do not replace ~/.claude.json."
     },
     "gemini": {
         "label": "Gemini CLI",
@@ -29,13 +29,13 @@ CLIENTS = {
         "label": "OpenCode 1",
         "format": "json",
         "docs": "https://opencode.ai/docs/mcp-servers/",
-        "instructions": "Merge mcp.lbt-mcp into the active OpenCode 1 config (normally ~/.config/opencode/opencode.json or opencode.jsonc). Append skills.paths to existing paths. OpenCode generations may share a file; do not overwrite other servers or convert the whole file."
+        "instructions": "Merge mcp.lbt-mcp into the active OpenCode 1 config (normally ~/.config/opencode/opencode.json or opencode.jsonc). OpenCode generations may share a file; do not overwrite other servers or convert the whole file."
     },
     "opencode2": {
         "label": "OpenCode 2",
         "format": "json",
         "docs": "https://opencode.ai/v2/docs/mcp-servers",
-        "instructions": "Tested @opencode/cli 2.0.12 format: merge mcp.lbt-mcp into the active OpenCode 2 config and append the supplied skills entry. OpenCode generations may share a file. Use opencode2-native only after verifying that client's native V2 schema."
+        "instructions": "Tested @opencode/cli 2.0.12 format: merge mcp.lbt-mcp into the active OpenCode 2 config. OpenCode generations may share a file. Use opencode2-native only after verifying that client's native V2 schema."
     },
     "opencode2-native": {
         "label": "OpenCode 2 (native schema, experimental)",
@@ -47,25 +47,25 @@ CLIENTS = {
         "label": "Hermes Agent",
         "format": "yaml",
         "docs": "https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md",
-        "instructions": "Merge mcp_servers.lbt-mcp into the active Hermes config.yaml (default ~/.hermes/config.yaml). Connect with hermes mcp test lbt-mcp. Copy the bundled Skill to the selected profile's skills directory, normally ~/.hermes/skills."
+        "instructions": "Merge mcp_servers.lbt-mcp into the active Hermes config.yaml (default ~/.hermes/config.yaml). Connect with hermes mcp test lbt-mcp."
     },
     "deepseek-harness": {
         "label": "DeepSeek Harness",
         "format": "yaml",
         "docs": "https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md",
-        "instructions": "Merge this insert row into $DSH_HOME/cordis.patch.yml (default ~/.dsh/cordis.patch.yml), or the active profile's cordis.patch.yml. Confirm the profile resolves @deepseek-ai/dsh-mcp-client, then restart that profile. Its filesystem Skill provider scans ~/.agents/skills by default; copy the bundled Skill there if needed."
+        "instructions": "Merge this insert row into $DSH_HOME/cordis.patch.yml (default ~/.dsh/cordis.patch.yml), or the active profile's cordis.patch.yml. Confirm the profile resolves @deepseek-ai/dsh-mcp-client, then restart that profile."
     },
     "openclaw": {
         "label": "OpenClaw",
         "format": "json",
         "docs": "https://docs.openclaw.ai/tools/mcp",
-        "instructions": "Merge mcp.servers.lbt-mcp into the file reported by openclaw config file --json (normally ~/.openclaw/openclaw.json). Run openclaw mcp doctor lbt-mcp --probe; static status is not a connection test. Use the active state-dir/skills for the bundled Skill. Do not also register it in mcporter."
+        "instructions": "Merge mcp.servers.lbt-mcp into the file reported by openclaw config file --json (normally ~/.openclaw/openclaw.json). Run openclaw mcp doctor lbt-mcp --probe; static status is not a connection test. Do not also register it in mcporter."
     },
     "zcode": {
         "label": "ZCode",
         "format": "json",
         "docs": "https://zcode.z.ai/en/docs/mcp-services",
-        "instructions": "Merge mcp.servers.lbt-mcp into ~/.zcode/cli/config.json. For the desktop import dialog, paste ONLY the inner mcp.servers map. Check that native configuration does not hide existing .agents/mcp.json servers. Copy the bundled Skill to ~/.zcode/skills."
+        "instructions": "Merge mcp.servers.lbt-mcp into ~/.zcode/cli/config.json. For the desktop import dialog, paste ONLY the inner mcp.servers map. Check that native configuration does not hide existing .agents/mcp.json servers."
     },
     "kimi-code": {
         "label": "Kimi Code",
@@ -101,7 +101,7 @@ CLIENTS = {
         "label": "CodeBuddy Code CLI",
         "format": "json",
         "docs": "https://www.codebuddy.cn/docs/cli/mcp",
-        "instructions": "Merge mcpServers.lbt-mcp into the active user config (preferred ~/.codebuddy/.mcp.json, older ~/.codebuddy/mcp.json or ~/.codebuddy.json). A new higher-priority file can hide old servers. For codebuddy mcp add-json --scope user, pass ONLY the inner server object. Copy the bundled Skill to ~/.codebuddy/skills."
+        "instructions": "Merge mcpServers.lbt-mcp into the active user config (preferred ~/.codebuddy/.mcp.json, older ~/.codebuddy/mcp.json or ~/.codebuddy.json). A new higher-priority file can hide old servers. For codebuddy mcp add-json --scope user, pass ONLY the inner server object."
     },
     "codebuddy-ide": {
         "label": "CodeBuddy IDE",
@@ -113,13 +113,13 @@ CLIENTS = {
         "label": "WorkBuddy",
         "format": "json",
         "docs": "https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide",
-        "instructions": "Merge this mcpServers fragment into ~/.workbuddy/mcp.json or the selected project's .workbuddy/mcp.json. Open 插件 > MCP 服务器 > 配置 MCP and verify the connection; WorkBuddy Skills are managed separately through its supported import or marketplace flow."
+        "instructions": "Merge this mcpServers fragment into ~/.workbuddy/mcp.json or the selected project's .workbuddy/mcp.json. Open 插件 > MCP 服务器 > 配置 MCP and verify the connection."
     },
     "cline": {
         "label": "Cline",
         "format": "json",
         "docs": "https://docs.cline.bot/mcp/mcp-overview",
-        "instructions": "Open the installed Cline client's MCP settings and merge mcpServers.lbt-mcp there. CLI and extension profiles have different storage paths; use the client to locate its configuration. Copy the bundled Skill to ~/.cline/skills if supported."
+        "instructions": "Open the installed Cline client's MCP settings and merge mcpServers.lbt-mcp there. CLI and extension profiles have different storage paths; use the client to locate its configuration."
     },
     "cursor": {
         "label": "Cursor",
@@ -142,8 +142,8 @@ CLIENTS = {
 }
 
 
-def render_client(client_id: str, server: dict, skill_source: Path) -> str:
-    """Render one preset from the installed runtime's command and Skills root."""
+def render_client(client_id: str, server: dict, skill_source: Path | None = None) -> str:
+    """Render one preset from the installed runtime's command and optional Skills root."""
     if client_id not in CLIENTS:
         raise ValueError(f"Unknown MCP client preset: {client_id}")
     if client_id == "devin-cloud":
@@ -170,13 +170,16 @@ def render_client(client_id: str, server: dict, skill_source: Path) -> str:
             "environment": entry["env"],
             "timeout": 120000,
         }
-        skills = [str(skill_source)]
         if client_id == "opencode2-native":
             local["timeout"] = {"catalog": 120000, "execution": 120000}
-            config = {"mcp": {"servers": {SERVER_NAME: local}}, "skills": skills}
+            config = {"mcp": {"servers": {SERVER_NAME: local}}}
+            if skill_source is not None:
+                config["skills"] = [str(skill_source)]
         else:
-            config = {"mcp": {SERVER_NAME: local},
-                      "skills": {"paths": skills} if client_id == "opencode" else skills}
+            config = {"mcp": {SERVER_NAME: local}}
+            if skill_source is not None:
+                skills = [str(skill_source)]
+                config["skills"] = {"paths": skills} if client_id == "opencode" else skills
     elif client_id == "hermes":
         import yaml
         return yaml.safe_dump({"mcp_servers": {SERVER_NAME: entry}},

@@ -67,8 +67,7 @@ Token 是代理应用计算用量和费用的单位。
 
 Garden 是保存和管理 Ladybug Tools MCP 生成内容的本地目录，其中的主要成果通过 Git 进行版本管理。
 
-代理在实际工作中可能执行超出预期的操作，因此本项目的一项重要工作是让代理围绕 Garden 内的内容开展任务。
-这是数月开发实践中积累的一项主要经验。
+将模型、气象文件、模拟运行与可视化结果统一存放在 Garden 中，可为各类工具提供稳定的项目上下文与可预期的文件结构。
 
 ### Flowerpot
 
@@ -92,11 +91,11 @@ Flowerpot 是 Ladybug Tools MCP 与其他交互界面交换信息的中间层。
 uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install
 ```
 
-Windows、Linux 和 macOS 使用同一终端向导。选择运行环境目录、Garden 目录、是否自动配置 Codex 和本地 Skills，以及是否安装 Flowerpot / Grasshopper。下载完成后重启客户端。
+Windows、Linux 和 macOS 使用同一终端向导。选择运行环境目录、Garden 目录、是否自动配置 Codex，以及是否安装 Flowerpot / Grasshopper。下载完成后重启客户端。
 
 默认按当前用户安装，Garden 位于 `~/Gardens`，独立于程序和 uv 缓存。自动配置保留其他 MCP 服务与设置；同名冲突会停止并说明处理方式。首次下载包含科学计算依赖，可能需要数分钟；当前 Luigi 依赖由 uv 自动构建纯 Python wheel，无需编译器。
 
-只生成配置、不修改客户端与本地 Skills：
+只生成配置、不修改客户端配置：
 
 ```text
 uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install --generate-config
@@ -148,7 +147,6 @@ OpenCode2 2.0.12 使用下面的本地服务配置：
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "skills": ["<已安装的 Skills 目录>"],
   "mcp": {
     "lbt-mcp": {
       "type": "local",
@@ -271,16 +269,10 @@ Web View 模式下，Honeybee、Dragonfly、Fairyfly 和 VisualizationSet 的主
 
 ## 首次使用
 
-在代理应用中配置好 MCP 服务后，新建一个任务，并让代理使用 Ladybug Tools MCP。
+在代理应用中配置好 MCP 服务后，新建一个任务并直接描述您的 Garden 或建模需求。
 在 Codex 中，将 `install --generate-config` 输出的配置块复制到 `~/.codex/config.toml`，重启后直接描述 Garden 或建模任务。
 
-如果宿主支持 Skill，可通过 `/` 调用 `ladybug-tools-mcp-use`，再输入 `HI , Ladybug Tools !`，启动三类主要使用方向的引导流程。
-完成引导后，即可按照自己的意图开始构建。
-
-![首次使用引导](https://raw.githubusercontent.com/LoftyTao/ladybug-tools-mcp/f530e12d9836db518b187639eee4e7644a6a7e9f/resources/remotion/snapshots/videos/opencode-onboarding-flows/welcome-fixed-3-options-en-latest.gif)
-
-通常，代理应用会根据 Skill 输出引导内容；实际表现也取决于宿主应用的指令和语言模型能力。
-建议在可承受的范围内使用能力较强的模型，以获得更好的工具使用体验。
+在可承受的范围内选择能力较强、上下文窗口较大的模型，有助于多步骤建模与模拟工作流更稳定地执行。
 
 ## 工作流示例
 
@@ -355,8 +347,7 @@ Web View 模式下，Honeybee、Dragonfly、Fairyfly 和 VisualizationSet 的主
 - [Ladybug Tools Core SDK](https://discourse.ladybug.tools/pub/ladybug-tools-core-sdk-documentation) 是本项目所有 MCP 工具的核心。
   如果希望新增的能力不属于 SDK 范围，更适合直接向 Ladybug Tools 项目贡献实现。
 - 新工具开发应先通过 GitHub Issue 公开讨论，并由人来主导讨论和开发计划。
-- 只编写解决当前问题的代码。
-  如果 AI 审查提出的问题尚未在正常使用中出现，不必立即处理。
+- 只编写解决当前问题的代码，避免不必要的复杂性与过度抽象。
 - 仅在确有需要时增加工具和对象，避免无必要的扩展。
 - 如果认同这些原则，欢迎加入由社区驱动的维护团队。
 

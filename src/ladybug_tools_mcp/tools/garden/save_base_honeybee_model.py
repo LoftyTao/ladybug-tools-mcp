@@ -47,8 +47,7 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(
                 description=(
-                    "Optional short save note stored in the persistence receipt "
-                    "and summary_view; this is not a Garden version subject."
+                    'Optional short save note stored in the persistence receipt and summary_view.'
                 )
             ),
         ] = None,

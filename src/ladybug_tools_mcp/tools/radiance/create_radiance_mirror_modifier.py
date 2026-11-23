@@ -15,11 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_mirror_modifier",
         description=(
-            "Create a Honeybee Radiance Mirror modifier with RGB reflectance "
-            "for planar virtual-source reflections. Use garden_root and "
-            "return_object_dict=false to save a reusable Garden Properties "
-            "Library modifier target. This is a Radiance optical modifier, not "
-            "geometry, a view, or an Energy construction."
+            'Create a Honeybee Radiance Mirror modifier with RGB reflectance for planar '
+            'virtual-source reflections. Use garden_root and return_object_dict=false to save a '
+            'reusable Garden Properties Library modifier target.'
         ),
         tags={
             "radiance",

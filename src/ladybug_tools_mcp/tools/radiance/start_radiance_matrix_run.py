@@ -78,7 +78,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         min_sensor_count: Annotated[
             int | None,
-            Field(description="Minimum sensor count per split grid. Defaults to 1 so small Agent test grids are not filtered out by the Radiance recipe default."),
+            Field(description='Minimum sensor count per split grid (default 1).'),
         ] = 1,
         grid_metrics: Annotated[
             dict[str, Any] | None,

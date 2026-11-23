@@ -12,12 +12,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_create_vegetation_material',
         description=(
-            "Create a Honeybee Energy EnergyMaterialVegetation green-roof "
-            "material layer for roof constructions. This describes roof soil "
-            "and plant thermal properties; it does not create landscape "
-            "geometry, UWG vegetation, or a full roof construction. Returns "
-            "object_dict plus summary_view; return_detail='full' also includes "
-            "a material property matrix."
+            'Create a Honeybee Energy EnergyMaterialVegetation green-roof material layer for roof '
+            'constructions. This describes roof soil and plant thermal properties. Returns '
+            "object_dict plus summary_view; return_detail='full' also includes a material "
+            'property matrix.'
         ),
         tags={
             "energy",

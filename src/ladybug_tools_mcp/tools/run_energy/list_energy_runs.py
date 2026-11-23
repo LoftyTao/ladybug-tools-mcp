@@ -12,11 +12,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="EP_list_runs",
         description=(
-            "List annual energy-use simulation runs recorded in a Garden run "
-            "ledger. Use this to find run_id, run_target, status, or run "
-            "folder metadata before polling or reading results. Returns "
-            "matches, summary_view, and report; it does not read SQL, ERR, "
-            "HTML, or EUI result files."
+            'List annual energy-use simulation runs recorded in a Garden run ledger. Use this to '
+            'find run_id, run_target, status, or run folder metadata before polling or reading '
+            'results. Returns matches, summary_view, and report.'
         ),
         tags={
             "energy",

@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_sunpath_to_visualization_set',
         description=(
-            "Create a Ladybug Display Sunpath VisualizationSet from a "
-            "Location, Garden weather_file target, or Garden-relative EPW "
-            "path. Use this for solar-analysis scenes that compose sunpath "
-            "geometry with model or analysis VisualizationSets. This creates "
-            "display geometry only; it does not run Radiance, EnergyPlus, or "
-            "UWG weather morphing."
+            'Create a Ladybug Display Sunpath VisualizationSet from a Location, Garden '
+            'weather_file target, or Garden-relative EPW path. Use this for solar-analysis scenes '
+            'that compose sunpath geometry with model or analysis VisualizationSets. This creates '
+            'display geometry only.'
         ),
         tags={
             "sunpath",

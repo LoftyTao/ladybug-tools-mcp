@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_context_shade",
         description=(
-            "Create a Dragonfly ContextShade in a Garden from one or more 3D "
-            "shade faces, save it into the Dragonfly model, and return a "
-            "context_shade target for search, UWG vegetation properties, and "
-            "model summaries. Use this for surrounding buildings, tree canopy, "
-            "or other detached urban context geometry. This does not create Honeybee "
-            "Shade geometry or Radiance modifiers."
+            'Create a Dragonfly ContextShade in a Garden from one or more 3D shade faces, save it '
+            'into the Dragonfly model, and return a context_shade target for search, UWG '
+            'vegetation properties, and model summaries. Use this for surrounding buildings, tree '
+            'canopy, or other detached urban context geometry.'
         ),
         tags={"dragonfly", "context-shade", "context", "shade", "author"},
         timeout=20,

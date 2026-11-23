@@ -11,7 +11,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_service_hot_water',
-        description='Create a Honeybee Energy ServiceHotWater demand load from floor-area hot water use, optional fractional schedule, tap target temperature, and sensible/latent fractions. Use it as the program-type domestic hot water demand companion to ventilation, infiltration, thermostat, and humidistat loads; it does not size outdoor air or ACH. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to EP_create_program_type.service_hot_water; set return_object_dict=false only when you want a low-token target/summary/receipt response. This describes hot-water use demand and zone gains, not a service hot-water plant, water heater, or loop component.',
+        description=(
+            'Create a Honeybee Energy ServiceHotWater demand load from floor-area hot water use, '
+            'optional fractional schedule, tap target temperature, and sensible/latent fractions. '
+            'Use it as the program-type domestic hot water demand companion to ventilation, '
+            'infiltration, thermostat, and humidistat loads. The schedule accepts an object_dict, '
+            'Garden schedule target, or standards identifier. Use garden_root to save a Garden '
+            'Properties Library load target and pass target to '
+            'EP_create_program_type.service_hot_water; set return_object_dict=false for a compact '
+            'target/summary/receipt response.'
+        ),
         tags={
             "author",
             "energy",

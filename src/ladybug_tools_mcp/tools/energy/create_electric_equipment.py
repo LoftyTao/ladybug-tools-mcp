@@ -11,7 +11,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_electric_equipment',
-        description='Create a Honeybee Energy ElectricEquipment internal-gains load from equipment power density and an optional fractional schedule. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to EP_create_program_type.electric_equipment; set return_object_dict=false only when you want a low-token target/summary/receipt response. This is plug/process equipment energy, not a Radiance luminaire or electric load center.',
+        description=(
+            'Create a Honeybee Energy ElectricEquipment internal-gains load from equipment power '
+            'density and an optional fractional schedule. The schedule accepts an object_dict, '
+            'Garden schedule target, or standards identifier. Use garden_root to save a Garden '
+            'Properties Library load target and pass target to '
+            'EP_create_program_type.electric_equipment; set return_object_dict=false for a '
+            'compact target/summary/receipt response.'
+        ),
         tags={
             "author",
             "energy",

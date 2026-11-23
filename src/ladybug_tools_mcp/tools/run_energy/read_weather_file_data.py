@@ -71,7 +71,10 @@ def register(mcp: FastMCP) -> None:
         include_values: Annotated[
             bool,
             Field(
-                description="Whether to include bounded raw values in the compact summary. Default false to keep Agent context small."
+                description=(
+                    'Whether to include bounded raw values in the compact summary. Default false '
+                    'for compact responses.'
+                )
             ),
         ] = False,
         max_values: Annotated[

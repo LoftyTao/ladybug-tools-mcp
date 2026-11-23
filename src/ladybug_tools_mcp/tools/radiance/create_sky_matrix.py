@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='RAD_create_sky_matrix',
         description=(
-            "Create a Garden sky_matrix target for Ladybug Radiance studies "
-            "from a wea_file target, Garden weather_file target, Garden-"
-            "relative EPW path, or ASHRAE clear-sky Location. This prepares "
-            "gendaymtx/SkyMatrix inputs for annual or matrix recipes; "
-            "compute=true also stores direct and diffuse sky patch values. It "
-            "does not start a Radiance recipe or download EPW files."
+            'Create a Garden sky_matrix target for Ladybug Radiance studies from a wea_file '
+            'target, Garden weather_file target, Garden-relative EPW path, or ASHRAE clear-sky '
+            'Location. This prepares gendaymtx/SkyMatrix inputs for annual or matrix recipes; '
+            'compute=true also stores direct and diffuse sky patch values.'
         ),
         tags={
             "radiance",
@@ -38,7 +36,10 @@ def register(mcp: FastMCP) -> None:
         ],
         identifier: Annotated[
             str | None,
-            Field(description="Stable identifier for the Radiance sky_matrix target. Defaults to sky_matrix when omitted by an Agent."),
+            Field(description=(
+                "Stable identifier for the Radiance sky_matrix target. Defaults to 'sky_matrix' "
+                'when omitted.'
+            )),
         ] = None,
         wea_target: Annotated[
             dict[str, Any] | None,

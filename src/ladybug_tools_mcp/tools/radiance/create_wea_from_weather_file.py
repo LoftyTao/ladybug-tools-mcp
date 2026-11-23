@@ -15,13 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='RAD_create_wea_from_weather_file',
         description=(
-            "Create a Radiance/DAYSIM WEA file artifact from a "
-            "Garden-managed weather_file target or Garden-relative EPW path. "
-            "Preferred Agent path: pass weather_target returned by "
-            "EP_import_local_weather or EP_search_weather_files. "
-            "Returns a compact wea_file target for RAD_create_sky_matrix "
-            "and later Radiance matrix workflows. This converts weather for "
-            "Radiance use and does not run EnergyPlus."
+            'Create a Radiance/DAYSIM WEA file artifact from a Garden-managed weather_file target '
+            'or Garden-relative EPW path. Pass weather_target returned by EP_import_local_weather '
+            'or EP_search_weather_files. Returns a compact wea_file target for '
+            'RAD_create_sky_matrix and later Radiance matrix workflows.'
         ),
         tags={
             "radiance",
@@ -67,7 +64,7 @@ def register(mcp: FastMCP) -> None:
         ] = "artifacts/radiance/wea",
         return_object_dict: Annotated[
             bool,
-            Field(description="Return the full Wea object_dict. Keep false for compact Agent handoff."),
+            Field(description='Return the full Wea object_dict. Keep false for compact target handoff.'),
         ] = False,
     ) -> dict[str, Any]:
         """Create a WEA file target from EPW weather data."""

@@ -48,12 +48,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='RAD_create_cie_standard_sky',
         description=(
-            "Create a Garden radiance_sky_file target backed by a Radiance "
-            "gensky command. Use this for a single-timestep CIE standard sky "
-            "such as sunny, cloudy, uniform cloudy, or intermediate. The "
-            "persisted .sky file starts with !gensky and serves as a compact "
-            "Radiance scene include. It does not create an annual sky matrix "
-            "or start a daylight recipe."
+            'Create a Garden radiance_sky_file target backed by a Radiance gensky command. Use '
+            'this for a single-timestep CIE standard sky such as sunny, cloudy, uniform cloudy, '
+            'or intermediate. The persisted .sky file starts with !gensky and serves as a compact '
+            'Radiance scene include.'
         ),
         tags={
             "radiance",

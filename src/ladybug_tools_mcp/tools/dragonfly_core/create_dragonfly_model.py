@@ -15,10 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_model",
         description=(
-            "Create an empty Dragonfly model in a Garden and optionally set it as the "
-            "base Dragonfly model with set_base; not set_as_base. Returns target and "
-            "model_target for downstream Dragonfly calls. Add Room2D, Story, and "
-            "Building objects with the dedicated Dragonfly authoring tools."
+            'Create an empty Dragonfly model in a Garden and optionally set it as the base '
+            'Dragonfly model with set_base. Returns target and model_target for downstream '
+            'Dragonfly calls. Add Room2D, Story, and Building objects with the dedicated '
+            'Dragonfly authoring tools.'
         ),
         tags={"dragonfly", "model", "author", "garden", "dfjson"},
         timeout=20,
@@ -69,7 +69,7 @@ def register(mcp: FastMCP) -> None:
         set_base: Annotated[
             bool,
             Field(
-                description="Whether to set as Garden base Dragonfly model. Use set_base; not set_as_base."
+                description='Whether to set as the Garden base Dragonfly model.'
             ),
         ] = True,
         include_body: Annotated[

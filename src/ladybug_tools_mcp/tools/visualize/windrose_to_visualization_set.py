@@ -14,18 +14,15 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="LB_windrose_to_visualization_set",
         description=(
-            "Create a Ladybug WindRose from aligned hourly wind-direction "
-            "and analysis DataCollections, returning compact directional "
-            "frequency statistics and a native VisualizationSet. The analysis "
-            "collection is usually wind_speed, but other hourly numeric data "
-            "can also be binned by direction. Use Garden targets for compact "
-            "agent handoff; set return_visualization_set=false to persist a "
-            "visualization_set target for LB_set_to_html, LB_set_to_svg, or "
-            "LB_set_to_vtkjs. For wind speed, calm_threshold marks values at "
-            "or below the threshold as calm and reports their count and "
-            "percentage. This tool does not read EPW files; use "
-            "EP_read_weather_file_data first. An optional analysis_period "
-            "filters both inputs before calculating the rose."
+            'Create a Ladybug WindRose from aligned hourly wind-direction and analysis '
+            'DataCollections, returning compact directional frequency statistics and a native '
+            'VisualizationSet. The analysis collection is usually wind_speed, but other hourly '
+            'numeric data can also be binned by direction. Use Garden targets and set '
+            'return_visualization_set=false to persist a visualization_set target for '
+            'LB_set_to_html, LB_set_to_svg, or LB_set_to_vtkjs. For wind speed, calm_threshold '
+            'marks values at or below the threshold as calm and reports their count and '
+            'percentage. Use EP_read_weather_file_data first to extract collections from EPW '
+            'files. An optional analysis_period filters both inputs before calculating the rose.'
         ),
         tags={
             "ladybug",

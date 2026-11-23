@@ -15,14 +15,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_data_collection_monthly_chart_to_visualization_set',
         description=(
-            "Create a Ladybug Display VisualizationSet monthly chart from one "
-            "or more Ladybug DataCollection targets such as EnergyPlus result "
-            "or EPW weather data already saved in the Garden. Each series uses "
-            "data_collection_target or direct data_collection plus optional "
-            "label metadata. This charts existing DataCollections; it does not "
-            "read SQL, EPW, or Radiance folders. Returns target, "
-            "visualization_set_target, summary_view, persistence_receipt, and "
-            "report for vtkjs/html export."
+            'Create a Ladybug Display VisualizationSet monthly chart from one or more Ladybug '
+            'DataCollection targets such as EnergyPlus result or EPW weather data already saved '
+            'in the Garden. Each series uses data_collection_target or direct data_collection '
+            'plus optional label metadata. This charts existing DataCollections. Returns target, '
+            'visualization_set_target, summary_view, persistence_receipt, and report for '
+            'vtkjs/html export.'
         ),
         tags={
             "data-collection",

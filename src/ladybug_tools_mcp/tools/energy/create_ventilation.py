@@ -11,7 +11,15 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_ventilation',
-        description='Create a Honeybee Energy Ventilation load for purposeful design outdoor air using flow_per_person, flow_per_area, flow_per_zone, ACH, fractional schedule, and Sum/Max reconciliation. The schedule accepts an object_dict, Garden schedule target, or standards identifier. Use garden_root to save a Garden Properties Library load target and pass target to EP_create_program_type.ventilation or HB_edit_room.ventilation; set return_object_dict=false only when you want a low-token target/summary/receipt response. This is not infiltration, a VentilationFan, operable-window natural ventilation, or AirflowNetwork setup.',
+        description=(
+            'Create a Honeybee Energy Ventilation load for purposeful design outdoor air using '
+            'flow_per_person, flow_per_area, flow_per_zone, ACH, fractional schedule, and Sum/Max '
+            'reconciliation. The schedule accepts an object_dict, Garden schedule target, or '
+            'standards identifier. Use garden_root to save a Garden Properties Library load '
+            'target and pass target to EP_create_program_type.ventilation or '
+            'HB_edit_room.ventilation; set return_object_dict=false for a compact '
+            'target/summary/receipt response.'
+        ),
         tags={
             "author",
             "energy",

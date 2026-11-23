@@ -12,12 +12,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_create_custom_window_gas_material',
         description=(
-            "Create a Honeybee Energy EnergyWindowMaterialGasCustom gap layer "
-            "for window construction assemblies when built-in gas types are not "
-            "enough. This is a reusable material layer, not a full construction "
-            "or an EnergyPlus run input by itself. Returns object_dict plus "
-            "summary_view; return_detail='full' also includes a material "
-            "property matrix."
+            'Create a Honeybee Energy EnergyWindowMaterialGasCustom gap layer for window '
+            'construction assemblies when built-in gas types are not enough. Returns object_dict '
+            "plus summary_view; return_detail='full' also includes a material property matrix."
         ),
         tags={
             "energy",

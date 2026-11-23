@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_edit_building",
         description=(
-            "Edit a model-embedded Dragonfly Building using public Dragonfly SDK "
-            "properties/methods. Supports display_name and sort_stories only; this is "
-            "not a generic Building patch tool. Returns target, summary_view, and "
-            "report for the updated Dragonfly model context."
+            'Edit a model-embedded Dragonfly Building using public Dragonfly SDK '
+            'properties/methods. Supports display_name and sort_stories. Returns target, '
+            'summary_view, and report for the updated Dragonfly model context.'
         ),
         tags={"dragonfly", "building", "edit", "model", "metadata"},
         timeout=20,

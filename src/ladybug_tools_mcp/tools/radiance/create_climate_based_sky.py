@@ -18,12 +18,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='RAD_create_climate_based_sky',
         description=(
-            "Create a Garden radiance_sky_file target backed by a Radiance "
-            "gendaylit command. Use this for a single-timestep climate-based "
-            "sky from direct normal plus diffuse horizontal irradiance or "
-            "illuminance. The persisted .sky file starts with !gendaylit and "
-            "serves as a compact Radiance scene include. It does not create an "
-            "annual sky matrix or start a daylight recipe."
+            'Create a Garden radiance_sky_file target backed by a Radiance gendaylit command. Use '
+            'this for a single-timestep climate-based sky from direct normal plus diffuse '
+            'horizontal irradiance or illuminance. The persisted .sky file starts with !gendaylit '
+            'and serves as a compact Radiance scene include.'
         ),
         tags={
             "radiance",

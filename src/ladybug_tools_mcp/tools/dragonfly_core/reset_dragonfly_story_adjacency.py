@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_reset_story_adjacency",
         description=(
-            "Reset Surface boundary conditions on a Dragonfly Story using "
-            "Story.reset_adjacency, save the updated DFJSON, and return compact "
-            "adjacency counts plus validation summary. Pass story_target or "
-            "story_identifier; this does not change Room2D floor boundaries."
+            'Reset Surface boundary conditions on a Dragonfly Story using Story.reset_adjacency, '
+            'save the updated DFJSON, and return compact adjacency counts plus validation '
+            'summary. Pass story_target or story_identifier.'
         ),
         tags={"dragonfly", "story", "geometry", "edit", "adjacency"},
         timeout=30,

@@ -11,7 +11,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='HB_move_object',
-        description="Move a Honeybee Model, Room, Face, Aperture, Door, or Shade target along a Ladybug Geometry Vector3D. This transform does not automatically repair adjacency, host containment, or dynamic state geometry. Requires garden_root, a typed target from search or a prior result, and vector; do not pass an identifier string. Returns the original target, summary_view, persistence_receipt with updated model_target, and report; for whole-model transforms summary_view.target is the updated model target. Run search, relate_model, or validate_model after partial-object transforms when relationships matter.",
+        description=(
+            'Move a Honeybee Model, Room, Face, Aperture, Door, or Shade target along a Ladybug '
+            'Geometry Vector3D. This transform does not automatically repair adjacency, host '
+            'containment, or dynamic state geometry. Requires garden_root, a typed target from '
+            'search or a prior result, and vector. Returns the original target, summary_view, '
+            'persistence_receipt with updated model_target, and report; for whole-model '
+            'transforms summary_view.target is the updated model target. Run '
+            'HB_search_model_objects, HB_relate_model, or HB_validate_model after partial-object '
+            'transforms when relationships matter.'
+        ),
         tags={
             "edit",
             "geometry",
@@ -33,7 +42,10 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee model target or object typed target from HB_search_model_objects or a prior tool result; not an identifier string.'
+                description=(
+                    'Required Honeybee model target or object typed target from '
+                    'HB_search_model_objects or a prior tool result.'
+                )
             ),
         ],
         vector: Annotated[

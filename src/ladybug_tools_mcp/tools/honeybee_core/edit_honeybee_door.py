@@ -37,7 +37,11 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee door typed target from HB_search_model_objects; not a door identifier string. For Surface-adjacent interior doors, pass either side of the pair and geometry edits update the paired adjacent Door automatically.'
+                description=(
+                    'Required Honeybee door typed target from HB_search_model_objects. For '
+                    'Surface-adjacent interior doors, pass either side of the pair and geometry '
+                    'edits update the paired adjacent Door automatically.'
+                )
             ),
         ],
         model_target: Annotated[
@@ -56,7 +60,10 @@ def register(mcp: FastMCP) -> None:
         geometry: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Ladybug Geometry Face3D dict, for example {'type':'Face3D','boundary':[[x,y,z],...]}; not Rhino geometry."
+                description=(
+                    'Optional Ladybug Geometry Face3D dict, for example '
+                    "{'type':'Face3D','boundary':[[x,y,z],...]}."
+                )
             ),
         ] = None,
         is_glass: Annotated[

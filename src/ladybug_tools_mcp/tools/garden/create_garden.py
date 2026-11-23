@@ -30,7 +30,10 @@ def register(mcp: FastMCP) -> None:
         root_dir: Annotated[
             str | None,
             Field(
-                description="Optional exact Garden root path string. If omitted, the Garden is created under the default Gardens root; use root_dir rather than path or directory."
+                description=(
+                    'Optional exact Garden root path string. If omitted, the Garden is created '
+                    'under the default Gardens root; takes the target Garden directory path.'
+                )
             ),
         ] = None,
         description: Annotated[

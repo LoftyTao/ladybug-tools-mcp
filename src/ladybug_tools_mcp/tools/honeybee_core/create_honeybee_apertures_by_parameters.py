@@ -33,7 +33,7 @@ def register(mcp: FastMCP) -> None:
         host_target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee face typed target dict from nested target HB_search_model_objects matches[i].target or a prior create result target; choose a Wall/Outdoors face for exterior windows. Full responses, room targets, floor/ground faces, and identifier strings are rejected.'
+                description="Required Honeybee face typed target dict from HB_search_model_objects matches[i].target or a prior create result; choose a Wall/Outdoors face for exterior windows."
             ),
         ],
         generation_mode: Annotated[
@@ -79,7 +79,7 @@ def register(mcp: FastMCP) -> None:
         identifier_prefix: Annotated[
             str | None,
             Field(
-                description="Optional Agent-friendly prefix for created aperture identifiers, especially when ratio mode creates SDK-named windows."
+                description='Optional prefix for created aperture identifiers.'
             ),
         ] = None,
         tolerance: Annotated[

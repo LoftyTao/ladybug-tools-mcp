@@ -27,7 +27,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional directory to search for Garden folders. If omitted, the default Gardens root is searched; a direct Garden root containing garden.json is also accepted."),
         ] = None,
         include_paths: Annotated[
-            bool, Field(description="Whether to include Garden root path strings in matches so the user or Agent can pass one as garden_root.")
+            bool, Field(description='Whether to include Garden root path strings in matches.')
         ] = True,
         include_base_models: Annotated[
             bool,

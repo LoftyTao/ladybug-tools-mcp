@@ -15,12 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='DF_uwg_create_simulation_parameter',
         description=(
-            "Create and optionally save a Dragonfly UWGSimulationParameter for "
-            "Alternative Weather workflows. Use this before DF_uwg_dragonfly_model_to_uwg, "
-            "DF_uwg_start_simulation, or DF_uwg_run_simulation_wait when custom run period, "
-            "timestep, vegetation, reference EPW site, or boundary layer settings are "
-            "needed. Returns target, summary_view, persistence_receipt, and report when "
-            "saved; it does not run UWG."
+            'Create and optionally save a Dragonfly UWGSimulationParameter for Alternative '
+            'Weather workflows. Use this before DF_uwg_dragonfly_model_to_uwg, '
+            'DF_uwg_start_simulation, or DF_uwg_run_simulation_wait when custom run period, '
+            'timestep, vegetation, reference EPW site, or boundary layer settings are needed. '
+            'Returns target, summary_view, persistence_receipt, and report when saved.'
         ),
         tags={
             "dragonfly",

@@ -15,13 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_state_geometry",
         description=(
-            "Create a Honeybee Radiance StateGeometry dictionary for dynamic "
-            "shade or subface states. Provide geometry as a Ladybug Face3D "
-            "dict or vertices as [[x, y, z], ...]. Optional modifier may be a "
-            "modifier dict, Garden Properties Library modifier target, or "
-            "standards-library identifier. This returns a state-geometry "
-            "object_dict for state tools; it does not save a Garden target or "
-            "edit the model by itself."
+            'Create a Honeybee Radiance StateGeometry dictionary for dynamic shade or subface '
+            'states. Provide geometry as a Ladybug Face3D dict or vertices as [[x, y, z], ...]. '
+            'Optional modifier may be a modifier dict, Garden Properties Library modifier target, '
+            'or standards-library identifier. This returns a state-geometry object_dict for state '
+            'tools.'
         ),
         tags={
             "radiance",
@@ -35,7 +33,10 @@ def register(mcp: FastMCP) -> None:
     def create_radiance_state_geometry(
         identifier: Annotated[
             str | None,
-            Field(description="Honeybee Radiance StateGeometry identifier. Defaults to state_geometry when omitted by an Agent."),
+            Field(description=(
+                "Honeybee Radiance StateGeometry identifier. Defaults to 'state_geometry' when "
+                'omitted.'
+            )),
         ] = None,
         geometry: Annotated[
             dict[str, Any] | None,

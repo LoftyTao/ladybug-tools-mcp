@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_uwg_list_runs",
         description=(
-            "List UWG Alternative Weather runs recorded in a Garden ledger. Use this "
-            "to find run_id or run_target before polling or reading outputs. Returns "
-            "matches, summary_view, and report; it does not inspect morphed EPW file "
-            "contents."
+            'List UWG Alternative Weather runs recorded in a Garden ledger. Use this to find '
+            'run_id or run_target before polling or reading outputs. Returns matches, '
+            'summary_view, and report.'
         ),
         tags={
             "dragonfly",

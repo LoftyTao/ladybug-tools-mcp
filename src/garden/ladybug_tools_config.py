@@ -421,7 +421,7 @@ def _runtime_guidance(name: str, engine: dict[str, Any]) -> dict[str, Any]:
     required = REQUIRED_RUNTIME_VERSIONS.get(name)
     hint = engine.get("install_hint") or _ENGINE_HELP[name].get("install_hint")
     if required and hint:
-        hint = f"{hint} Required version for this DEV runtime is {required}."
+        hint = f"{hint} Required version: {required}."
     return {
         "required_version": required,
         "version_status": engine.get("version_status"),
@@ -1453,8 +1453,8 @@ def get_ladybug_tools_config() -> dict[str, Any]:
         )
     if incompatible:
         warnings.append(
-            "Some configured Ladybug Tools engines do not match the current DEV "
-            "runtime version requirements: "
+            "Some configured Ladybug Tools engines do not match the required "
+            "runtime versions: "
             + ", ".join(incompatible)
         )
     return {

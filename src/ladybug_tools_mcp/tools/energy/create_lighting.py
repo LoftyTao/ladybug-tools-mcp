@@ -11,7 +11,11 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_lighting',
-        description='Create a Honeybee Energy Lighting load object from lighting power density in watts_per_area and an optional schedule. This is an internal gains load for a ProgramType, not a Radiance luminaire or daylight electric-lighting control. Use garden_root and return_object_dict=false to save a load target for EP_create_program_type.',
+        description=(
+            'Create a Honeybee Energy Lighting load object from lighting power density in '
+            'watts_per_area and an optional schedule. Use garden_root and '
+            'return_object_dict=false to save a load target for EP_create_program_type.'
+        ),
         tags={
             "energy",
             "program-type",

@@ -15,17 +15,16 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_urbanopt_poll_simulation",
         description=(
-            "Read the compact Garden ledger for an URBANopt Energy simulation. "
-            "Use this after urbanopt_start_simulation to inspect run_target, "
-            "runtime_status, poll_next, summary_view, and report without "
-            "claiming building energy results that are not present."
+            "Read the compact Garden ledger for an URBANopt Energy simulation. Use this after "
+            "DF_urbanopt_start_simulation to inspect run_target, runtime_status, poll_next, "
+            "summary_view, and report."
         ),
         tags={"dragonfly", "urbanopt", "energy", "run", "runtime", "poll", "target"},
         timeout=10,
     )
     def poll_simulation(
         garden_root: Annotated[str, Field(description="Garden root containing garden.json; the URBANopt run ledger is read from this Garden.")],
-        run_target: Annotated[dict[str, Any] | None, Field(description="Optional urbanopt_run target returned by urbanopt_start_simulation.") ] = None,
+        run_target: Annotated[dict[str, Any] | None, Field(description='Optional urbanopt_run target returned by DF_urbanopt_start_simulation.') ] = None,
         run_id: Annotated[str | None, Field(description="Optional URBANopt run id when run_target is not available.") ] = None,
     ) -> dict[str, Any]:
         """Poll an URBANopt Energy simulation."""

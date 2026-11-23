@@ -12,13 +12,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_create_electric_load_center',
         description=(
-            "Create Honeybee Energy ElectricLoadCenter model-level settings "
-            "for photovoltaic inverter efficiency and DC-to-AC sizing. Use this "
-            "with EP_create_pv_properties on Honeybee Shades, then assign "
-            "the saved electric_load_center target through "
-            "HB_edit_model.electric_load_center. This Honeybee Energy "
-            "object is separate from Ironbug electric load center objects and "
-            "does not start an EnergyPlus run."
+            'Create Honeybee Energy ElectricLoadCenter model-level settings for photovoltaic '
+            'inverter efficiency and DC-to-AC sizing. Use this with EP_create_pv_properties on '
+            'Honeybee Shades, then assign the saved electric_load_center target through '
+            'HB_edit_model.electric_load_center.'
         ),
         tags={
             "energy",

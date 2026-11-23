@@ -11,7 +11,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_window_construction',
-        description='Create a Honeybee Energy WindowConstruction from glazing/gas layers ordered from outside to inside, with an optional frame. For natural requests like a low-U window, low U-value glazing, U-factor, SHGC, visible transmittance, simple window construction, or simple glazing system, omit materials and pass u_factor, shgc, and vt to create a SDK SimpleGlazSys construction directly. In an existing Garden workflow, pass garden_root and set return_object_dict=false to save a reusable Garden target, then pass the returned target to EP_create_construction_set.aperture_set for the exterior window slot. Do not handwrite a WindowConstruction dict. Returns object_dict plus summary_view, or target plus persistence_receipt when saved.',
+        description=(
+            'Create a Honeybee Energy WindowConstruction from glazing/gas layers ordered from '
+            'outside to inside, with an optional frame. For natural requests like a low-U window, '
+            'low U-value glazing, U-factor, SHGC, visible transmittance, simple window '
+            'construction, or simple glazing system, omit materials and pass u_factor, shgc, and '
+            'vt to create a SDK SimpleGlazSys construction directly. With garden_root and '
+            'return_object_dict=false, saves a reusable Garden target for '
+            'EP_create_construction_set.aperture_set. Returns object_dict plus summary_view, or '
+            'target plus persistence_receipt when saved.'
+        ),
         tags={
             "energy",
             "construction",
@@ -71,7 +80,10 @@ def register(mcp: FastMCP) -> None:
         return_object_dict: Annotated[
             bool,
             Field(
-                description="Return the full construction object_dict. Set return_object_dict=false with garden_root to pass only target/summary/receipt as a reusable Garden target; not a handwritten WindowConstruction dict."
+                description=(
+                    'Return the full construction object_dict (set false with garden_root for a '
+                    'compact target/summary/receipt).'
+                )
             ),
         ] = True,
     ) -> dict[str, Any]:

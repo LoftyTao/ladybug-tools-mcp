@@ -15,15 +15,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="LB_get_runtime_config",
         description=(
-            "Diagnose the local Ladybug Tools runtime configuration for Radiance, "
-            "OpenStudio, EnergyPlus, URBANopt, THERM, and Ironbug.Console. Use this "
-            "read-only tool when an engine command is missing, before a long Agent "
-            "test, or when a user asks which simulation runtimes the installed SDK "
-            "can currently see. Returns summary_view.engines, summary_view.measures, "
-            "missing_engine_guidance, runtime_requirement_guidance, report, and "
-            "optional path_updates.prepend values for shell or Agent harness PATH "
-            "setup. It does not install engines, create Gardens, run setup-env, or "
-            "start simulations."
+            'Diagnose the local Ladybug Tools runtime configuration for Radiance, OpenStudio, '
+            'EnergyPlus, URBANopt, THERM, and Ironbug.Console. Use this read-only tool to inspect '
+            'which simulation runtimes and executables the installed SDK can currently see. '
+            'Returns summary_view.engines, summary_view.measures, missing_engine_guidance, '
+            'runtime_requirement_guidance, report, and optional path_updates.prepend values for '
+            'local shell PATH setup.'
         ),
         tags={
             "check",
@@ -41,10 +38,8 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(
                 description=(
-                    "When true, include summary_view.path_updates.prepend entries "
-                    "for local shells and Agent test harnesses; when false, omit "
-                    "PATH guidance to keep the diagnostic response compact. The "
-                    "tool never mutates the current process PATH."
+                    'When true, include summary_view.path_updates.prepend entries for local shell '
+                    'PATH setup; when false, omit PATH guidance for a compact response.'
                 )
             ),
         ] = True,

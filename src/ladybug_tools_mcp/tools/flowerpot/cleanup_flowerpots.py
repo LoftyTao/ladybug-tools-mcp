@@ -16,13 +16,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FP_cleanup_all",
         description=(
-            "Clean only Garden-local Flowerpot handoff maintenance state: registry "
-            "entries and Flowerpot item files. Use orphaned for missing item files, "
-            "expired with older_than_days for stale handoff records, or all for a "
-            "full handoff reset. Returns removed, skipped, summary_view, "
-            "persistence_receipt, and report. It does not modify Garden authoring "
-            "truth in garden.json, models/, libraries/, or reusable object storage; "
-            "do not pass arguments null or {}."
+            'Clean only Garden-local Flowerpot handoff maintenance state: registry entries and '
+            'Flowerpot item files. Use orphaned for missing item files, expired with '
+            'older_than_days for stale handoff records, or all for a full handoff reset. Returns '
+            'removed, skipped, summary_view, persistence_receipt, and report.'
         ),
         tags={
             "cleanup",

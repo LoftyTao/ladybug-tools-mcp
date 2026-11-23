@@ -15,14 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="EP_create_output_request",
         description=(
-            "Create a Garden energy_output_request target for EnergyPlus "
-            "outputs before an energy run. Use it for hourly zone loads, HVAC "
-            "energy use, unmet hours, surface temperatures, custom "
-            "Output:Variable names, summary reports, or later result "
-            "visualization. Pass the returned target to "
-            "EP_start_simulation or EP_run_simulation_wait as "
-            "output_request_target. This tool prepares requests; it does not "
-            "read SQL, ERR, HTML, or DataCollection results."
+            'Create a Garden energy_output_request target for EnergyPlus outputs before an energy '
+            'run. Use it for hourly zone loads, HVAC energy use, unmet hours, surface '
+            'temperatures, custom Output:Variable names, summary reports, or later result '
+            'visualization. Pass the returned target to EP_start_simulation or '
+            'EP_run_simulation_wait as output_request_target. This tool prepares requests.'
         ),
         tags={
             "energy",

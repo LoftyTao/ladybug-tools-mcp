@@ -11,7 +11,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_search_model_objects",
-        description="Search Honeybee Room, Face, Aperture/window, Door, and Shade objects in the Garden base model or an explicit model_target. Use object_type plus identifier, query, room_identifier, face_identifier, face_type, boundary_condition, or children_scope to narrow results; for exterior wall/window workflows search faces with face_type=Wall and boundary_condition=Outdoors, then search children under the face. Returns matches with nested target dicts, compact child_counts, geometry summaries, limited room/shade energy_properties, summary_view, and a top-level target only when there is one match. Pass matches[i].target to create/edit/remove tools. This is not for Energy library resources or Radiance SensorGrids/Views.",
+        description=(
+            'Search Honeybee Room, Face, Aperture/window, Door, and Shade objects in the Garden '
+            'base model or an explicit model_target. Use object_type plus identifier, query, '
+            'room_identifier, face_identifier, face_type, boundary_condition, or children_scope '
+            'to narrow results; for exterior wall/window workflows search faces with '
+            'face_type=Wall and boundary_condition=Outdoors, then search children under the face. '
+            'Returns matches with nested target dicts, compact child_counts, geometry summaries, '
+            'limited room/shade energy_properties, summary_view, and a top-level target only when '
+            'there is one match. Pass matches[i].target to create/edit/remove tools.'
+        ),
         tags={
             "aperture",
             "children",
@@ -39,7 +48,10 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually HB_create_model['target']; defaults to the Garden base Honeybee Model; do not pass model_identifier or a full model body."
+                description=(
+                    "Optional Honeybee model target dict, usually HB_create_model['target']; "
+                    'defaults to the Garden base Honeybee Model.'
+                )
             ),
         ] = None,
         object_type: Annotated[
@@ -87,7 +99,10 @@ def register(mcp: FastMCP) -> None:
         children_scope: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional typed Honeybee parent target dict used to return only child objects under a room, face, aperture, or door. Use this before retrying aperture/shade creation so Agents can see existing children on the host. Do not pass true, false, or parent_target."
+                description=(
+                    'Optional typed Honeybee parent target dict (room, face, aperture, or door) '
+                    'to filter returned child objects.'
+                )
             ),
         ] = None,
         limit: Annotated[

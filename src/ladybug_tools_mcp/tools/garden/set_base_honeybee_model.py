@@ -15,14 +15,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='GD_set_base_honeybee_model',
         description=(
-            "Register or select an existing Honeybee model target as the Garden "
-            "base Honeybee model slot. Pass the nested model_target from a "
-            "Honeybee create tool, GD_list_models, or another base-model "
-            "handoff; this writes garden.json and may add the target to the "
-            "manifest model list. Returns model_target, summary_view, and "
-            "persistence_receipt for subsequent Honeybee, Energy, Radiance, "
-            "visualization, versioning, or export calls. It does not edit model "
-            "geometry or validate HBJSON."
+            'Register or select an existing Honeybee model target as the Garden base Honeybee '
+            'model slot. Pass the nested model_target from a Honeybee create tool, '
+            'GD_list_models, or another base-model handoff; this writes garden.json and may add '
+            'the target to the manifest model list. Returns model_target, summary_view, and '
+            'persistence_receipt for subsequent Honeybee, Energy, Radiance, visualization, '
+            'versioning, or export calls.'
         ),
         tags={
             "author",
@@ -49,9 +47,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    "Nested Honeybee model target to set as the Garden base "
-                    "Honeybee model. Pass the model_target dict itself, not a full "
-                    "tool response and not only an identifier string."
+                    'Nested Honeybee model target to set as the Garden base Honeybee model. Pass the '
+                    'nested model_target dict.'
                 )
             ),
         ],

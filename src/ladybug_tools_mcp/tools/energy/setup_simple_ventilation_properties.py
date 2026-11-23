@@ -11,7 +11,13 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_setup_simple_ventilation_properties',
-        description="Apply simple operable-window natural ventilation properties to Honeybee Rooms in a Garden model. Use this for VentilationOpening, window_vent_control, operable windows, cross ventilation, and ventilative cooling controls; it does not generate AirflowNetwork cracks and does not create VentilationFan objects. Returns the updated Honeybee model target in target and summary_view.target plus persistence_receipt and report.",
+        description=(
+            'Apply simple operable-window natural ventilation properties to Honeybee Rooms in a '
+            'Garden model. Use this for VentilationOpening, window_vent_control, operable '
+            'windows, cross ventilation, and ventilative cooling controls. Returns the updated '
+            'Honeybee model target in target and summary_view.target plus persistence_receipt and '
+            'report.'
+        ),
         tags={
             "cross-ventilation",
             "edit",
@@ -36,15 +42,21 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         room_identifiers: Annotated[
             list[str] | None,
-            Field(description="Optional room_identifiers list to update. Use this or room_targets; not room_target. If omitted with room_targets, all model rooms are updated."),
+            Field(description=(
+                'Optional room_identifiers list to update (mutually exclusive with room_targets). '
+                'If omitted with room_targets, all model rooms are updated.'
+            )),
         ] = None,
         room_targets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description='Optional room_targets list of Honeybee Room typed targets from HB_search_model_objects. Use this or room_identifiers; not room_target.'),
+            Field(description=(
+                'Optional room_targets list of Honeybee Room typed targets from '
+                'HB_search_model_objects (mutually exclusive with room_identifiers).'
+            )),
         ] = None,
         fraction_area_operable: Annotated[
             float,
-            Field(description="Fraction of window area that is operable, from 0 to 1. This is the operable area field; not opening_area and not opening_fraction."),
+            Field(description='Fraction of window area that is operable, from 0 to 1.'),
         ] = 0.5,
         fraction_height_operable: Annotated[
             float,

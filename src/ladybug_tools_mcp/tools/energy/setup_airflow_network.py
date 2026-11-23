@@ -11,7 +11,13 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_setup_airflow_network',
-        description="Generate EnergyPlus AirflowNetwork properties for selected Honeybee Rooms using the Honeybee Energy AFN generator. Use this for pressure-driven multizone airflow, Face vent_crack leakage, closed-opening leakage, and optional room-infiltration-derived exterior cracks; it is not the simple operable-window setup, not a VentilationFan, and not the ProgramType Ventilation load. Returns the updated Honeybee model target in target and summary_view.target plus persistence_receipt and report.",
+        description=(
+            'Generate EnergyPlus AirflowNetwork properties for selected Honeybee Rooms using the '
+            'Honeybee Energy AFN generator. Use this for pressure-driven multizone airflow, Face '
+            'vent_crack leakage, closed-opening leakage, and optional room-infiltration-derived '
+            'exterior cracks. Returns the updated Honeybee model target in target and '
+            'summary_view.target plus persistence_receipt and report.'
+        ),
         tags={
             "airflow-network",
             "energy",

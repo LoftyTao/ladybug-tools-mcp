@@ -14,7 +14,13 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_setup_daylighting_control_to_center',
-        description="Assign Honeybee Energy DaylightingControl objects to selected Rooms by placing an EnergyPlus daylight reference sensor near each room center. Use this for electric lighting dimming and lighting-energy impact tests with existing apertures/windows and Lighting loads; it is not a Radiance SensorGrid, glare, sDA, ASE, or daylight-quality simulation. Returns the updated Honeybee model target in target and summary_view.target plus persistence_receipt and report.",
+        description=(
+            'Assign Honeybee Energy DaylightingControl objects to selected Rooms by placing an '
+            'EnergyPlus daylight reference sensor near each room center. Use this for electric '
+            'lighting dimming and lighting-energy impact tests with existing apertures/windows '
+            'and Lighting loads. Returns the updated Honeybee model target in target and '
+            'summary_view.target plus persistence_receipt and report.'
+        ),
         tags={
             "daylight",
             "daylighting-control",
@@ -37,11 +43,17 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         room_identifiers: Annotated[
             list[str] | None,
-            Field(description="Optional room_identifiers list to update. Use this or room_targets; not room_target. If omitted with room_targets, all rooms are updated."),
+            Field(description=(
+                'Optional room_identifiers list to update (mutually exclusive with room_targets). '
+                'If omitted with room_targets, all rooms are updated.'
+            )),
         ] = None,
         room_targets: Annotated[
             list[dict[str, Any]] | None,
-            Field(description='Optional room_targets list of Honeybee Room typed targets from HB_search_model_objects. Use this or room_identifiers; not room_target.'),
+            Field(description=(
+                'Optional room_targets list of Honeybee Room typed targets from '
+                'HB_search_model_objects (mutually exclusive with room_identifiers).'
+            )),
         ] = None,
         distance_from_floor: Annotated[
             float,

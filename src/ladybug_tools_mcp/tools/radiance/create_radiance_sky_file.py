@@ -15,13 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_sky_file",
         description=(
-            "Create a Garden Radiance .sky file target for point-in-time grid "
-            "or view recipes. Pass a Radiance sky definition or sky dictionary "
-            "from RAD_create_sky, RAD_create_cie_standard_sky, or "
-            "RAD_create_climate_based_sky. This persists a sky include "
-            "for recipes; it does not create WEA weather, sky matrices, or "
-            "runs. Returns target, sky_file_target, summary_view, "
-            "persistence_receipt, and report."
+            'Create a Garden Radiance .sky file target for point-in-time grid or view recipes. '
+            'Pass a Radiance sky definition or sky dictionary from RAD_create_sky, '
+            'RAD_create_cie_standard_sky, or RAD_create_climate_based_sky. This persists a sky '
+            'include for recipes. Returns target, sky_file_target, summary_view, '
+            'persistence_receipt, and report.'
         ),
         tags={
             "radiance",

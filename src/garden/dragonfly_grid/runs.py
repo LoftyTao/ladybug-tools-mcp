@@ -41,9 +41,8 @@ GRID_RUN_RECIPES = {"rnm", "opendss", "reopt"}
 CONFIG_NEXT_TOOL = "LB_get_runtime_config"
 LOCAL_GRID_RUNTIME_BLOCKER = (
     f"URBANopt CLI {REQUIRED_RUNTIME_VERSIONS['urbanopt']} is available for local-bundle Energy/OpenStudio execution, "
-    "but this RNM/REopt path resolves to an online API unless a compatible "
-    "local service or runtime is configured. MCP requires local-service runtime "
-    "evidence and blocks online API submission."
+    "but this RNM/REopt path requires a compatible local service/runtime configuration "
+    "rather than online API submission."
 )
 DEFAULT_GRID_NETWORK_POLICY = {
     "mode": "local_runtime_required",
@@ -61,8 +60,7 @@ GRID_EXTERNAL_API_BLOCKERS = {
         "local_service_required": True,
         "local_service_configured": False,
         "required_local_runtime": (
-            "Compatible local RNM service/runtime explicitly configured and "
-            "covered by local-service runtime tests."
+            "Compatible local RNM service/runtime configured and reachable."
         ),
     },
     "reopt": {
@@ -73,8 +71,7 @@ GRID_EXTERNAL_API_BLOCKERS = {
         "local_service_required": True,
         "local_service_configured": False,
         "required_local_runtime": (
-            "Compatible local REopt API/service explicitly configured and "
-            "covered by local-service runtime tests."
+            "Compatible local REopt API/service configured and reachable."
         ),
     },
 }

@@ -11,7 +11,13 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="EP_read_eui",
-        description='Read EUI / energy use intensity JSON for one Garden energy_run after runtime_status is finished. Use after EP_poll_simulation or EP_list_run_outputs confirms result artifacts exist; this reads the lightweight annual summary, not SQL time series. Returns eui, result_evidence, summary_view, and report; if EUI is missing, returns energy_blocker with recommended_next_tools instead of a DataCollection target.',
+        description=(
+            'Read EUI / energy use intensity JSON for one Garden energy_run after runtime_status '
+            'is finished. Use after EP_poll_simulation or EP_list_run_outputs confirms result '
+            'artifacts exist; reads the lightweight annual summary. Returns eui, result_evidence, '
+            'summary_view, and report; if EUI is missing, returns energy_blocker with '
+            'recommended_next_tools.'
+        ),
         tags={
             "energy",
             "result",

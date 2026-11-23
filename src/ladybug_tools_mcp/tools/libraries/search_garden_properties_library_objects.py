@@ -12,15 +12,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="GD_library_search_garden_properties_objects",
         description=(
-            "Search saved Garden Properties Library indexes for reusable Honeybee "
-            "Energy and Honeybee Radiance object targets, including schedules, "
-            "program types, loads, HVAC systems, materials, constructions, "
-            "construction sets, modifiers, modifier sets, and luminaires. Use this "
-            "for Garden-saved reusable resources, not built-in standards-library "
-            "search. Returns matches with domain, object_family, identifier, "
-            "object_type, path, target, plus summary_view and report; pass "
-            "matches[*].target to GD_library_get_garden_properties_object or downstream "
-            "assignment workflows."
+            'Search saved Garden Properties Library indexes for reusable Honeybee Energy and '
+            'Honeybee Radiance object targets, including schedules, program types, loads, HVAC '
+            'systems, materials, constructions, construction sets, modifiers, modifier sets, and '
+            'luminaires. Returns matches with domain, object_family, identifier, object_type, '
+            'path, target, plus summary_view and report; pass matches[*].target to '
+            'GD_library_get_garden_properties_object or downstream assignment workflows.'
         ),
         tags={
             "energy",

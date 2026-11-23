@@ -11,7 +11,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='HB_scale_object',
-        description="Scale a Honeybee Model, Room, Face, Aperture, Door, or Shade target by a positive factor from an optional Ladybug Geometry Point3D origin. This is a geometry transform, not a units conversion, and it does not automatically repair adjacency, host containment, or dynamic state geometry. Requires a typed target and positive factor; do not pass an identifier string. Returns the original target, summary_view, persistence_receipt with updated model_target, and report; for whole-model transforms summary_view.target is the updated model target. Run search, relate_model, or validate_model after partial-object transforms when relationships matter.",
+        description=(
+            'Scale a Honeybee Model, Room, Face, Aperture, Door, or Shade target by a positive '
+            'factor from an optional Ladybug Geometry Point3D origin. This transform does not '
+            'automatically repair adjacency, host containment, or dynamic state geometry. '
+            'Requires a typed target and positive factor. Returns the original target, '
+            'summary_view, persistence_receipt with updated model_target, and report; for '
+            'whole-model transforms summary_view.target is the updated model target. Run '
+            'HB_search_model_objects, HB_relate_model, or HB_validate_model after partial-object '
+            'transforms when relationships matter.'
+        ),
         tags={
             "edit",
             "geometry",

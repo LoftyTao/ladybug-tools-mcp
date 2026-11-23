@@ -12,13 +12,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_honeybee_model_to_visualization_set',
         description=(
-            "Create a Ladybug Display VisualizationSet from a Honeybee model "
-            "in a Garden. color_by accepts type, boundary_condition, or none; "
-            "use type for simple model previews. For HTML/SVG/vtk.js export "
-            "paths, set return_visualization_set=false so the tool saves a "
-            "compact visualization_set_target for exporters. This previews "
-            "model geometry and attributes; it does not edit the model or run "
-            "Energy/Radiance simulations."
+            'Create a Ladybug Display VisualizationSet from a Honeybee model in a Garden. '
+            'color_by accepts type, boundary_condition, or none; use type for simple model '
+            'previews. For HTML/SVG/vtk.js export paths, set return_visualization_set=false so '
+            'the tool saves a compact visualization_set_target for exporters. This previews model '
+            'geometry and attributes.'
         ),
         tags={
             "honeybee",
@@ -34,7 +32,10 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model; do not pass a full HBJSON model body here."
+                description=(
+                    'Optional Honeybee model target with target_type=honeybee_model. Defaults to '
+                    'the Garden base model.'
+                )
             ),
         ] = None,
         color_by: Annotated[

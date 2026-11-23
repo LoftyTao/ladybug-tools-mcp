@@ -807,10 +807,10 @@ def _preflight_urbanopt_runtime() -> dict[str, Any]:
         issues.append("URBANopt CLI or Gemfile is not available to dragonfly_energy.")
     if not has_urbanopt_cli_bundle(urbanopt):
         issues.append(
-            f"A local URBANopt CLI {REQUIRED_RUNTIME_VERSIONS['urbanopt']} bundle Gemfile is required for MCP local-bundle runtime validation."
+            f"A local URBANopt CLI {REQUIRED_RUNTIME_VERSIONS['urbanopt']} bundle Gemfile is required."
         )
     if urbanopt.get("version_status") in {"older", "newer", "unknown"}:
-        issues.append("URBANopt runtime version does not match the current DEV requirement.")
+        issues.append("URBANopt runtime version does not match the required version.")
     if issues:
         return _blocked_preflight(issues, missing=["urbanopt"], runtime=urbanopt)
     return {"status": "ok", "runtime_status": "ready", "issues": [], "runtime": urbanopt}

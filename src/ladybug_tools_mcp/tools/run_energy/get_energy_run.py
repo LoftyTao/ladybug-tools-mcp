@@ -13,7 +13,13 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="EP_poll_simulation",
-        description='Get one Garden energy_run record by run_target or run_id without returning large result files. Use after EP_start_simulation. When the user asks to wait, pass wait_seconds instead of repeated immediate polling; this waits in the wrapper and does not change the EnergyPlus engine timeout. Returns runtime_status through summary_view.status, summary_view.run, result_evidence, summary_view.recommended_next_tools, summary_view.final_answer_guidance, and report. Treat a failed runtime_status as requiring report review. This polling tool has no top-level poll_next field.',
+        description=(
+            'Get one Garden energy_run record by run_target or run_id without returning large '
+            'result files. Use after EP_start_simulation. When the user asks to wait, pass '
+            'wait_seconds instead of repeated immediate polling; this waits in the wrapper and '
+            'does not change the EnergyPlus engine timeout. Returns status through '
+            'summary_view.status, summary_view.run, result_evidence, and report.'
+        ),
         tags={
             "energy",
             "simulate",

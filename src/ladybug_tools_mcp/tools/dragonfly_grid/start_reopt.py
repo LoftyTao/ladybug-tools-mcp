@@ -15,11 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_grid_start_reopt",
         description=(
-            "Start or block a Dragonfly Electric Grid REopt post-processing run "
-            "from feature GeoJSON and scenario CSV targets. Under the local-service "
-            "runtime policy, API-backed REopt submission returns a blocked ledger "
-            "with runtime_diagnostics.external_api_blocker; this tool "
-            "does not hide REopt local-service, credential, or cost prerequisites."
+            'Start or block a Dragonfly Electric Grid REopt post-processing run from feature '
+            'GeoJSON and scenario CSV targets. When no local REopt service is configured, returns '
+            'a blocked ledger with runtime_diagnostics.external_api_blocker.'
         ),
         tags={"dragonfly", "electric-grid", "reopt", "run", "runtime", "target"},
         timeout=30,
@@ -30,7 +28,7 @@ def register(mcp: FastMCP) -> None:
         scenario_csv_target: Annotated[dict[str, Any], Field(description="Scenario CSV artifact target paired with the feature GeoJSON.")],
         urdb_label: Annotated[str, Field(description="URDB utility rate label passed to Dragonfly Energy REopt when runtime is ready.")],
         run_id: Annotated[str | None, Field(description="Optional stable run id; omit to let the Garden create one.")] = None,
-        developer_key: Annotated[str | None, Field(description="Optional REopt developer key; do not expose secrets in reports.")] = None,
+        developer_key: Annotated[str | None, Field(description='Optional REopt developer key (redacted in reports).')] = None,
     ) -> dict[str, Any]:
         """Start or block a REopt run."""
         from garden.dragonfly_grid.runs import start_reopt as service

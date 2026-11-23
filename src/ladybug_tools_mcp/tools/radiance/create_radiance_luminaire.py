@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_luminaire",
         description=(
-            "Create a Honeybee Radiance Luminaire from IES LM-63 text or a "
-            "Garden-contained IES file path. Supports LuminaireZone placement "
-            "instances, CustomLamp settings, and Garden Properties Library "
-            "saving with garden_root and return_object_dict=false. Use the "
-            "returned target as a reusable luminaire or IES resource for "
-            "Radiance workflows. This is not a Honeybee Energy lighting load."
+            'Create a Honeybee Radiance Luminaire from IES LM-63 text or a Garden-contained IES '
+            'file path. Supports LuminaireZone placement instances, CustomLamp settings, and '
+            'Garden Properties Library saving with garden_root and return_object_dict=false. Use '
+            'the returned target as a reusable luminaire or IES resource for Radiance workflows.'
         ),
         tags={
             "radiance",
@@ -66,7 +64,10 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         return_object_dict: Annotated[
             bool,
-            Field(description="Return the full Luminaire object_dict. Set false with garden_root to keep Agent context compact."),
+            Field(description=(
+                'Return the full Luminaire object_dict. Set false with garden_root for a compact '
+                'target response.'
+            )),
         ] = True,
     ) -> dict[str, Any]:
         """Create a Honeybee Radiance Luminaire from IES content or path."""

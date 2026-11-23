@@ -12,12 +12,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_search_weather_files',
         description=(
-            "Search weather_file targets already managed by a Garden under "
-            "imports/weather and registered in garden.json. This tool does "
-            "not search bundled FastMCP resources, global SDK weather folders, "
-            "remote sites, or UWG parameter files. Import a bundled station from "
-            "weather://catalog with EP_import_local_weather, or obtain "
-            "another EPW archive from https://climate.onebuilding.org/."
+            'Search weather_file targets already managed by a Garden under imports/weather and '
+            'registered in garden.json. Import a bundled station from weather://catalog with '
+            'EP_import_local_weather, or obtain another EPW archive from '
+            'https://climate.onebuilding.org/.'
         ),
         tags={
             "energy",

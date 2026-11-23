@@ -11,7 +11,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_create_aperture",
-        description='Create a Honeybee Aperture, commonly a window/opening sub-face, on a host Honeybee Face typed target from explicit Face3D geometry. This is the low-level explicit-geometry path, not the window-to-wall ratio, WWR, glazing ratio, or rectangular window generator; use HB_create_apertures_by_parameters for natural parametric window requests. Requires garden_root, identifier, geometry, and host_target from HB_search_model_objects matches[i].target or a prior HB_create_face target. The parameter names are exactly geometry and host_target, not Face3D and not host_face. Returns target, object_target, model_target, aperture_target, summary_view, persistence_receipt, and report.',
+        description=(
+            'Create a Honeybee Aperture, commonly a window/opening sub-face, on a host Honeybee '
+            'Face typed target from explicit Face3D geometry. Use '
+            'HB_create_apertures_by_parameters for parametric or ratio-based windows. Requires '
+            'garden_root, identifier, geometry, and host_target from HB_search_model_objects '
+            'matches[i].target or HB_create_face. Returns target, object_target, model_target, '
+            'aperture_target, summary_view, persistence_receipt, and report.'
+        ),
         tags={
             "aperture",
             "author",
@@ -34,13 +41,22 @@ def register(mcp: FastMCP) -> None:
         geometry: Annotated[
             dict[str, Any],
             Field(
-                description="Required Ladybug Geometry Face3D dict fully inside the host face; for example {'type':'Face3D','boundary':[[x,y,z],...]}. Boundary points may also be {'x':0,'y':0,'z':0} Point3D dicts. Keep sub-face edges inset from the host face boundary by at least model tolerance; do not place aperture edges exactly on the parent wall edge. Omit plane unless using exact Ladybug Plane keys n, o, and x. Pass this inline geometry dict directly; no separate Point3D tool and no separate Face3D tool are needed. Parameter name is geometry, not Face3D; not Rhino geometry."
+                description=(
+                    'Required Ladybug Geometry Face3D dict fully inside the host face; for '
+                    "example {'type':'Face3D','boundary':[[x,y,z],...]}. Boundary points may also "
+                    "be {'x':0,'y':0,'z':0} Point3D dicts. Keep sub-face edges inset from the "
+                    'host face boundary by at least model tolerance, and omit plane unless '
+                    'providing Ladybug Plane keys n, o, and x.'
+                )
             ),
         ],
         host_target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee face typed target dict from nested target HB_search_model_objects matches[i].target or a prior HB_create_face result target; parameter name is host_target, not host_face. Full responses, room targets, and identifier strings are rejected.'
+                description=(
+                    'Required Honeybee face typed target dict from HB_search_model_objects '
+                    'matches[i].target or HB_create_face.'
+                )
             ),
         ],
         model_target: Annotated[

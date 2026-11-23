@@ -15,9 +15,8 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_get_model_summary",
         description=(
-            "Return compact counts and metadata for the Garden base Dragonfly model "
-            "or an explicit Dragonfly model target. This does not return the full "
-            "DFJSON body or mutate the model."
+            'Return compact counts and metadata for the Garden base Dragonfly model or an '
+            'explicit Dragonfly model target. Read-only; returns compact counts and metadata.'
         ),
         tags={"dragonfly", "model", "summary", "search", "inventory"},
         annotations={"readOnlyHint": True},

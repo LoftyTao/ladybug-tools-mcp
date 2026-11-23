@@ -15,14 +15,13 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_remove_stories_from_building",
         description=(
-            "Remove Stories from a Dragonfly Building using Dragonfly "
-            "Building.remove_stories_by_identifier. Select the Building with "
-            "building_identifier and Story IDs with story_identifiers. This does not "
-            "remove Buildings or Room2Ds because those are not exposed as stable "
-            "Dragonfly SDK remove APIs. After removal, the service uses Dragonfly SDK "
-            "Building.separate_top_bottom_floors so the remaining Stories keep explicit "
-            "ground, typical, and top semantics. Returns target, summary_view, and report "
-            "for the updated Dragonfly Building/model context."
+            'Remove Stories from a Dragonfly Building using Dragonfly '
+            'Building.remove_stories_by_identifier. Select the Building with building_identifier '
+            'and Story IDs with story_identifiers. Use DF_remove_buildings or DF_remove_room2ds '
+            'to remove Buildings or Room2Ds. After removal, the service uses Dragonfly SDK '
+            'Building.separate_top_bottom_floors so the remaining Stories keep explicit ground, '
+            'typical, and top semantics. Returns target, summary_view, and report for the updated '
+            'Dragonfly Building/model context.'
         ),
         tags={"dragonfly", "building", "story", "remove", "edit"},
         timeout=20,

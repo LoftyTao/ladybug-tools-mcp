@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='DF_uwg_dragonfly_model_to_uwg',
         description=(
-            "Write a UWG JSON artifact from a Dragonfly model, rural/airport "
-            "Garden EPW weather target, and optional UWG simulation parameter. "
-            "Use this to inspect or archive UWG inputs without running the UWG. "
-            "This is an Alternative Weather input export, not a URBANopt Scenario."
+            'Write a UWG JSON artifact from a Dragonfly model, rural/airport Garden EPW weather '
+            'target, and optional UWG simulation parameter. Use this to inspect or archive UWG '
+            'inputs without running the UWG.'
         ),
         tags={
             "dragonfly",

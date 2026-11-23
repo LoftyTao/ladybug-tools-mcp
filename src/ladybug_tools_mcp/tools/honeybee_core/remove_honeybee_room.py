@@ -11,7 +11,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_remove_room",
-        description='Remove one Honeybee Room from a Garden model using a room typed target from HB_search_model_objects and persist the updated model. This also clears Surface boundary relationships in remaining rooms that pointed to the removed room and reports adjacency_cleanup. Requires garden_root and target; do not pass an identifier string. Returns summary_view.model_target, persistence_receipt.model_target, and report so the updated model can be searched or validated again.',
+        description=(
+            'Remove one Honeybee Room from a Garden model using a room typed target from '
+            'HB_search_model_objects and persist the updated model. This also clears Surface '
+            'boundary relationships in remaining rooms that pointed to the removed room and '
+            'reports adjacency_cleanup. Requires garden_root and a typed target. Returns '
+            'summary_view.model_target, persistence_receipt.model_target, and report so the '
+            'updated model can be searched or validated again.'
+        ),
         tags={
             "adjacency",
             "boundary",
@@ -34,7 +41,7 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee room typed target from HB_search_model_objects; not a room identifier string.'
+                description='Required Honeybee room typed target from HB_search_model_objects.'
             ),
         ],
         model_target: Annotated[

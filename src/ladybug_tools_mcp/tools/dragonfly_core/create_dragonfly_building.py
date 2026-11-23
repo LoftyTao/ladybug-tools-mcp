@@ -15,14 +15,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_building",
         description=(
-            "Create a Dragonfly Building in a Garden Dragonfly model from Dragonfly Story "
-            "targets and save the DFJSON model. The service uses Dragonfly SDK "
-            "Building.separate_top_bottom_floors before saving so repeated Story "
-            "multipliers become explicit ground, typical, and top Stories where needed. "
-            'Use this after DF_room2d and DF_story when '
-            "assembling a building story room2d model. Returns target, summary_view, "
-            "persistence_receipt, and report for a Dragonfly Building, not a Honeybee "
-            "Model or EnergyPlus Zone."
+            'Create a Dragonfly Building in a Garden Dragonfly model from Dragonfly Story targets '
+            'and save the DFJSON model. The service uses Dragonfly SDK '
+            'Building.separate_top_bottom_floors before saving so repeated Story multipliers '
+            'become explicit ground, typical, and top Stories where needed. Use this after '
+            'DF_room2d and DF_story when assembling a building story room2d model. Returns '
+            'target, summary_view, persistence_receipt, and report.'
         ),
         tags={"dragonfly", "building", "story", "room2d", "author", "model", "assembly"},
         timeout=20,

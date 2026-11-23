@@ -14,19 +14,16 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="LB_psychrometric_chart_to_visualization_set",
         description=(
-            "Create a Ladybug PsychrometricChart VisualizationSet from two "
-            "Garden ladybug_data_collection targets: temperature in C and "
-            "relative humidity in %. Optional strategy_layers overlay aligned "
-            "comfort result targets such as UTCI, Adaptive, or PMV on the same "
-            "psychrometric chart. Each layer is a dictionary with "
-            "data_collection_target, optional label, and optional "
-            "LegendParameters dictionary. The chart uses the SDK-native "
-            "psychrometric_chart_to_vis_set path, persists a compact "
-            "visualization_set target, and returns summary_view plus a Garden "
-            "persistence_receipt. Set return_visualization_set=false to omit "
-            "the full VisualizationSet body before passing the target to "
-            "LB_set_to_html, LB_set_to_svg, or LB_set_to_vtkjs. It does not "
-            "run comfort calculations or recreate Grasshopper data trees."
+            'Create a Ladybug PsychrometricChart VisualizationSet from two Garden '
+            'ladybug_data_collection targets: temperature in C and relative humidity in %. '
+            'Optional strategy_layers overlay aligned comfort result targets such as UTCI, '
+            'Adaptive, or PMV on the same psychrometric chart. Each layer is a dictionary with '
+            'data_collection_target, optional label, and optional LegendParameters dictionary. '
+            'The chart uses the SDK-native psychrometric_chart_to_vis_set path, persists a '
+            'compact visualization_set target, and returns summary_view plus a Garden '
+            'persistence_receipt. Set return_visualization_set=false to omit the full '
+            'VisualizationSet body before passing the target to LB_set_to_html, LB_set_to_svg, or '
+            'LB_set_to_vtkjs.'
         ),
         tags={
             "ladybug",

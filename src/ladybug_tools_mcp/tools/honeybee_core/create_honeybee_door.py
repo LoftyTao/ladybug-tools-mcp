@@ -11,7 +11,16 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_create_door",
-        description='Create a Honeybee Door on a host Honeybee Face typed target. For an ordinary rectangular door, omit geometry and pass door_width, door_height, and sill_height; the service places it inside the host wall and avoids existing apertures or doors when possible. For a shared interior Surface boundary wall between adjacent rooms, this creates the paired adjacent Door automatically and preserves Honeybee Surface adjacency. Pass geometry only for explicit custom Face3D geometry. The parameter names are geometry and host_target, not Face3D and not host_face. Returns target, object_target, model_target, door_target, and for paired interior doors also targets, adjacent_target, and summary_view.is_interior_pair.',
+        description=(
+            'Create a Honeybee Door on a host Honeybee Face typed target. For an ordinary '
+            'rectangular door, omit geometry and pass door_width, door_height, and sill_height; '
+            'the service places it inside the host wall and avoids existing apertures or doors '
+            'when possible. For a shared interior Surface boundary wall between adjacent rooms, '
+            'this creates the paired adjacent Door automatically and preserves Honeybee Surface '
+            'adjacency. Pass geometry only for explicit custom Face3D geometry. Returns target, '
+            'object_target, model_target, door_target, and for paired interior doors also '
+            'targets, adjacent_target, and summary_view.is_interior_pair.'
+        ),
         tags={
             "author",
             "door",
@@ -35,13 +44,24 @@ def register(mcp: FastMCP) -> None:
         host_target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee face typed target dict from nested target HB_search_model_objects matches[i].target or a prior HB_create_face result target; parameter name is host_target, not host_face. Use a Surface boundary wall face to create an interior door between adjacent rooms; the adjacent paired door is created automatically. Full responses, room targets, and identifier strings are rejected.'
+                description=(
+                    'Required Honeybee face typed target dict from HB_search_model_objects '
+                    'matches[i].target or HB_create_face. Use a Surface boundary wall face to '
+                    'create a paired interior door between adjacent rooms.'
+                )
             ),
         ],
         geometry: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Required Ladybug Geometry Face3D dict fully inside the host face; for example {'type':'Face3D','boundary':[[x,y,z],...]}. Boundary points may also be {'x':0,'y':0,'z':0} Point3D dicts. Keep door edges inset from the host face boundary by at least model tolerance; for a floor-touching door use a tiny positive sill such as z=0.01 instead of putting the lower edge exactly on the parent wall edge. Omit plane unless using exact Ladybug Plane keys n, o, and x. Pass this inline geometry dict directly; no separate Point3D tool and no separate Face3D tool are needed. Parameter name is geometry, not Face3D; not Rhino geometry."
+                description=(
+                    'Required Ladybug Geometry Face3D dict fully inside the host face; for '
+                    "example {'type':'Face3D','boundary':[[x,y,z],...]}. Boundary points may also "
+                    "be {'x':0,'y':0,'z':0} Point3D dicts. Keep door edges inset from the host "
+                    'face boundary by at least model tolerance (for a floor-touching door, use a '
+                    'small positive sill such as z=0.01). Omit plane unless providing Ladybug '
+                    'Plane keys n, o, and x.'
+                )
             ),
         ] = None,
         model_target: Annotated[

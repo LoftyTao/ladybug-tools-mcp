@@ -15,14 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_apply_energy_properties",
         description=(
-            "Apply narrow SDK-backed Dragonfly Energy properties to a Room2D, "
-            "Story, or Building target. Supports Honeybee Energy library "
-            "ProgramType and ConstructionSet identifiers only; this is not a "
-            "generic apply-properties-from-dict bridge. For many rooms in one "
-            "building, pass the Building target once instead of looping over "
-            "each Room2D; the service uses Dragonfly SDK methods to apply room "
-            "programs across the building. EnergyPlus simulation remains a downstream "
-            "workflow after Dragonfly-to-Honeybee conversion."
+            'Apply narrow SDK-backed Dragonfly Energy properties to a Room2D, Story, or Building '
+            'target. Supports Honeybee Energy library ProgramType and ConstructionSet '
+            'identifiers. For whole buildings, pass the Building target once; the service uses '
+            'Dragonfly SDK methods to apply room programs across the building. EnergyPlus '
+            'simulation remains a downstream workflow after Dragonfly-to-Honeybee conversion.'
         ),
         tags={"dragonfly", "energy", "properties", "edit", "program-type", "construction-set"},
         timeout=20,
@@ -36,9 +33,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    "Required Dragonfly Room2D, Story, or Building target. Prefer "
-                    "a Building target for applying the same ProgramType to all "
-                    "Room2Ds in a building. Canonical field name is host_target."
+                    'Required Dragonfly Room2D, Story, or Building target. Prefer a Building target '
+                    'for applying the same ProgramType to all Room2Ds in a building.'
                 )
             ),
         ],
@@ -59,10 +55,8 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(
                 description=(
-                    "Optional Honeybee Energy ConstructionSet library identifier. "
-                    "Use an exact construction_set identifier returned by "
-                    'EP_search_energy_library_objects; do not pass material or '
-                    "construction identifiers such as ExteriorWall."
+                    'Optional Honeybee Energy ConstructionSet library identifier from '
+                    'EP_search_energy_library_objects.'
                 )
             ),
         ] = None,

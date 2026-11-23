@@ -11,7 +11,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="HB_remove_face",
-        description='Remove one orphaned Honeybee Face from a Garden model using a face typed target from HB_search_model_objects and persist the updated model. Room-hosted Faces are rejected because deleting one would break the Room closed solid; this is not a remove wall from room shortcut. Requires garden_root and target; do not pass an identifier string. Returns summary_view.model_target, persistence_receipt.model_target, and report so the updated model can be searched or validated again.',
+        description=(
+            'Remove one orphaned Honeybee Face from a Garden model using a face typed target from '
+            'HB_search_model_objects and persist the updated model. Room-hosted Faces are '
+            'rejected because deleting one would break the Room closed solid. Requires '
+            'garden_root and a typed target. Returns summary_view.model_target, '
+            'persistence_receipt.model_target, and report so the updated model can be searched or '
+            'validated again.'
+        ),
         tags={
             "edit",
             "face",
@@ -33,7 +40,10 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee face typed target from HB_search_model_objects; not a face identifier string. Room-hosted faces cannot be removed by this tool.'
+                description=(
+                    'Required Honeybee face typed target from HB_search_model_objects. '
+                    'Room-hosted faces cannot be removed by this tool.'
+                )
             ),
         ],
         model_target: Annotated[

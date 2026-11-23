@@ -39,7 +39,10 @@ def register(mcp: FastMCP) -> None:
         garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_create['garden_root']; required when saving or reading Garden targets.")],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional Garden radiance_run target returned by a start_radiance_*_run tool."),
+            Field(description=(
+                'Optional Garden radiance_run target returned by RAD_start_grid_simulation, '
+                'RAD_start_view_simulation, or RAD_start_matrix_simulation.'
+            )),
         ] = None,
         run_id: Annotated[
             str | None,

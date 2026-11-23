@@ -15,13 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='GD_create_version',
         description=(
-            "Create a compact Garden version checkpoint after a user or Agent "
-            "workflow changes Garden authoring truth. Use once at the end of a "
-            "modeling, edit, or library workflow, before the user may need undo, "
-            "rollback, or restore history. The checkpoint tracks only garden.json, "
-            "models, and libraries. Returns target, version_target, summary_view, "
-            "and persistence_receipt metadata only; never returns Git diff, patch "
-            "text, HBJSON bodies, DFJSON bodies, or full file contents."
+            'Create a compact Garden version checkpoint tracking garden.json, models, and '
+            'libraries. Returns target, version_target, summary_view, and persistence_receipt '
+            'metadata without file bodies or diffs.'
         ),
         tags={
             "checkpoint",
@@ -46,9 +42,8 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(
                 description=(
-                    "Required short checkpoint subject, for example "
-                    "'add office windows' or 'feat: add office windows'. This is "
-                    "metadata for the Garden version record, not a model body."
+                    "Required short checkpoint subject, for example 'add office windows' or 'feat: "
+                    "add office windows'."
                 )
             ),
         ],
@@ -56,9 +51,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | str | None,
             Field(
                 description=(
-                    "Optional compact structured summary for the Garden version. "
-                    "Do not include full HBJSON/DFJSON model bodies, exported "
-                    "file text, diffs, or patches."
+                    'Optional compact structured summary for the Garden version.'
                 )
             ),
         ] = None,
@@ -66,9 +59,7 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | str | None,
             Field(
                 description=(
-                    "Optional compact structured details. Merged into summary when "
-                    "summary is structured; never include full file bodies, model "
-                    "snapshots, diffs, or patches."
+                    'Optional compact structured details merged into summary.'
                 )
             ),
         ] = None,

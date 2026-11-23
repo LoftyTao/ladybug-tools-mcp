@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_glass_modifier",
         description=(
-            "Create a Honeybee Radiance Glass modifier for daylight and view "
-            "workflows. The SDK glass interface uses transmittance or "
-            "transmissivity values, not reflectance. Use garden_root and "
-            "return_object_dict=false to save a reusable Garden Properties "
-            "Library modifier target. This is a Radiance optical modifier, not "
-            "a Honeybee Energy glazing material or thermal construction."
+            'Create a Honeybee Radiance Glass modifier for daylight and view workflows. The SDK '
+            'glass interface uses transmittance or transmissivity values, not reflectance. Use '
+            'garden_root and return_object_dict=false to save a reusable Garden Properties '
+            'Library modifier target.'
         ),
         tags={
             "radiance",

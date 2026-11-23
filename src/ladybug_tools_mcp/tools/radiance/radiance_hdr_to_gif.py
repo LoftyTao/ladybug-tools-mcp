@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_hdr_to_gif",
         description=(
-            "Convert a Radiance HDR image artifact to a GIF image artifact for "
-            "lightweight preview or sharing. Pass image_target from "
-            "RAD_list_hdr_images or RAD_search_images. This converts "
-            "an existing HDR artifact; it does not render a new view, create "
-            "falsecolor output, or read grid results. Returns target, "
-            "image_target, artifact_path, summary_view, and report."
+            'Convert a Radiance HDR image artifact to a GIF image artifact for lightweight '
+            'preview or sharing. Pass image_target from RAD_list_hdr_images or RAD_search_images. '
+            'This converts an existing HDR artifact. Returns target, image_target, artifact_path, '
+            'summary_view, and report.'
         ),
         tags={
             "artifact",

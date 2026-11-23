@@ -15,11 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_trans_modifier",
         description=(
-            "Create a Honeybee Radiance Trans translucent modifier with RGB "
-            "reflectance plus transmitted diffuse and specular fractions. Use "
-            "garden_root and return_object_dict=false to save a reusable "
-            "Garden Properties Library modifier target. This is a Radiance "
-            "optical modifier, not an Energy construction or glass material."
+            'Create a Honeybee Radiance Trans translucent modifier with RGB reflectance plus '
+            'transmitted diffuse and specular fractions. Use garden_root and '
+            'return_object_dict=false to save a reusable Garden Properties Library modifier '
+            'target.'
         ),
         tags={
             "radiance",

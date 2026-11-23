@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_import_model_file",
         description=(
-            "Import a Garden-local Dragonfly DFJSON or Dragonfly-compatible "
-            "geoJSON file and save it as a Dragonfly model target. This is the "
-            "MCP artifact/target form of Grasshopper Load Objects and Model "
-            "From geoJSON; do not pass panel strings or large JSON bodies."
+            'Import a Garden-local Dragonfly DFJSON or Dragonfly-compatible geoJSON file and save '
+            'it as a Dragonfly model target. Provide a Garden-relative path to a DFJSON or '
+            'Dragonfly-compatible GeoJSON file.'
         ),
         tags={"dragonfly", "dfjson", "geojson", "import", "artifact", "garden"},
         timeout=60,

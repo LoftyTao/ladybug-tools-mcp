@@ -12,16 +12,13 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="GD_library_get_garden_properties_object",
         description=(
-            "Read one saved Honeybee Energy or Honeybee Radiance reusable object "
-            "from the Garden Properties Library by typed target or by domain, "
-            "object_family, and identifier. Use this after "
-            "GD_library_search_garden_properties_objects or when a stored "
-            "garden_properties_library_object target is already available. Returns "
-            "object_dict, target, summary_view, and report. This is not a built-in "
-            "standards-library reader and it does not transparently read "
-            "legacy wrapper-style storage; run "
-            "GD_library_normalize_garden_properties_storage first when files need "
-            "native SDK JSON normalization."
+            'Read one saved Honeybee Energy or Honeybee Radiance reusable object from the Garden '
+            'Properties Library by typed target or by domain, object_family, and identifier. Use '
+            'this after GD_library_search_garden_properties_objects or when a stored '
+            'garden_properties_library_object target is already available. Returns object_dict, '
+            'target, summary_view, and report. Reads Garden-saved library files; run '
+            'GD_library_normalize_garden_properties_storage first if legacy wrapper storage needs '
+            'normalization.'
         ),
         tags={
             "energy",

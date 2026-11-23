@@ -15,14 +15,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='GD_set_base_dragonfly_model',
         description=(
-            "Register or select an existing Dragonfly model target as the Garden "
-            "base Dragonfly model slot. Pass the nested model_target from a "
-            "Dragonfly create tool, GD_list_models, or another base-model "
-            "handoff; this writes garden.json and may add the target to the "
-            "manifest model list. Returns model_target, summary_view, and "
-            "persistence_receipt for subsequent Dragonfly, UWG, visualization, "
-            "Honeybee conversion, versioning, or export calls. It does not edit "
-            "urban geometry or validate DFJSON."
+            'Register or select an existing Dragonfly model target as the Garden base Dragonfly '
+            'model slot. Pass the nested model_target from a Dragonfly create tool, '
+            'GD_list_models, or another base-model handoff; this writes garden.json and may add '
+            'the target to the manifest model list. Returns model_target, summary_view, and '
+            'persistence_receipt for subsequent Dragonfly, UWG, visualization, Honeybee '
+            'conversion, versioning, or export calls.'
         ),
         tags={
             "author",
@@ -49,9 +47,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    "Nested Dragonfly model target to set as the Garden base "
-                    "Dragonfly model. Pass the model_target dict itself, not a "
-                    "full tool response and not only an identifier string."
+                    'Nested Dragonfly model target to set as the Garden base Dragonfly model. Pass '
+                    'the nested model_target dict.'
                 )
             ),
         ],

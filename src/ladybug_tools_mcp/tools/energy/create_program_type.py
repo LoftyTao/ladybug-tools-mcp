@@ -11,7 +11,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='EP_create_program_type',
-        description="Create a Honeybee Energy ProgramType, the room program bundle for occupancy, lighting, equipment, service hot water, infiltration, ventilation, and setpoints. ProgramType is an upstream Honeybee Energy abstraction that later expands to multiple EnergyPlus loads and schedules; it is not one EnergyPlus object. Prefer Garden Properties Library targets from load creation tools with garden_root and return_object_dict=false. Returns object_dict, or target plus persistence_receipt when saved.",
+        description=(
+            'Create a Honeybee Energy ProgramType, the room program bundle for occupancy, '
+            'lighting, equipment, service hot water, infiltration, ventilation, and setpoints. '
+            'ProgramType is an upstream Honeybee Energy abstraction that later expands to '
+            'multiple EnergyPlus loads and schedules. Prefer Garden Properties Library targets '
+            'from load creation tools with garden_root and return_object_dict=false. Returns '
+            'object_dict, or target plus persistence_receipt when saved.'
+        ),
         tags={
             "energy",
             "program-type",

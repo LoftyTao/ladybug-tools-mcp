@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_edit_model",
         description=(
-            "Edit Dragonfly Model metadata using public Dragonfly SDK properties. "
-            "Supports only display_name, units, tolerance, and angle_tolerance; "
-            "this is not a generic DFJSON patch tool. Do not use it to add Room2D, "
-            "Story, or Building objects: create Story objects from Room2D draft "
-            "targets, then create Buildings from Story targets. Returns the updated "
-            "Dragonfly model target and summary."
+            'Edit Dragonfly Model metadata using public Dragonfly SDK properties. Supports '
+            'display_name, units, tolerance, and angle_tolerance (to author geometry, create '
+            'Story objects from Room2D targets and Buildings from Story targets). Returns the '
+            'updated Dragonfly model target and summary.'
         ),
         tags={"dragonfly", "model", "edit", "summary", "metadata", "dfjson"},
         timeout=20,

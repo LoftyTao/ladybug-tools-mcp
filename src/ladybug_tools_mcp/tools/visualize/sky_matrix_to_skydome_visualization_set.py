@@ -15,11 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_sky_matrix_to_skydome_visualization_set',
         description=(
-            "Create a Ladybug Display Sky Dome VisualizationSet from a Garden "
-            "sky_matrix target. Use this to compose cumulative sky radiation "
-            "context with model, sunpath, or analysis VisualizationSets. This "
-            "visualizes existing sky-matrix data; it does not create weather, "
-            "sky matrices, or Radiance runs."
+            'Create a Ladybug Display Sky Dome VisualizationSet from a Garden sky_matrix target. '
+            'Use this to compose cumulative sky radiation context with model, sunpath, or '
+            'analysis VisualizationSets. This visualizes existing sky-matrix data.'
         ),
         tags={
             "radiation",

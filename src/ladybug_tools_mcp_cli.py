@@ -166,14 +166,19 @@ def ask_clients(default: list[str]) -> list[str]:
     return normalize_clients(values)
 
 
-def preset_updates(clients: list[str], server: dict, skill_source: Path,
+def preset_updates(clients: list[str], server: dict, skill_source: Path | None,
                    output: Path | None, replace: bool, reserved: set[Path]):
     """Generate importable fragments; these exports are never managed client files."""
     changes, expected, results, rendered = {}, {}, [], {}
+    connected_note = (
+        "Generated files do not mean the client has connected or loaded Skills."
+        if skill_source is not None
+        else "Generated files do not mean the client has connected."
+    )
     guide = [f"# lbt-mcp {__version__} client presets", "",
              "Merge only the lbt-mcp entry into the selected client's configuration.",
              "Do not replace an entire existing configuration with a fragment.",
-             "Generated files do not mean the client has connected or loaded Skills.",
+             connected_note,
              "Use the paths only on the machine where this MCP runtime is installed.", ""]
 
     def add_export(path: Path, content: str):
@@ -202,7 +207,7 @@ def preset_updates(clients: list[str], server: dict, skill_source: Path,
         guide.extend([f"## {info['label']} ({client})", "", info["instructions"], "",
                       f"Reference: {info['docs']}", ""])
     if output and clients:
-        if any(client != "devin-cloud" for client in clients):
+        if skill_source is not None and any(client != "devin-cloud" for client in clients):
             guide.extend(["## Bundled Skill", "", str(skill_source), "",
                           "Copy the complete ladybug-tools-mcp-use folder, including its references,",
                           "to the selected client's documented Skills directory or use its import UI.",
@@ -286,7 +291,7 @@ def asset_updates(resources: Path, skills: Path | None, gh: Path | None, previou
     old = owned_asset_paths(previous)
     changes, assets, kept, expected = {}, [], [], {}
     groups = []
-    if skills:
+    if skills and (resources / "skills" / SKILL).is_dir():
         groups.append((resources / "skills" / SKILL, skills / SKILL, "skill"))
     if gh:
         source = resources / "grasshopper"
@@ -373,8 +378,8 @@ def runtime_details(python: Path) -> dict:
     if details["version"] != __version__:
         raise ValueError("Installed MCP version does not match the installer.")
     resources = Path(details["resources"])
-    if not (resources / "skills" / SKILL / "SKILL.md").is_file() or not any((resources / "weather").glob("*/*.epw")):
-        raise ValueError("Installed wheel is missing Skills or weather resources.")
+    if not any((resources / "weather").glob("*/*.epw")):
+        raise ValueError("Installed wheel is missing weather resources.")
     return details
 
 
@@ -416,6 +421,9 @@ def install(args) -> dict:
     codex = absolute(args.codex_config or (previous.get("codex") or {}).get("path") or Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml")
     skills = absolute(args.skills_dir or previous.get("skills_dir") or Path.home() / ".agents/skills")
     gh_enabled = args.grasshopper if args.grasshopper is not None else bool(previous.get("grasshopper_dir"))
+    import ladybug_tools_mcp
+    resources = Path(ladybug_tools_mcp.__file__).resolve().parent / "resources"
+    has_local_skills = (resources / "skills" / SKILL / "SKILL.md").is_file()
     if not args.yes:
         if not sys.stdin.isatty():
             raise ValueError("Interactive install requires a terminal. Use --yes with explicit options for automation.")
@@ -424,7 +432,12 @@ def install(args) -> dict:
         gardens = ask_path("Garden directory", gardens)
         clients = ask_clients(clients)
         if "codex" in clients:
-            args.generate_config = not ask_yes("Configure Codex and install local Skills?", not args.generate_config)
+            codex_prompt = (
+                "Configure Codex and install local Skills?"
+                if has_local_skills
+                else "Configure Codex?"
+            )
+            args.generate_config = not ask_yes(codex_prompt, not args.generate_config)
         if clients and output is None:
             answer = input("Save preset files to a directory (blank = print only): ").strip()
             output = absolute(answer) if answer else None
@@ -471,8 +484,6 @@ def install(args) -> dict:
     config_bytes, config_record, config_before = (None, None, None)
     if configure_codex:
         config_bytes, config_record, config_before = codex_update(codex, server, previous, args.replace)
-    import ladybug_tools_mcp
-    resources = Path(ladybug_tools_mcp.__file__).resolve().parent / "resources"
     changes, assets, kept, expected = asset_updates(resources, skills if configure_codex else None, gh, previous, args.replace)
     if config_bytes is not None and config_before != config_bytes:
         changes[codex] = config_bytes
@@ -494,7 +505,8 @@ def install(args) -> dict:
         except subprocess.CalledProcessError as error:
             raise RuntimeError("uv could not prepare the runtime. Close MCP clients and Rhino, check the error above, then retry this command. Client settings and Gardens were retained.") from error
         details = runtime_details(python)
-    skill_source = Path(details["resources"]) / "skills"
+    bundled_skill_root = Path(details["resources"]) / "skills"
+    skill_source = bundled_skill_root if (bundled_skill_root / SKILL / "SKILL.md").is_file() else None
     export_changes, export_expected, presets, rendered = preset_updates(
         clients, server, skill_source, output, args.replace,
         {state, codex, *changes, *(Path(asset["path"]) for asset in assets)},
@@ -523,7 +535,7 @@ def install(args) -> dict:
             print(rendered[entry["client"]])
     return {"version": __version__, "python": str(python), "gardens_root": str(gardens),
             "state": str(state), "codex_configured": configure_codex, "client_presets": presets,
-            "bundled_skills": str(skill_source),
+            "bundled_skills": str(skill_source) if skill_source else None,
             "grasshopper": str(gh) if gh else None, "backups": backups, "preserved_files": kept}
 
 

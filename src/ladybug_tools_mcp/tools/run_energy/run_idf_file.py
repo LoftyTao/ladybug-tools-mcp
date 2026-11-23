@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_run_idf_file',
         description=(
-            "Run a user-edited EnergyPlus IDF file inside a Garden with the "
-            "Ladybug Tools Grasshopper file-run pattern. Use this after a user "
-            "edits IDF algorithms, EMS, HVAC templates, or other EnergyPlus "
-            "objects. This is a blocking file run and does not author a "
-            "Honeybee model. Returns run_target, energy_run_target, "
-            "runtime_status through summary_view.status, and report."
+            'Run a user-edited EnergyPlus IDF file inside a Garden with the Ladybug Tools '
+            'Grasshopper file-run pattern. Use this after a user edits IDF algorithms, EMS, HVAC '
+            'templates, or other EnergyPlus objects. Runs in blocking mode. Returns run_target, '
+            'energy_run_target, runtime_status through summary_view.status, and report.'
         ),
         tags={
             "energy",

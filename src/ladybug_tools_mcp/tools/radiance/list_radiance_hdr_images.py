@@ -15,11 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_list_hdr_images",
         description=(
-            "List HDR image artifacts from completed Radiance view runs. Use "
-            "this before falsecolor, GIF, or image search workflows. This "
-            "returns image artifact metadata and paths only; it does not "
-            "render views, convert images, or embed binary image data. Returns "
-            "matches, artifact_paths, summary_view, and report."
+            'List HDR image artifacts from completed Radiance view runs. Use this before '
+            'falsecolor, GIF, or image search workflows. This returns image artifact metadata and '
+            'paths only. Returns matches, artifact_paths, summary_view, and report.'
         ),
         tags={
             "artifact",

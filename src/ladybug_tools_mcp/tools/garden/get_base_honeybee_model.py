@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='GD_get_base_honeybee_model',
         description=(
-            "Read the current Garden base Honeybee model slot and return its "
-            "target handoff with minimal summary_view context. Use this when a "
-            "later Honeybee, Energy, Radiance, visualization, or export tool needs "
-            "the active Honeybee model target. This is not a model-list, full "
-            "HBJSON read, or validation tool; use GD_list_models for all model "
-            "targets and HB_validate_model for issue checks."
+            'Read the current Garden base Honeybee model slot and return its target handoff with '
+            'minimal summary_view context. Use this when a later Honeybee, Energy, Radiance, '
+            'visualization, or export tool needs the active Honeybee model target. Use '
+            'GD_list_models to list all models and HB_validate_model to validate.'
         ),
         tags={
             "base-model",

@@ -15,13 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_data_collection_to_file',
         description=(
-            "Export one Ladybug DataCollection to a Garden artifact using "
-            "Ladybug SDK native collections_to_json or collections_to_csv. Use "
-            "this for result dump/export workflows after energyplus result, "
-            "schedule, or weather tools return a ladybug_data_collection "
-            "target. Preferred Agent path is garden_root plus "
-            "data_collection_target and file_format=json or csv. This writes "
-            "a data artifact and does not query source simulations."
+            'Export one Ladybug DataCollection to a Garden artifact using Ladybug SDK native '
+            'collections_to_json or collections_to_csv. Use this for result dump/export workflows '
+            'after energyplus result, schedule, or weather tools return a ladybug_data_collection '
+            "target. Pass garden_root, data_collection_target, and file_format ('json' or 'csv'). "
+            'Writes a data artifact.'
         ),
         tags={
             "data-collection",
@@ -46,7 +44,10 @@ def register(mcp: FastMCP) -> None:
         data_collection: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Ladybug DataCollection dictionary. Use data_collection_target for normal Agent workflows to avoid copying values."
+                description=(
+                    'Optional Ladybug DataCollection dictionary. Use data_collection_target to '
+                    'reference persisted DataCollections directly.'
+                )
             ),
         ] = None,
         data_collection_target: Annotated[

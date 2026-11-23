@@ -35,7 +35,7 @@ def register(mcp: FastMCP) -> None:
         target: Annotated[
             dict[str, Any],
             Field(
-                description='Required Honeybee door typed target from HB_search_model_objects; not a door identifier string.'
+                description='Required Honeybee door typed target from HB_search_model_objects.'
             ),
         ],
         model_target: Annotated[

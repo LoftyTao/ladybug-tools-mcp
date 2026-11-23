@@ -15,11 +15,8 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_story",
         description=(
-            "Create a Dragonfly Story draft object from Dragonfly Room2D targets. "
-            "The parameter name is exactly room2d_targets, not room2ds and not room_2ds. "
-            "Pass identifier or a natural display_name; the returned Story target "
-            "can be passed to DF_building. This does not attach the "
-            "Story to a Building until that Building tool is called."
+            'Create a Dragonfly Story draft object from Dragonfly Room2D targets. Pass identifier '
+            'or display_name; attach the returned Story target to a Building with DF_building.'
         ),
         tags={"dragonfly", "story", "room2d", "author", "assembly"},
         timeout=20,
@@ -33,10 +30,7 @@ def register(mcp: FastMCP) -> None:
             list[dict[str, Any]] | None,
             Field(
                 description=(
-                    "Required list of Dragonfly Room2D targets. The parameter name "
-                    "is exactly room2d_targets, not room2ds and not room_2ds. Use "
-                    'room2d_target values returned by DF_room2d or '
-                    "target values from a Room2D search."
+                    'Required list of Dragonfly Room2D targets from DF_room2d or DF_search_objects.'
                 )
             ),
         ] = None,

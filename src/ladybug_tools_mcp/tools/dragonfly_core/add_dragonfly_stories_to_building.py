@@ -15,12 +15,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_add_stories_to_building",
         description=(
-            "Add Dragonfly Story draft targets to an existing Building using Dragonfly "
-            "Building.add_stories, then save the DFJSON model. The existing Building is "
-            "selected by building_identifier; do not pass a building target as target. "
-            "After adding, the service uses Dragonfly SDK Building.separate_top_bottom_floors "
-            "so repeated Story multipliers keep explicit ground, typical, and top Stories. "
-            "Returns the updated Dragonfly Building/model target context, not EnergyPlus Zone data."
+            'Add Dragonfly Story draft targets to an existing Building using Dragonfly '
+            'Building.add_stories, then save the DFJSON model. The existing Building is selected '
+            'by building_identifier. After adding, the service uses Dragonfly SDK '
+            'Building.separate_top_bottom_floors so repeated Story multipliers keep explicit '
+            'ground, typical, and top Stories. Returns the updated Dragonfly Building and model '
+            'target context.'
         ),
         tags={"dragonfly", "building", "story", "edit", "assembly"},
         timeout=20,

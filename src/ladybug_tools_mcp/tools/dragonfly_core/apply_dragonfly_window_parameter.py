@@ -34,9 +34,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    'Required parameter dict returned by DF_create_window_parameter. '
-                    "Use create result['parameter'] or result['window_parameter']; do not "
-                    "look for value.window_parameter."
+                    "Required parameter dict from DF_create_window_parameter['parameter'] or "
+                    "['window_parameter']."
                 )
             ),
         ] = None,

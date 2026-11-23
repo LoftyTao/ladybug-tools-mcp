@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_create_opaque_modifier",
         description=(
-            "Create an opaque Honeybee Radiance modifier using the SDK Plastic "
-            "material with RGB reflectance. Use garden_root and "
-            "return_object_dict=false to save a reusable Garden Properties "
-            "Library modifier target for Honeybee face, aperture, door, or "
-            "shade Radiance modifier fields. This does not create Energy "
-            "opaque materials or Radiance sensor geometry."
+            'Create an opaque Honeybee Radiance modifier using the SDK Plastic material with RGB '
+            'reflectance. Use garden_root and return_object_dict=false to save a reusable Garden '
+            'Properties Library modifier target for Honeybee face, aperture, door, or shade '
+            'Radiance modifier fields.'
         ),
         tags={
             "radiance",

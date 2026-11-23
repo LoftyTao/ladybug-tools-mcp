@@ -15,11 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_compose_model_analysis_visualization_set',
         description=(
-            "Compose a Garden-backed model-context VisualizationSet target "
-            "with an analysis-result VisualizationSet target for overlays such "
-            "as Honeybee wireframe plus Radiance mesh results. This combines "
-            "existing VisualizationSet targets; it does not read simulation "
-            "folders, query EnergyPlus SQL, or rerun analysis."
+            'Compose a Garden-backed model-context VisualizationSet target with an '
+            'analysis-result VisualizationSet target for overlays such as Honeybee wireframe plus '
+            'Radiance mesh results. This combines existing VisualizationSet targets.'
         ),
         tags={
             "visualization-set",

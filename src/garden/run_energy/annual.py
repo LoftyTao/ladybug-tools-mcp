@@ -695,38 +695,27 @@ def _energy_run_result_evidence(
     if status in {"queued", "running"}:
         recommended_next_tools = ["EP_poll_simulation"]
         final_answer_guidance = (
-            "This Energy run is already in progress. Poll this run_target with "
-            "EP_poll_simulation; do not start another Energy run with the same run_id."
+            "Energy simulation is currently queued or running; poll this run_target with EP_poll_simulation."
         )
     elif final_answer_ready:
         recommended_next_tools = ["EP_read_eui", GARDEN_VERSION_NEXT_TOOL]
         final_answer_guidance = (
-            "The Energy run is completed and EUI, SQL, and clean ERR evidence "
-            "are present. Call EP_read_eui, report the result, create a "
-            "Garden version checkpoint if this is the final accepted scenario, "
-            "and do not start another Energy run unless the user asks for a new scenario."
+            "Energy simulation completed with EUI, SQL, and clean ERR outputs available via EP_read_eui."
         )
     elif completed_with_diagnostics:
         recommended_next_tools = ["EP_read_eui", "EP_read_errors"]
         final_answer_guidance = (
-            "The Energy run is completed and EUI, SQL, and ERR evidence are "
-            "present, but ERR diagnostics contain severe or fatal entries. "
-            "Report the EUI together with the ERR status or precise blocker; "
-            "do not start another Energy run unless the user explicitly asks "
-            "to repair and rerun."
+            "Energy simulation completed with EUI and SQL outputs, and ERR diagnostics contain severe or fatal entries."
         )
     elif status == "completed":
         recommended_next_tools = ["EP_list_run_outputs", "EP_read_errors"]
         final_answer_guidance = (
-            "The Energy run is completed but complete EUI/SQL/ERR evidence is "
-            "not present. Inspect outputs and diagnostics for a precise blocker; "
-            "do not start another Energy run unless repairing a known issue."
+            "Energy simulation completed, though some EUI, SQL, or ERR outputs are absent; inspect outputs and diagnostics."
         )
     else:
         recommended_next_tools = ["EP_list_run_outputs", "EP_read_errors"]
         final_answer_guidance = (
-            "The Energy run is not completed successfully. Read outputs and ERR "
-            "diagnostics to report the blocker before considering a rerun."
+            "Energy simulation did not complete successfully; inspect outputs and ERR diagnostics."
         )
     return {
         "run_id": run_id,
@@ -1766,22 +1755,15 @@ def read_energy_eui(
     ]
     if final_answer_ready:
         final_answer_guidance = (
-            "EUI, SQL, and clean ERR evidence are present. Report the result; "
-            "create a Garden version checkpoint if this is the final accepted "
-            "scenario; do not start another Energy run unless the user asks for "
-            "a new scenario."
+            "EUI, SQL, and clean ERR outputs are available."
         )
     elif completed_with_diagnostics:
         final_answer_guidance = (
-            "EUI, SQL, and ERR evidence are present, but ERR diagnostics contain "
-            "severe or fatal entries. Report the EUI together with the ERR status "
-            "or precise blocker; do not start another Energy run unless the user "
-            "explicitly asks to repair and rerun."
+            "EUI and SQL outputs are available, and ERR diagnostics contain severe or fatal entries."
         )
     else:
         final_answer_guidance = (
-            "EUI exists, but SQL or ERR evidence is missing. Inspect the available "
-            "outputs before reporting final Energy evidence."
+            "EUI is available, though SQL or ERR outputs are absent; inspect available outputs for details."
         )
     result_evidence = {
         "run_id": resolved_run_id,

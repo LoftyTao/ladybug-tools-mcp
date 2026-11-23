@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_create_window_parameter",
         description=(
-            "Create a compact SDK-backed Dragonfly WindowParameter artifact for "
-            "Room2D, Story, Building, or Model outdoor wall application. Supports "
-            "parameter_type simple_window_ratio and repeating_window_ratio only; "
-            "this is a Dragonfly envelope parameter, not a Honeybee Aperture or Radiance "
-            "aperture modifier. Returns the compact artifact "
-            "as parameter, window_parameter, target, and object_dict."
+            'Create a compact SDK-backed Dragonfly WindowParameter artifact for Room2D, Story, '
+            'Building, or Model outdoor wall application. Supports parameter_type '
+            'simple_window_ratio and repeating_window_ratio only. Returns the compact artifact as '
+            'parameter, window_parameter, target, and object_dict.'
         ),
         tags={"dragonfly", "window", "parameter", "author", "aperture-ratio", "wwr"},
         timeout=20,

@@ -60,8 +60,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(
                 description=(
-                    "Optional reusable simulation_parameter target returned by "
-                    "EP_create_simulation_parameter. Do not pass together with sim_par."
+                    'Optional reusable simulation_parameter target returned by '
+                    'EP_create_simulation_parameter. Mutually exclusive with sim_par.'
                 )
             ),
         ] = None,
@@ -80,7 +80,12 @@ def register(mcp: FastMCP) -> None:
         additional_idf_text: Annotated[
             str | None,
             Field(
-                description="Optional inline additional EnergyPlus IDF text. Advanced users can pass small complete EnergyPlus objects such as EMS snippets; the service saves the text into the run inputs folder and passes it as recipe additional-idf. Do not pass this together with additional_idf_path."
+                description=(
+                    'Optional inline additional EnergyPlus IDF text. Advanced users can pass '
+                    'small complete EnergyPlus objects such as EMS snippets; the service saves '
+                    'the text into the run inputs folder and passes it as recipe additional-idf. '
+                    'Mutually exclusive with additional_idf_path.'
+                )
             ),
         ] = None,
         measures_path: Annotated[

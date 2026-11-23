@@ -12,11 +12,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_create_shade_construction',
         description=(
-            "Create a Honeybee Energy ShadeConstruction for outdoor Honeybee "
-            "Shade energy properties. This sets reflectance and specular "
-            "behavior for an energy construction; it does not create Honeybee "
-            "shade geometry or Radiance materials. Returns object_dict plus "
-            "summary_view with the scalar property values."
+            'Create a Honeybee Energy ShadeConstruction for outdoor Honeybee Shade energy '
+            'properties. This sets reflectance and specular behavior for an energy construction. '
+            'Returns object_dict plus summary_view with the scalar property values.'
         ),
         tags={
             "energy",

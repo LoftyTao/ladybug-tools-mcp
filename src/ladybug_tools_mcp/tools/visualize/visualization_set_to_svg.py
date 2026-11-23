@@ -12,11 +12,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="LB_set_to_svg",
         description=(
-            "Export a Ladybug Display VisualizationSet to an SVG artifact "
-            "inside a Garden and record it in garden.json artifacts. Preferred "
-            "Agent path is visualization_set_target from an upstream visualize "
-            "tool. This writes a static SVG export; it does not create, edit, "
-            "or analyze the VisualizationSet source data."
+            'Export a Ladybug Display VisualizationSet to an SVG artifact inside a Garden and '
+            'record it in garden.json artifacts. Pass visualization_set_target from an upstream '
+            'visualize tool. This writes a static SVG export.'
         ),
         tags={
             "visualization-set",

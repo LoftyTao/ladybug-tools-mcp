@@ -15,12 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_run_osm_file',
         description=(
-            "Run a user-edited OpenStudio OSM file inside a Garden by creating "
-            "or updating workflow.osw beside the OSM file. Use this after "
-            "OpenStudio-level HVAC or measure edits. This is a blocking file "
-            "run and does not author a Honeybee model. Returns run_target, "
-            "energy_run_target, runtime_status through summary_view.status, "
-            "and report."
+            'Run a user-edited OpenStudio OSM file inside a Garden by creating or updating '
+            'workflow.osw beside the OSM file. Use this after OpenStudio-level HVAC or measure '
+            'edits. Runs in blocking mode. Returns run_target, energy_run_target, runtime_status '
+            'through summary_view.status, and report.'
         ),
         tags={
             "energy",

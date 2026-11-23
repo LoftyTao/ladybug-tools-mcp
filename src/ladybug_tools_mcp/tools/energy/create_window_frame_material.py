@@ -12,11 +12,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='EP_create_window_frame_material',
         description=(
-            "Create a Honeybee Energy EnergyWindowFrame that can be attached "
-            "to a WindowConstruction. This is frame metadata for a glazing "
-            "construction, not aperture geometry. Returns object_dict plus "
-            "summary_view; return_detail='full' also includes a material "
-            "property matrix."
+            'Create a Honeybee Energy EnergyWindowFrame that can be attached to a '
+            "WindowConstruction. Returns object_dict plus summary_view; return_detail='full' also "
+            'includes a material property matrix.'
         ),
         tags={
             "energy",

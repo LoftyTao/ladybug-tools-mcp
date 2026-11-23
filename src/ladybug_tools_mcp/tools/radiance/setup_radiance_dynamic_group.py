@@ -15,14 +15,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_setup_dynamic_group",
         description=(
-            "Apply the same Honeybee Radiance dynamic_group_identifier and "
-            "state update to multiple Shade, Aperture, or Door targets in a "
-            "Garden model. This creates model-side grouping by setting object "
-            "properties; it does not create a separate SDK DynamicShadeGroup "
-            "or DynamicSubFaceGroup object. For replace_all/add, pass at least "
-            "one state from RAD_create_shade_state or "
-            "RAD_create_subface_state. This edits Radiance properties and "
-            "does not run a recipe."
+            'Apply the same Honeybee Radiance dynamic_group_identifier and state update to '
+            'multiple Shade, Aperture, or Door targets in a Garden model. This creates model-side '
+            'grouping by setting object properties. For replace_all/add, pass at least one state '
+            'from RAD_create_shade_state or RAD_create_subface_state.'
         ),
         tags={
             "dynamic",

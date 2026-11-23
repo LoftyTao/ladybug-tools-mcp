@@ -15,15 +15,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name='LB_data_collection_hourly_plot_to_visualization_set',
         description=(
-            "Create a Ladybug Display VisualizationSet hourly plot from one "
-            "hourly Ladybug DataCollection using Ladybug HourlyPlot. Use this "
-            "for hourly energy result data, schedules, weather, comfort, or "
-            "other time-series data after an upstream tool returns a "
-            "ladybug_data_collection target. Preferred Agent path is "
-            "garden_root plus data_collection_target and "
-            "return_visualization_set=false, returning a compact "
-            "visualization_set_target for exporters. This charts an existing "
-            "DataCollection; it does not query SQL, EPW, or Radiance folders."
+            'Create a Ladybug Display VisualizationSet hourly plot from one hourly Ladybug '
+            'DataCollection using Ladybug HourlyPlot. Use this for hourly energy result data, '
+            'schedules, weather, comfort, or other time-series data after an upstream tool '
+            'returns a ladybug_data_collection target. Pass garden_root and '
+            'data_collection_target with return_visualization_set=false to persist a compact '
+            'visualization_set_target for exporters. This charts an existing DataCollection.'
         ),
         tags={
             "data-collection",
@@ -37,7 +34,10 @@ def register(mcp: FastMCP) -> None:
         data_collection: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Ladybug hourly DataCollection dictionary. Use data_collection_target instead for Agent token-saving Garden workflows."
+                description=(
+                    'Optional Ladybug hourly DataCollection dictionary. Use '
+                    'data_collection_target for compact Garden-backed workflows.'
+                )
             ),
         ] = None,
         data_collection_target: Annotated[

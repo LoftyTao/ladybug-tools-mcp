@@ -36,13 +36,10 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_list_artifact_files",
         description=(
-            "List Garden-managed Radiance artifact file records such as HDR "
-            "images, falsecolor images, grid result files, and VisualizationSet "
-            "exports. Use this to find artifact paths before export or "
-            "preview. This reads Garden artifact metadata and compact paths; "
-            "it does not open image payloads, grid result values, or rerun "
-            "recipes. Returns matches, artifact_paths, summary_view, and "
-            "report."
+            'List Garden-managed Radiance artifact file records such as HDR images, falsecolor '
+            'images, grid result files, and VisualizationSet exports. Use this to find artifact '
+            'paths before export or preview. This reads Garden artifact metadata and compact '
+            'paths. Returns matches, artifact_paths, summary_view, and report.'
         ),
         tags={
             "artifact",

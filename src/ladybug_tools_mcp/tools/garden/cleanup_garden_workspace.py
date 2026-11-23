@@ -13,7 +13,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name='GD_cleanup_workspace',
-        description="Remove selected non-authoring Garden workspace directories such as tmp, artifacts, flowerpots, payloads, imports, or runs. A later workflow recreates its directory when needed. This maintenance tool does not touch garden.json, models/, or libraries/, and dry_run reports what would be cleaned before deleting files. Use it when a Garden has too many temporary or generated workspace files, not to remove project authoring truth. Returns removed/skipped lists, summary_view, persistence_receipt, and report.",
+        description=(
+            'Remove selected non-authoring Garden workspace directories such as tmp, artifacts, '
+            'flowerpots, payloads, imports, or runs. A later workflow recreates its directory '
+            'when needed. This maintenance tool does not touch garden.json, models/, or '
+            'libraries/, and dry_run reports what would be cleaned before deleting files. Use it '
+            'to remove temporary or generated workspace files while preserving project authoring '
+            'truth. Returns removed/skipped lists, summary_view, persistence_receipt, and report.'
+        ),
         tags={
             "cleanup",
             "garden",
@@ -29,7 +36,10 @@ def register(mcp: FastMCP) -> None:
         cleanup_scopes: Annotated[
             list[CleanupScope],
             Field(
-                description="Explicit Garden workspace scopes to clean. Allowed values are tmp, artifacts, flowerpots, payloads, imports, and runs; models and libraries are intentionally not valid cleanup scopes.",
+                description=(
+                    'Explicit Garden workspace scopes to clean. Allowed values are tmp, '
+                    'artifacts, flowerpots, payloads, imports, and runs.'
+                ),
                 min_length=1,
             ),
         ],

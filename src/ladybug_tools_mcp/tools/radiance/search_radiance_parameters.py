@@ -53,12 +53,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_search_parameters",
         description=(
-            "Search Radiance parameter strings recorded on Garden Radiance "
-            "runs and return compact radiance_parameters targets usable with "
-            "start_radiance_*_run tools. This searches saved parameter "
-            "records; it does not create parameters or inspect raw Radiance "
-            "result files. If no stored parameters exist, call "
-            "RAD_create_parameters or pass a Radiance parameter string."
+            'Search Radiance parameter strings recorded on Garden Radiance runs and return '
+            'compact radiance_parameters targets usable with RAD_start_grid_simulation, '
+            'RAD_start_view_simulation, or RAD_start_matrix_simulation. This searches saved '
+            'parameter records. If no stored parameters exist, call RAD_create_parameters or pass '
+            'a Radiance parameter string.'
         ),
         tags={
             "parameters",

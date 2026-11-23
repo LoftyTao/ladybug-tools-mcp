@@ -15,13 +15,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="RAD_add_luminaire_to_model",
         description=(
-            "Attach Radiance luminaire targets to a Garden Honeybee model for "
-            "electric-lighting Radiance studies. Pass luminaire targets from "
-            "RAD_create_luminaire plus an optional Honeybee model target. "
-            "This edits model.properties.radiance.luminaires; it does not "
-            "create Energy lighting loads or run rpict/grid recipes. Returns "
-            "target, model_target, summary_view, persistence_receipt, and "
-            "report for later search or simulation calls."
+            'Attach Radiance luminaire targets to a Garden Honeybee model for electric-lighting '
+            'Radiance studies. Pass luminaire targets from RAD_create_luminaire plus an optional '
+            'Honeybee model target. This edits model.properties.radiance.luminaires. Returns '
+            'target, model_target, summary_view, persistence_receipt, and report for later search '
+            'or simulation calls.'
         ),
         tags={
             "radiance",

@@ -14,15 +14,13 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="HB_complete_opening_shade_stage",
         description=(
-            "Create or resume one bounded Honeybee Room -> exterior Wall Face -> "
-            "ratio Aperture -> horizontal louver Shade stage. The first call takes "
-            "checkpoint_id, exact room_target and face_target, aperture_ratio, "
-            "shade_depth, and shade_count. A later Agent session can pass the returned "
-            "checkpoint_target to reread current Garden truth and continue. Matching "
-            "objects are reused, conflicts are returned without overwrite, and a "
-            "completed retry performs no duplicate write. Returns created_targets, "
-            "reused_targets, missing_requirements, validation_state, next_action, "
-            "checkpoint_target, persistence_receipt, and report."
+            'Create or resume one bounded Honeybee Room -> exterior Wall Face -> ratio Aperture '
+            '-> horizontal louver Shade stage. The first call takes checkpoint_id, exact '
+            'room_target and face_target, aperture_ratio, shade_depth, and shade_count. Pass the '
+            'returned checkpoint_target later to reread Garden truth and resume. Matching objects '
+            'are reused, conflicts are returned without overwrite, and a completed retry performs '
+            'no duplicate write. Returns created_targets, reused_targets, missing_requirements, '
+            'validation_state, next_action, checkpoint_target, persistence_receipt, and report.'
         ),
         tags={"aperture", "author", "checkpoint", "honeybee", "shade", "workflow"},
         timeout=30,

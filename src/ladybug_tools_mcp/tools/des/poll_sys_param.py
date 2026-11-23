@@ -15,10 +15,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="DF_des_poll_sys_param",
         description=(
-            "Read the compact Garden ledger for a DES system-parameter run. Use "
-            "after the start tool to check runtime_status and confirm whether a "
-            "system_parameter_json_target is ready for Modelica candidate steps. "
-            "The response keeps the JSON body on disk."
+            'Read the compact Garden ledger for a DES system-parameter run. Use after the start '
+            'tool to check runtime_status and confirm whether system_parameter_json_target is '
+            'ready for Modelica steps.'
         ),
         tags={"dragonfly", "district-energy", "poll", "runtime", "run", "sizing", "target"},
         timeout=20,

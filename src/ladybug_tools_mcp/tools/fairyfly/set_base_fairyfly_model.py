@@ -15,9 +15,8 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FF_set_base_model",
         description=(
-            "Register or select an existing Fairyfly model target as the Garden base "
-            "Fairyfly model. Returns target, summary_view, and report for downstream "
-            "Fairyfly tools; this does not validate, export, or simulate the model."
+            'Register or select an existing Fairyfly model target as the Garden base Fairyfly '
+            'model. Returns target, summary_view, and report for downstream Fairyfly tools.'
         ),
         tags={"fairyfly", "therm", "model", "garden", "base-model"},
         timeout=10,
