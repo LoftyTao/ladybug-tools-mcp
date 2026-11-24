@@ -2,16 +2,161 @@
 
 from pathlib import Path
 import hashlib
+import importlib.util
 import json
 import os
 import runpy
 import shutil
 import subprocess
+import sys
 import tomllib
 import warnings
 
-from setuptools import setup
+from setuptools import Extension, setup
+from setuptools.command.build_ext import build_ext
 from setuptools.command.build_py import build_py
+
+
+def _find_cmake():
+    cmake = shutil.which("cmake")
+    if cmake:
+        return cmake
+    if os.name == "nt":
+        program_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        vswhere = Path(program_files_x86) / "Microsoft Visual Studio/Installer/vswhere.exe"
+        if vswhere.is_file():
+            proc = subprocess.run(
+                [str(vswhere), "-latest", "-products", "*", "-property", "installationPath"],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            install_path = proc.stdout.strip().splitlines()[0] if proc.stdout.strip() else ""
+            if install_path:
+                candidate = (
+                    Path(install_path)
+                    / "Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe"
+                )
+                if candidate.is_file():
+                    return str(candidate)
+    return None
+
+
+class CMakeExtension(Extension):
+    def __init__(self, name):
+        super().__init__(name, sources=[])
+
+
+class CMakeBuild(build_ext):
+    def _load_build_identity(self, root):
+        spec = importlib.util.spec_from_file_location(
+            "pyhygrothermfem_build_identity",
+            root / "src/pyhygrothermfem_native/build_identity.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def build_extension(self, extension):
+        root = Path(__file__).resolve().parent
+        cmake = _find_cmake()
+        require_native = os.environ.get("LBT_MCP_REQUIRE_HYGROTHERM_NATIVE") == "1"
+        if cmake is None:
+            if require_native:
+                raise RuntimeError(
+                    "LBT_MCP_REQUIRE_HYGROTHERM_NATIVE=1 requires CMake and a C++20 toolchain "
+                    "to compile pyhygrothermfem_fairyfly._native."
+                )
+            warnings.warn(
+                "CMake was not found; skipping native compilation of pyhygrothermfem_fairyfly._native "
+                "(set LBT_MCP_REQUIRE_HYGROTHERM_NATIVE=1 to require it).",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return
+
+        import pybind11
+
+        build_identity = self._load_build_identity(root)
+        native_path = Path(self.get_ext_fullpath(extension.name)).resolve()
+        output_dir = native_path.parent
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for stale in (*output_dir.glob("_native*"), output_dir / "_build_source.json"):
+            if stale.is_file():
+                stale.unlink()
+
+        build_dir = Path(self.build_temp).resolve() / "htfem"
+        build_dir.mkdir(parents=True, exist_ok=True)
+        configuration = "Debug" if self.debug else "Release"
+
+        # Copy os.environ into a plain dict so Windows PATH/Path keys do not
+        # collide case-insensitively inside MSBuild (.NET ProcessStartInfo).
+        env = dict(os.environ)
+
+        subprocess.run(
+            [
+                cmake,
+                "-S",
+                str(root / "src/pyhygrothermfem_native"),
+                "-B",
+                str(build_dir),
+                f"-DPython_EXECUTABLE={sys.executable}",
+                f"-Dpybind11_DIR={pybind11.get_cmake_dir()}",
+                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={output_dir}",
+                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_{configuration.upper()}={output_dir}",
+                f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={output_dir}",
+                f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_{configuration.upper()}={output_dir}",
+                f"-DCMAKE_BUILD_TYPE={configuration}",
+            ],
+            check=True,
+            env=env,
+        )
+        subprocess.run(
+            [
+                cmake,
+                "--build",
+                str(build_dir),
+                "--config",
+                configuration,
+                "--target",
+                "_native",
+                "--parallel",
+            ],
+            check=True,
+            env=env,
+        )
+
+        identity_path = build_dir / "build-source-identity.json"
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+        if build_identity.prepare_identity(root) != identity:
+            raise RuntimeError("Build inputs changed after CMake source verification.")
+        build_identity.finalize_package(output_dir, identity_path, native_path)
+
+    def get_outputs(self):
+        outputs = super().get_outputs()
+        for extension in self.extensions:
+            metadata = str(
+                Path(self.get_ext_fullpath(extension.name)).parent / "_build_source.json"
+            )
+            if metadata not in outputs and Path(metadata).is_file():
+                outputs.append(metadata)
+        return outputs
+
+    def copy_extensions_to_source(self):
+        super().copy_extensions_to_source()
+        build_py = self.get_finalized_command("build_py")
+        for ext in self.extensions:
+            ext_rel = Path(self.get_ext_filename(ext.name))
+            src_meta = Path(self.build_lib) / ext_rel.parent / "_build_source.json"
+            if not src_meta.is_file():
+                src_meta = Path(self.get_ext_fullpath(ext.name)).parent / "_build_source.json"
+            if src_meta.is_file():
+                modpath = ext.name.split(".")
+                package = ".".join(modpath[:-1])
+                package_dir = Path(build_py.get_package_dir(package))
+                package_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_meta, package_dir / "_build_source.json")
 
 
 class BuildPy(build_py):
@@ -51,10 +196,11 @@ class BuildPy(build_py):
         if actual_assets != files:
             raise ValueError("Grasshopper manifest and user-object files do not match.")
         output = Path(self.build_lib).resolve()
-        if not output.is_relative_to(root / "build") or output == root / "build":
-            raise ValueError("The package build directory must be inside this project's build/ directory.")
-        if output.exists():
-            shutil.rmtree(output)
+        if not getattr(self, "editable_mode", False):
+            if not output.is_relative_to(root / "build") or output == root / "build":
+                raise ValueError("The package build directory must be inside this project's build/ directory.")
+            if output.exists():
+                shutil.rmtree(output)
         super().run()
         resources = Path(self.build_lib) / "ladybug_tools_mcp" / "resources"
         bridge_out = root / "src/ironbug_bridge/bin/Release/net8.0"
@@ -115,4 +261,7 @@ class BuildPy(build_py):
             )
 
 
-setup(cmdclass={"build_py": BuildPy})
+setup(
+    cmdclass={"build_py": BuildPy, "build_ext": CMakeBuild},
+    ext_modules=[CMakeExtension("pyhygrothermfem_fairyfly._native")],
+)

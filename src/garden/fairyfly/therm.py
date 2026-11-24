@@ -5,21 +5,32 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 from statistics import fmean
 import time
 from typing import Any
+import xml.etree.ElementTree as ET
+import zipfile
 
-from fairyfly_therm.result import THMZResult
-from fairyfly_therm.run import run_thmz
-from fairyfly_therm.simulation.exposure import ModelExposure
-from fairyfly_therm.simulation.mesh import MeshControl
-from fairyfly_therm.simulation.parameter import SimulationParameter
-from fairyfly_therm.writer import model_to_thmz
+from fairyfly_next_therm.result import THMZResult
+from fairyfly_next_therm.run import run_thmz
+from fairyfly_next_therm.simulation.exposure import ModelExposure
+from fairyfly_next_therm.simulation.mesh import MeshControl
+from fairyfly_next_therm.simulation.parameter import SimulationParameter
+from fairyfly_next_therm.simulation.transient import TransientCalculation
+from fairyfly_next_therm.writer import model_to_thmz
 from ladybug.psychrometrics import dew_point_from_db_rh, rel_humid_from_db_dpt
 from ladybug_geometry.geometry2d.pointvector import Point2D
+from pyhygrothermfem_fairyfly.transient_results import (
+    TRANSIENT_RESULT_MEMBERS,
+    TRANSIENT_STEP_EXCHANGE_MEMBERS,
+    read_geometry_xml,
+    read_transient_series,
+)
 
-from garden.background import read_tail_lines, submit_worker_process
+from garden.background import submit_worker_process
 from garden.fairyfly.availability import therm_engine_config
+from garden.fairyfly.mesher import gmsh_mesh_to_xml, mesh_thmz_in_place, thmz_has_mesh
 from garden.fairyfly.model import load_fairyfly_model, resolve_model_target
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import (
@@ -51,11 +62,43 @@ _DATA_TYPE_ATTRS = {
     "heat_flux_vector": "heat_fluxes",
     "heat_flux_vectors": "heat_fluxes",
     "heat_fluxes": "heat_fluxes",
+    "humidity": "humidities",
+    "humidities": "humidities",
+    "relative_humidity": "humidities",
+    "water_content": "water_contents",
+    "water_contents": "water_contents",
+    "moisture_content": "water_contents",
 }
 _DATA_TYPE_NAMES = {
     "temperatures": "temperature",
     "heat_flux_magnitudes": "heat_flux",
     "heat_fluxes": "heat_flux_vectors",
+    "humidities": "humidity",
+    "water_contents": "water_content",
+}
+_TRANSIENT_NODE_FIELD_MAP = {
+    "temperature": TRANSIENT_RESULT_MEMBERS["temperatures"],
+    "heat_flux": TRANSIENT_RESULT_MEMBERS["heat_flux"],
+    "humidity": TRANSIENT_RESULT_MEMBERS["humidities"],
+    "water_content": TRANSIENT_RESULT_MEMBERS["water_content"],
+}
+_TRANSIENT_SERIES_FIELDS = (
+    ("temperatures", TRANSIENT_RESULT_MEMBERS["temperatures"]),
+    ("humidities", TRANSIENT_RESULT_MEMBERS["humidities"]),
+    ("water_content", TRANSIENT_RESULT_MEMBERS["water_content"]),
+    ("heat_flux", TRANSIENT_RESULT_MEMBERS["heat_flux"]),
+    ("water_flux", TRANSIENT_RESULT_MEMBERS["water_flux"]),
+    ("heat_flux_edges", TRANSIENT_RESULT_MEMBERS["heat_flux_edges"]),
+    ("water_flux_edges", TRANSIENT_RESULT_MEMBERS["water_flux_edges"]),
+    ("heat_flux_step_exchange", TRANSIENT_STEP_EXCHANGE_MEMBERS["heat_flux_step_exchange"]),
+    ("water_flux_step_exchange", TRANSIENT_STEP_EXCHANGE_MEMBERS["water_flux_step_exchange"]),
+)
+_TRANSIENT_FIELD_ALIASES = {
+    **{k: (k, v) for k, v in _TRANSIENT_SERIES_FIELDS},
+    "temperature": ("temperatures", TRANSIENT_RESULT_MEMBERS["temperatures"]),
+    "humidity": ("humidities", TRANSIENT_RESULT_MEMBERS["humidities"]),
+    "water_contents": ("water_content", TRANSIENT_RESULT_MEMBERS["water_content"]),
+    "moisture_content": ("water_content", TRANSIENT_RESULT_MEMBERS["water_content"]),
 }
 _U_FACTOR_FIELDS = (
     "name",
@@ -115,6 +158,10 @@ _THERM_RUNS = RunManager(
         "thmz_target",
         "thmz_path",
         "simulation_parameter",
+        "simulation_mode",
+        "solver_provenance",
+        "mesh_convergence",
+        "source_thmz_path",
         "engine",
         "disabled_reason",
         "warnings",
@@ -247,7 +294,30 @@ def _coerce_simulation_parameter(
             )
         )
 
-    return SimulationParameter(mesh=mesh_ctrl, exposure=exposure_obj)
+    transient_obj: TransientCalculation | None = None
+    transient_raw = simulation_parameter.get("transient")
+    if isinstance(transient_raw, dict):
+        if transient_raw.get("type") == "TransientCalculation":
+            transient_obj = TransientCalculation.from_dict(transient_raw)
+        else:
+            t_kwargs: dict[str, Any] = {}
+            for key in (
+                "time_range",
+                "timestep",
+                "number_of_timesteps",
+                "initial_temperature",
+                "initial_humidity",
+                "methodology",
+                "simulate_moisture",
+                "convergence_tolerance",
+                "relaxation_parameter",
+                "modeling_options",
+            ):
+                if transient_raw.get(key) is not None:
+                    t_kwargs[key] = transient_raw[key]
+            transient_obj = TransientCalculation(**t_kwargs)
+
+    return SimulationParameter(mesh=mesh_ctrl, exposure=exposure_obj, transient=transient_obj)
 
 
 def _run_response(
@@ -271,6 +341,10 @@ def _run_response(
         "run_folder": record.get("run_folder"),
         "thmz_target": record.get("thmz_target"),
         "simulation_parameter": record.get("simulation_parameter"),
+        "simulation_mode": record.get("simulation_mode"),
+        "solver_provenance": record.get("solver_provenance"),
+        "mesh_convergence": record.get("mesh_convergence"),
+        "source_thmz_path": record.get("source_thmz_path"),
         "engine": record.get("engine"),
         "disabled_reason": record.get("disabled_reason"),
         "poll_next": {
@@ -303,6 +377,7 @@ def write_fairyfly_model_to_thmz(
     run_id: str | None = None,
     name: str | None = None,
     simulation_parameter: dict[str, Any] | None = None,
+    include_mesh: bool = False,
 ) -> dict[str, Any]:
     """Write a Garden-backed Fairyfly model to a THERM THMZ artifact."""
     garden_root_path = require_garden_root(garden_root)
@@ -313,7 +388,13 @@ def write_fairyfly_model_to_thmz(
     run_dir = _THERM_RUNS.run_dir(garden_root_path, normalized_run_id)
     safe_name = slugify_name(name) if name else "model"
     thmz_path = run_dir / f"{safe_name}.thmz"
-    model_to_thmz(model, str(thmz_path), sim_par)
+    model_to_thmz(
+        model,
+        str(thmz_path),
+        sim_par,
+        mesh_generator=gmsh_mesh_to_xml if include_mesh else None,
+    )
+    has_mesh = thmz_has_mesh(thmz_path)
     thmz_relative_path = to_posix_relative(thmz_path, garden_root_path)
     target = make_fairyfly_thmz_target(
         garden_id=manifest.garden_id,
@@ -325,6 +406,7 @@ def write_fairyfly_model_to_thmz(
         "run_id": normalized_run_id,
         "model_target": resolved_model_target,
         "model_path": model_path,
+        "include_mesh": bool(include_mesh),
     }
     artifact = _register_artifact(
         manifest,
@@ -353,6 +435,8 @@ def write_fairyfly_model_to_thmz(
             "run_id": normalized_run_id,
             "status": "written",
             "path": thmz_relative_path,
+            "include_mesh": bool(include_mesh),
+            "has_mesh": has_mesh,
             "model_target": resolved_model_target,
             "model_path": model_path,
             "simulation_parameter": sim_par.to_dict() if sim_par is not None else None,
@@ -365,19 +449,24 @@ def write_fairyfly_model_to_thmz(
     }
 
 
-def _verify_therm_log_complete(run_dir: Path) -> str:
-    """Verify THERM generated therm.log and ended with 'Calculation complete.'."""
-    log_path = run_dir / "therm.log"
-    if not log_path.is_file():
-        raise RuntimeError(f"THERM did not create therm.log in {run_dir}.")
-    log_text = log_path.read_text(encoding="utf-8", errors="replace")
-    if "Calculation complete." not in log_text:
-        tail = read_tail_lines(log_path, tail_lines=40).strip()
-        raise RuntimeError(
-            "THERM simulation failed: 'Calculation complete.' was not found in therm.log."
-            + (f"\n{tail}" if tail else "")
-        )
-    return log_text
+def _verify_solver_outputs(thmz_path: Path) -> dict[str, Any]:
+    """Verify pyHygroTherm.json provenance inside a solved THMZ archive."""
+    if not thmz_path.is_file():
+        raise RuntimeError(f"Solver output THMZ not found: {thmz_path}")
+    with zipfile.ZipFile(thmz_path, "r") as archive:
+        try:
+            raw = archive.read("pyHygroTherm.json")
+        except KeyError as exc:
+            raise RuntimeError(
+                f"pyHygroThermFEM simulation did not write pyHygroTherm.json in {thmz_path}."
+            ) from exc
+    provenance = json.loads(raw.decode("utf-8"))
+    if not isinstance(provenance, dict) or not provenance.get("contract_version"):
+        raise RuntimeError("Solved THMZ pyHygroTherm.json is missing contract_version.")
+    mode = provenance.get("mode")
+    if mode not in {"dry-steady", "dry-transient", "hygrothermal-transient"}:
+        raise RuntimeError(f"Unsupported solver provenance mode {mode!r} in pyHygroTherm.json.")
+    return provenance
 
 
 def _run_therm_worker(
@@ -385,28 +474,95 @@ def _run_therm_worker(
     garden_root: str,
     run_id: str,
     garden_id: str,
-    model_target: dict[str, Any],
+    model_target: dict[str, Any] | None = None,
+    thmz_source_path: str | None = None,
     silent: bool = True,
     simulation_parameter: dict[str, Any] | None = None,
 ) -> None:
-    """Background worker that exports THMZ, runs THERM CLI, and verifies therm.log."""
+    """Background worker that meshes (via Gmsh), runs pyHygroThermFEM, and verifies provenance."""
     garden_root_path = Path(garden_root).resolve()
     run_dir = _THERM_RUNS.run_dir(garden_root_path, run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
     thmz_path = run_dir / "model.thmz"
     existing = _THERM_RUNS.require(garden_root_path, run_id)
     warnings: list[str] = list(existing.get("warnings", []))
     error: str | None = None
     status = "completed"
+    provenance: dict[str, Any] | None = None
+    mesh_convergence: dict[str, Any] | None = None
 
     try:
-        log_path = run_dir / "therm.log"
-        if log_path.is_file():
-            log_path.unlink()
-        model = load_fairyfly_model(garden_root_path, model_target)
         sim_par = _coerce_simulation_parameter(simulation_parameter)
-        model_to_thmz(model, str(thmz_path), sim_par)
-        run_thmz(str(thmz_path), silent=silent)
-        _verify_therm_log_complete(run_dir)
+        if thmz_source_path:
+            source_file = Path(thmz_source_path)
+            if not source_file.is_file():
+                raise ValueError(f"Source THMZ file not found: {source_file}")
+            shutil.copy2(source_file, thmz_path)
+            premeshed = thmz_has_mesh(thmz_path)
+            if not premeshed:
+                target_quad = max(int(sim_par.mesh.parameter), 4) if sim_par is not None else 20
+                mesh_thmz_in_place(thmz_path, target_quad_count=target_quad)
+            run_thmz(str(thmz_path), silent=silent)
+            provenance = _verify_solver_outputs(thmz_path)
+            mesh_convergence = {
+                "premeshed": premeshed,
+                "converged": True,
+                "energy_error_percent": provenance.get("energy_error_percent"),
+            }
+        else:
+            if model_target is None:
+                raise ValueError("model_target is required when thmz_target/thmz_path is omitted.")
+            model = load_fairyfly_model(garden_root_path, model_target)
+            effective_par = sim_par if sim_par is not None else SimulationParameter()
+            control = effective_par.mesh
+            if effective_par.transient is None and control.run_error_estimator:
+                target = max(int(control.parameter), 4)
+                max_iterations = max(int(control.max_iterations), 1)
+                max_error_percent = float(control.max_error_percent)
+                converged = False
+                energy_error: float | None = None
+                attempts_used = 0
+                for attempt in range(1, max_iterations + 1):
+                    attempts_used = attempt
+                    step_par = effective_par.duplicate()
+                    step_par.mesh.parameter = target
+                    model_to_thmz(
+                        model,
+                        str(thmz_path),
+                        step_par,
+                        mesh_generator=gmsh_mesh_to_xml,
+                    )
+                    run_thmz(str(thmz_path), silent=silent)
+                    provenance = _verify_solver_outputs(thmz_path)
+                    raw_err = provenance.get("energy_error_percent")
+                    energy_error = float(raw_err) if raw_err is not None else None
+                    if energy_error is None or energy_error <= max_error_percent:
+                        converged = True
+                        break
+                    if attempt < max_iterations:
+                        target = min(target * 4, 200000)
+                if not converged and energy_error is not None:
+                    warnings.append(
+                        f"Steady-state energy error {energy_error:.3f}% exceeded max_error_percent "
+                        f"{max_error_percent:.3f}% after {attempts_used} iteration(s)."
+                    )
+                mesh_convergence = {
+                    "premeshed": False,
+                    "converged": converged,
+                    "iterations": attempts_used,
+                    "final_target_quad_count": target,
+                    "energy_error_percent": energy_error,
+                    "max_error_percent": max_error_percent,
+                }
+            else:
+                model_to_thmz(
+                    model,
+                    str(thmz_path),
+                    effective_par,
+                    mesh_generator=gmsh_mesh_to_xml,
+                )
+                run_thmz(str(thmz_path), silent=silent)
+                provenance = _verify_solver_outputs(thmz_path)
     except Exception as exc:
         status = "failed"
         error = str(exc)
@@ -430,24 +586,56 @@ def _run_therm_worker(
         "completed_at": utc_now_iso(),
         "thmz_target": thmz_target,
         "thmz_path": thmz_relative_path,
+        "simulation_mode": provenance.get("mode") if provenance else existing.get("simulation_mode"),
+        "solver_provenance": provenance,
+        "mesh_convergence": mesh_convergence,
         "warnings": warnings,
     }
     _THERM_RUNS.upsert(garden_root_path, updated)
+
+
+def _resolve_direct_thmz_source(
+    *,
+    garden_root: Path,
+    manifest: GardenManifest,
+    thmz_target: dict[str, Any] | None,
+    thmz_path: str | None,
+) -> Path | None:
+    if thmz_target is not None:
+        resolved, _, _ = _thmz_path_from_target(
+            garden_root=garden_root,
+            manifest=manifest,
+            thmz_target=thmz_target,
+        )
+        return resolved
+    if thmz_path:
+        candidate = Path(thmz_path).expanduser()
+        if candidate.is_absolute():
+            if not candidate.is_file():
+                raise FileNotFoundError(f"THMZ file not found: {thmz_path}")
+            return candidate.resolve()
+        return resolve_existing_garden_path(
+            garden_root, thmz_path, kind="file", label="THERM THMZ file"
+        )
+    return None
 
 
 def start_fairyfly_therm_run(
     *,
     garden_root: str,
     model_target: dict[str, Any] | None = None,
+    thmz_target: dict[str, Any] | None = None,
+    thmz_path: str | None = None,
     run_id: str | None = None,
     silent: bool = True,
     export_only: bool = False,
+    include_mesh: bool = False,
     name: str | None = None,
     simulation_parameter: dict[str, Any] | None = None,
     wait_seconds: float | None = None,
     poll_interval: float = 2.0,
 ) -> dict[str, Any]:
-    """Start an async Fairyfly THERM run (or export THMZ only) and persist the Garden run ledger."""
+    """Start an async Fairyfly pyHygroThermFEM run (or export THMZ only) and persist the Garden run ledger."""
     if export_only:
         return write_fairyfly_model_to_thmz(
             garden_root=garden_root,
@@ -455,21 +643,33 @@ def start_fairyfly_therm_run(
             run_id=run_id,
             name=name,
             simulation_parameter=simulation_parameter,
+            include_mesh=include_mesh,
         )
     garden_root_path = require_garden_root(garden_root)
-    manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
+    manifest = GardenManifest.read(garden_root_path)
+    source_thmz = _resolve_direct_thmz_source(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        thmz_target=thmz_target,
+        thmz_path=thmz_path,
+    )
+    resolved_model_target: dict[str, Any] | None = None
+    model_path: str | None = None
+    if source_thmz is None or model_target is not None:
+        manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
+        model_path = resolved_model_target.get("path")
+
     normalized_run_id = _THERM_RUNS.normalize_run_id(run_id)
     run_dir = _THERM_RUNS.run_dir(garden_root_path, normalized_run_id)
     run_folder = to_posix_relative(run_dir, garden_root_path)
     target = make_fairyfly_therm_run_target(manifest.garden_id, normalized_run_id)
-    model_path = resolved_model_target.get("path")
     sim_par = _coerce_simulation_parameter(simulation_parameter)
     sim_par_dict = sim_par.to_dict() if sim_par is not None else None
     engine = therm_engine_config()
     started_at = utc_now_iso()
 
     if not engine.get("available"):
-        disabled_reason = str(engine.get("disabled_reason") or "therm_unavailable")
+        disabled_reason = str(engine.get("disabled_reason") or "hygrothermfem_unavailable")
         record = {
             "run_id": normalized_run_id,
             "target": target,
@@ -480,18 +680,19 @@ def start_fairyfly_therm_run(
             "completed_at": utc_now_iso(),
             "model_target": resolved_model_target,
             "model_path": model_path,
+            "source_thmz_path": str(source_thmz) if source_thmz else None,
             "run_folder": run_folder,
             "simulation_parameter": sim_par_dict,
             "engine": engine,
             "disabled_reason": disabled_reason,
-            "warnings": [f"THERM runtime unavailable: {disabled_reason}"],
+            "warnings": [f"THERM/pyHygroThermFEM runtime unavailable: {disabled_reason}"],
         }
         _THERM_RUNS.upsert(garden_root_path, record)
         return _run_response(
             garden_root=garden_root_path,
             manifest=manifest,
             record=record,
-            message="Fairyfly THERM run blocked because THERM is unavailable.",
+            message="Fairyfly THERM run blocked because pyHygroThermFEM runtime is unavailable.",
             report_status="blocked",
         )
 
@@ -507,10 +708,14 @@ def start_fairyfly_therm_run(
         "completed_at": None,
         "model_target": resolved_model_target,
         "model_path": model_path,
+        "source_thmz_path": str(source_thmz) if source_thmz else None,
         "run_folder": run_folder,
         "thmz_target": None,
         "thmz_path": None,
         "simulation_parameter": sim_par_dict,
+        "simulation_mode": None,
+        "solver_provenance": None,
+        "mesh_convergence": None,
         "engine": engine,
         "warnings": [],
     }
@@ -525,6 +730,7 @@ def start_fairyfly_therm_run(
             "run_id": normalized_run_id,
             "garden_id": manifest.garden_id,
             "model_target": resolved_model_target,
+            "thmz_source_path": str(source_thmz) if source_thmz else None,
             "silent": silent,
             "simulation_parameter": sim_par_dict,
         },
@@ -625,10 +831,97 @@ def _normalize_data_type(data_type: str) -> tuple[str, str]:
     attr = _DATA_TYPE_ATTRS.get(key)
     if attr is None:
         raise ValueError(
-            "data_type must be temperature, heat_flux, heat_flux_vectors, "
-            "u_factor, condensation_risk, or psi_factor."
+            "data_type must be temperature, heat_flux, heat_flux_vectors, humidity, "
+            "water_content, u_factor, condensation_risk, psi_factor, transient_summary, "
+            "or transient_series."
         )
     return _DATA_TYPE_NAMES[attr], attr
+
+
+def _read_archive_member(archive: zipfile.ZipFile, member_name: str) -> bytes:
+    """Read an archive member tolerating slash or backslash separators."""
+    try:
+        return archive.read(member_name)
+    except KeyError:
+        alt = member_name.replace("/", "\\")
+        return archive.read(alt)
+
+
+def _active_mesh_node_ids(archive: zipfile.ZipFile) -> list[int]:
+    """Return 1-based Mesh.xml node indices ordered identically to THMZResult.mesh.vertices."""
+    try:
+        mesh_root = ET.fromstring(archive.read("Mesh.xml"))
+    except (KeyError, ET.ParseError):
+        return []
+    case = mesh_root.find("Case")
+    if case is None:
+        return []
+    node_ids = [
+        int(node.findtext("index"))  # type: ignore[arg-type]
+        for node in case.findall("Nodes/Node")
+        if node.findtext("index") is not None
+    ]
+    used_indices = {
+        int(child.text)  # type: ignore[arg-type]
+        for elem in case.findall("Elements/Element")
+        for child in elem
+        if child.tag.startswith("node") and child.text is not None
+    }
+    if not used_indices:
+        return node_ids
+    return [nid for idx, nid in enumerate(node_ids) if idx in used_indices]
+
+
+def _resolve_timestep_index(count: int, timestep_index: int | None) -> int:
+    if count <= 0:
+        raise ValueError("Transient series contains zero rows.")
+    if timestep_index is None:
+        return count - 1
+    idx = int(timestep_index)
+    if idx < 0:
+        idx += count
+    if not 0 <= idx < count:
+        raise ValueError(
+            f"timestep_index {timestep_index} out of range for {count} transient frame(s)."
+        )
+    return idx
+
+
+def _read_transient_node_field(
+    thmz_path: Path,
+    normalized_data_type: str,
+    timestep_index: int | None,
+) -> tuple[list[float], dict[str, Any]] | None:
+    """Extract a node-aligned scalar field from transient results/*.csv."""
+    member = _TRANSIENT_NODE_FIELD_MAP.get(normalized_data_type)
+    if member is None:
+        return None
+    with zipfile.ZipFile(thmz_path, "r") as archive:
+        try:
+            csv_bytes = _read_archive_member(archive, member)
+        except KeyError:
+            return None
+        series = read_transient_series(csv_bytes)
+        times = list(series.get("times") or ())
+        if not times:
+            return None
+        idx = _resolve_timestep_index(len(times), timestep_index)
+        entities = tuple(series["entities"])
+        row = list(series["values"][idx])
+        active_ids = _active_mesh_node_ids(archive)
+        if active_ids:
+            by_id = {eid: float(val) for eid, val in zip(entities, row)}
+            aligned = [by_id[nid] for nid in active_ids if nid in by_id]
+            values = aligned if len(aligned) == len(active_ids) else [float(v) for v in row]
+        else:
+            values = [float(v) for v in row]
+        meta = {
+            "source_layout": "transient",
+            "timestep_index": idx,
+            "time_s": float(times[idx]),
+            "step_count": len(times),
+        }
+        return values, meta
 
 
 def _unit_scale_to_meters(unit: str) -> float:
@@ -738,9 +1031,10 @@ def read_fairyfly_therm_result(
     run_target: dict[str, Any] | None = None,
     run_id: str | None = None,
     data_type: str = "temperature",
+    timestep_index: int | None = None,
     include_values: bool = False,
 ) -> dict[str, Any]:
-    """Read temperature, heat-flux magnitude, or heat-flux vector results from a THMZ file."""
+    """Read temperature, heat-flux, humidity, or water-content results from a THMZ file."""
     garden_root_path = require_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     normalized_data_type, attr = _normalize_data_type(data_type)
@@ -781,7 +1075,7 @@ def read_fairyfly_therm_result(
                     status="warning",
                     message=(
                         "THERM heat-flux vector results were not found in the THMZ. "
-                        "Run THERM first and then read the completed result."
+                        "Run steady-state THERM first and then read the completed result."
                     ),
                     warnings=["THERM mesh/results are missing from the THMZ."],
                 ),
@@ -827,6 +1121,11 @@ def read_fairyfly_therm_result(
         return response
 
     values = _numeric_values(getattr(thmz_result, attr))
+    transient_meta: dict[str, Any] = {}
+    if not values:
+        transient_res = _read_transient_node_field(thmz_path, normalized_data_type, timestep_index)
+        if transient_res is not None:
+            values, transient_meta = transient_res
     stats = _stats(values)
     if not values:
         return {
@@ -842,10 +1141,10 @@ def read_fairyfly_therm_result(
             "report": make_report(
                 status="warning",
                 message=(
-                    "THERM result values were not found in the THMZ. "
-                    "Run THERM first and then read the completed result."
+                    f"THERM {normalized_data_type} values were not found in the THMZ. "
+                    "Run pyHygroThermFEM first and then read the completed result."
                 ),
-                warnings=["THERM mesh/results are missing from the THMZ."],
+                warnings=[f"THERM {normalized_data_type} results are missing from the THMZ."],
             ),
         }
 
@@ -854,6 +1153,7 @@ def read_fairyfly_therm_result(
         "data_type": normalized_data_type,
         "thmz_path": thmz_relative_path,
         "statistics": stats,
+        **transient_meta,
         "values": values,
     }
     target, artifact, receipt = _write_result_payload(
@@ -876,6 +1176,7 @@ def read_fairyfly_therm_result(
             "thmz_target": resolved_thmz_target,
             "thmz_path": thmz_relative_path,
             "therm_result_target": target,
+            **transient_meta,
             **stats,
         },
         "report": make_report(
@@ -934,6 +1235,7 @@ def read_fairyfly_condensation_risk(
     interior_rh: float | None = None,
     exterior_temp_c: float | None = None,
     interior_surface_temp_c: float | None = None,
+    timestep_index: int | None = None,
 ) -> dict[str, Any]:
     """Evaluate condensation risk (min surface temp, dew point, f_Rsi, RH margin) from THERM."""
     garden_root_path = require_garden_root(garden_root)
@@ -959,6 +1261,9 @@ def read_fairyfly_condensation_risk(
             cond = getattr(getattr(boundary, "properties", None), "therm", None)
             cond_obj = getattr(cond, "condition", None) if cond is not None else None
             temp = getattr(cond_obj, "temperature", None)
+            if temp is None and getattr(cond_obj, "timesteps", None):
+                first_step = cond_obj.timesteps[min(cond_obj.timesteps)]
+                temp = first_step.get("temperature") or first_step.get("surface_temperature")
             if temp is not None:
                 boundary_temps.append((boundary, float(temp)))
 
@@ -976,6 +1281,8 @@ def read_fairyfly_condensation_risk(
         if resolved_rh is None:
             warm_cond = warmest_boundary.properties.therm.condition
             warm_rh = getattr(warm_cond, "relative_humidity", None)
+            if warm_rh is None and getattr(warm_cond, "timesteps", None):
+                warm_rh = warm_cond.timesteps[min(warm_cond.timesteps)].get("humidity")
             if warm_rh is not None:
                 resolved_rh = float(warm_rh)
 
@@ -996,6 +1303,10 @@ def read_fairyfly_condensation_risk(
     else:
         thmz_result = THMZResult(str(thmz_path))
         temps = _numeric_values(thmz_result.temperatures)
+        if not temps:
+            transient_res = _read_transient_node_field(thmz_path, "temperature", timestep_index)
+            if transient_res is not None:
+                temps, _ = transient_res
         if not temps:
             return {
                 "summary_view": {
@@ -1355,3 +1666,268 @@ def read_fairyfly_u_factor_result(
             message=f"Fairyfly THERM U-Factor result returned for {resolved_run_id}.",
         ),
     }
+
+
+def read_fairyfly_transient_summary(
+    *,
+    garden_root: str,
+    thmz_target: dict[str, Any] | None = None,
+    run_target: dict[str, Any] | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Read transient/hygrothermal summary statistics and geometry counts from a solved THMZ."""
+    garden_root_path = require_garden_root(garden_root)
+    manifest = GardenManifest.read(garden_root_path)
+    thmz_path, resolved_run_id, resolved_thmz_target = _resolve_thmz_path(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        thmz_target=thmz_target,
+        run_target=run_target,
+        run_id=run_id,
+    )
+    thmz_relative_path = to_posix_relative(thmz_path, garden_root_path)
+
+    provenance: dict[str, Any] | None = None
+    geometry_counts: dict[str, int] | None = None
+    field_summaries: dict[str, Any] = {}
+    times_ref: list[float] = []
+
+    with zipfile.ZipFile(thmz_path, "r") as archive:
+        if "pyHygroTherm.json" in archive.namelist():
+            provenance = json.loads(archive.read("pyHygroTherm.json").decode("utf-8"))
+        try:
+            geom_bytes = _read_archive_member(archive, TRANSIENT_RESULT_MEMBERS["geometry"])
+            geom = read_geometry_xml(geom_bytes)
+            geometry_counts = {
+                "materials": len(geom.get("materials", ())),
+                "nodes": len(geom.get("nodes", ())),
+                "elements": len(geom.get("elements", ())),
+                "material_polygons": len(geom.get("material_polygons", ())),
+                "model_enclosure_nodes": len(geom.get("model_enclosure", ())),
+            }
+        except KeyError:
+            pass
+
+        for field_name, member_path in _TRANSIENT_SERIES_FIELDS:
+            try:
+                csv_bytes = _read_archive_member(archive, member_path)
+            except KeyError:
+                continue
+            series = read_transient_series(csv_bytes)
+            times = list(series.get("times") or ())
+            if times and not times_ref:
+                times_ref = [float(t) for t in times]
+            entities = tuple(series.get("entities") or ())
+            rows = list(series.get("values") or ())
+            final_row = [float(v) for v in rows[-1]] if rows else []
+            all_vals = [float(v) for row in rows for v in row]
+            field_summaries[field_name] = {
+                "member": member_path,
+                "entity_count": len(entities),
+                "step_count": len(times),
+                "final_step": _stats(final_row),
+                "overall_min": min(all_vals) if all_vals else None,
+                "overall_max": max(all_vals) if all_vals else None,
+            }
+
+    if not field_summaries and geometry_counts is None:
+        return {
+            "summary_view": {
+                "garden_target": manifest.target(),
+                "status": "no_results",
+                "run_id": resolved_run_id,
+                "data_type": "transient_summary",
+                "thmz_target": resolved_thmz_target,
+                "thmz_path": thmz_relative_path,
+            },
+            "report": make_report(
+                status="warning",
+                message="Transient result tables were not found in the THMZ archive.",
+                warnings=["transient results/ members are missing from the THMZ."],
+            ),
+        }
+
+    payload = {
+        "run_id": resolved_run_id,
+        "data_type": "transient_summary",
+        "thmz_path": thmz_relative_path,
+        "simulation_mode": provenance.get("mode") if provenance else None,
+        "solver_provenance": provenance,
+        "step_count": len(times_ref),
+        "start_time_s": times_ref[0] if times_ref else None,
+        "end_time_s": times_ref[-1] if times_ref else None,
+        "geometry_counts": geometry_counts,
+        "fields": field_summaries,
+    }
+    target, artifact, receipt = _write_result_payload(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        run_id=resolved_run_id,
+        data_type="transient_summary",
+        payload=payload,
+    )
+    return {
+        "target": target,
+        "therm_result_target": target,
+        "artifact": artifact,
+        "artifact_receipt": receipt,
+        "transient_summary": payload,
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "status": "ok",
+            "run_id": resolved_run_id,
+            "data_type": "transient_summary",
+            "thmz_target": resolved_thmz_target,
+            "thmz_path": thmz_relative_path,
+            "therm_result_target": target,
+            "simulation_mode": payload["simulation_mode"],
+            "step_count": payload["step_count"],
+            "start_time_s": payload["start_time_s"],
+            "end_time_s": payload["end_time_s"],
+            "geometry_counts": geometry_counts,
+            "available_fields": list(field_summaries),
+            "fields": field_summaries,
+        },
+        "report": make_report(
+            status="ok",
+            message=f"Transient summary returned for {resolved_run_id} ({len(times_ref)} frame(s)).",
+        ),
+    }
+
+
+def read_fairyfly_transient_series(
+    *,
+    garden_root: str,
+    thmz_target: dict[str, Any] | None = None,
+    run_target: dict[str, Any] | None = None,
+    run_id: str | None = None,
+    field: str = "temperatures",
+    entity_ids: list[int] | None = None,
+    timestep_index: int | None = None,
+    include_values: bool = False,
+) -> dict[str, Any]:
+    """Read transient time-series CSV values from transient results/*.csv."""
+    norm_key = str(field or "temperatures").strip().lower().replace("-", "_").replace(" ", "_")
+    resolved_field = _TRANSIENT_FIELD_ALIASES.get(norm_key)
+    if resolved_field is None:
+        raise ValueError(
+            "Unsupported transient_series field {!r}. Choose from: {}.".format(
+                field, ", ".join(k for k, _ in _TRANSIENT_SERIES_FIELDS)
+            )
+        )
+    canon_field, member_path = resolved_field
+
+    garden_root_path = require_garden_root(garden_root)
+    manifest = GardenManifest.read(garden_root_path)
+    thmz_path, resolved_run_id, resolved_thmz_target = _resolve_thmz_path(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        thmz_target=thmz_target,
+        run_target=run_target,
+        run_id=run_id,
+    )
+    thmz_relative_path = to_posix_relative(thmz_path, garden_root_path)
+
+    with zipfile.ZipFile(thmz_path, "r") as archive:
+        try:
+            csv_bytes = _read_archive_member(archive, member_path)
+        except KeyError:
+            return {
+                "summary_view": {
+                    "garden_target": manifest.target(),
+                    "status": "no_results",
+                    "run_id": resolved_run_id,
+                    "data_type": "transient_series",
+                    "field": canon_field,
+                    "member": member_path,
+                    "thmz_target": resolved_thmz_target,
+                    "thmz_path": thmz_relative_path,
+                },
+                "report": make_report(
+                    status="warning",
+                    message=f"Transient table {member_path} was not found in the THMZ.",
+                    warnings=[f"{member_path} is missing from the THMZ."],
+                ),
+            }
+
+    series = read_transient_series(csv_bytes)
+    all_entities = list(series.get("entities") or ())
+    if entity_ids is not None:
+        wanted = {int(eid) for eid in entity_ids}
+        col_indices = [i for i, eid in enumerate(all_entities) if eid in wanted]
+        if not col_indices:
+            raise ValueError(
+                f"None of requested entity_ids {sorted(wanted)} exist in {member_path}."
+            )
+        selected_entities = [all_entities[i] for i in col_indices]
+    else:
+        col_indices = list(range(len(all_entities)))
+        selected_entities = all_entities
+
+    raw_times = [float(t) for t in (series.get("times") or ())]
+    raw_rows = list(series.get("values") or ())
+    if timestep_index is not None:
+        idx = _resolve_timestep_index(len(raw_times), timestep_index)
+        times_out = [raw_times[idx]]
+        values_out = [[float(raw_rows[idx][i]) for i in col_indices]]
+    else:
+        times_out = raw_times
+        values_out = [[float(row[i]) for i in col_indices] for row in raw_rows]
+
+    last_row_stats = _stats(values_out[-1] if values_out else [])
+    all_vals = [v for row in values_out for v in row]
+    overall_stats = _stats(all_vals)
+
+    payload = {
+        "run_id": resolved_run_id,
+        "data_type": "transient_series",
+        "field": canon_field,
+        "member": member_path,
+        "thmz_path": thmz_relative_path,
+        "entities": selected_entities,
+        "step_count": len(times_out),
+        "times": times_out,
+        "values": values_out,
+        "final_step_statistics": last_row_stats,
+        "overall_statistics": overall_stats,
+    }
+    target, artifact, receipt = _write_result_payload(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        run_id=resolved_run_id,
+        data_type=f"transient_{canon_field}",
+        payload=payload,
+    )
+    response: dict[str, Any] = {
+        "target": target,
+        "therm_result_target": target,
+        "artifact": artifact,
+        "artifact_receipt": receipt,
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "status": "ok",
+            "run_id": resolved_run_id,
+            "data_type": "transient_series",
+            "field": canon_field,
+            "member": member_path,
+            "thmz_target": resolved_thmz_target,
+            "thmz_path": thmz_relative_path,
+            "therm_result_target": target,
+            "step_count": len(times_out),
+            "entity_count": len(selected_entities),
+            "entities_preview": selected_entities[:25],
+            "start_time_s": times_out[0] if times_out else None,
+            "end_time_s": times_out[-1] if times_out else None,
+            "final_step_statistics": last_row_stats,
+            "overall_statistics": overall_stats,
+        },
+        "report": make_report(
+            status="ok",
+            message=f"Transient {canon_field} series returned ({len(times_out)} frame(s), {len(selected_entities)} entity(ies)).",
+        ),
+    }
+    if include_values:
+        response["times"] = times_out
+        response["entities"] = selected_entities
+        response["values"] = values_out
+    return response

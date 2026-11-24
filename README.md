@@ -192,15 +192,15 @@ Flowerpot is optional. On Windows with Rhino 8, select it in the wizard, restart
 
 Version `1.2.2` adds **FP Dragonfly Link**: seven components in a single Flowerpot subcategory, internally grouped into Garden, models, properties and HVAC using LBT-style exposure groups. Use FP Garden List with Grasshopper's List Item to choose an existing Garden; native Ladybug Tools components handle weather, data collections and model operations. See [the component guide](src/grasshopper_components/README.md).
 
-Windows x86_64 is the primary native acceptance platform. Linux x86_64 and macOS Apple Silicon run the same basic MCP checks in CI. Flowerpot and Fairyfly/THERM currently have Windows boundaries; external engines are checked per workflow. See the [release notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases) and [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml) for published release evidence.
+Windows x86_64 is the primary native acceptance platform. Linux x86_64 and macOS Apple Silicon run the same basic MCP checks in CI. Flowerpot retains a Windows Rhino/Grasshopper boundary; Fairyfly/THERM uses the bundled cross-platform `pyHygroThermFEM-Fairyfly` C++20 solver and headless Gmsh Q4 mesher across Windows, Linux, and macOS (steady-state, transient, and hygrothermal workflows require no external THERM installation). See the [release notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases) and [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml) for published release evidence.
 
 ### Simulation runtimes
 
-Simulation tools remain available; prepare external engines only for the workflows that need them. The existing runtime matrix is retained:
+Simulation tools remain available; prepare external engines only for the workflows that need them. THERM simulations run directly via the bundled `pyHygroThermFEM-Fairyfly` engine and `gmsh`:
 
 Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.1` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.10.0](https://github.com/NREL/OpenStudio/releases/tag/v3.10.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
+| `v1.2.3` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.10.0](https://github.com/NREL/OpenStudio/releases/tag/v3.10.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | Bundled `pyHygroThermFEM-Fairyfly` + `gmsh` |
 
 Use `LB_Get_Runtime_Config` to check installed engines and obtain setup guidance for any missing runtime.
 

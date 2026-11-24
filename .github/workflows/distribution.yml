@@ -19,11 +19,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: '3.12'
       - name: Install editable package and run contract tests
         shell: pwsh
+        env:
+          LBT_MCP_REQUIRE_HYGROTHERM_NATIVE: "1"
         run: |
           uv venv --python 3.12
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -34,11 +38,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
     env:
       LBT_MCP_REQUIRE_IRONBUG_BRIDGE: "1"
+      LBT_MCP_REQUIRE_HYGROTHERM_NATIVE: "1"
     steps:
       - uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: '3.12'
@@ -47,13 +58,18 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Build .NET 8 IronbugBridge sidecar
         run: dotnet build src/ironbug_bridge/IronbugBridge.csproj -c Release
-      - name: Build source distribution and wheel
+      - name: Build wheel and source distribution
+        shell: pwsh
         run: |
-          uv build --sdist
+          if ('${{ matrix.os }}' -eq 'ubuntu-latest') {
+            uv build --sdist
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
           uv build --wheel
-      - name: Verify IronbugBridge is bundled in wheel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify IronbugBridge and native solver are bundled in wheel
         run: |
-          uv run --no-project --python 3.12 python -c 'import glob, zipfile; wheels = glob.glob("dist/*.whl"); assert len(wheels) == 1, wheels; zf = zipfile.ZipFile(wheels[0]); names = set(zf.namelist()); required = {"ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.dll", "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.deps.json", "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.runtimeconfig.json"}; missing = sorted(required - names); assert not missing, f"Missing {missing} in {wheels[0]}"'
+          uv run --no-project --python 3.12 python -c 'import glob, zipfile; wheels = glob.glob("dist/*.whl"); assert len(wheels) == 1, wheels; zf = zipfile.ZipFile(wheels[0]); names = set(zf.namelist()); required = {"ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.dll", "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.deps.json", "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.runtimeconfig.json", "pyhygrothermfem_fairyfly/_build_source.json"}; missing = sorted(required - names); assert not missing, f"Missing {missing} in {wheels[0]}"; assert any(n.startswith("pyhygrothermfem_fairyfly/_native.") and (n.endswith(".pyd") or n.endswith(".so")) for n in names), "Missing compiled pyhygrothermfem_fairyfly._native extension"'
       - name: Check metadata and release version
         run: |
           uvx twine check dist/*
@@ -61,7 +77,7 @@ jobs:
           sha256sum dist/* >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
-          name: distributions
+          name: distributions-${{ matrix.os }}
           path: dist/*
           if-no-files-found: error
 
@@ -76,7 +92,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v8
         with:
-          name: distributions
+          name: distributions-${{ matrix.os }}
           path: dist
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
@@ -221,6 +237,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: distributions
+          pattern: distributions-*
+          merge-multiple: true
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1

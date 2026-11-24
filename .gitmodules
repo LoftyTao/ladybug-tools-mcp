@@ -1,0 +1,3 @@
+[submodule "vendor/pyHygroThermFEM-Fairyfly"]
+	path = vendor/pyHygroThermFEM-Fairyfly
+	url = https://github.com/LoftyTao/pyHygroThermFEM-Fairyfly.git

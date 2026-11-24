@@ -16,6 +16,22 @@ def _as_spec_list(value: list[dict[str, Any]] | dict[str, Any] | None) -> list[d
     return list(value)
 
 
+_HYGROTHERMAL_MATERIAL_KEYS = (
+    "moisture_storage_function",
+    "liquid_transport_suction",
+    "liquid_transport_redistribution",
+    "conductivity_moisture_dependent",
+    "conductivity_temperature_dependent",
+    "diffusion_moisture_dependent",
+    "enthalpy_temperature_dependent",
+    "reference_water_content",
+    "free_water_saturation",
+    "water_absorption_coefficient",
+    "drying_factor",
+    "typical_built_in_moisture",
+)
+
+
 def _resolve_fairyfly_material(material: Any) -> dict[str, Any]:
     if isinstance(material, str):
         from garden.fairyfly.model import coerce_fairyfly_material
@@ -30,7 +46,9 @@ def _resolve_fairyfly_material(material: Any) -> dict[str, Any]:
     if (
         "material_name" in material
         or "cavity_model" in material
-        or material.get("kind") == "cavity"
+        or material.get("kind") in {"cavity", "hygrothermal"}
+        or material.get("type") == "HygrothermalMaterial"
+        or any(material.get(k) is not None for k in _HYGROTHERMAL_MATERIAL_KEYS)
         or "energy_material" in material
         or "hb_material_name" in material
         or "hb_material_target" in material
@@ -197,9 +215,9 @@ def register(mcp: FastMCP) -> None:
         name="FF_Edit_Model",
         description=(
             "Edit a Garden-backed Fairyfly Model: add or modify Shapes (supporting SolidMaterial, "
-            "CavityMaterial with CEN/NFRC/ISO15099/ISO15099Ventilated and Gas/PureGas, built-in "
-            "library names, HB-Energy material conversion) and SteadyState Boundaries (inline or "
-            "built-in condition_name), delete shapes/boundaries, intersect adjacencies, transform "
+            "HygrothermalMaterial, CavityMaterial with CEN/NFRC/ISO15099/ISO15099Ventilated and Gas/PureGas, "
+            "built-in library names, HB-Energy material conversion) and Boundaries (SteadyState or "
+            "Transient boundary conditions), delete shapes/boundaries, intersect adjacencies, transform "
             "(move/rotate/rotate_xy/scale), convert units, import THERM XML libraries, or export "
             "FFJSON/FFpkl/THERM XML."
         ),
@@ -426,14 +444,15 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FF_Start_Simulation",
         description=(
-            "Start an asynchronous Fairyfly THERM two-dimensional heat-transfer run for a Garden "
-            "Fairyfly model (or set export_only=true to write an inspectable THMZ artifact without "
-            "executing THERM). Accepts optional simulation_parameter (MeshControl and ModelExposure) "
-            "and optional wait_seconds blocking poll. THERM execution is Windows-only; returns "
+            "Start an asynchronous Fairyfly 2D simulation using the bundled cross-platform "
+            "pyHygroThermFEM-Fairyfly solver and headless Gmsh Q4 mesher (or set export_only=true "
+            "to write a THMZ artifact with optional include_mesh=true). Supports steady-state, dry "
+            "transient, and coupled hygrothermal simulations from a Garden Fairyfly model or "
+            "direct solving of premeshed/unmeshed THMZ files via thmz_target or thmz_path. Returns "
             "run_target (or thmz_target when export_only=true), runtime_status, poll_next "
             "(GD_Poll_Run), and report."
         ),
-        tags={"fairyfly", "therm", "simulate", "u-factor", "runtime", "start", "thmz"},
+        tags={"fairyfly", "therm", "simulate", "u-factor", "transient", "hygrothermal", "thmz"},
         timeout=330,
     )
     def start_fairyfly_therm_run(
@@ -446,7 +465,25 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Optional Fairyfly Model target dict, usually FF_Create_Model['target']; "
-                    "defaults to the Garden base Fairyfly Model."
+                    "defaults to the Garden base Fairyfly Model when thmz_target/thmz_path are omitted."
+                )
+            ),
+        ] = None,
+        thmz_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description=(
+                    "Optional fairyfly_thmz target (premeshed or unmeshed) to solve directly without "
+                    "re-exporting from a model."
+                )
+            ),
+        ] = None,
+        thmz_path: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional Garden-relative or absolute path to an existing .thmz file (premeshed "
+                    "or unmeshed) to solve directly."
                 )
             ),
         ] = None,
@@ -456,11 +493,15 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         silent: Annotated[
             bool,
-            Field(description="Run THERM silently when the runtime supports it."),
+            Field(description="Suppress solver console output during simulation."),
         ] = True,
         export_only: Annotated[
             bool,
-            Field(description="If true, write the .thmz artifact without running THERM."),
+            Field(description="If true, write the .thmz artifact without running pyHygroThermFEM."),
+        ] = False,
+        include_mesh: Annotated[
+            bool,
+            Field(description="When export_only=true, also generate Mesh.xml via headless Gmsh."),
         ] = False,
         name: Annotated[
             str | None,
@@ -472,7 +513,10 @@ def register(mcp: FastMCP) -> None:
                 description=(
                     "Optional SimulationParameter dict ({mesh: {mesh_type, parameter, "
                     "run_error_estimator, max_error_percent, max_iterations}, exposure: "
-                    "{model_type, cross_section_type, gravity_orientation, wind_orientation}})."
+                    "{model_type, cross_section_type, gravity_orientation, wind_orientation}, "
+                    "transient?: {time_range, timestep, number_of_timesteps, initial_temperature, "
+                    "initial_humidity, methodology, simulate_moisture, convergence_tolerance, "
+                    "relaxation_parameter, modeling_options}})."
                 )
             ),
         ] = None,
@@ -485,15 +529,18 @@ def register(mcp: FastMCP) -> None:
             Field(description="Polling interval in seconds when wait_seconds is specified."),
         ] = 2.0,
     ) -> dict[str, Any]:
-        """Start a Fairyfly THERM run or export a THMZ file."""
+        """Start a Fairyfly pyHygroThermFEM run or export a THMZ file."""
         from garden.fairyfly.therm import start_fairyfly_therm_run as service
 
         return service(
             garden_root=garden_root,
             model_target=model_target,
+            thmz_target=thmz_target,
+            thmz_path=thmz_path,
             run_id=run_id,
             silent=silent,
             export_only=export_only,
+            include_mesh=include_mesh,
             name=name,
             simulation_parameter=simulation_parameter,
             wait_seconds=wait_seconds,
@@ -503,12 +550,13 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="FF_Read_Results",
         description=(
-            "Read U-Factor summaries, temperature, heat-flux magnitudes, heat-flux vectors, "
-            "condensation risk (min surface temperature, dew point, f_Rsi, RH margin), or "
-            "thermal-bridge Psi-factor (Psi = L_2D - sum(U_i * l_i)) from a Fairyfly THERM THMZ "
-            "file. Poll GD_Poll_Run after FF_Start_Simulation before reading from a run_target."
+            "Read steady-state or transient Fairyfly/pyHygroThermFEM results from a THMZ file: "
+            "U-Factor summaries, temperature, heat-flux magnitudes/vectors, relative humidity, "
+            "water content, condensation risk (min surface temperature, dew point, f_Rsi, RH margin), "
+            "thermal-bridge Psi-factor, transient_summary, or transient_series time histories. "
+            "Poll GD_Poll_Run after FF_Start_Simulation before reading from a run_target."
         ),
-        tags={"fairyfly", "therm", "result", "u-factor", "temperature", "data-collection"},
+        tags={"fairyfly", "therm", "result", "u-factor", "temperature", "humidity", "transient"},
         annotations={"readOnlyHint": True},
         timeout=30,
     )
@@ -534,20 +582,49 @@ def register(mcp: FastMCP) -> None:
                 "temperature",
                 "heat_flux",
                 "heat_flux_vectors",
+                "humidity",
+                "water_content",
                 "u_factor",
                 "condensation_risk",
                 "psi_factor",
+                "transient_summary",
+                "transient_series",
             ],
             Field(
                 description=(
                     "Result data type: 'u_factor' (default), 'temperature', 'heat_flux', "
-                    "'heat_flux_vectors', 'condensation_risk', or 'psi_factor'."
+                    "'heat_flux_vectors', 'humidity', 'water_content', 'condensation_risk', "
+                    "'psi_factor', 'transient_summary', or 'transient_series'."
                 )
             ),
         ] = "u_factor",
+        timestep_index: Annotated[
+            int | None,
+            Field(
+                description=(
+                    "Optional 0-based transient output frame index (defaults to final step when omitted) "
+                    "for transient temperature/heat_flux/humidity/water_content/condensation_risk or "
+                    "transient_series."
+                )
+            ),
+        ] = None,
+        field: Annotated[
+            str,
+            Field(
+                description=(
+                    "For transient_series: CSV table name ('temperatures', 'humidities', "
+                    "'water_content', 'heat_flux', 'water_flux', 'heat_flux_edges', "
+                    "'water_flux_edges', 'heat_flux_step_exchange', 'water_flux_step_exchange')."
+                )
+            ),
+        ] = "temperatures",
+        entity_ids: Annotated[
+            list[int] | None,
+            Field(description="For transient_series: optional Geometry.xml node/edge entity IDs to slice."),
+        ] = None,
         include_values: Annotated[
             bool,
-            Field(description="For temperature/heat_flux/heat_flux_vectors: include raw values in response."),
+            Field(description="For field or transient_series queries: include raw arrays in response."),
         ] = False,
         model_target: Annotated[
             dict[str, Any] | None,
@@ -594,7 +671,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="For psi_factor: unit of THERM UFactor lengths (default Millimeters)."),
         ] = "Millimeters",
     ) -> dict[str, Any]:
-        """Read Fairyfly THERM U-Factors, field statistics/vectors, condensation risk, or Psi-factor."""
+        """Read Fairyfly steady-state or transient/hygrothermal results."""
         if data_type == "u_factor":
             from garden.fairyfly.therm import read_fairyfly_u_factor_result as service
 
@@ -617,6 +694,7 @@ def register(mcp: FastMCP) -> None:
                 interior_rh=interior_rh,
                 exterior_temp_c=exterior_temp_c,
                 interior_surface_temp_c=interior_surface_temp_c,
+                timestep_index=timestep_index,
             )
         if data_type == "psi_factor":
             from garden.fairyfly.therm import read_fairyfly_psi_factor as service
@@ -633,6 +711,28 @@ def register(mcp: FastMCP) -> None:
                 length_unit=length_unit,
                 therm_length_unit=therm_length_unit,
             )
+        if data_type == "transient_summary":
+            from garden.fairyfly.therm import read_fairyfly_transient_summary as service
+
+            return service(
+                garden_root=garden_root,
+                thmz_target=thmz_target,
+                run_target=run_target,
+                run_id=run_id,
+            )
+        if data_type == "transient_series":
+            from garden.fairyfly.therm import read_fairyfly_transient_series as service
+
+            return service(
+                garden_root=garden_root,
+                thmz_target=thmz_target,
+                run_target=run_target,
+                run_id=run_id,
+                field=field,
+                entity_ids=entity_ids,
+                timestep_index=timestep_index,
+                include_values=include_values,
+            )
         from garden.fairyfly.therm import read_fairyfly_therm_result as service
 
         return service(
@@ -641,6 +741,7 @@ def register(mcp: FastMCP) -> None:
             run_target=run_target,
             run_id=run_id,
             data_type=data_type,
+            timestep_index=timestep_index,
             include_values=include_values,
         )
 
@@ -648,10 +749,10 @@ def register(mcp: FastMCP) -> None:
         name="FF_To_Visualization_Set",
         description=(
             "Create a Ladybug Display VisualizationSet from a Garden Fairyfly model "
-            "(source_kind='model') or completed THERM temperature/heat-flux results "
-            "(source_kind='result'). Poll GD_Poll_Run before visualizing results from a run_target. "
-            "Set return_visualization_set=false to save a compact visualization_set_target for "
-            "LB_Export_Visualization_Set."
+            "(source_kind='model') or completed steady-state/transient temperature, heat-flux, "
+            "relative humidity, or water-content results (source_kind='result'). Poll GD_Poll_Run "
+            "before visualizing results from a run_target. Set return_visualization_set=false to "
+            "save a compact visualization_set_target for LB_Export_Visualization_Set."
         ),
         tags={"fairyfly", "therm", "visualization-set", "model", "result", "visualize", "preview"},
         timeout=60,
@@ -695,9 +796,18 @@ def register(mcp: FastMCP) -> None:
             Field(description="For source_kind='result': optional run identifier when targets are omitted."),
         ] = None,
         data_type: Annotated[
-            Literal["temperature", "heat_flux"],
-            Field(description="For source_kind='result': result field to visualize ('temperature' or 'heat_flux')."),
+            Literal["temperature", "heat_flux", "humidity", "water_content"],
+            Field(
+                description=(
+                    "For source_kind='result': result field to visualize ('temperature', "
+                    "'heat_flux', 'humidity', or 'water_content')."
+                )
+            ),
         ] = "temperature",
+        timestep_index: Annotated[
+            int | None,
+            Field(description="For transient source_kind='result': optional 0-based frame index (default final step)."),
+        ] = None,
         name: Annotated[
             str | None,
             Field(description="Optional VisualizationSet identifier and artifact name."),
@@ -724,6 +834,7 @@ def register(mcp: FastMCP) -> None:
                 run_target=run_target,
                 run_id=run_id,
                 data_type=data_type,
+                timestep_index=timestep_index,
                 name=name,
                 return_visualization_set=return_visualization_set,
             )

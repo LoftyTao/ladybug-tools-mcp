@@ -185,15 +185,15 @@ Flowerpot 为可选项。Windows / Rhino 8 用户选中后，重启 Grasshopper�
 
 `1.2.2` 新增 **FP Dragonfly Link**：七个组件统一放在一个 Flowerpot 子栏内，沿用 LBT 的 Exposure 分组方式，在子栏内部区分 Garden、模型交接、属性和 HVAC。已有 Garden 可通过 FP Garden List 配合 Grasshopper 的 List Item 选择；气象、数据序列和模型操作继续使用原生 Ladybug Tools 组件。详见[组件说明](src/grasshopper_components/README.md)。
 
-Windows x86_64 优先完成原生验收；Linux x86_64 和 macOS Apple Silicon 通过同一 CI 流程验证基础 MCP。Flowerpot 与 Fairyfly/THERM 暂以 Windows 为边界；其他平台的外部引擎按实际可用性检查。已发布版本见 [Release Notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases)，自动分发验收见 [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml)。
+Windows x86_64 优先完成原生验收；Linux x86_64 和 macOS Apple Silicon 通过同一 CI 流程验证基础 MCP。Flowerpot 仅保留 Windows Rhino/Grasshopper 边界；Fairyfly/THERM 现已内置跨平台 `pyHygroThermFEM-Fairyfly` C++20 求解器与无头 Gmsh Q4 网格划分器，可在 Windows、Linux 与 macOS 上运行稳态、瞬态及热湿耦合模拟（无需额外安装外部 LBNL THERM）。已发布版本见 [Release Notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases)，自动分发验收见 [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml)。
 
 ### 模拟运行环境
 
-模拟工具继续提供，外部引擎按需准备。下面沿用现有运行矩阵：
+模拟工具继续提供，外部引擎按需准备。THERM 模拟已由内置 `pyHygroThermFEM-Fairyfly` 与 `gmsh` 跨平台提供，其余引擎沿用现有运行矩阵：
 
 Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.1` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.10.0](https://github.com/NREL/OpenStudio/releases/tag/v3.10.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
+| `v1.2.3` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.10.0](https://github.com/NREL/OpenStudio/releases/tag/v3.10.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | 内置 `pyHygroThermFEM-Fairyfly` + `gmsh` |
 
 使用 `LB_Get_Runtime_Config` 检查已安装引擎，并获取缺失运行环境的配置指引。
 

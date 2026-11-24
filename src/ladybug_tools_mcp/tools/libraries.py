@@ -20,9 +20,9 @@ class _ThermFamily:
 
 
 def _therm_families() -> tuple[_ThermFamily, ...]:
-    from fairyfly_therm.lib.conditions import CONDITIONS, condition_by_name
-    from fairyfly_therm.lib.gases import GASES, PURE_GASES, gas_by_name, pure_gas_by_name
-    from fairyfly_therm.lib.materials import (
+    from fairyfly_next_therm.lib.conditions import CONDITIONS, condition_by_name
+    from fairyfly_next_therm.lib.gases import GASES, PURE_GASES, gas_by_name, pure_gas_by_name
+    from fairyfly_next_therm.lib.materials import (
         CAVITY_MATERIALS,
         SOLID_MATERIALS,
         cavity_material_by_name,

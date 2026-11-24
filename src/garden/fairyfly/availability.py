@@ -1,15 +1,16 @@
-"""Fairyfly and THERM runtime availability helpers."""
+"""Fairyfly and bundled pyHygroThermFEM runtime availability helpers."""
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
-import platform
 from pathlib import Path
+import platform
 from typing import Any
 
 
 def is_windows_platform() -> bool:
-    """Return True when the current platform can run THERM."""
+    """Return True when running on Windows."""
     return platform.system().lower() == "windows"
 
 
@@ -20,74 +21,79 @@ def package_available(module_name: str) -> bool:
 
 def fairyfly_tools_enabled() -> bool:
     """Return True when Fairyfly MCP tools should be registered."""
-    return package_available("fairyfly") and package_available("fairyfly_therm")
+    return package_available("fairyfly") and package_available("fairyfly_next_therm")
 
 
 def therm_engine_config() -> dict[str, Any]:
-    """Return compact THERM runtime configuration."""
-    if not is_windows_platform():
-        return {
-            "name": "therm",
-            "kind": "therm_runtime",
-            "available": False,
-            "enabled": False,
-            "platform_supported": False,
-            "path": None,
-            "path_exists": False,
-            "exe": None,
-            "exe_exists": False,
-            "version": None,
-            "packages": {
-                "fairyfly": package_available("fairyfly"),
-                "fairyfly_therm": package_available("fairyfly_therm"),
-            },
-            "disabled_reason": "therm_windows_only",
-        }
-
+    """Return compact bundled pyHygroThermFEM-Fairyfly + Gmsh runtime configuration."""
     packages = {
         "fairyfly": package_available("fairyfly"),
-        "fairyfly_therm": package_available("fairyfly_therm"),
+        "fairyfly_next_therm": package_available("fairyfly_next_therm"),
+        "fairyfly_hygrotherm": package_available("fairyfly_hygrotherm"),
+        "pyhygrothermfem_fairyfly": package_available("pyhygrothermfem_fairyfly"),
+        "libraryfemtherm": package_available("pylibraryfemtherm"),
+        "gmsh": package_available("gmsh"),
     }
-    path = None
-    exe = None
-    version = None
-    disabled_reason = None
-    if packages["fairyfly_therm"]:
-        try:
-            from fairyfly_therm.config import folders as therm_folders
+    path: str | None = None
+    exe: str | None = None
+    version: str | None = None
+    contract_version: str | None = None
+    kernel_commit: str | None = None
+    native_available = False
+    disabled_reason: str | None = None
 
-            path = getattr(therm_folders, "therm_path", None)
-            exe = getattr(therm_folders, "therm_exe", None)
-            version = getattr(therm_folders, "therm_version_str", None)
-        except Exception as exc:  # pragma: no cover - depends on local SDK config
-            disabled_reason = f"therm_config_error:{type(exc).__name__}"
-    else:
-        disabled_reason = "fairyfly_therm_not_installed"
-
-    path_exists = bool(path and Path(path).expanduser().is_dir())
-    exe_exists = bool(exe and Path(exe).expanduser().is_file())
-    available = bool(
-        is_windows_platform()
-        and packages["fairyfly"]
-        and packages["fairyfly_therm"]
-        and exe_exists
-    )
-    if disabled_reason is None and not packages["fairyfly"]:
+    if not packages["fairyfly"]:
         disabled_reason = "fairyfly_not_installed"
-    if disabled_reason is None and not exe_exists:
-        disabled_reason = "therm_exe_missing"
+    elif not packages["fairyfly_next_therm"]:
+        disabled_reason = "fairyfly_next_therm_not_installed"
+    elif not packages["pyhygrothermfem_fairyfly"]:
+        disabled_reason = "pyhygrothermfem_fairyfly_not_installed"
+    elif not packages["libraryfemtherm"]:
+        disabled_reason = "libraryfemtherm_not_installed"
+    elif not packages["gmsh"]:
+        disabled_reason = "gmsh_not_installed"
+    else:
+        try:
+            pkg = importlib.import_module("pyhygrothermfem_fairyfly")
+            pkg_dir = Path(pkg.__file__).resolve().parent
+            path = str(pkg_dir)
+            native = importlib.import_module("pyhygrothermfem_fairyfly._native")
+            native_path = Path(native.__file__).resolve()
+            exe = str(native_path)
+            native_available = native_path.is_file()
+            build_source = importlib.import_module("pyhygrothermfem_fairyfly._build_source")
+            kernel_commit = build_source.verified_kernel_commit()
+            run_mod = importlib.import_module("pyhygrothermfem_fairyfly.run")
+            version = str(getattr(run_mod, "SOLVER_VERSION", "")) or None
+            contract_version = str(getattr(run_mod, "CONTRACT_VERSION", "")) or None
+        except Exception as exc:
+            disabled_reason = f"hygrothermfem_error:{type(exc).__name__}"
+
+    available = bool(
+        all(packages.values())
+        and native_available
+        and kernel_commit
+        and disabled_reason is None
+    )
+    if not available and disabled_reason is None:
+        disabled_reason = "hygrothermfem_native_missing"
 
     return {
         "name": "therm",
-        "kind": "therm_runtime",
+        "kind": "hygrothermfem_runtime",
+        "engine": "pyHygroThermFEM-Fairyfly",
         "available": available,
         "enabled": available,
         "platform_supported": True,
         "path": path,
-        "path_exists": path_exists,
+        "path_exists": bool(path and Path(path).is_dir()),
         "exe": exe,
-        "exe_exists": exe_exists,
+        "exe_exists": native_available,
         "version": version,
+        "contract_version": contract_version,
+        "kernel_commit": kernel_commit,
+        "mesher": "gmsh",
+        "mesher_available": packages["gmsh"],
         "packages": packages,
         "disabled_reason": None if available else disabled_reason,
     }

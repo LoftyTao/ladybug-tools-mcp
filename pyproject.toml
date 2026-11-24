@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools>=77", "wheel>=0.40", "pybind11>=2.13"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -26,11 +26,21 @@ dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = ["grasshopper_components*"]
+exclude = ["grasshopper_components*", "ironbug_bridge*", "pyhygrothermfem_native*"]
 
 [tool.setuptools.package-data]
 ladybug_tools_mcp = [
   "resources/weather/*/*.epw",
   "resources/weather/*/*.ddy",
   "resources/weather/*/*.stat",
+]
+fairyfly_next_therm = [
+  "_templates/*.xml",
+  "config.json",
+  "LICENSE",
+]
+pyhygrothermfem_fairyfly = [
+  "_build_source.json",
+  "third_party_notices.txt",
+  "third_party_licenses/*/*",
 ]

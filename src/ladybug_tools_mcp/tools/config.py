@@ -15,11 +15,11 @@ def register(mcp: FastMCP) -> None:
         name="LB_Get_Runtime_Config",
         description=(
             'Diagnose the local Ladybug Tools runtime configuration for Radiance, OpenStudio, '
-            'EnergyPlus, URBANopt, THERM, and Ironbug.Console. Use this read-only tool to inspect '
-            'which simulation runtimes and executables the installed SDK can currently see. '
-            'Returns summary_view.engines, summary_view.measures, missing_engine_guidance, '
-            'runtime_requirement_guidance, report, and optional path_updates.prepend values for '
-            'local shell PATH setup.'
+            'EnergyPlus, URBANopt, THERM (bundled pyHygroThermFEM-Fairyfly + Gmsh), and Ironbug.Console. '
+            'Use this read-only tool to inspect which simulation runtimes and executables the installed '
+            'SDK can currently see. Returns summary_view.engines, summary_view.measures, '
+            'missing_engine_guidance, runtime_requirement_guidance, report, and optional '
+            'path_updates.prepend values for local shell PATH setup.'
         ),
         tags={
             "check",

@@ -100,8 +100,8 @@ def _build_basic_building_model(mcp: FastMCP, garden_root: str, *, identifier: s
 
 
 def _inject_synthetic_therm_results(thmz_path: Path) -> None:
-    """Append synthetic Mesh.xml, SteadyStateMeshResults.xml, and SteadyStateResults.xml to a .thmz."""
-    from fairyfly_therm.result import THMZResult
+    """Append synthetic Mesh.xml, SteadyStateMeshResults.xml, SteadyStateResults.xml, and pyHygroTherm.json."""
+    from fairyfly_next_therm.result import THMZResult
     from ladybug_geometry.geometry3d.pointvector import Point3D
 
     tr = THMZResult(str(thmz_path))
@@ -166,6 +166,9 @@ def _inject_synthetic_therm_results(thmz_path: Path) -> None:
     entries["Mesh.xml"] = mesh_xml.encode("utf-8")
     entries["SteadyStateMeshResults.xml"] = ss_mesh_xml.encode("utf-8")
     entries["SteadyStateResults.xml"] = ss_res_xml.encode("utf-8")
+    entries["pyHygroTherm.json"] = json.dumps(
+        {"contract_version": 2001, "mode": "dry-steady", "energy_error_percent": 0.5}
+    ).encode("utf-8")
     with zipfile.ZipFile(thmz_path, "w") as dst:
         for name, data in entries.items():
             dst.writestr(name, data)
@@ -558,7 +561,11 @@ def test_bugfix_fairyfly_cross_platform_registration_and_async_worker(
 
     monkeypatch.setattr(avail, "is_windows_platform", lambda: False)
     assert avail.fairyfly_tools_enabled() is True
-    assert avail.therm_engine_config()["available"] is False
+    cfg = avail.therm_engine_config()
+    assert cfg["available"] is True
+    assert cfg["platform_supported"] is True
+    assert cfg["mesher"] == "gmsh"
+    assert cfg["kernel_commit"]
 
     m = _call_tool(mcp_server, "FF_Create_Model", garden_root=garden_root, identifier="ff_async")
     _call_tool(
@@ -582,6 +589,8 @@ def test_bugfix_fairyfly_cross_platform_registration_and_async_worker(
     )
     assert exported["summary_view"]["status"] == "written"
 
+    # Mock engine unavailable to verify blocked ledger response
+    monkeypatch.setattr(ff_therm, "therm_engine_config", lambda: {"available": False, "disabled_reason": "simulated_missing"})
     blocked = _call_tool(
         mcp_server,
         "FF_Start_Simulation",
@@ -592,8 +601,8 @@ def test_bugfix_fairyfly_cross_platform_registration_and_async_worker(
     )
     assert blocked["status"] == "blocked"
 
-    # Mock Windows engine + submit_worker_process to verify async submission + therm.log check
-    monkeypatch.setattr(ff_therm, "therm_engine_config", lambda: {"available": True, "therm_exe": "THERM.exe"})
+    # Mock engine available + submit_worker_process to verify async submission + pyHygroTherm.json check
+    monkeypatch.setattr(ff_therm, "therm_engine_config", lambda: {"available": True, "engine": "pyHygroThermFEM-Fairyfly"})
     submitted: list[dict] = []
 
     class DummyProc:
@@ -607,9 +616,8 @@ def test_bugfix_fairyfly_cross_platform_registration_and_async_worker(
 
     monkeypatch.setattr(ff_therm, "submit_worker_process", fake_submit)
 
-    # Fail case: run_thmz writes therm.log without 'Calculation complete.'
+    # Fail case: run_thmz does not write pyHygroTherm.json provenance
     def fake_run_incomplete(thmz_file: str, silent: bool = True):
-        (Path(thmz_file).parent / "therm.log").write_text("THERM started...\nFatal error", encoding="utf-8")
         return thmz_file
 
     monkeypatch.setattr(ff_therm, "run_thmz", fake_run_incomplete)
@@ -623,11 +631,10 @@ def test_bugfix_fairyfly_cross_platform_registration_and_async_worker(
     )
     assert len(submitted) == 1
     assert failed_res["status"] == "failed"
-    assert "Calculation complete." in str(failed_res["error"])
+    assert "pyHygroTherm.json" in str(failed_res["error"])
 
-    # Success case: run_thmz writes 'Calculation complete.'
+    # Success case: run_thmz writes valid synthetic results and pyHygroTherm.json provenance
     def fake_run_ok(thmz_file: str, silent: bool = True):
-        (Path(thmz_file).parent / "therm.log").write_text("Calculation complete.\n", encoding="utf-8")
         _inject_synthetic_therm_results(Path(thmz_file))
         return thmz_file
 
@@ -1439,7 +1446,7 @@ def test_fairyfly_p1_materials_xml_layers_geometry_validation_and_results(
     assert len(m_edited.boundaries) == 3  # Outdoors, Indoors, InB after TempB removed
 
     # THERM XML export + import check (validating deduplication too)
-    from fairyfly_therm.material.solid import SolidMaterial
+    from fairyfly_next_therm.material.solid import SolidMaterial
 
     sample_mat = SolidMaterial(1.5)
     sample_mat.display_name = "TestXMLConcrete"
@@ -1533,3 +1540,286 @@ def test_fairyfly_p1_materials_xml_layers_geometry_validation_and_results(
     )
     # L_2D = 1.8 * (500/1000) = 0.90 W/mK; clear_field = 0.5 * 0.5 = 0.25 => Psi = 0.65
     assert psi_res["psi_factor"]["psi_w_per_mk"] == pytest.approx(0.65, abs=1e-5)
+
+
+def test_fairyfly_pyhygrothermfem_end_to_end_workflows(
+    mcp_server: FastMCP, garden_root: str
+):
+    """End-to-end MCP tests for bundled pyHygroThermFEM + Gmsh across steady, cavity, premeshed, transient, and hygrothermal."""
+    # 1. Analytical 1D steady-state slab (emissivity=0 -> pure convective film coefficients 8 & 25 W/m2-K)
+    m_steady = _call_tool(mcp_server, "FF_Create_Model", garden_root=garden_root, identifier="ff_e2e_steady")
+    _call_tool(
+        mcp_server,
+        "FF_Edit_Model",
+        garden_root=garden_root,
+        model_target=m_steady["target"],
+        shapes=[{"name": "Slab", "vertices_2d": [[0, 0], [100, 0], [100, 100], [0, 100]], "material": {"conductivity": 1.0, "name": "Conc1"}}],
+        boundaries=[
+            {
+                "name": "Interior",
+                "line_segments_2d": [[[0, 0], [0, 100]]],
+                "temperature": 20.0,
+                "film_coefficient": 8.0,
+                "emissivity": 0.0,
+                "relative_humidity": 0.5,
+                "u_factor_tag": "SlabU",
+            },
+            {
+                "name": "Exterior",
+                "line_segments_2d": [[[100, 0], [100, 100]]],
+                "temperature": 0.0,
+                "film_coefficient": 25.0,
+                "emissivity": 0.0,
+            },
+        ],
+    )
+    run_steady = _call_tool(
+        mcp_server,
+        "FF_Start_Simulation",
+        garden_root=garden_root,
+        model_target=m_steady["target"],
+        run_id="ff_e2e_steady_run",
+        simulation_parameter={"mesh": {"parameter": 16, "run_error_estimator": True, "max_error_percent": 5.0, "max_iterations": 3}},
+        wait_seconds=60.0,
+    )
+    assert run_steady["status"] == "completed", run_steady.get("error")
+    assert run_steady["summary_view"]["simulation_mode"] == "dry-steady"
+    assert run_steady["summary_view"]["mesh_convergence"]["converged"] is True
+
+    u_res = _call_tool(mcp_server, "FF_Read_Results", garden_root=garden_root, run_id="ff_e2e_steady_run", data_type="u_factor")
+    assert u_res["u_factors"][0]["total_u_factor"] == pytest.approx(1.0 / (1.0 / 8.0 + 0.1 + 1.0 / 25.0), rel=0.02)
+
+    t_res = _call_tool(mcp_server, "FF_Read_Results", garden_root=garden_root, run_id="ff_e2e_steady_run", data_type="temperature")
+    assert 0.0 < t_res["summary_view"]["minimum"] < t_res["summary_view"]["maximum"] < 20.0
+
+    v_res = _call_tool(mcp_server, "FF_Read_Results", garden_root=garden_root, run_id="ff_e2e_steady_run", data_type="heat_flux_vectors")
+    assert v_res["summary_view"]["vector_count"] > 4
+
+    c_res = _call_tool(
+        mcp_server,
+        "FF_Read_Results",
+        garden_root=garden_root,
+        run_id="ff_e2e_steady_run",
+        model_target=m_steady["target"],
+        data_type="condensation_risk",
+    )
+    assert c_res["summary_view"]["status"] == "ok"
+
+    vis_steady = _call_tool(
+        mcp_server,
+        "FF_To_Visualization_Set",
+        garden_root=garden_root,
+        source_kind="result",
+        run_id="ff_e2e_steady_run",
+        data_type="temperature",
+    )
+    assert vis_steady["summary_view"]["geometry_count"] == 1
+
+    # 2. CEN and NFRC air cavity frame models
+    for cav_idx, cavity_model in enumerate(("CEN", "NFRC"), 1):
+        m_cav = _call_tool(mcp_server, "FF_Create_Model", garden_root=garden_root, identifier=f"ff_e2e_cav_{cavity_model.lower()}")
+        _call_tool(
+            mcp_server,
+            "FF_Edit_Model",
+            garden_root=garden_root,
+            model_target=m_cav["target"],
+            shapes=[
+                {"name": "Left", "vertices_2d": [[0, 0], [20, 0], [20, 100], [0, 100]], "material": {"conductivity": 1.0, "name": f"WallL{cav_idx}"}},
+                {"name": "Gap", "vertices_2d": [[20, 0], [40, 0], [40, 100], [20, 100]], "material": {"kind": "cavity", "cavity_model": cavity_model, "name": f"Gap{cavity_model}"}},
+                {"name": "Right", "vertices_2d": [[40, 0], [60, 0], [60, 100], [40, 100]], "material": {"conductivity": 1.0, "name": f"WallR{cav_idx}"}},
+            ],
+            boundaries=[
+                {"name": f"CavInt{cav_idx}", "line_segments_2d": [[[0, 0], [0, 100]]], "temperature": 20.0, "film_coefficient": 8.0, "u_factor_tag": f"CavU{cav_idx}"},
+                {"name": f"CavExt{cav_idx}", "line_segments_2d": [[[60, 0], [60, 100]]], "temperature": 0.0, "film_coefficient": 25.0},
+            ],
+            intersect_adjacency=True,
+        )
+        cav_run = _call_tool(
+            mcp_server,
+            "FF_Start_Simulation",
+            garden_root=garden_root,
+            model_target=m_cav["target"],
+            run_id=f"ff_e2e_cav_{cavity_model.lower()}_run",
+            simulation_parameter={"mesh": {"parameter": 18, "run_error_estimator": False}},
+            wait_seconds=60.0,
+        )
+        assert cav_run["status"] == "completed", cav_run.get("error")
+        cav_u = _call_tool(mcp_server, "FF_Read_Results", garden_root=garden_root, run_id=f"ff_e2e_cav_{cavity_model.lower()}_run", data_type="u_factor")
+        assert cav_u["u_factors"][0]["total_u_factor"] > 0.0
+        if cavity_model == "NFRC":
+            assert cav_run["summary_view"]["solver_provenance"]["cavity_model_mappings"]
+
+    # 3. Direct solve of a premeshed THMZ archive (export_only=True, include_mesh=True -> thmz_target)
+    premeshed_export = _call_tool(
+        mcp_server,
+        "FF_Start_Simulation",
+        garden_root=garden_root,
+        model_target=m_steady["target"],
+        export_only=True,
+        include_mesh=True,
+        run_id="ff_e2e_premesh_export",
+    )
+    assert premeshed_export["summary_view"]["has_mesh"] is True
+    premeshed_run = _call_tool(
+        mcp_server,
+        "FF_Start_Simulation",
+        garden_root=garden_root,
+        thmz_target=premeshed_export["thmz_target"],
+        run_id="ff_e2e_premesh_solve",
+        wait_seconds=60.0,
+    )
+    assert premeshed_run["status"] == "completed", premeshed_run.get("error")
+    assert premeshed_run["summary_view"]["mesh_convergence"]["premeshed"] is True
+
+    # 4. Dry transient thermal simulation
+    m_tr = _call_tool(mcp_server, "FF_Create_Model", garden_root=garden_root, identifier="ff_e2e_transient")
+    _call_tool(
+        mcp_server,
+        "FF_Edit_Model",
+        garden_root=garden_root,
+        model_target=m_tr["target"],
+        shapes=[{"name": "DryBrick", "vertices_2d": [[0, 0], [100, 0], [100, 100], [0, 100]], "material": {"name": "DryBrick", "conductivity": 1.0, "density": 2000.0, "specific_heat": 1000.0}}],
+        boundaries=[
+            {
+                "name": "TrInt",
+                "kind": "transient",
+                "bc_type": "Transient",
+                "bc_model": "Neumann",
+                "convection_model": "Fixed Convection Coefficient",
+                "line_segments_2d": [[[0, 0], [0, 100]]],
+                "timesteps": {
+                    "1": {"temperature": 20.0, "humidity": 0.5, "film_coefficient": 8.0},
+                    "2": {"temperature": 22.0, "humidity": 0.5, "film_coefficient": 8.0},
+                    "3": {"temperature": 24.0, "humidity": 0.5, "film_coefficient": 8.0},
+                },
+            },
+            {
+                "name": "TrExt",
+                "kind": "transient",
+                "bc_type": "Transient",
+                "bc_model": "Neumann",
+                "convection_model": "Fixed Convection Coefficient",
+                "line_segments_2d": [[[100, 0], [100, 100]]],
+                "timesteps": {
+                    "1": {"temperature": 0.0, "humidity": 0.8, "film_coefficient": 25.0},
+                    "2": {"temperature": -2.0, "humidity": 0.85, "film_coefficient": 25.0},
+                    "3": {"temperature": -4.0, "humidity": 0.9, "film_coefficient": 25.0},
+                },
+            },
+        ],
+    )
+    run_tr = _call_tool(
+        mcp_server,
+        "FF_Start_Simulation",
+        garden_root=garden_root,
+        model_target=m_tr["target"],
+        run_id="ff_e2e_transient_run",
+        simulation_parameter={
+            "mesh": {"parameter": 12, "run_error_estimator": False},
+            "transient": {
+                "timestep": 3600,
+                "number_of_timesteps": 3,
+                "initial_temperature": 10.0,
+                "simulate_moisture": False,
+            },
+        },
+        wait_seconds=60.0,
+    )
+    assert run_tr["status"] == "completed", run_tr.get("error")
+    assert run_tr["summary_view"]["simulation_mode"] == "dry-transient"
+
+    tr_sum = _call_tool(mcp_server, "FF_Read_Results", garden_root=garden_root, run_id="ff_e2e_transient_run", data_type="transient_summary")
+    assert tr_sum["summary_view"]["step_count"] == 4
+    tr_ser = _call_tool(
+        mcp_server,
+        "FF_Read_Results",
+        garden_root=garden_root,
+        run_id="ff_e2e_transient_run",
+        data_type="transient_series",
+        field="temperatures",
+        include_values=True,
+    )
+    assert len(tr_ser["times"]) == 4
+    tr_temp = _call_tool(mcp_server, "FF_Read_Results", garden_root=garden_root, run_id="ff_e2e_transient_run", data_type="temperature", timestep_index=2)
+    assert tr_temp["summary_view"]["timestep_index"] == 2
+    vis_tr = _call_tool(mcp_server, "FF_To_Visualization_Set", garden_root=garden_root, source_kind="result", run_id="ff_e2e_transient_run", data_type="temperature", timestep_index=2)
+    assert vis_tr["summary_view"]["geometry_count"] == 1
+
+    # 5. Coupled hygrothermal (moisture) transient simulation
+    m_hyg = _call_tool(mcp_server, "FF_Create_Model", garden_root=garden_root, identifier="ff_e2e_hygro")
+    _call_tool(
+        mcp_server,
+        "FF_Edit_Model",
+        garden_root=garden_root,
+        model_target=m_hyg["target"],
+        shapes=[
+            {
+                "name": "HygroBrick",
+                "vertices_2d": [[0, 0], [100, 0], [100, 100], [0, 100]],
+                "material": {
+                    "kind": "hygrothermal",
+                    "name": "HygroBrickMat",
+                    "conductivity": 0.8,
+                    "density": 1800.0,
+                    "porosity": 0.25,
+                    "specific_heat": 850.0,
+                    "vapor_diffusion_resistance": 12.0,
+                    "moisture_storage_function": [[0.0, 0.0], [0.5, 45.0], [1.0, 130.0]],
+                },
+            }
+        ],
+        boundaries=[
+            {
+                "name": "HygInt",
+                "kind": "transient",
+                "bc_type": "Transient",
+                "bc_model": "Neumann",
+                "convection_model": "Fixed Convection Coefficient",
+                "line_segments_2d": [[[0, 0], [0, 100]]],
+                "timesteps": {
+                    "1": {"temperature": 21.0, "humidity": 0.45, "film_coefficient": 8.0},
+                    "2": {"temperature": 21.0, "humidity": 0.50, "film_coefficient": 8.0},
+                },
+            },
+            {
+                "name": "HygExt",
+                "kind": "transient",
+                "bc_type": "Transient",
+                "bc_model": "Neumann",
+                "convection_model": "Fixed Convection Coefficient",
+                "line_segments_2d": [[[100, 0], [100, 100]]],
+                "timesteps": {
+                    "1": {"temperature": 5.0, "humidity": 0.85, "film_coefficient": 25.0},
+                    "2": {"temperature": 5.0, "humidity": 0.90, "film_coefficient": 25.0},
+                },
+            },
+        ],
+    )
+    run_hyg = _call_tool(
+        mcp_server,
+        "FF_Start_Simulation",
+        garden_root=garden_root,
+        model_target=m_hyg["target"],
+        run_id="ff_e2e_hygro_run",
+        simulation_parameter={
+            "mesh": {"parameter": 12, "run_error_estimator": False},
+            "transient": {
+                "timestep": 3600,
+                "number_of_timesteps": 2,
+                "initial_temperature": 15.0,
+                "initial_humidity": 0.5,
+                "simulate_moisture": True,
+                "modeling_options": {"exclude_liquid_transport": True},
+            },
+        },
+        wait_seconds=60.0,
+    )
+    assert run_hyg["status"] == "completed", run_hyg.get("error")
+    assert run_hyg["summary_view"]["simulation_mode"] == "hygrothermal-transient"
+
+    rh_res = _call_tool(mcp_server, "FF_Read_Results", garden_root=garden_root, run_id="ff_e2e_hygro_run", data_type="humidity")
+    assert 0.0 <= rh_res["summary_view"]["minimum"] <= rh_res["summary_view"]["maximum"] <= 1.0
+    wc_res = _call_tool(mcp_server, "FF_Read_Results", garden_root=garden_root, run_id="ff_e2e_hygro_run", data_type="water_content")
+    assert wc_res["summary_view"]["value_count"] > 4
+    vis_rh = _call_tool(mcp_server, "FF_To_Visualization_Set", garden_root=garden_root, source_kind="result", run_id="ff_e2e_hygro_run", data_type="humidity")
+    assert vis_rh["summary_view"]["units"] == "fraction"

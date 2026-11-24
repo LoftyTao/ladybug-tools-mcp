@@ -7,20 +7,23 @@ from pathlib import Path
 from typing import Any, Iterable
 import xml.etree.ElementTree as ET
 
-import fairyfly_therm  # noqa: F401
-import fairyfly_therm.lib.conditions as _ff_conditions
-import fairyfly_therm.lib.gases as _ff_gases
-import fairyfly_therm.lib.materials as _ff_materials
+import fairyfly_hygrotherm  # noqa: F401
+import fairyfly_next_therm.lib.conditions as _ff_conditions
+import fairyfly_next_therm.lib.gases as _ff_gases
+import fairyfly_next_therm.lib.materials as _ff_materials
 from fairyfly.boundary import Boundary
 from fairyfly.model import Model
 from fairyfly.shape import Shape
-from fairyfly_therm.condition.steadystate import SteadyState
-from fairyfly_therm.material.cavity import CavityMaterial
-from fairyfly_therm.material.dictutil import dict_to_material
-from fairyfly_therm.material.gas import Gas, PureGas
-from fairyfly_therm.material.solid import SolidMaterial
-from fairyfly_therm.material.xmlutil import extract_all_materials_from_xml_file
-from fairyfly_therm.result import THMZResult
+from fairyfly_next_therm.condition.dictutil import dict_to_condition
+from fairyfly_next_therm.condition.steadystate import SteadyState
+from fairyfly_next_therm.condition.transient import Transient
+from fairyfly_next_therm.material.cavity import CavityMaterial
+from fairyfly_next_therm.material.dictutil import dict_to_material
+from fairyfly_next_therm.material.gas import Gas, PureGas
+from fairyfly_next_therm.material.hygrothermal import HygrothermalMaterial
+from fairyfly_next_therm.material.solid import SolidMaterial
+from fairyfly_next_therm.material.xmlutil import extract_all_materials_from_xml_file
+from fairyfly_next_therm.result import THMZResult
 from ladybug.color import Color
 from ladybug_display.analysis import AnalysisGeometry, VisualizationData
 from ladybug_display.context import ContextGeometry
@@ -58,7 +61,54 @@ DEFAULT_BOUNDARY_COLOR = Color(50, 110, 200)
 _THERM_RESULT_UNITS = {
     "temperature": "C",
     "heat_flux": "W/m2",
+    "humidity": "fraction",
+    "water_content": "kg/m3",
 }
+_HYGROTHERMAL_SPEC_KEYS = frozenset({
+    "moisture_storage_function",
+    "liquid_transport_suction",
+    "liquid_transport_redistribution",
+    "conductivity_moisture_dependent",
+    "conductivity_temperature_dependent",
+    "diffusion_moisture_dependent",
+    "enthalpy_temperature_dependent",
+    "reference_water_content",
+    "free_water_saturation",
+    "water_absorption_coefficient",
+    "drying_factor",
+    "roughness",
+    "conductivity_moisture_supplement",
+    "conductivity_temperature_supplement",
+    "conductivity_design_value",
+    "typical_built_in_moisture",
+    "default_thickness",
+    "material_information",
+})
+_TRANSIENT_CONDITION_KEYS = (
+    "bc_type",
+    "bc_model",
+    "convection_model",
+    "radiation_model",
+    "timesteps",
+    "wind_speed",
+    "wind_direction",
+    "use_heat_flux",
+    "use_temperature",
+    "imposed_temperature",
+    "use_humidity",
+    "imposed_humidity",
+    "radiation_temperature",
+    "surface_emissivity",
+    "view_factor",
+    "hr",
+    "solar_radiation",
+    "absorptance",
+    "timestep_file_name",
+    "surface_tilt",
+    "surface_length",
+    "building_width",
+    "building_height",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -462,13 +512,101 @@ def _material_from_energy_spec(
     return SolidMaterial.from_energy_material(hb_mat)
 
 
+def _coerce_xy_curve(value: Any) -> list[tuple[float, float]] | None:
+    if value is None:
+        return None
+    return [(float(pt[0]), float(pt[1])) for pt in value]
+
+
+def create_fairyfly_hygrothermal_material(
+    *,
+    name: str,
+    conductivity: float,
+    density: float | None = None,
+    porosity: float | None = None,
+    specific_heat: float | None = None,
+    vapor_diffusion_resistance: float | None = None,
+    moisture_storage_function: list[Any] | None = None,
+    liquid_transport_suction: list[Any] | None = None,
+    liquid_transport_redistribution: list[Any] | None = None,
+    conductivity_moisture_dependent: list[Any] | None = None,
+    conductivity_temperature_dependent: list[Any] | None = None,
+    diffusion_moisture_dependent: list[Any] | None = None,
+    enthalpy_temperature_dependent: list[Any] | None = None,
+    reference_water_content: float | None = None,
+    free_water_saturation: float | None = None,
+    water_absorption_coefficient: float | None = None,
+    drying_factor: float | None = None,
+    roughness: str | None = None,
+    conductivity_moisture_supplement: float | None = None,
+    conductivity_temperature_supplement: float | None = None,
+    conductivity_design_value: float | None = None,
+    typical_built_in_moisture: float | None = None,
+    default_thickness: float | None = None,
+    material_information: str | None = None,
+    emissivity: float = 0.9,
+    emissivity_back: float | None = None,
+    reflectance: float | None = None,
+    transmittance: float | None = None,
+    rgb_color: list[int] | None = None,
+    identifier: str | None = None,
+) -> dict[str, Any]:
+    """Create a Fairyfly HygrothermalMaterial payload."""
+    material = HygrothermalMaterial(
+        conductivity=float(conductivity),
+        density=density,
+        porosity=porosity,
+        specific_heat=specific_heat,
+        vapor_diffusion_resistance=vapor_diffusion_resistance,
+        moisture_storage_function=_coerce_xy_curve(moisture_storage_function),
+        liquid_transport_suction=_coerce_xy_curve(liquid_transport_suction),
+        liquid_transport_redistribution=_coerce_xy_curve(liquid_transport_redistribution),
+        conductivity_moisture_dependent=_coerce_xy_curve(conductivity_moisture_dependent),
+        conductivity_temperature_dependent=_coerce_xy_curve(conductivity_temperature_dependent),
+        diffusion_moisture_dependent=_coerce_xy_curve(diffusion_moisture_dependent),
+        enthalpy_temperature_dependent=_coerce_xy_curve(enthalpy_temperature_dependent),
+        reference_water_content=reference_water_content,
+        free_water_saturation=free_water_saturation,
+        water_absorption_coefficient=water_absorption_coefficient,
+        drying_factor=drying_factor,
+        roughness=roughness,
+        conductivity_moisture_supplement=conductivity_moisture_supplement,
+        conductivity_temperature_supplement=conductivity_temperature_supplement,
+        conductivity_design_value=conductivity_design_value,
+        typical_built_in_moisture=typical_built_in_moisture,
+        default_thickness=default_thickness,
+        material_information=material_information,
+        emissivity=float(emissivity),
+        emissivity_back=emissivity_back,
+        reflectance=reflectance,
+        transmittance=transmittance,
+        identifier=identifier,
+    )
+    material.display_name = name
+    material.color = _color_from_rgb(rgb_color) or Color(140, 175, 200)
+    material_dict = material.to_dict()
+    return {
+        "object_dict": material_dict,
+        "target": material_dict,
+        "summary_view": {
+            "type": material_dict.get("type"),
+            "identifier": material_dict.get("identifier"),
+            "display_name": material_dict.get("display_name") or material_dict.get("identifier"),
+            "conductivity": material_dict.get("conductivity"),
+            "emissivity": material_dict.get("emissivity"),
+            "color": material_dict.get("color"),
+        },
+        "report": make_report(status="ok", message=f"Created Fairyfly hygrothermal material: {name}"),
+    }
+
+
 def coerce_fairyfly_material(
     material: Any,
     *,
     garden_root: str | Path | None = None,
-) -> SolidMaterial | CavityMaterial:
+) -> SolidMaterial | CavityMaterial | HygrothermalMaterial:
     """Coerce a library name, inline spec, HB-Energy material, or Fairyfly dict to a Material."""
-    if isinstance(material, (SolidMaterial, CavityMaterial)):
+    if isinstance(material, (SolidMaterial, CavityMaterial, HygrothermalMaterial)):
         return material
     if isinstance(material, str):
         try:
@@ -508,6 +646,62 @@ def coerce_fairyfly_material(
             rgb_color=material.get("rgb_color"),
         )
         return dict_to_material(created["object_dict"])
+    elif "conductivity" in material and (
+        material.get("kind") == "hygrothermal"
+        or material.get("type") == "HygrothermalMaterial"
+        or any(material.get(k) is not None for k in _HYGROTHERMAL_SPEC_KEYS)
+    ):
+        created = create_fairyfly_hygrothermal_material(
+            name=str(material.get("name") or material.get("display_name") or "HygrothermalMaterial"),
+            conductivity=float(material["conductivity"]),
+            density=float(material["density"]) if material.get("density") is not None else None,
+            porosity=float(material["porosity"]) if material.get("porosity") is not None else None,
+            specific_heat=(
+                float(material["specific_heat"])
+                if material.get("specific_heat") is not None
+                else None
+            ),
+            vapor_diffusion_resistance=(
+                float(material["vapor_diffusion_resistance"])
+                if material.get("vapor_diffusion_resistance") is not None
+                else None
+            ),
+            moisture_storage_function=material.get("moisture_storage_function"),
+            liquid_transport_suction=material.get("liquid_transport_suction"),
+            liquid_transport_redistribution=material.get("liquid_transport_redistribution"),
+            conductivity_moisture_dependent=material.get("conductivity_moisture_dependent"),
+            conductivity_temperature_dependent=material.get("conductivity_temperature_dependent"),
+            diffusion_moisture_dependent=material.get("diffusion_moisture_dependent"),
+            enthalpy_temperature_dependent=material.get("enthalpy_temperature_dependent"),
+            reference_water_content=material.get("reference_water_content"),
+            free_water_saturation=material.get("free_water_saturation"),
+            water_absorption_coefficient=material.get("water_absorption_coefficient"),
+            drying_factor=material.get("drying_factor"),
+            roughness=material.get("roughness"),
+            conductivity_moisture_supplement=material.get("conductivity_moisture_supplement"),
+            conductivity_temperature_supplement=material.get("conductivity_temperature_supplement"),
+            conductivity_design_value=material.get("conductivity_design_value"),
+            typical_built_in_moisture=material.get("typical_built_in_moisture"),
+            default_thickness=material.get("default_thickness"),
+            material_information=material.get("material_information"),
+            emissivity=float(material.get("emissivity", 0.9)),
+            emissivity_back=(
+                float(material["emissivity_back"])
+                if material.get("emissivity_back") is not None
+                else None
+            ),
+            reflectance=(
+                float(material["reflectance"]) if material.get("reflectance") is not None else None
+            ),
+            transmittance=(
+                float(material["transmittance"])
+                if material.get("transmittance") is not None
+                else None
+            ),
+            rgb_color=material.get("rgb_color"),
+            identifier=material.get("identifier"),
+        )
+        return dict_to_material(created["object_dict"])
     elif "conductivity" in material:
         created = create_fairyfly_solid_material(
             name=str(material.get("name") or material.get("display_name") or "SolidMaterial"),
@@ -544,7 +738,8 @@ def coerce_fairyfly_material(
     else:
         raise ValueError(
             "Fairyfly material dictionary requires type+identifier, material_name, "
-            "conductivity (SolidMaterial), cavity_model (CavityMaterial), or HB-Energy source."
+            "conductivity (SolidMaterial/HygrothermalMaterial), cavity_model (CavityMaterial), "
+            "or HB-Energy source."
         )
 
     if material.get("name") or material.get("display_name"):
@@ -568,13 +763,112 @@ _CONDITION_ALIASES = {
 }
 
 
-def coerce_fairyfly_condition(spec: dict[str, Any]) -> SteadyState:
-    """Build or lookup a SteadyState boundary condition from a spec dict."""
+def _normalize_transient_timesteps(raw_timesteps: Any) -> Any:
+    if raw_timesteps is None:
+        return None
+    if isinstance(raw_timesteps, dict):
+        return {
+            int(step): {str(k): v for k, v in values.items()}
+            for step, values in raw_timesteps.items()
+        }
+    if isinstance(raw_timesteps, (list, tuple)):
+        return [{str(k): v for k, v in item.items()} for item in raw_timesteps]
+    return raw_timesteps
+
+
+def coerce_fairyfly_condition(spec: dict[str, Any] | SteadyState | Transient) -> SteadyState | Transient:
+    """Build or lookup a SteadyState or Transient boundary condition from a spec dict."""
+    if isinstance(spec, (SteadyState, Transient)):
+        return spec
     if isinstance(spec.get("condition"), dict):
-        cond_raw = spec["condition"]
+        cond_raw = dict(spec["condition"])
         if isinstance(cond_raw.get("object_dict"), dict):
-            cond_raw = cond_raw["object_dict"]
-        return SteadyState.from_dict(cond_raw)
+            cond_raw = dict(cond_raw["object_dict"])
+        cond_type = cond_raw.get("type")
+        if cond_type == "Transient" and isinstance(cond_raw.get("timesteps"), dict):
+            cond_raw["timesteps"] = {
+                str(int(k)): v for k, v in cond_raw["timesteps"].items()
+            }
+        if cond_type in {"SteadyState", "Transient"}:
+            return dict_to_condition(cond_raw)
+        return coerce_fairyfly_condition(cond_raw)
+
+    is_transient = (
+        str(spec.get("kind") or spec.get("condition_type") or "").strip().lower() == "transient"
+        or spec.get("type") == "Transient"
+        or any(spec.get(key) is not None for key in _TRANSIENT_CONDITION_KEYS)
+    )
+    if is_transient:
+        bc_type = str(spec.get("bc_type", "Transient"))
+        bc_model = str(spec.get("bc_model", "Neumann"))
+        use_heat_flux = bool(spec.get("use_heat_flux", False))
+        use_temperature = bool(spec.get("use_temperature", False))
+        use_humidity = bool(spec.get("use_humidity", False))
+        humidity_only = use_humidity and bc_model == "Dirichlet" and not use_temperature
+        if "convection_model" in spec:
+            convection_model = spec.get("convection_model")
+        elif use_heat_flux or use_temperature or humidity_only:
+            convection_model = None
+        else:
+            convection_model = "Fixed Convection Coefficient"
+
+        timesteps = _normalize_transient_timesteps(spec.get("timesteps"))
+        if bc_type == "Transient" and timesteps is None:
+            # Synthesize a single-step schedule from constant inputs when omitted.
+            step: dict[str, Any] = {}
+            if spec.get("temperature") is not None:
+                step["temperature"] = float(spec["temperature"])
+            if spec.get("relative_humidity") is not None:
+                step["humidity"] = float(spec["relative_humidity"])
+            elif spec.get("humidity") is not None:
+                step["humidity"] = float(spec["humidity"])
+            if spec.get("film_coefficient") is not None:
+                step["film_coefficient"] = float(spec["film_coefficient"])
+            if spec.get("heat_flux") is not None and use_heat_flux:
+                step["heat_flux"] = float(spec["heat_flux"])
+            if spec.get("imposed_temperature") is not None and use_temperature:
+                step["surface_temperature"] = float(spec["imposed_temperature"])
+            if spec.get("imposed_humidity") is not None and use_humidity:
+                step["humidity"] = float(spec["imposed_humidity"])
+            if step:
+                timesteps = {1: step}
+
+        kwargs: dict[str, Any] = {
+            "bc_type": bc_type,
+            "bc_model": bc_model,
+            "convection_model": convection_model,
+            "radiation_model": spec.get("radiation_model"),
+            "timesteps": timesteps,
+            "temperature": spec.get("temperature"),
+            "film_coefficient": spec.get("film_coefficient"),
+            "wind_speed": spec.get("wind_speed"),
+            "wind_direction": spec.get("wind_direction"),
+            "use_heat_flux": use_heat_flux,
+            "heat_flux": spec.get("heat_flux"),
+            "use_temperature": use_temperature,
+            "imposed_temperature": spec.get("imposed_temperature"),
+            "use_humidity": use_humidity,
+            "imposed_humidity": spec.get("imposed_humidity"),
+            "radiation_temperature": spec.get("radiation_temperature"),
+            "surface_emissivity": spec.get("surface_emissivity"),
+            "view_factor": spec.get("view_factor"),
+            "hr": spec.get("hr"),
+            "solar_radiation": spec.get("solar_radiation"),
+            "absorptance": spec.get("absorptance"),
+            "timestep_file_name": spec.get("timestep_file_name"),
+            "surface_tilt": spec.get("surface_tilt"),
+            "surface_length": spec.get("surface_length"),
+            "building_width": spec.get("building_width"),
+            "building_height": spec.get("building_height"),
+            "identifier": spec.get("identifier"),
+        }
+        condition = Transient(**kwargs)
+        condition.display_name = str(
+            spec.get("display_name") or spec.get("name") or f"Transient_{condition.identifier[:8]}"
+        )
+        condition.color = _color_from_rgb(spec.get("rgb_color")) or Color(50, 110, 200)
+        return condition
+
     if spec.get("condition_name"):
         cond_name = str(spec["condition_name"])
         alias = _CONDITION_ALIASES.get(cond_name.strip().lower().replace("_", " "))
@@ -592,7 +886,7 @@ def coerce_fairyfly_condition(spec: dict[str, Any]) -> SteadyState:
     if spec.get("temperature") is None or spec.get("film_coefficient") is None:
         raise ValueError(
             "Fairyfly boundary condition requires temperature and film_coefficient, "
-            "condition_name, or a condition dictionary."
+            "condition_name, a Transient condition spec, or a condition dictionary."
         )
     condition = SteadyState(
         temperature=float(spec["temperature"]),
@@ -1291,28 +1585,62 @@ def edit_fairyfly_model_entities(
             boundary.display_name = str(spec.get("display_name") or spec["new_name"])
         if any(
             k in spec
-            for k in ("condition", "condition_name", "temperature", "film_coefficient")
+            for k in (
+                "condition",
+                "condition_name",
+                "temperature",
+                "film_coefficient",
+                "kind",
+                "condition_type",
+                "bc_type",
+                "bc_model",
+                "convection_model",
+                "radiation_model",
+                "timesteps",
+                "use_heat_flux",
+                "use_temperature",
+                "use_humidity",
+                "imposed_temperature",
+                "imposed_humidity",
+            )
         ):
             existing = boundary.properties.therm.condition
-            merged = {
-                "temperature": spec.get("temperature", getattr(existing, "temperature", None)),
-                "film_coefficient": spec.get(
-                    "film_coefficient", getattr(existing, "film_coefficient", None)
-                ),
-                "emissivity": spec.get("emissivity", getattr(existing, "emissivity", 1.0)),
-                "radiant_temperature": spec.get(
-                    "radiant_temperature", getattr(existing, "radiant_temperature", None)
-                ),
-                "heat_flux": spec.get("heat_flux", getattr(existing, "heat_flux", 0)),
-                "relative_humidity": spec.get(
-                    "relative_humidity", getattr(existing, "relative_humidity", 0.5)
-                ),
-                "condition_name": spec.get("condition_name"),
-                "condition": spec.get("condition"),
-                "name": spec.get("new_name") or spec.get("display_name") or boundary.display_name,
-                "rgb_color": spec.get("rgb_color"),
-            }
-            boundary.properties.therm.condition = coerce_fairyfly_condition(merged)
+            has_transient = (
+                any(k in spec for k in _TRANSIENT_CONDITION_KEYS)
+                or spec.get("kind") == "transient"
+                or isinstance(existing, Transient) and spec.get("condition_name") is None and spec.get("condition") is None
+            )
+            if has_transient and not isinstance(spec.get("condition"), dict) and not spec.get("condition_name"):
+                merged = dict(spec)
+                if "name" not in merged and "display_name" not in merged:
+                    merged["display_name"] = boundary.display_name
+                if isinstance(existing, Transient):
+                    base_dict = existing.to_dict()
+                    base_dict.pop("identifier", None)
+                    for k, v in base_dict.items():
+                        if k != "type":
+                            merged.setdefault(k, v)
+                boundary.properties.therm.condition = coerce_fairyfly_condition(merged)
+            else:
+                merged = {
+                    "temperature": spec.get("temperature", getattr(existing, "temperature", None)),
+                    "film_coefficient": spec.get(
+                        "film_coefficient", getattr(existing, "film_coefficient", None)
+                    ),
+                    "emissivity": spec.get("emissivity", getattr(existing, "emissivity", 1.0)),
+                    "radiant_temperature": spec.get(
+                        "radiant_temperature", getattr(existing, "radiant_temperature", None)
+                    ),
+                    "heat_flux": spec.get("heat_flux", getattr(existing, "heat_flux", 0)),
+                    "relative_humidity": spec.get(
+                        "relative_humidity", getattr(existing, "relative_humidity", 0.5)
+                    ),
+                    "condition_name": spec.get("condition_name"),
+                    "condition": spec.get("condition"),
+                    "name": spec.get("new_name") or spec.get("display_name") or boundary.display_name,
+                    "rgb_color": spec.get("rgb_color"),
+                }
+                boundary.properties.therm.condition = coerce_fairyfly_condition(merged)
         elif spec.get("rgb_color") is not None and boundary.properties.therm.condition is not None:
             cond = boundary.properties.therm.condition.duplicate()
             cond.color = _color_from_rgb(spec["rgb_color"])
@@ -1584,6 +1912,7 @@ def fairyfly_therm_result_to_visualization_set(
     run_target: dict[str, Any] | None = None,
     run_id: str | None = None,
     data_type: str = "temperature",
+    timestep_index: int | None = None,
     name: str | None = None,
     return_visualization_set: bool = True,
 ) -> dict[str, Any]:
@@ -1597,6 +1926,7 @@ def fairyfly_therm_result_to_visualization_set(
         run_target=run_target,
         run_id=run_id,
         data_type=data_type,
+        timestep_index=timestep_index,
         include_values=True,
     )
     summary = dict(read_result.get("summary_view", {}))

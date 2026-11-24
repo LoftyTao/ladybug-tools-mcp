@@ -26,7 +26,6 @@ REQUIRED_RUNTIME_VERSIONS: dict[str, str] = {
     "openstudio": "3.10.0",
     "energyplus": "25.1.0",
     "urbanopt": "1.4.0",
-    "therm": "8.1.30.0",
     "ironbug_console": "1.22.0.0",
 }
 
@@ -91,10 +90,13 @@ _ENGINE_HELP: dict[str, dict[str, Any]] = {
         "required_for": ["Dragonfly DES system-parameter sizing", "Dragonfly DES Modelica generation"],
     },
     "therm": {
-        "documentation_url": "https://windows.lbl.gov/therm-software-downloads",
-        "compatibility_url": "https://github.com/ladybug-tools/lbt-grasshopper/wiki/1.4-Compatibility-Matrix",
-        "install_hint": "Install LBNL THERM on Windows so fairyfly-therm resolves the executable.",
-        "required_for": ["Fairyfly THERM workflows"],
+        "documentation_url": "https://github.com/LoftyTao/pyHygroThermFEM-Fairyfly",
+        "compatibility_url": "https://github.com/LoftyTao/fairyfly-next-therm",
+        "install_hint": (
+            "Bundled cross-platform pyHygroThermFEM-Fairyfly C++20 solver + Gmsh Q4 mesher "
+            "(no external LBNL THERM installation required)."
+        ),
+        "required_for": ["Fairyfly 2D steady-state, transient, and hygrothermal workflows"],
     },
     "ironbug_console": {
         "documentation_url": "https://github.com/MingboPeng/Ironbug",
@@ -674,6 +676,8 @@ def _radiance_config() -> dict[str, Any]:
 def _path_prepend_values(engines: dict[str, dict[str, Any]]) -> list[str]:
     values: list[str] = []
     for engine in engines.values():
+        if engine.get("kind") == "hygrothermfem_runtime":
+            continue
         prepend = (engine.get("path_updates") or {}).get("prepend") or []
         for value in prepend:
             if isinstance(value, str) and value and Path(value).expanduser().is_dir() and value not in values:
@@ -731,7 +735,7 @@ def get_ladybug_tools_config() -> dict[str, Any]:
         if not engine.get("path_exists")
         or ("exe_exists" in engine and not engine.get("exe_exists"))
         or ("bin_path_exists" in engine and not engine.get("bin_path_exists"))
-        or (name == "des_gmt" and not engine.get("available"))
+        or (name in {"des_gmt", "therm"} and not engine.get("available"))
     ]
     incompatible = [
         name
