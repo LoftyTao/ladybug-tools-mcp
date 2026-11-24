@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ladybug.analysisperiod import AnalysisPeriod
 from ladybug.datacollection import HourlyContinuousCollection
 from ladybug.datatype.rvalue import ClothingInsulation
 from ladybug.datatype.temperature import Temperature
@@ -12,6 +13,7 @@ from ladybug.datatype.temperaturetime import CoolingDegreeTime
 from ladybug.epw import EPW
 from ladybug.header import Header
 from ladybug.location import Location
+from ladybug_geometry.geometry3d import Face3D, Mesh3D, Point3D
 
 from garden.data_collection import (
     DATA_COLLECTION_TARGET_TYPE,
@@ -21,6 +23,14 @@ from garden.data_collection import (
     save_data_collection,
 )
 from garden.manifest import GardenManifest
+from garden.passive_strategy import (
+    STRATEGY_DISPLAY_NAMES,
+    PassiveStrategyParameters,
+    evaluate_pmv_passive_strategies,
+    normalize_passive_strategies,
+    summarize_polygon_numeric_input,
+)
+from garden.ray_intersect import compute_human_to_sky_relation
 from garden.run_energy.config import resolve_garden_weather_epw
 from ladybug_tools_mcp.contracts import make_report
 
@@ -32,6 +42,12 @@ _METRIC_ALIASES = {
     "utci": "universal_thermal_climate_index",
     "pet": "physiologic_equivalent_temperature",
     "mrt": "mean_radiant_temperature",
+    "erf": "effective_radiant_field",
+    "dmrt": "mrt_delta",
+    "short_erf": "shortwave_effective_radiant_field",
+    "long_erf": "longwave_effective_radiant_field",
+    "short_dmrt": "shortwave_mrt_delta",
+    "long_dmrt": "longwave_mrt_delta",
     "eleven_point": "thermal_condition_eleven_point",
     "nine_point": "thermal_condition_nine_point",
     "seven_point": "thermal_condition_seven_point",
@@ -1385,6 +1401,1060 @@ def _calculate_heat_stress(
     return res
 
 
+def _resolve_garden_input_path(garden_root: str | Path, raw_path: str, field_name: str) -> Path:
+    root = Path(garden_root).expanduser().resolve()
+    raw = Path(raw_path).expanduser()
+    candidate = raw.resolve() if raw.is_absolute() else (root / raw).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be inside Garden root: {raw_path}") from exc
+    if not candidate.is_file():
+        raise ValueError(f"{field_name} must reference an existing file: {raw_path}")
+    return candidate
+
+
+def _coerce_point3d(raw: dict[str, Any] | list[float] | tuple[float, ...]) -> Point3D:
+    if isinstance(raw, dict):
+        return Point3D(float(raw.get("x", 0.0)), float(raw.get("y", 0.0)), float(raw.get("z", 0.0)))
+    if isinstance(raw, (list, tuple)) and len(raw) >= 3:
+        return Point3D(float(raw[0]), float(raw[1]), float(raw[2]))
+    raise ValueError("human_position must be a [x, y, z] list or Point3D dict.")
+
+
+def _resolve_solarcal_context(
+    *,
+    garden_root: str | Path,
+    context_geometry: list[dict[str, Any]] | None,
+    model_target: dict[str, Any] | None,
+) -> list[Face3D | Mesh3D]:
+    ctx: list[Face3D | Mesh3D] = []
+    if model_target is not None:
+        from garden.honeybee_core.model_io import load_honeybee_model, resolve_model_target
+
+        root = Path(garden_root).expanduser().resolve()
+        _, resolved_target = resolve_model_target(root, model_target)
+        model = load_honeybee_model(root, resolved_target)
+        for room in model.rooms:
+            for face in room.faces:
+                ctx.append(face.geometry)
+                for sh in face.shades:
+                    ctx.append(sh.geometry)
+            for sh in room.shades:
+                ctx.append(sh.geometry)
+        for face in model.orphaned_faces:
+            ctx.append(face.geometry)
+            for sh in face.shades:
+                ctx.append(sh.geometry)
+        for sh in model.shades:
+            ctx.append(sh.geometry)
+    for item in context_geometry or []:
+        if not isinstance(item, dict):
+            raise ValueError("Each context_geometry entry must be a Face3D or Mesh3D dict.")
+        data = dict(item)
+        if data.get("type") == "Mesh3D" or "faces" in data:
+            data.setdefault("type", "Mesh3D")
+            ctx.append(Mesh3D.from_dict(data))
+        else:
+            data.setdefault("type", "Face3D")
+            ctx.append(Face3D.from_dict(data))
+    return ctx
+
+
+def _maybe_human_to_sky(
+    *,
+    garden_root: str | Path,
+    location_obj: Location,
+    human_position: dict[str, Any] | list[float] | None,
+    human_height: float,
+    human_point_count: int,
+    context_geometry: list[dict[str, Any]] | None,
+    model_target: dict[str, Any] | None,
+    north_angle: float,
+    frac_exposed: Any,
+    sky_exp: Any,
+) -> tuple[Any, Any, dict[str, Any] | None]:
+    if human_position is None:
+        return frac_exposed, sky_exp, None
+    ctx = _resolve_solarcal_context(
+        garden_root=garden_root,
+        context_geometry=context_geometry,
+        model_target=model_target,
+    )
+    if not ctx:
+        return frac_exposed, sky_exp, None
+    pos_pt = _coerce_point3d(human_position)
+    auto_fract, auto_sky = compute_human_to_sky_relation(
+        location=location_obj,
+        human_position=pos_pt,
+        context_geometries=ctx,
+        north_angle=float(north_angle),
+        height=float(human_height),
+        point_count=int(human_point_count),
+    )
+    resolved_fract = auto_fract if frac_exposed is None else frac_exposed
+    resolved_sky = auto_sky if sky_exp is None else sky_exp
+    info = {
+        "human_position": [pos_pt.x, pos_pt.y, pos_pt.z],
+        "human_height": float(human_height),
+        "human_point_count": int(human_point_count),
+        "north_angle": float(north_angle),
+        "context_count": len(ctx),
+        "computed_sky_exposure": auto_sky,
+        "computed_fraction_body_exposed_mean": float(auto_fract.average),
+    }
+    return resolved_fract, resolved_sky, info
+
+
+def _resolve_scalar_or_collection_float(
+    *,
+    garden_root: str | Path,
+    value: Any,
+    field_name: str,
+) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a number or DataCollection target.")
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, dict):
+        col = _load_required_collection(garden_root=garden_root, target=value, field_name=field_name)
+        return float(col.average)
+    raise ValueError(f"{field_name} must be a number or DataCollection target.")
+
+
+def calculate_passive_strategy(
+    *,
+    garden_root: str,
+    air_temperature_target: dict[str, Any] | None = None,
+    relative_humidity_target: dict[str, Any] | None = None,
+    mean_radiant_temperature_target: dict[str, Any] | None = None,
+    longwave_mrt: dict[str, Any] | list[float] | float | int | None = None,
+    outdoor_temperature_target: dict[str, Any] | None = None,
+    incident_irradiance_target: dict[str, Any] | None = None,
+    barometric_pressure: dict[str, Any] | float | int | None = None,
+    air_speed: dict[str, Any] | list[float] | float | int | None = None,
+    met_rate: dict[str, Any] | list[float] | float | int | None = None,
+    clo_value: dict[str, Any] | list[float] | float | int | None = None,
+    external_work: dict[str, Any] | list[float] | float | int | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    strategies: list[str] | dict[str, Any] | None = None,
+    passive_strategy_parameters: dict[str, Any] | None = None,
+    merge_polygons: bool = True,
+    comfort_parameter: dict[str, Any] | None = None,
+    output_metrics: list[str] | None = None,
+    identifier: str | None = None,
+    return_data_collection: bool = False,
+) -> dict[str, Any]:
+    """Calculate passive strategy comfort coverage using PsychrometricChart and PolygonPMV."""
+    from ladybug.psychchart import PsychrometricChart
+    from ladybug_comfort.chart.polygonpmv import PolygonPMV
+    from ladybug_comfort.parameter.pmv import PMVParameter
+
+    root_path = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(root_path)
+    garden_target = manifest.target()
+
+    epw_obj = (
+        _resolve_epw_object(garden_root=garden_root, weather_target=weather_target, epw_path=epw_path)
+        if (weather_target is not None or epw_path is not None)
+        else None
+    )
+
+    if air_temperature_target is not None:
+        temperature = _load_required_collection(
+            garden_root=garden_root,
+            target=air_temperature_target,
+            field_name="air_temperature_target",
+        )
+    elif epw_obj is not None:
+        temperature = epw_obj.dry_bulb_temperature
+    else:
+        raise ValueError(
+            "passive_strategy requires air_temperature_target and relative_humidity_target, "
+            "or weather_target/epw_path."
+        )
+
+    if relative_humidity_target is not None:
+        relative_humidity = _load_required_collection(
+            garden_root=garden_root,
+            target=relative_humidity_target,
+            field_name="relative_humidity_target",
+        )
+    elif epw_obj is not None:
+        relative_humidity = epw_obj.relative_humidity
+    else:
+        raise ValueError(
+            "passive_strategy requires air_temperature_target and relative_humidity_target, "
+            "or weather_target/epw_path."
+        )
+
+    if len(temperature) != len(relative_humidity):
+        raise ValueError("air_temperature_target and relative_humidity_target must align in length.")
+
+    outdoor_col = (
+        _load_required_collection(
+            garden_root=garden_root,
+            target=outdoor_temperature_target,
+            field_name="outdoor_temperature_target",
+        )
+        if outdoor_temperature_target is not None
+        else (epw_obj.dry_bulb_temperature if epw_obj is not None else None)
+    )
+    solar_col = (
+        _load_required_collection(
+            garden_root=garden_root,
+            target=incident_irradiance_target,
+            field_name="incident_irradiance_target",
+        )
+        if incident_irradiance_target is not None
+        else (epw_obj.global_horizontal_radiation if epw_obj is not None else None)
+    )
+
+    avg_pressure = _resolve_scalar_or_collection_float(
+        garden_root=garden_root, value=barometric_pressure, field_name="barometric_pressure"
+    )
+    if avg_pressure is None:
+        avg_pressure = (
+            float(epw_obj.atmospheric_station_pressure.average)
+            if epw_obj is not None
+            else 101325.0
+        )
+
+    def _loader(tgt: dict[str, Any], fname: str) -> Any:
+        return _load_required_collection(garden_root=garden_root, target=tgt, field_name=fname)
+
+    rad_vals = summarize_polygon_numeric_input(
+        mean_radiant_temperature_target if mean_radiant_temperature_target is not None else longwave_mrt,
+        load_collection_fn=_loader,
+        field_name="mean_radiant_temperature_target",
+    )
+    air_speed_vals = summarize_polygon_numeric_input(
+        air_speed, load_collection_fn=_loader, field_name="air_speed"
+    )
+    met_vals = summarize_polygon_numeric_input(
+        met_rate, load_collection_fn=_loader, field_name="met_rate"
+    )
+    clo_vals = summarize_polygon_numeric_input(
+        clo_value, load_collection_fn=_loader, field_name="clo_value"
+    )
+    wme_vals = summarize_polygon_numeric_input(
+        external_work, load_collection_fn=_loader, field_name="external_work"
+    )
+
+    pmv_par = _load_parameter(
+        comfort_parameter,
+        expected_type="PMVParameter",
+        parameter_cls=PMVParameter,
+    )
+    params = PassiveStrategyParameters.from_dict(passive_strategy_parameters)
+    enabled_strategies = normalize_passive_strategies(
+        strategies,
+        has_solar=(solar_col is not None),
+        strict=True,
+    )
+    enabled_strategies = [s for s in enabled_strategies if s != "shade_line"]
+
+    chart = PsychrometricChart(temperature, relative_humidity, average_pressure=avg_pressure)
+    ppmv = PolygonPMV(
+        chart,
+        rad_temperature=rad_vals,
+        air_speed=air_speed_vals,
+        met_rate=met_vals,
+        clo_value=clo_vals,
+        external_work=wme_vals,
+        comfort_parameter=pmv_par,
+    )
+    eval_res = evaluate_pmv_passive_strategies(
+        chart=chart,
+        ppmv=ppmv,
+        params=params,
+        strategies=enabled_strategies,
+        outdoor_temperature=outdoor_col,
+        incident_irradiance=solar_col,
+        merge_polygons=merge_polygons,
+    )
+    masks = eval_res["masks"]
+    stats = eval_res["statistics"]
+
+    mask_collections: dict[str, Any] = {
+        "total_comfort": ppmv.create_collection(masks["total_comfort"], "Total Comfort"),
+        "comfort": ppmv.create_collection(masks["comfort"], "Comfort"),
+    }
+    for strat_key, strat_vals in masks.items():
+        if strat_key in {"total_comfort", "comfort"}:
+            continue
+        mask_collections[strat_key] = ppmv.create_collection(
+            strat_vals, STRATEGY_DISPLAY_NAMES.get(strat_key, strat_key)
+        )
+
+    requested_metrics = list(output_metrics) if output_metrics else ["total_comfort"]
+    resolved_metric_keys: list[tuple[str, str]] = []
+    for raw_m in requested_metrics:
+        key_clean = raw_m.strip().lower()
+        if key_clean in mask_collections:
+            resolved_metric_keys.append((raw_m, key_clean))
+        else:
+            mapped = normalize_passive_strategies([raw_m], strict=False)
+            if mapped and mapped[0] in mask_collections:
+                resolved_metric_keys.append((raw_m, mapped[0]))
+            else:
+                raise ValueError(
+                    f"Metric {raw_m!r} is not available in PassiveStrategy results "
+                    f"(available: {sorted(mask_collections.keys())})."
+                )
+
+    input_targets = {
+        "weather_target": weather_target,
+        "epw_path": epw_path,
+        "air_temperature": air_temperature_target,
+        "relative_humidity": relative_humidity_target,
+        "outdoor_temperature": outdoor_temperature_target,
+        "incident_irradiance": incident_irradiance_target,
+        "average_pressure": avg_pressure,
+    }
+    param_dict = pmv_par.to_dict() if pmv_par is not None else None
+    persisted_by_name: dict[str, dict[str, Any]] = {}
+    metric_summaries: dict[str, Any] = {}
+    metric_objects: dict[str, Any] = {}
+    base_id = identifier or "passive_strategy_total_comfort"
+
+    for raw_m, canon_m in resolved_metric_keys:
+        col = mask_collections[canon_m].duplicate()
+        col.header.metadata.update(
+            {
+                "source": "ladybug_comfort",
+                "comfort_model": "PassiveStrategy",
+                "comfort_metric": canon_m,
+            }
+        )
+        res_id = base_id if len(resolved_metric_keys) == 1 else f"{base_id}_{canon_m}"
+        saved = save_data_collection(
+            garden_root=garden_root,
+            data_collection=col,
+            identifier=res_id,
+            source={
+                "producer": "LB_Calculate_Comfort",
+                "comfort_model": "PassiveStrategy",
+                "comfort_metric": canon_m,
+                "input_targets": input_targets,
+                "comfort_parameter": param_dict,
+                "passive_strategy_parameters": params.to_dict(),
+            },
+        )
+        persisted_by_name[raw_m] = saved
+        metric_summaries[raw_m] = data_collection_summary(col)
+        metric_objects[raw_m] = col
+
+    primary_key = requested_metrics[0]
+    primary_saved = persisted_by_name[primary_key]
+    summary_view: dict[str, Any] = {
+        "garden_target": garden_target,
+        "comfort_model": "PassiveStrategy",
+        "comfort_metric": primary_key,
+        "input_targets": input_targets,
+        "comfort_parameter": param_dict,
+        "passive_strategy_parameters": stats["passive_strategy_parameters"],
+        "baseline_comfort_percent": stats["baseline_comfort_percent"],
+        "total_comfort_percent": stats["total_comfort_percent"],
+        "passive_gain_percent": stats["passive_gain_percent"],
+        "baseline_comfort_hours": stats["baseline_comfort_hours"],
+        "total_comfort_hours": stats["total_comfort_hours"],
+        "passive_gain_hours": stats["passive_gain_hours"],
+        "strategies_requested": stats["strategies_requested"],
+        "strategies_added": stats["strategies_added"],
+        "strategies_skipped": stats["strategies_skipped"],
+        "strategy_percents": stats["strategy_percents"],
+        "strategy_details": stats["strategy_details"],
+        "polygon_names": stats["polygon_names"],
+        "polygon_comfort": stats["polygon_comfort"],
+        "percentages": {
+            "comfortable": stats["baseline_comfort_percent"],
+            "total_comfortable": stats["total_comfort_percent"],
+            "passive_gain": stats["passive_gain_percent"],
+            "uncomfortable": max(0.0, 100.0 - stats["total_comfort_percent"]),
+        },
+        "data_collection": metric_summaries[primary_key],
+    }
+    if output_metrics:
+        summary_view["output_metrics"] = metric_summaries
+        summary_view["output_targets"] = {k: v["target"] for k, v in persisted_by_name.items()}
+
+    result: dict[str, Any] = {
+        "target": primary_saved["target"],
+        "data_target": primary_saved["target"],
+        "data_collection_target": primary_saved["target"],
+        "artifact": primary_saved["artifact"],
+        "persistence_receipt": primary_saved["persistence_receipt"],
+        "summary_view": summary_view,
+        "report": make_report(
+            status="ok",
+            message="Passive strategy comfort analysis completed and persisted.",
+        ),
+    }
+    if output_metrics:
+        targets_map = {k: v["target"] for k, v in persisted_by_name.items()}
+        result["targets"] = targets_map
+        result["data_collection_targets"] = targets_map
+        result["artifacts"] = {k: v["artifact"] for k, v in persisted_by_name.items()}
+        result["persistence_receipts"] = {
+            k: v["persistence_receipt"] for k, v in persisted_by_name.items()
+        }
+    if return_data_collection:
+        result["data_collection"] = metric_objects[primary_key].to_dict()
+        if output_metrics:
+            result["data_collections"] = {k: obj.to_dict() for k, obj in metric_objects.items()}
+    return result
+
+
+def _calculate_solar_mrt_map(
+    *,
+    garden_root: str,
+    comfort_model: str,
+    loc_obj: Location,
+    longwave_mrt: Any,
+    surface_temperatures: Any,
+    air_temperature_target: dict[str, Any] | None,
+    epw_obj: EPW | None,
+    sun_up_hours_path: str,
+    indirect_ill_path: str,
+    direct_ill_path: str | None,
+    reflected_ill_path: str | None,
+    indirect_is_total: bool,
+    parameter: Any,
+    identifier: str | None,
+    return_data_collection: bool,
+) -> dict[str, Any]:
+    from ladybug_comfort.map.mrt import shortwave_mrt_map
+
+    sun_up_file = _resolve_garden_input_path(garden_root, sun_up_hours_path, "sun_up_hours_path")
+    ind_file = _resolve_garden_input_path(garden_root, indirect_ill_path, "indirect_ill_path")
+    dir_file = (
+        _resolve_garden_input_path(garden_root, direct_ill_path, "direct_ill_path")
+        if direct_ill_path
+        else None
+    )
+    ref_file = (
+        _resolve_garden_input_path(garden_root, reflected_ill_path, "reflected_ill_path")
+        if reflected_ill_path
+        else None
+    )
+
+    lw_raw = longwave_mrt if longwave_mrt is not None else surface_temperatures
+    if isinstance(lw_raw, dict):
+        lw_data = [
+            _load_required_collection(
+                garden_root=garden_root, target=lw_raw, field_name="longwave_mrt"
+            )
+        ]
+    elif isinstance(lw_raw, (int, float)) and not isinstance(lw_raw, bool):
+        hdr = Header(Temperature(), "C", AnalysisPeriod())
+        lw_data = [HourlyContinuousCollection(hdr, [float(lw_raw)] * 8760)]
+    elif air_temperature_target is not None:
+        lw_data = [
+            _load_required_collection(
+                garden_root=garden_root,
+                target=air_temperature_target,
+                field_name="air_temperature_target",
+            )
+        ]
+    elif epw_obj is not None:
+        lw_data = [epw_obj.dry_bulb_temperature]
+    else:
+        raise ValueError(
+            "Solar MRT map mode requires longwave_mrt, surface_temperatures, "
+            "air_temperature_target, or weather_target/epw_path."
+        )
+
+    mrt_cols = shortwave_mrt_map(
+        location=loc_obj,
+        longwave_data=lw_data,
+        sun_up_hours=str(sun_up_file),
+        indirect_ill=str(ind_file),
+        direct_ill=str(dir_file) if dir_file else None,
+        ref_ill=str(ref_file) if ref_file else None,
+        solarcal_par=parameter,
+        indirect_is_total=indirect_is_total,
+    )
+    if not mrt_cols:
+        raise ValueError("shortwave_mrt_map produced no sensor MRT collections.")
+
+    if len(mrt_cols) == 1:
+        primary_col = mrt_cols[0].duplicate()
+    else:
+        n_steps = len(mrt_cols[0].values)
+        mean_vals = [
+            sum(col.values[idx] for col in mrt_cols) / len(mrt_cols)
+            for idx in range(n_steps)
+        ]
+        hdr = mrt_cols[0].header.duplicate()
+        hdr.metadata["sensor_count"] = len(mrt_cols)
+        primary_col = HourlyContinuousCollection(hdr, mean_vals)
+
+    saved = save_data_collection(
+        garden_root=garden_root,
+        data_collection=primary_col,
+        identifier=identifier or f"{comfort_model.lower()}_map",
+        source={
+            "producer": "LB_Calculate_Comfort",
+            "comfort_model": f"{comfort_model}Map",
+            "sensor_count": len(mrt_cols),
+        },
+    )
+    sensor_summaries = [data_collection_summary(c) for c in mrt_cols[:32]]
+    res: dict[str, Any] = {
+        "target": saved["target"],
+        "data_target": saved["target"],
+        "data_collection_target": saved["target"],
+        "artifact": saved["artifact"],
+        "persistence_receipt": saved["persistence_receipt"],
+        "summary_view": {
+            "garden_target": GardenManifest.read(Path(garden_root).resolve()).target(),
+            "comfort_model": f"{comfort_model}Map",
+            "sensor_count": len(mrt_cols),
+            "sensors": sensor_summaries,
+            "data_collection": data_collection_summary(primary_col),
+        },
+        "report": make_report(
+            status="ok",
+            message=f"{comfort_model} map MRT computed for {len(mrt_cols)} sensor(s).",
+        ),
+    }
+    if return_data_collection:
+        res["data_collection"] = primary_col.to_dict()
+    return res
+
+
+def calculate_indoor_solar_mrt(
+    *,
+    garden_root: str,
+    location: dict[str, Any] | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    direct_normal_solar_target: dict[str, Any] | None = None,
+    diffuse_horizontal_solar_target: dict[str, Any] | None = None,
+    air_temperature_target: dict[str, Any] | None = None,
+    mean_radiant_temperature_target: dict[str, Any] | None = None,
+    surface_temperatures: dict[str, Any] | list[float] | float | None = None,
+    longwave_mrt: dict[str, Any] | list[float] | float | None = None,
+    fraction_body_exposed: dict[str, Any] | list[float] | float | None = None,
+    sky_exposure: dict[str, Any] | list[float] | float | None = None,
+    floor_reflectance: dict[str, Any] | list[float] | float | None = None,
+    window_transmittance: dict[str, Any] | list[float] | float | None = None,
+    solar_altitude: float | None = None,
+    direct_normal_solar: float | None = None,
+    diffuse_horizontal_solar: float | None = None,
+    human_position: dict[str, Any] | list[float] | None = None,
+    human_height: float = 1.8,
+    human_point_count: int = 1,
+    context_geometry: list[dict[str, Any]] | None = None,
+    model_target: dict[str, Any] | None = None,
+    north_angle: float = 0.0,
+    sun_up_hours_path: str | None = None,
+    indirect_ill_path: str | None = None,
+    direct_ill_path: str | None = None,
+    reflected_ill_path: str | None = None,
+    indirect_is_total: bool = False,
+    comfort_parameter: dict[str, Any] | None = None,
+    output_metrics: list[str] | None = None,
+    identifier: str | None = None,
+    return_data_collection: bool = False,
+) -> dict[str, Any]:
+    """Calculate Indoor Solar MRT (DataCollection/EPW, Radiance map, or scalar SolarCal)."""
+    from ladybug_comfort.collection.solarcal import IndoorSolarCal
+    from ladybug_comfort.parameter.solarcal import SolarCalParameter
+    from ladybug_comfort.solarcal import indoor_sky_heat_exch
+
+    parameter = _load_parameter(
+        comfort_parameter,
+        expected_type="SolarCalParameter",
+        parameter_cls=SolarCalParameter,
+    )
+
+    is_scalar_mode = (
+        solar_altitude is not None
+        and weather_target is None
+        and epw_path is None
+        and direct_normal_solar_target is None
+        and diffuse_horizontal_solar_target is None
+        and not (sun_up_hours_path and indirect_ill_path)
+    )
+    if is_scalar_mode:
+        lw_val = _resolve_scalar_or_collection_float(
+            garden_root=garden_root,
+            value=longwave_mrt if longwave_mrt is not None else surface_temperatures,
+            field_name="longwave_mrt",
+        )
+        if lw_val is None:
+            lw_val = _resolve_scalar_or_collection_float(
+                garden_root=garden_root,
+                value=mean_radiant_temperature_target if mean_radiant_temperature_target is not None else air_temperature_target,
+                field_name="air_temperature_target",
+            )
+        if lw_val is None:
+            raise ValueError("Scalar indoor_solar_mrt requires longwave_mrt or surface_temperatures.")
+        sky_e = _resolve_scalar_or_collection_float(
+            garden_root=garden_root, value=sky_exposure, field_name="sky_exposure"
+        )
+        frac_e = _resolve_scalar_or_collection_float(
+            garden_root=garden_root, value=fraction_body_exposed, field_name="fraction_body_exposed"
+        )
+        flr_ref = _resolve_scalar_or_collection_float(
+            garden_root=garden_root, value=floor_reflectance, field_name="floor_reflectance"
+        )
+        win_tr = _resolve_scalar_or_collection_float(
+            garden_root=garden_root, value=window_transmittance, field_name="window_transmittance"
+        )
+        exch = indoor_sky_heat_exch(
+            longwave_mrt=lw_val,
+            diff_horiz_solar=float(diffuse_horizontal_solar or 0.0),
+            dir_normal_solar=float(direct_normal_solar or 0.0),
+            alt=float(solar_altitude),
+            sky_exposure=0.5 if sky_e is None else sky_e,
+            fract_exposed=1.0 if frac_e is None else frac_e,
+            floor_reflectance=0.25 if flr_ref is None else flr_ref,
+            window_transmittance=0.4 if win_tr is None else win_tr,
+            posture=parameter.posture if parameter is not None else "seated",
+            sharp=(parameter.sharp if parameter is not None and parameter.sharp is not None else 135),
+            body_absorptivity=parameter.body_absorptivity if parameter is not None else 0.7,
+            body_emissivity=parameter.body_emissivity if parameter is not None else 0.95,
+        )
+        return {
+            "mrt": float(exch["mrt"]),
+            "dmrt": float(exch["dmrt"]),
+            "erf": float(exch["erf"]),
+            "summary_view": {
+                "comfort_model": "IndoorSolarCal",
+                "mode": "scalar",
+                "solar_altitude": float(solar_altitude),
+                "longwave_mrt": lw_val,
+                "mrt": float(exch["mrt"]),
+                "dmrt": float(exch["dmrt"]),
+                "erf": float(exch["erf"]),
+            },
+            "report": make_report(status="ok", message="Scalar Indoor SolarCal MRT computed."),
+        }
+
+    epw_obj = (
+        _resolve_epw_object(garden_root=garden_root, weather_target=weather_target, epw_path=epw_path)
+        if (weather_target is not None or epw_path is not None)
+        else None
+    )
+    if location is not None:
+        loc_data = dict(location)
+        loc_data.setdefault("type", "Location")
+        loc_obj = Location.from_dict(loc_data)
+    elif epw_obj is not None:
+        loc_obj = epw_obj.location
+    else:
+        raise ValueError("indoor_solar_mrt requires location or weather_target/epw_path.")
+
+    if sun_up_hours_path and indirect_ill_path:
+        return _calculate_solar_mrt_map(
+            garden_root=garden_root,
+            comfort_model="IndoorSolarCal",
+            loc_obj=loc_obj,
+            longwave_mrt=longwave_mrt,
+            surface_temperatures=surface_temperatures,
+            air_temperature_target=air_temperature_target,
+            epw_obj=epw_obj,
+            sun_up_hours_path=sun_up_hours_path,
+            indirect_ill_path=indirect_ill_path,
+            direct_ill_path=direct_ill_path,
+            reflected_ill_path=reflected_ill_path,
+            indirect_is_total=indirect_is_total,
+            parameter=parameter,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+
+    dir_solar = (
+        _load_required_collection(
+            garden_root=garden_root,
+            target=direct_normal_solar_target,
+            field_name="direct_normal_solar_target",
+        )
+        if direct_normal_solar_target is not None
+        else (epw_obj.direct_normal_radiation if epw_obj is not None else None)
+    )
+    diff_solar = (
+        _load_required_collection(
+            garden_root=garden_root,
+            target=diffuse_horizontal_solar_target,
+            field_name="diffuse_horizontal_solar_target",
+        )
+        if diffuse_horizontal_solar_target is not None
+        else (epw_obj.diffuse_horizontal_radiation if epw_obj is not None else None)
+    )
+    lw_source = (
+        longwave_mrt
+        if longwave_mrt is not None
+        else (
+            surface_temperatures
+            if surface_temperatures is not None
+            else (
+                mean_radiant_temperature_target
+                if mean_radiant_temperature_target is not None
+                else air_temperature_target
+            )
+        )
+    )
+    lw_mrt = _load_optional_input(garden_root=garden_root, value=lw_source, field_name="longwave_mrt")
+    if lw_mrt is None and epw_obj is not None:
+        lw_mrt = epw_obj.dry_bulb_temperature
+    if dir_solar is None or diff_solar is None or lw_mrt is None:
+        raise ValueError(
+            "indoor_solar_mrt requires direct_normal_solar_target, diffuse_horizontal_solar_target, "
+            "and longwave_mrt (or weather_target/epw_path)."
+        )
+
+    frac_exposed = _load_optional_input(
+        garden_root=garden_root, value=fraction_body_exposed, field_name="fraction_body_exposed"
+    )
+    sky_exp = _load_optional_input(garden_root=garden_root, value=sky_exposure, field_name="sky_exposure")
+    floor_ref = _load_optional_input(
+        garden_root=garden_root, value=floor_reflectance, field_name="floor_reflectance"
+    )
+    win_trans = _load_optional_input(
+        garden_root=garden_root, value=window_transmittance, field_name="window_transmittance"
+    )
+
+    frac_exposed, sky_exp, human_to_sky_info = _maybe_human_to_sky(
+        garden_root=garden_root,
+        location_obj=loc_obj,
+        human_position=human_position,
+        human_height=human_height,
+        human_point_count=human_point_count,
+        context_geometry=context_geometry,
+        model_target=model_target,
+        north_angle=north_angle,
+        frac_exposed=frac_exposed,
+        sky_exp=sky_exp,
+    )
+    if sky_exp is None:
+        sky_exp = 0.5  # Matches LB Indoor Solar MRT default (next to an all-glass facade)
+
+    comfort = IndoorSolarCal(
+        loc_obj,
+        dir_solar,
+        diff_solar,
+        lw_mrt,
+        fraction_body_exposed=frac_exposed,
+        sky_exposure=sky_exp,
+        floor_reflectance=floor_ref,
+        window_transmittance=win_trans,
+        solarcal_body_parameter=parameter,
+    )
+    res = _calculate(
+        garden_root=garden_root,
+        comfort_model="IndoorSolarCal",
+        metric_name="mean_radiant_temperature",
+        metric_attribute="mean_radiant_temperature",
+        comfort=comfort,
+        input_targets={
+            "solarcal_type": "indoor",
+            "weather_target": weather_target,
+            "location": loc_obj.to_dict(),
+            "sky_exposure": sky_exp if not hasattr(sky_exp, "values") else "data_collection",
+        },
+        parameter=parameter,
+        identifier=identifier,
+        producer="LB_Calculate_Comfort",
+        output_metrics=output_metrics,
+        return_data_collection=return_data_collection,
+    )
+    res["summary_view"]["effective_radiant_field"] = data_collection_summary(
+        comfort.effective_radiant_field
+    )
+    res["summary_view"]["mrt_delta"] = data_collection_summary(comfort.mrt_delta)
+    if human_to_sky_info is not None:
+        res["summary_view"]["human_to_sky"] = human_to_sky_info
+    return res
+
+
+def calculate_outdoor_solar_mrt(
+    *,
+    garden_root: str,
+    location: dict[str, Any] | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    direct_normal_solar_target: dict[str, Any] | None = None,
+    diffuse_horizontal_solar_target: dict[str, Any] | None = None,
+    horizontal_infrared_target: dict[str, Any] | None = None,
+    air_temperature_target: dict[str, Any] | None = None,
+    mean_radiant_temperature_target: dict[str, Any] | None = None,
+    surface_temperatures: dict[str, Any] | list[float] | float | None = None,
+    longwave_mrt: dict[str, Any] | list[float] | float | None = None,
+    fraction_body_exposed: dict[str, Any] | list[float] | float | None = None,
+    sky_exposure: dict[str, Any] | list[float] | float | None = None,
+    floor_reflectance: dict[str, Any] | list[float] | float | None = None,
+    solar_altitude: float | None = None,
+    direct_normal_solar: float | None = None,
+    diffuse_horizontal_solar: float | None = None,
+    horizontal_infrared: float | None = None,
+    human_position: dict[str, Any] | list[float] | None = None,
+    human_height: float = 1.8,
+    human_point_count: int = 1,
+    context_geometry: list[dict[str, Any]] | None = None,
+    model_target: dict[str, Any] | None = None,
+    north_angle: float = 0.0,
+    sun_up_hours_path: str | None = None,
+    indirect_ill_path: str | None = None,
+    direct_ill_path: str | None = None,
+    reflected_ill_path: str | None = None,
+    indirect_is_total: bool = False,
+    comfort_parameter: dict[str, Any] | None = None,
+    output_metrics: list[str] | None = None,
+    identifier: str | None = None,
+    return_data_collection: bool = False,
+) -> dict[str, Any]:
+    """Calculate Outdoor Solar MRT (DataCollection/EPW, Radiance map, or scalar SolarCal)."""
+    from ladybug_comfort.collection.solarcal import OutdoorSolarCal
+    from ladybug_comfort.parameter.solarcal import SolarCalParameter
+    from ladybug_comfort.solarcal import outdoor_sky_heat_exch
+
+    parameter = _load_parameter(
+        comfort_parameter,
+        expected_type="SolarCalParameter",
+        parameter_cls=SolarCalParameter,
+    )
+
+    is_scalar_mode = (
+        solar_altitude is not None
+        and weather_target is None
+        and epw_path is None
+        and direct_normal_solar_target is None
+        and diffuse_horizontal_solar_target is None
+        and not (sun_up_hours_path and indirect_ill_path)
+    )
+    if is_scalar_mode:
+        srfs_val = _resolve_scalar_or_collection_float(
+            garden_root=garden_root,
+            value=surface_temperatures if surface_temperatures is not None else longwave_mrt,
+            field_name="surface_temperatures",
+        )
+        if srfs_val is None:
+            srfs_val = _resolve_scalar_or_collection_float(
+                garden_root=garden_root,
+                value=mean_radiant_temperature_target if mean_radiant_temperature_target is not None else air_temperature_target,
+                field_name="air_temperature_target",
+            )
+        hir_val = _resolve_scalar_or_collection_float(
+            garden_root=garden_root,
+            value=horizontal_infrared if horizontal_infrared is not None else horizontal_infrared_target,
+            field_name="horizontal_infrared",
+        )
+        if srfs_val is None or hir_val is None:
+            raise ValueError(
+                "Scalar outdoor_solar_mrt requires surface_temperatures (or longwave_mrt) "
+                "and horizontal_infrared."
+            )
+        sky_e = _resolve_scalar_or_collection_float(
+            garden_root=garden_root, value=sky_exposure, field_name="sky_exposure"
+        )
+        frac_e = _resolve_scalar_or_collection_float(
+            garden_root=garden_root, value=fraction_body_exposed, field_name="fraction_body_exposed"
+        )
+        flr_ref = _resolve_scalar_or_collection_float(
+            garden_root=garden_root, value=floor_reflectance, field_name="floor_reflectance"
+        )
+        exch = outdoor_sky_heat_exch(
+            srfs_temp=srfs_val,
+            horiz_ir=hir_val,
+            diff_horiz_solar=float(diffuse_horizontal_solar or 0.0),
+            dir_normal_solar=float(direct_normal_solar or 0.0),
+            alt=float(solar_altitude),
+            sky_exposure=1.0 if sky_e is None else sky_e,
+            fract_exposed=1.0 if frac_e is None else frac_e,
+            floor_reflectance=0.25 if flr_ref is None else flr_ref,
+            posture=parameter.posture if parameter is not None else "standing",
+            sharp=(parameter.sharp if parameter is not None and parameter.sharp is not None else 135),
+            body_absorptivity=parameter.body_absorptivity if parameter is not None else 0.7,
+            body_emissivity=parameter.body_emissivity if parameter is not None else 0.95,
+        )
+        total_dmrt = float(exch["s_dmrt"]) + float(exch["l_dmrt"])
+        total_erf = float(exch["s_erf"]) + float(exch["l_erf"])
+        return {
+            "mrt": float(exch["mrt"]),
+            "s_dmrt": float(exch["s_dmrt"]),
+            "l_dmrt": float(exch["l_dmrt"]),
+            "dmrt": total_dmrt,
+            "s_erf": float(exch["s_erf"]),
+            "l_erf": float(exch["l_erf"]),
+            "erf": total_erf,
+            "summary_view": {
+                "comfort_model": "OutdoorSolarCal",
+                "mode": "scalar",
+                "solar_altitude": float(solar_altitude),
+                "surface_temperatures": srfs_val,
+                "horizontal_infrared": hir_val,
+                "mrt": float(exch["mrt"]),
+                "s_dmrt": float(exch["s_dmrt"]),
+                "l_dmrt": float(exch["l_dmrt"]),
+                "dmrt": total_dmrt,
+                "s_erf": float(exch["s_erf"]),
+                "l_erf": float(exch["l_erf"]),
+                "erf": total_erf,
+            },
+            "report": make_report(status="ok", message="Scalar Outdoor SolarCal MRT computed."),
+        }
+
+    epw_obj = (
+        _resolve_epw_object(garden_root=garden_root, weather_target=weather_target, epw_path=epw_path)
+        if (weather_target is not None or epw_path is not None)
+        else None
+    )
+    if location is not None:
+        loc_data = dict(location)
+        loc_data.setdefault("type", "Location")
+        loc_obj = Location.from_dict(loc_data)
+    elif epw_obj is not None:
+        loc_obj = epw_obj.location
+    else:
+        raise ValueError("outdoor_solar_mrt requires location or weather_target/epw_path.")
+
+    if sun_up_hours_path and indirect_ill_path:
+        return _calculate_solar_mrt_map(
+            garden_root=garden_root,
+            comfort_model="OutdoorSolarCal",
+            loc_obj=loc_obj,
+            longwave_mrt=longwave_mrt,
+            surface_temperatures=surface_temperatures,
+            air_temperature_target=air_temperature_target,
+            epw_obj=epw_obj,
+            sun_up_hours_path=sun_up_hours_path,
+            indirect_ill_path=indirect_ill_path,
+            direct_ill_path=direct_ill_path,
+            reflected_ill_path=reflected_ill_path,
+            indirect_is_total=indirect_is_total,
+            parameter=parameter,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+
+    dir_solar = (
+        _load_required_collection(
+            garden_root=garden_root,
+            target=direct_normal_solar_target,
+            field_name="direct_normal_solar_target",
+        )
+        if direct_normal_solar_target is not None
+        else (epw_obj.direct_normal_radiation if epw_obj is not None else None)
+    )
+    diff_solar = (
+        _load_required_collection(
+            garden_root=garden_root,
+            target=diffuse_horizontal_solar_target,
+            field_name="diffuse_horizontal_solar_target",
+        )
+        if diffuse_horizontal_solar_target is not None
+        else (epw_obj.diffuse_horizontal_radiation if epw_obj is not None else None)
+    )
+    horiz_ir = (
+        _load_required_collection(
+            garden_root=garden_root,
+            target=horizontal_infrared_target,
+            field_name="horizontal_infrared_target",
+        )
+        if horizontal_infrared_target is not None
+        else (epw_obj.horizontal_infrared_radiation_intensity if epw_obj is not None else None)
+    )
+    srfs_source = (
+        surface_temperatures
+        if surface_temperatures is not None
+        else (
+            longwave_mrt
+            if longwave_mrt is not None
+            else (
+                mean_radiant_temperature_target
+                if mean_radiant_temperature_target is not None
+                else air_temperature_target
+            )
+        )
+    )
+    surf_temp = _load_optional_input(
+        garden_root=garden_root, value=srfs_source, field_name="surface_temperatures"
+    )
+    if surf_temp is None and epw_obj is not None:
+        surf_temp = epw_obj.dry_bulb_temperature
+    if dir_solar is None or diff_solar is None or horiz_ir is None or surf_temp is None:
+        raise ValueError(
+            "outdoor_solar_mrt requires direct_normal_solar_target, diffuse_horizontal_solar_target, "
+            "horizontal_infrared_target, and surface_temperatures (or weather_target/epw_path)."
+        )
+
+    frac_exposed = _load_optional_input(
+        garden_root=garden_root, value=fraction_body_exposed, field_name="fraction_body_exposed"
+    )
+    sky_exp = _load_optional_input(garden_root=garden_root, value=sky_exposure, field_name="sky_exposure")
+    floor_ref = _load_optional_input(
+        garden_root=garden_root, value=floor_reflectance, field_name="floor_reflectance"
+    )
+
+    frac_exposed, sky_exp, human_to_sky_info = _maybe_human_to_sky(
+        garden_root=garden_root,
+        location_obj=loc_obj,
+        human_position=human_position,
+        human_height=human_height,
+        human_point_count=human_point_count,
+        context_geometry=context_geometry,
+        model_target=model_target,
+        north_angle=north_angle,
+        frac_exposed=frac_exposed,
+        sky_exp=sky_exp,
+    )
+    if sky_exp is None:
+        sky_exp = 1.0
+
+    comfort = OutdoorSolarCal(
+        loc_obj,
+        dir_solar,
+        diff_solar,
+        horiz_ir,
+        surf_temp,
+        fraction_body_exposed=frac_exposed,
+        sky_exposure=sky_exp,
+        floor_reflectance=floor_ref,
+        solarcal_body_parameter=parameter,
+    )
+    res = _calculate(
+        garden_root=garden_root,
+        comfort_model="OutdoorSolarCal",
+        metric_name="mean_radiant_temperature",
+        metric_attribute="mean_radiant_temperature",
+        comfort=comfort,
+        input_targets={
+            "solarcal_type": "outdoor",
+            "weather_target": weather_target,
+            "location": loc_obj.to_dict(),
+            "sky_exposure": sky_exp if not hasattr(sky_exp, "values") else "data_collection",
+        },
+        parameter=parameter,
+        identifier=identifier,
+        producer="LB_Calculate_Comfort",
+        output_metrics=output_metrics,
+        return_data_collection=return_data_collection,
+    )
+    res["summary_view"]["shortwave_effective_radiant_field"] = data_collection_summary(
+        comfort.shortwave_effective_radiant_field
+    )
+    res["summary_view"]["longwave_effective_radiant_field"] = data_collection_summary(
+        comfort.longwave_effective_radiant_field
+    )
+    res["summary_view"]["shortwave_mrt_delta"] = data_collection_summary(
+        comfort.shortwave_mrt_delta
+    )
+    res["summary_view"]["longwave_mrt_delta"] = data_collection_summary(
+        comfort.longwave_mrt_delta
+    )
+    res["summary_view"]["mrt_delta"] = data_collection_summary(comfort.mrt_delta)
+    if human_to_sky_info is not None:
+        res["summary_view"]["human_to_sky"] = human_to_sky_info
+    return res
+
+
 def calculate_comfort(
     *,
     garden_root: str,
@@ -1396,10 +2466,10 @@ def calculate_comfort(
     outdoor_temperature_target: dict[str, Any] | None = None,
     operative_temperature_target: dict[str, Any] | None = None,
     air_speed_target: dict[str, Any] | None = None,
-    air_speed: dict[str, Any] | float | int | None = None,
-    met_rate: dict[str, Any] | float | int | None = None,
-    clo_value: dict[str, Any] | float | int | None = None,
-    external_work: dict[str, Any] | float | int | None = None,
+    air_speed: dict[str, Any] | list[float] | float | int | None = None,
+    met_rate: dict[str, Any] | list[float] | float | int | None = None,
+    clo_value: dict[str, Any] | list[float] | float | int | None = None,
+    external_work: dict[str, Any] | list[float] | float | int | None = None,
     barometric_pressure: dict[str, Any] | float | int | None = None,
     weather_target: dict[str, Any] | None = None,
     epw_path: str | None = None,
@@ -1412,12 +2482,12 @@ def calculate_comfort(
     direct_horizontal_solar_target: dict[str, Any] | None = None,
     reflected_horizontal_solar_target: dict[str, Any] | None = None,
     horizontal_infrared_target: dict[str, Any] | None = None,
-    surface_temperatures: dict[str, Any] | float | int | None = None,
-    longwave_mrt: dict[str, Any] | float | int | None = None,
-    fraction_body_exposed: dict[str, Any] | float | int | None = None,
-    sky_exposure: dict[str, Any] | float | int | None = None,
-    floor_reflectance: dict[str, Any] | float | int | None = None,
-    window_transmittance: dict[str, Any] | float | int | None = None,
+    surface_temperatures: dict[str, Any] | list[float] | float | int | None = None,
+    longwave_mrt: dict[str, Any] | list[float] | float | int | None = None,
+    fraction_body_exposed: dict[str, Any] | list[float] | float | int | None = None,
+    sky_exposure: dict[str, Any] | list[float] | float | int | None = None,
+    floor_reflectance: dict[str, Any] | list[float] | float | int | None = None,
+    window_transmittance: dict[str, Any] | list[float] | float | int | None = None,
     avg_month: bool = True,
     outdoor_temperature: dict[str, Any] | float | int | None = None,
     max_clo: float = 1.0,
@@ -1431,6 +2501,25 @@ def calculate_comfort(
     air_speed_at_ankle: dict[str, Any] | float | int | None = None,
     heat_stress_index: str = "wbgt",
     dew_point_temperature_target: dict[str, Any] | float | int | None = None,
+    strategies: list[str] | dict[str, Any] | None = None,
+    passive_strategy_parameters: dict[str, Any] | None = None,
+    incident_irradiance_target: dict[str, Any] | None = None,
+    merge_polygons: bool = True,
+    solar_altitude: float | None = None,
+    direct_normal_solar: float | None = None,
+    diffuse_horizontal_solar: float | None = None,
+    horizontal_infrared: float | None = None,
+    human_position: dict[str, Any] | list[float] | None = None,
+    human_height: float = 1.8,
+    human_point_count: int = 1,
+    context_geometry: list[dict[str, Any]] | None = None,
+    model_target: dict[str, Any] | None = None,
+    north_angle: float = 0.0,
+    sun_up_hours_path: str | None = None,
+    indirect_ill_path: str | None = None,
+    direct_ill_path: str | None = None,
+    reflected_ill_path: str | None = None,
+    indirect_is_total: bool = False,
     comfort_parameter: dict[str, Any] | None = None,
     output_metrics: list[str] | None = None,
     identifier: str | None = None,
@@ -1611,15 +2700,115 @@ def calculate_comfort(
             identifier=identifier,
             return_data_collection=return_data_collection,
         )
+    if normalized_model == "passive_strategy":
+        resolved_air_speed = air_speed if air_speed is not None else air_speed_target
+        return calculate_passive_strategy(
+            garden_root=garden_root,
+            air_temperature_target=air_temperature_target if isinstance(air_temperature_target, dict) else None,
+            relative_humidity_target=relative_humidity_target if isinstance(relative_humidity_target, dict) else None,
+            mean_radiant_temperature_target=mean_radiant_temperature_target if isinstance(mean_radiant_temperature_target, dict) else None,
+            longwave_mrt=longwave_mrt,
+            outdoor_temperature_target=outdoor_temperature_target,
+            incident_irradiance_target=incident_irradiance_target,
+            barometric_pressure=barometric_pressure,
+            air_speed=resolved_air_speed,
+            met_rate=met_rate,
+            clo_value=clo_value,
+            external_work=external_work,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            strategies=strategies,
+            passive_strategy_parameters=passive_strategy_parameters,
+            merge_polygons=merge_polygons,
+            comfort_parameter=comfort_parameter,
+            output_metrics=output_metrics,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+    if normalized_model == "indoor_solar_mrt":
+        return calculate_indoor_solar_mrt(
+            garden_root=garden_root,
+            location=location,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            direct_normal_solar_target=direct_normal_solar_target,
+            diffuse_horizontal_solar_target=diffuse_horizontal_solar_target,
+            air_temperature_target=air_temperature_target if isinstance(air_temperature_target, dict) else None,
+            mean_radiant_temperature_target=mean_radiant_temperature_target if isinstance(mean_radiant_temperature_target, dict) else None,
+            surface_temperatures=surface_temperatures,
+            longwave_mrt=longwave_mrt,
+            fraction_body_exposed=fraction_body_exposed,
+            sky_exposure=sky_exposure,
+            floor_reflectance=floor_reflectance,
+            window_transmittance=window_transmittance,
+            solar_altitude=solar_altitude,
+            direct_normal_solar=direct_normal_solar,
+            diffuse_horizontal_solar=diffuse_horizontal_solar,
+            human_position=human_position,
+            human_height=human_height,
+            human_point_count=human_point_count,
+            context_geometry=context_geometry,
+            model_target=model_target,
+            north_angle=north_angle,
+            sun_up_hours_path=sun_up_hours_path,
+            indirect_ill_path=indirect_ill_path,
+            direct_ill_path=direct_ill_path,
+            reflected_ill_path=reflected_ill_path,
+            indirect_is_total=indirect_is_total,
+            comfort_parameter=comfort_parameter,
+            output_metrics=output_metrics,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+    if normalized_model == "outdoor_solar_mrt":
+        return calculate_outdoor_solar_mrt(
+            garden_root=garden_root,
+            location=location,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            direct_normal_solar_target=direct_normal_solar_target,
+            diffuse_horizontal_solar_target=diffuse_horizontal_solar_target,
+            horizontal_infrared_target=horizontal_infrared_target,
+            air_temperature_target=air_temperature_target if isinstance(air_temperature_target, dict) else None,
+            mean_radiant_temperature_target=mean_radiant_temperature_target if isinstance(mean_radiant_temperature_target, dict) else None,
+            surface_temperatures=surface_temperatures,
+            longwave_mrt=longwave_mrt,
+            fraction_body_exposed=fraction_body_exposed,
+            sky_exposure=sky_exposure,
+            floor_reflectance=floor_reflectance,
+            solar_altitude=solar_altitude,
+            direct_normal_solar=direct_normal_solar,
+            diffuse_horizontal_solar=diffuse_horizontal_solar,
+            horizontal_infrared=horizontal_infrared,
+            human_position=human_position,
+            human_height=human_height,
+            human_point_count=human_point_count,
+            context_geometry=context_geometry,
+            model_target=model_target,
+            north_angle=north_angle,
+            sun_up_hours_path=sun_up_hours_path,
+            indirect_ill_path=indirect_ill_path,
+            direct_ill_path=direct_ill_path,
+            reflected_ill_path=reflected_ill_path,
+            indirect_is_total=indirect_is_total,
+            comfort_parameter=comfort_parameter,
+            output_metrics=output_metrics,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
     raise ValueError(
         "model must be one of: pmv, adaptive, utci, pet, solarcal, "
-        "prevailing_temperature, clo_schiavon, local_discomfort, heat_stress."
+        "prevailing_temperature, clo_schiavon, local_discomfort, heat_stress, "
+        "passive_strategy, indoor_solar_mrt, outdoor_solar_mrt."
     )
 
 
 __all__ = [
     "calculate_adaptive",
     "calculate_comfort",
+    "calculate_indoor_solar_mrt",
+    "calculate_outdoor_solar_mrt",
+    "calculate_passive_strategy",
     "calculate_pet",
     "calculate_pmv",
     "calculate_solarcal",

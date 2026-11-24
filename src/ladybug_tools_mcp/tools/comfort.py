@@ -14,13 +14,25 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="LB_Calculate_Comfort",
         description=(
-            "Calculate PMV, Adaptive, UTCI, PET, SolarCal, prevailing temperature, "
-            "Schiavon clothing, local discomfort, or heat stress from Garden-backed "
-            "Ladybug DataCollection targets. Select model='pmv', 'adaptive', or 'utci'. "
-            "Returns one persisted ladybug_data_collection target, compact statistics, "
-            "and comfort percentages for downstream chart or export tools."
+            "Calculate PMV, Adaptive, UTCI, PET, SolarCal (indoor/outdoor solar MRT), "
+            "passive strategy comfort coverage, prevailing temperature, Schiavon clothing, "
+            "local discomfort, or heat stress from Garden-backed Ladybug DataCollection targets. "
+            "Select model='pmv', 'adaptive', 'utci', 'pet', 'solarcal', 'indoor_solar_mrt', "
+            "'outdoor_solar_mrt', 'passive_strategy', 'prevailing_temperature', 'clo_schiavon', "
+            "'local_discomfort', or 'heat_stress'."
         ),
-        tags={"ladybug", "comfort", "thermal-comfort", "data-collection", "pmv", "adaptive", "utci"},
+        tags={
+            "ladybug",
+            "comfort",
+            "thermal-comfort",
+            "data-collection",
+            "pmv",
+            "adaptive",
+            "utci",
+            "passive-strategy",
+            "solarcal",
+            "solar-mrt",
+        },
         timeout=60,
     )
     def calculate_comfort(
@@ -35,6 +47,9 @@ def register(mcp: FastMCP) -> None:
                 "utci",
                 "pet",
                 "solarcal",
+                "passive_strategy",
+                "indoor_solar_mrt",
+                "outdoor_solar_mrt",
                 "prevailing_temperature",
                 "clo_schiavon",
                 "local_discomfort",
@@ -43,8 +58,8 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Thermal comfort model or index to compute: 'pmv', 'adaptive', 'utci', 'pet', "
-                    "'solarcal', 'prevailing_temperature', 'clo_schiavon', 'local_discomfort', "
-                    "or 'heat_stress'."
+                    "'solarcal', 'passive_strategy', 'indoor_solar_mrt', 'outdoor_solar_mrt', "
+                    "'prevailing_temperature', 'clo_schiavon', 'local_discomfort', or 'heat_stress'."
                 )
             ),
         ],
@@ -207,24 +222,104 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional Garden ladybug_data_collection target for indoor air speed in m/s (adaptive or pmv)."),
         ] = None,
         air_speed: Annotated[
-            dict[str, Any] | float | int | None,
-            Field(description="Optional indoor air speed in m/s as a scalar or Garden DataCollection target (pmv); defaults to 0.1 m/s."),
+            dict[str, Any] | list[float] | float | int | None,
+            Field(description="Optional indoor air speed in m/s as a scalar, list, or Garden DataCollection target (pmv/passive_strategy); defaults to 0.1 m/s."),
         ] = None,
         met_rate: Annotated[
-            dict[str, Any] | float | int | None,
-            Field(description="Optional metabolic rate in met as a scalar or Garden DataCollection target (pmv); defaults to 1.1 met."),
+            dict[str, Any] | list[float] | float | int | None,
+            Field(description="Optional metabolic rate in met as a scalar, list, or Garden DataCollection target (pmv/passive_strategy); defaults to 1.1 met."),
         ] = None,
         clo_value: Annotated[
-            dict[str, Any] | float | int | None,
-            Field(description="Optional clothing insulation in clo as a scalar or Garden DataCollection target (pmv); defaults to 0.7 clo."),
+            dict[str, Any] | list[float] | float | int | None,
+            Field(description="Optional clothing insulation in clo as a scalar, list, or Garden DataCollection target (pmv/passive_strategy); defaults to 0.7 clo."),
         ] = None,
         external_work: Annotated[
-            dict[str, Any] | float | int | None,
-            Field(description="Optional external work in met as a scalar or Garden DataCollection target (pmv); defaults to 0 met."),
+            dict[str, Any] | list[float] | float | int | None,
+            Field(description="Optional external work in met as a scalar, list, or Garden DataCollection target (pmv/passive_strategy); defaults to 0 met."),
         ] = None,
+        barometric_pressure: Annotated[
+            dict[str, Any] | float | int | None,
+            Field(description="Optional barometric pressure in Pa (pet or passive_strategy); defaults to 101325 Pa."),
+        ] = None,
+        strategies: Annotated[
+            list[str] | dict[str, Any] | None,
+            Field(description="Passive strategies for model='passive_strategy': evaporative_cooling, night_flush, fan_use, internal_heat, passive_solar (or Grasshopper display names)."),
+        ] = None,
+        passive_strategy_parameters: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional PassiveStrategyParameters dict (day_above_comfort, night_below_comfort, fan_air_speed, balance_temperature, solar_heat_capacity, time_constant)."),
+        ] = None,
+        incident_irradiance_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Garden DataCollection target for incident irradiance/radiation (W/m2 or Wh/m2) used by passive_solar."),
+        ] = None,
+        merge_polygons: Annotated[
+            bool,
+            Field(description="Merge multiple PMV comfort polygons in model='passive_strategy'."),
+        ] = True,
+        solar_altitude: Annotated[
+            float | None,
+            Field(description="Optional sun altitude (0-90 deg) for scalar indoor_solar_mrt / outdoor_solar_mrt calculations."),
+        ] = None,
+        direct_normal_solar: Annotated[
+            float | None,
+            Field(description="Optional scalar direct normal irradiance (W/m2) for scalar indoor_solar_mrt / outdoor_solar_mrt."),
+        ] = None,
+        diffuse_horizontal_solar: Annotated[
+            float | None,
+            Field(description="Optional scalar diffuse horizontal irradiance (W/m2) for scalar indoor_solar_mrt / outdoor_solar_mrt."),
+        ] = None,
+        horizontal_infrared: Annotated[
+            float | None,
+            Field(description="Optional scalar horizontal infrared radiation (W/m2) for scalar outdoor_solar_mrt."),
+        ] = None,
+        human_position: Annotated[
+            dict[str, Any] | list[float] | None,
+            Field(description="Optional occupant foot Point3D ([x,y,z] or dict) to auto-compute fraction_body_exposed and sky_exposure with context_geometry/model_target."),
+        ] = None,
+        human_height: Annotated[
+            float,
+            Field(description="Standing human height (m) for human_position sky/sun relation; defaults to 1.8 m."),
+        ] = 1.8,
+        human_point_count: Annotated[
+            int,
+            Field(description="Number of sample points along human_height; defaults to 1."),
+        ] = 1,
+        context_geometry: Annotated[
+            list[dict[str, Any]] | None,
+            Field(description="Optional Face3D/Mesh3D context dicts for human_position shading in indoor_solar_mrt / outdoor_solar_mrt."),
+        ] = None,
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Honeybee Model target providing shading context for human_position in indoor_solar_mrt / outdoor_solar_mrt."),
+        ] = None,
+        north_angle: Annotated[
+            float,
+            Field(description="Counterclockwise north angle (degrees) for human_position sunpath calculation."),
+        ] = 0.0,
+        sun_up_hours_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative path to sun-up-hours.txt for Radiance map Solar MRT."),
+        ] = None,
+        indirect_ill_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative path to indirect.ill (or total.ill if indirect_is_total=True) for map Solar MRT."),
+        ] = None,
+        direct_ill_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative path to direct.ill for map Solar MRT."),
+        ] = None,
+        reflected_ill_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative path to reflected.ill for map Solar MRT."),
+        ] = None,
+        indirect_is_total: Annotated[
+            bool,
+            Field(description="Set True when indirect_ill_path contains total irradiance so direct_ill_path is subtracted."),
+        ] = False,
         comfort_parameter: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional PMVParameter, AdaptiveParameter, or UTCIParameter dictionary."),
+            Field(description="Optional PMVParameter, AdaptiveParameter, UTCIParameter, PETParameter, or SolarCalParameter dictionary."),
         ] = None,
         identifier: Annotated[
             str | None,
@@ -235,7 +330,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Return the full comfort DataCollection dictionary in addition to the compact target; default false."),
         ] = False,
     ) -> dict[str, Any]:
-        """Calculate and persist PMV, Adaptive, UTCI, PET, SolarCal, and thermal comfort indices."""
+        """Calculate and persist PMV, Adaptive, UTCI, PET, SolarCal, PassiveStrategy, and thermal comfort indices."""
         from garden.comfort import calculate_comfort as service
 
         return service(
@@ -283,6 +378,26 @@ def register(mcp: FastMCP) -> None:
             met_rate=met_rate,
             clo_value=clo_value,
             external_work=external_work,
+            barometric_pressure=barometric_pressure,
+            strategies=strategies,
+            passive_strategy_parameters=passive_strategy_parameters,
+            incident_irradiance_target=incident_irradiance_target,
+            merge_polygons=merge_polygons,
+            solar_altitude=solar_altitude,
+            direct_normal_solar=direct_normal_solar,
+            diffuse_horizontal_solar=diffuse_horizontal_solar,
+            horizontal_infrared=horizontal_infrared,
+            human_position=human_position,
+            human_height=human_height,
+            human_point_count=human_point_count,
+            context_geometry=context_geometry,
+            model_target=model_target,
+            north_angle=north_angle,
+            sun_up_hours_path=sun_up_hours_path,
+            indirect_ill_path=indirect_ill_path,
+            direct_ill_path=direct_ill_path,
+            reflected_ill_path=reflected_ill_path,
+            indirect_is_total=indirect_is_total,
             comfort_parameter=comfort_parameter,
             identifier=identifier,
             return_data_collection=return_data_collection,
