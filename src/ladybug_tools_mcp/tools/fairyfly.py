@@ -7,6 +7,20 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import (
+    ArtifactResultModel,
+    ArtifactTargetRef,
+    BuildingModelTargetRef,
+    MutationResultModel,
+    QueryResultModel,
+    RunResultModel,
+    RunTargetRef,
+    ValidationResultModel,
+    dump_input,
+    dump_target,
+    validate_output,
+)
+
 
 def _as_spec_list(value: list[dict[str, Any]] | dict[str, Any] | None) -> list[dict[str, Any]]:
     if value is None:
@@ -138,11 +152,11 @@ def register(mcp: FastMCP) -> None:
         ] = "Millimeters",
         tolerance: Annotated[
             float | None,
-            Field(description="Optional Fairyfly model tolerance."),
+            Field(description="Optional Fairyfly model tolerance.", gt=0),
         ] = None,
         angle_tolerance: Annotated[
             float,
-            Field(description="Fairyfly model angle tolerance."),
+            Field(description="Fairyfly model angle tolerance.", gt=0),
         ] = 1.0,
         display_name: Annotated[
             str | None,
@@ -168,7 +182,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         layer_height: Annotated[
             float,
-            Field(description="Height of extruded layer section when layers is supplied."),
+            Field(description="Height of extruded layer section when layers is supplied.", gt=0),
         ] = 200.0,
         source_file: Annotated[
             str | None,
@@ -190,25 +204,28 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Whether to return full model body if not saved."),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a Fairyfly Model."""
         from garden.fairyfly.model import create_fairyfly_model as service
 
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            units=units,
-            tolerance=tolerance,
-            angle_tolerance=angle_tolerance,
-            display_name=display_name,
-            plane=plane,
-            layers=layers,
-            layer_height=layer_height,
-            source_file=source_file,
-            file_format=file_format,
-            save_back=save_back,
-            set_base=set_base,
-            include_body=include_body,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                identifier=identifier,
+                units=units,
+                tolerance=tolerance,
+                angle_tolerance=angle_tolerance,
+                display_name=display_name,
+                plane=dump_input(plane),
+                layers=dump_input(layers),
+                layer_height=layer_height,
+                source_file=source_file,
+                file_format=file_format,
+                save_back=save_back,
+                set_base=set_base,
+                include_body=include_body,
+            ),
         )
 
     @mcp.tool(
@@ -232,7 +249,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description=(
                     "Optional Fairyfly Model target dict, usually FF_Create_Model['target']; "
@@ -317,13 +334,16 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional output stem when export_format is set."),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Edit Shapes, Boundaries, geometry, units, XML materials, or export a Fairyfly model."""
-        shape_specs = _as_spec_list(shapes)
-        boundary_specs = _as_spec_list(boundaries)
-        edit_shape_specs = _as_spec_list(edit_shapes)
-        edit_boundary_specs = _as_spec_list(edit_boundaries)
-        transform_specs = _as_spec_list(transforms)
+        dumped_model_target = dump_target(model_target)
+        dumped_plane = dump_input(plane)
+        dumped_intersect_adjacency = dump_input(intersect_adjacency)
+        shape_specs = _as_spec_list(dump_input(shapes))
+        boundary_specs = _as_spec_list(dump_input(boundaries))
+        edit_shape_specs = _as_spec_list(dump_input(edit_shapes))
+        edit_boundary_specs = _as_spec_list(dump_input(edit_boundaries))
+        transform_specs = _as_spec_list(dump_input(transforms))
         has_model_edits = any(
             [
                 shape_specs,
@@ -332,7 +352,7 @@ def register(mcp: FastMCP) -> None:
                 edit_boundary_specs,
                 remove_shape_identifiers,
                 remove_boundary_identifiers,
-                bool(intersect_adjacency),
+                bool(dumped_intersect_adjacency),
                 transform_specs,
                 bool(convert_units),
             ]
@@ -370,20 +390,20 @@ def register(mcp: FastMCP) -> None:
         if has_model_edits:
             result = edit_fairyfly_model_entities(
                 garden_root=garden_root,
-                model_target=model_target,
+                model_target=dumped_model_target,
                 shapes=resolved_shapes or None,
                 boundaries=boundary_specs or None,
                 edit_shapes=resolved_edit_shapes or None,
                 edit_boundaries=edit_boundary_specs or None,
                 remove_shape_identifiers=remove_shape_identifiers,
                 remove_boundary_identifiers=remove_boundary_identifiers,
-                intersect_adjacency=intersect_adjacency,
+                intersect_adjacency=dumped_intersect_adjacency,
                 transforms=transform_specs or None,
                 convert_units=convert_units,
-                plane=plane,
+                plane=dumped_plane,
             )
 
-        current_target = result["model_target"] if result is not None else model_target
+        current_target = result["model_target"] if result is not None else dumped_model_target
         if import_therm_xml_path:
             imported = import_fairyfly_therm_xml(
                 garden_root=garden_root,
@@ -391,7 +411,7 @@ def register(mcp: FastMCP) -> None:
                 include_objects=True,
             )
             if result is None:
-                return imported
+                return validate_output(MutationResultModel, imported)
             result["imported_therm_xml"] = imported
             result["summary_view"]["imported_therm_xml"] = imported["summary_view"]
 
@@ -404,12 +424,12 @@ def register(mcp: FastMCP) -> None:
                 name=export_name,
             )
             if result is None:
-                return exported
+                return validate_output(MutationResultModel, exported)
             result["export"] = exported
             result["summary_view"]["exported_file"] = exported["summary_view"]
 
         assert result is not None
-        return result
+        return validate_output(MutationResultModel, result)
 
     @mcp.tool(
         name="FF_Validate_Model",
@@ -427,7 +447,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."),
         ],
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description=(
                     "Optional Fairyfly Model target dict, usually FF_Create_Model['target']; "
@@ -435,11 +455,14 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> ValidationResultModel:
         """Validate a Fairyfly model."""
         from garden.fairyfly.model import validate_fairyfly_model as service
 
-        return service(garden_root=garden_root, model_target=model_target)
+        return validate_output(
+            ValidationResultModel,
+            service(garden_root=garden_root, model_target=dump_target(model_target)),
+        )
 
     @mcp.tool(
         name="FF_Start_Simulation",
@@ -470,7 +493,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         thmz_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(
                 description=(
                     "Optional fairyfly_thmz target (premeshed or unmeshed) to solve directly without "
@@ -522,29 +545,32 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         wait_seconds: Annotated[
             float | None,
-            Field(description="Optional blocking wait (seconds, up to 300) for async completion."),
+            Field(description="Optional blocking wait (seconds, up to 300) for async completion.", ge=0),
         ] = None,
         poll_interval: Annotated[
             float,
-            Field(description="Polling interval in seconds when wait_seconds is specified."),
+            Field(description="Polling interval in seconds when wait_seconds is specified.", gt=0),
         ] = 2.0,
-    ) -> dict[str, Any]:
+    ) -> RunResultModel:
         """Start a Fairyfly pyHygroThermFEM run or export a THMZ file."""
         from garden.fairyfly.therm import start_fairyfly_therm_run as service
 
-        return service(
-            garden_root=garden_root,
-            model_target=model_target,
-            thmz_target=thmz_target,
-            thmz_path=thmz_path,
-            run_id=run_id,
-            silent=silent,
-            export_only=export_only,
-            include_mesh=include_mesh,
-            name=name,
-            simulation_parameter=simulation_parameter,
-            wait_seconds=wait_seconds,
-            poll_interval=poll_interval,
+        return validate_output(
+            RunResultModel,
+            service(
+                garden_root=garden_root,
+                model_target=dump_target(model_target),
+                thmz_target=dump_target(thmz_target),
+                thmz_path=thmz_path,
+                run_id=run_id,
+                silent=silent,
+                export_only=export_only,
+                include_mesh=include_mesh,
+                name=name,
+                simulation_parameter=dump_input(simulation_parameter),
+                wait_seconds=wait_seconds,
+                poll_interval=poll_interval,
+            ),
         )
 
     @mcp.tool(
@@ -566,11 +592,11 @@ def register(mcp: FastMCP) -> None:
             Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
         ],
         thmz_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="Optional fairyfly_thmz target returned by FF_Start_Simulation(export_only=true)."),
         ] = None,
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(description="Optional completed fairyfly_therm_run target returned by FF_Start_Simulation. Poll GD_Poll_Run before reading."),
         ] = None,
         run_id: Annotated[
@@ -636,7 +662,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         interior_rh: Annotated[
             float | None,
-            Field(description="For condensation_risk: interior relative humidity (0..1 fraction or 0..100%)."),
+            Field(description="For condensation_risk: interior relative humidity (0..1 fraction or 0..100%).", ge=0, le=100),
         ] = None,
         exterior_temp_c: Annotated[
             float | None,
@@ -670,79 +696,99 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(description="For psi_factor: unit of THERM UFactor lengths (default Millimeters)."),
         ] = "Millimeters",
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Read Fairyfly steady-state or transient/hygrothermal results."""
+        dumped_thmz_target = dump_target(thmz_target)
+        dumped_run_target = dump_target(run_target)
         if data_type == "u_factor":
             from garden.fairyfly.therm import read_fairyfly_u_factor_result as service
 
-            return service(
-                garden_root=garden_root,
-                thmz_target=thmz_target,
-                run_target=run_target,
-                run_id=run_id,
+            return validate_output(
+                QueryResultModel,
+                service(
+                    garden_root=garden_root,
+                    thmz_target=dumped_thmz_target,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                ),
             )
         if data_type == "condensation_risk":
             from garden.fairyfly.therm import read_fairyfly_condensation_risk as service
 
-            return service(
-                garden_root=garden_root,
-                thmz_target=thmz_target,
-                run_target=run_target,
-                run_id=run_id,
-                model_target=model_target,
-                interior_temp_c=interior_temp_c,
-                interior_rh=interior_rh,
-                exterior_temp_c=exterior_temp_c,
-                interior_surface_temp_c=interior_surface_temp_c,
-                timestep_index=timestep_index,
+            return validate_output(
+                QueryResultModel,
+                service(
+                    garden_root=garden_root,
+                    thmz_target=dumped_thmz_target,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                    model_target=dump_target(model_target),
+                    interior_temp_c=interior_temp_c,
+                    interior_rh=interior_rh,
+                    exterior_temp_c=exterior_temp_c,
+                    interior_surface_temp_c=interior_surface_temp_c,
+                    timestep_index=timestep_index,
+                ),
             )
         if data_type == "psi_factor":
             from garden.fairyfly.therm import read_fairyfly_psi_factor as service
 
-            return service(
-                garden_root=garden_root,
-                thmz_target=thmz_target,
-                run_target=run_target,
-                run_id=run_id,
-                clear_field_u_values=clear_field_u_values or [],
-                u_factor_name=u_factor_name,
-                projection=projection,
-                l_2d_w_per_mk=l_2d_w_per_mk,
-                length_unit=length_unit,
-                therm_length_unit=therm_length_unit,
+            return validate_output(
+                QueryResultModel,
+                service(
+                    garden_root=garden_root,
+                    thmz_target=dumped_thmz_target,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                    clear_field_u_values=dump_input(clear_field_u_values) or [],
+                    u_factor_name=u_factor_name,
+                    projection=projection,
+                    l_2d_w_per_mk=l_2d_w_per_mk,
+                    length_unit=length_unit,
+                    therm_length_unit=therm_length_unit,
+                ),
             )
         if data_type == "transient_summary":
             from garden.fairyfly.therm import read_fairyfly_transient_summary as service
 
-            return service(
-                garden_root=garden_root,
-                thmz_target=thmz_target,
-                run_target=run_target,
-                run_id=run_id,
+            return validate_output(
+                QueryResultModel,
+                service(
+                    garden_root=garden_root,
+                    thmz_target=dumped_thmz_target,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                ),
             )
         if data_type == "transient_series":
             from garden.fairyfly.therm import read_fairyfly_transient_series as service
 
-            return service(
-                garden_root=garden_root,
-                thmz_target=thmz_target,
-                run_target=run_target,
-                run_id=run_id,
-                field=field,
-                entity_ids=entity_ids,
-                timestep_index=timestep_index,
-                include_values=include_values,
+            return validate_output(
+                QueryResultModel,
+                service(
+                    garden_root=garden_root,
+                    thmz_target=dumped_thmz_target,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                    field=field,
+                    entity_ids=entity_ids,
+                    timestep_index=timestep_index,
+                    include_values=include_values,
+                ),
             )
         from garden.fairyfly.therm import read_fairyfly_therm_result as service
 
-        return service(
-            garden_root=garden_root,
-            thmz_target=thmz_target,
-            run_target=run_target,
-            run_id=run_id,
-            data_type=data_type,
-            timestep_index=timestep_index,
-            include_values=include_values,
+        return validate_output(
+            QueryResultModel,
+            service(
+                garden_root=garden_root,
+                thmz_target=dumped_thmz_target,
+                run_target=dumped_run_target,
+                run_id=run_id,
+                data_type=data_type,
+                timestep_index=timestep_index,
+                include_values=include_values,
+            ),
         )
 
     @mcp.tool(
@@ -784,11 +830,11 @@ def register(mcp: FastMCP) -> None:
             Field(description="For source_kind='model': whether to include Fairyfly Boundary line geometry."),
         ] = True,
         thmz_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="For source_kind='result': optional fairyfly_thmz target."),
         ] = None,
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(description="For source_kind='result': optional completed fairyfly_therm_run target."),
         ] = None,
         run_id: Annotated[
@@ -821,30 +867,36 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> ArtifactResultModel:
         """Create a VisualizationSet from a Fairyfly model or THERM result."""
         if source_kind == "result":
             from garden.fairyfly.model import (
                 fairyfly_therm_result_to_visualization_set as service,
             )
 
-            return service(
-                garden_root=garden_root,
-                thmz_target=thmz_target,
-                run_target=run_target,
-                run_id=run_id,
-                data_type=data_type,
-                timestep_index=timestep_index,
-                name=name,
-                return_visualization_set=return_visualization_set,
+            return validate_output(
+                ArtifactResultModel,
+                service(
+                    garden_root=garden_root,
+                    thmz_target=dump_target(thmz_target),
+                    run_target=dump_target(run_target),
+                    run_id=run_id,
+                    data_type=data_type,
+                    timestep_index=timestep_index,
+                    name=name,
+                    return_visualization_set=return_visualization_set,
+                ),
             )
         from garden.fairyfly.model import fairyfly_model_to_visualization_set as service
 
-        return service(
-            garden_root=garden_root,
-            model_target=model_target,
-            color_by=color_by,
-            include_boundaries=include_boundaries,
-            name=name,
-            return_visualization_set=return_visualization_set,
+        return validate_output(
+            ArtifactResultModel,
+            service(
+                garden_root=garden_root,
+                model_target=dump_target(model_target),
+                color_by=color_by,
+                include_boundaries=include_boundaries,
+                name=name,
+                return_visualization_set=return_visualization_set,
+            ),
         )

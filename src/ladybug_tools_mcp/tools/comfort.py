@@ -7,6 +7,18 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import (
+    ArtifactResultModel,
+    BuildingModelTargetRef,
+    DataCollectionTargetRef,
+    MutationResultModel,
+    WeatherTargetRef,
+    dump_input,
+    dump_target,
+    dump_targets,
+    validate_output,
+)
+
 
 def register(mcp: FastMCP) -> None:
     """Register comfort tools."""
@@ -64,7 +76,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         weather_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(description="Optional Garden weather target shortcut for PMV, UTCI, or PET from EPW."),
         ] = None,
         epw_path: Annotated[
@@ -88,47 +100,47 @@ def register(mcp: FastMCP) -> None:
             Field(description="SolarCal geometry variant when model='solarcal'."),
         ] = "outdoor",
         direct_normal_solar_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Optional Garden target for direct normal solar irradiance (W/m2)."),
         ] = None,
         diffuse_horizontal_solar_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Optional Garden target for diffuse horizontal solar irradiance (W/m2)."),
         ] = None,
         direct_horizontal_solar_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Optional Garden target for direct horizontal solar irradiance (W/m2)."),
         ] = None,
         reflected_horizontal_solar_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Optional Garden target for reflected horizontal solar irradiance (W/m2)."),
         ] = None,
         horizontal_infrared_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Optional Garden target for horizontal infrared radiation (W/m2)."),
         ] = None,
         surface_temperatures: Annotated[
-            dict[str, Any] | list[float] | float | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Longwave MRT or surrounding surface temperature(s) in C for SolarCal."),
         ] = None,
         longwave_mrt: Annotated[
-            dict[str, Any] | list[float] | float | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Alias for longwave mean radiant temperature in C for SolarCal."),
         ] = None,
         fraction_body_exposed: Annotated[
-            dict[str, Any] | list[float] | float | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Fraction of body exposed to direct sun (0-1) for SolarCal."),
         ] = None,
         sky_exposure: Annotated[
-            dict[str, Any] | list[float] | float | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Fraction of sky dome visible to occupant (0-1) for SolarCal."),
         ] = None,
         floor_reflectance: Annotated[
-            dict[str, Any] | list[float] | float | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Floor reflectance (0-1) for SolarCal."),
         ] = None,
         window_transmittance: Annotated[
-            dict[str, Any] | list[float] | float | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Window transmittance (0-1) for indoor SolarCal."),
         ] = None,
         avg_month: Annotated[
@@ -136,12 +148,12 @@ def register(mcp: FastMCP) -> None:
             Field(description="Use monthly running-mean averaging for prevailing_temperature model."),
         ] = True,
         outdoor_temperature: Annotated[
-            float | list[float] | dict[str, Any] | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Outdoor dry-bulb temperature(s) for clo_schiavon or scalar models."),
         ] = None,
         max_clo: Annotated[
             float,
-            Field(description="Maximum clothing insulation (clo) for clo_schiavon."),
+            Field(ge=0.0, description="Maximum clothing insulation (clo) for clo_schiavon."),
         ] = 1.0,
         max_clo_temp: Annotated[
             float,
@@ -149,7 +161,7 @@ def register(mcp: FastMCP) -> None:
         ] = -5.0,
         min_clo: Annotated[
             float,
-            Field(description="Minimum clothing insulation (clo) for clo_schiavon."),
+            Field(ge=0.0, description="Minimum clothing insulation (clo) for clo_schiavon."),
         ] = 0.46,
         min_clo_temp: Annotated[
             float,
@@ -160,7 +172,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Local discomfort metric when model='local_discomfort'."),
         ] = "radiant_asymmetry_ppd",
         radiant_temperature_difference: Annotated[
-            float | list[float] | dict[str, Any] | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Radiant temperature asymmetry difference (C) for radiant_asymmetry_ppd."),
         ] = None,
         asymmetry_type: Annotated[
@@ -168,19 +180,19 @@ def register(mcp: FastMCP) -> None:
             Field(description="Radiant asymmetry direction (0/warm_ceiling, 1/cool_wall, 2/cool_ceiling, 3/warm_wall)."),
         ] = 0,
         predicted_mean_vote: Annotated[
-            float | list[float] | dict[str, Any] | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="PMV value(s) or target for ankle_draft_ppd."),
         ] = None,
         air_speed_at_ankle: Annotated[
-            float | list[float] | dict[str, Any] | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Air speed at ankle height (m/s) for ankle_draft_ppd."),
         ] = None,
         heat_stress_index: Annotated[
-            Literal["wbgt", "hi", "humidex", "wc", "at", "di"],
+            Literal["wbgt", "hi", "humidex", "wc", "wc_temp", "wc_index", "at", "di"],
             Field(description="Heat stress index variant when model='heat_stress'."),
         ] = "wbgt",
         dew_point_temperature_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Optional Garden target for dew-point temperature (C) for heat_stress humidex."),
         ] = None,
         output_metrics: Annotated[
@@ -194,51 +206,51 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         air_temperature_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Garden ladybug_data_collection target for air temperature in C (required for pmv and utci)."),
         ] = None,
         relative_humidity_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Garden ladybug_data_collection target for relative humidity in % (required for pmv and utci)."),
         ] = None,
         mean_radiant_temperature_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Optional Garden target for mean radiant temperature in C (pmv and utci); defaults to air temperature."),
         ] = None,
         wind_speed_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Optional Garden target for meteorological wind speed in m/s (utci); defaults to 0.5 m/s."),
         ] = None,
         outdoor_temperature_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Garden ladybug_data_collection target for annual/prevailing outdoor temperature in C (required for adaptive)."),
         ] = None,
         operative_temperature_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Garden ladybug_data_collection target for operative temperature in C (required for adaptive)."),
         ] = None,
         air_speed_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Optional Garden ladybug_data_collection target for indoor air speed in m/s (adaptive or pmv)."),
         ] = None,
         air_speed: Annotated[
-            dict[str, Any] | list[float] | float | int | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Optional indoor air speed in m/s as a scalar, list, or Garden DataCollection target (pmv/passive_strategy); defaults to 0.1 m/s."),
         ] = None,
         met_rate: Annotated[
-            dict[str, Any] | list[float] | float | int | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Optional metabolic rate in met as a scalar, list, or Garden DataCollection target (pmv/passive_strategy); defaults to 1.1 met."),
         ] = None,
         clo_value: Annotated[
-            dict[str, Any] | list[float] | float | int | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Optional clothing insulation in clo as a scalar, list, or Garden DataCollection target (pmv/passive_strategy); defaults to 0.7 clo."),
         ] = None,
         external_work: Annotated[
-            dict[str, Any] | list[float] | float | int | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Optional external work in met as a scalar, list, or Garden DataCollection target (pmv/passive_strategy); defaults to 0 met."),
         ] = None,
         barometric_pressure: Annotated[
-            dict[str, Any] | float | int | None,
+            DataCollectionTargetRef | float | None,
             Field(description="Optional barometric pressure in Pa (pet or passive_strategy); defaults to 101325 Pa."),
         ] = None,
         strategies: Annotated[
@@ -250,7 +262,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional PassiveStrategyParameters dict (day_above_comfort, night_below_comfort, fan_air_speed, balance_temperature, solar_heat_capacity, time_constant)."),
         ] = None,
         incident_irradiance_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Optional Garden DataCollection target for incident irradiance/radiation (W/m2 or Wh/m2) used by passive_solar."),
         ] = None,
         merge_polygons: Annotated[
@@ -259,19 +271,19 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         solar_altitude: Annotated[
             float | None,
-            Field(description="Optional sun altitude (0-90 deg) for scalar indoor_solar_mrt / outdoor_solar_mrt calculations."),
+            Field(ge=-90.0, le=90.0, description="Optional sun altitude (0-90 deg) for scalar indoor_solar_mrt / outdoor_solar_mrt calculations."),
         ] = None,
         direct_normal_solar: Annotated[
             float | None,
-            Field(description="Optional scalar direct normal irradiance (W/m2) for scalar indoor_solar_mrt / outdoor_solar_mrt."),
+            Field(ge=0.0, description="Optional scalar direct normal irradiance (W/m2) for scalar indoor_solar_mrt / outdoor_solar_mrt."),
         ] = None,
         diffuse_horizontal_solar: Annotated[
             float | None,
-            Field(description="Optional scalar diffuse horizontal irradiance (W/m2) for scalar indoor_solar_mrt / outdoor_solar_mrt."),
+            Field(ge=0.0, description="Optional scalar diffuse horizontal irradiance (W/m2) for scalar indoor_solar_mrt / outdoor_solar_mrt."),
         ] = None,
         horizontal_infrared: Annotated[
             float | None,
-            Field(description="Optional scalar horizontal infrared radiation (W/m2) for scalar outdoor_solar_mrt."),
+            Field(ge=0.0, description="Optional scalar horizontal infrared radiation (W/m2) for scalar outdoor_solar_mrt."),
         ] = None,
         human_position: Annotated[
             dict[str, Any] | list[float] | None,
@@ -279,18 +291,18 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         human_height: Annotated[
             float,
-            Field(description="Standing human height (m) for human_position sky/sun relation; defaults to 1.8 m."),
+            Field(gt=0.0, description="Standing human height (m) for human_position sky/sun relation; defaults to 1.8 m."),
         ] = 1.8,
         human_point_count: Annotated[
             int,
-            Field(description="Number of sample points along human_height; defaults to 1."),
+            Field(ge=1, description="Number of sample points along human_height; defaults to 1."),
         ] = 1,
         context_geometry: Annotated[
             list[dict[str, Any]] | None,
             Field(description="Optional Face3D/Mesh3D context dicts for human_position shading in indoor_solar_mrt / outdoor_solar_mrt."),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(description="Optional Honeybee Model target providing shading context for human_position in indoor_solar_mrt / outdoor_solar_mrt."),
         ] = None,
         north_angle: Annotated[
@@ -329,59 +341,59 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Return the full comfort DataCollection dictionary in addition to the compact target; default false."),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Calculate and persist PMV, Adaptive, UTCI, PET, SolarCal, PassiveStrategy, and thermal comfort indices."""
         from garden.comfort import calculate_comfort as service
 
-        return service(
+        result = service(
             garden_root=garden_root,
-            weather_target=weather_target,
+            weather_target=dump_target(weather_target),
             epw_path=epw_path,
             include_wind=include_wind,
             include_sun=include_sun,
             location=location,
             solarcal_type=solarcal_type,
-            direct_normal_solar_target=direct_normal_solar_target,
-            diffuse_horizontal_solar_target=diffuse_horizontal_solar_target,
-            direct_horizontal_solar_target=direct_horizontal_solar_target,
-            reflected_horizontal_solar_target=reflected_horizontal_solar_target,
-            horizontal_infrared_target=horizontal_infrared_target,
-            surface_temperatures=surface_temperatures,
-            longwave_mrt=longwave_mrt,
-            fraction_body_exposed=fraction_body_exposed,
-            sky_exposure=sky_exposure,
-            floor_reflectance=floor_reflectance,
-            window_transmittance=window_transmittance,
+            direct_normal_solar_target=dump_target(direct_normal_solar_target),
+            diffuse_horizontal_solar_target=dump_target(diffuse_horizontal_solar_target),
+            direct_horizontal_solar_target=dump_target(direct_horizontal_solar_target),
+            reflected_horizontal_solar_target=dump_target(reflected_horizontal_solar_target),
+            horizontal_infrared_target=dump_target(horizontal_infrared_target),
+            surface_temperatures=dump_input(surface_temperatures),
+            longwave_mrt=dump_input(longwave_mrt),
+            fraction_body_exposed=dump_input(fraction_body_exposed),
+            sky_exposure=dump_input(sky_exposure),
+            floor_reflectance=dump_input(floor_reflectance),
+            window_transmittance=dump_input(window_transmittance),
             avg_month=avg_month,
-            outdoor_temperature=outdoor_temperature,
+            outdoor_temperature=dump_input(outdoor_temperature),
             max_clo=max_clo,
             max_clo_temp=max_clo_temp,
             min_clo=min_clo,
             min_clo_temp=min_clo_temp,
             local_discomfort_type=local_discomfort_type,
-            radiant_temperature_difference=radiant_temperature_difference,
+            radiant_temperature_difference=dump_input(radiant_temperature_difference),
             asymmetry_type=asymmetry_type,
-            predicted_mean_vote=predicted_mean_vote,
-            air_speed_at_ankle=air_speed_at_ankle,
+            predicted_mean_vote=dump_input(predicted_mean_vote),
+            air_speed_at_ankle=dump_input(air_speed_at_ankle),
             heat_stress_index=heat_stress_index,
-            dew_point_temperature_target=dew_point_temperature_target,
+            dew_point_temperature_target=dump_target(dew_point_temperature_target),
             output_metrics=output_metrics,
             model=model,
-            air_temperature_target=air_temperature_target,
-            relative_humidity_target=relative_humidity_target,
-            mean_radiant_temperature_target=mean_radiant_temperature_target,
-            wind_speed_target=wind_speed_target,
-            outdoor_temperature_target=outdoor_temperature_target,
-            operative_temperature_target=operative_temperature_target,
-            air_speed_target=air_speed_target,
-            air_speed=air_speed,
-            met_rate=met_rate,
-            clo_value=clo_value,
-            external_work=external_work,
-            barometric_pressure=barometric_pressure,
-            strategies=strategies,
+            air_temperature_target=dump_target(air_temperature_target),
+            relative_humidity_target=dump_target(relative_humidity_target),
+            mean_radiant_temperature_target=dump_target(mean_radiant_temperature_target),
+            wind_speed_target=dump_target(wind_speed_target),
+            outdoor_temperature_target=dump_target(outdoor_temperature_target),
+            operative_temperature_target=dump_target(operative_temperature_target),
+            air_speed_target=dump_target(air_speed_target),
+            air_speed=dump_input(air_speed),
+            met_rate=dump_input(met_rate),
+            clo_value=dump_input(clo_value),
+            external_work=dump_input(external_work),
+            barometric_pressure=dump_input(barometric_pressure),
+            strategies=dump_input(strategies),
             passive_strategy_parameters=passive_strategy_parameters,
-            incident_irradiance_target=incident_irradiance_target,
+            incident_irradiance_target=dump_target(incident_irradiance_target),
             merge_polygons=merge_polygons,
             solar_altitude=solar_altitude,
             direct_normal_solar=direct_normal_solar,
@@ -391,7 +403,7 @@ def register(mcp: FastMCP) -> None:
             human_height=human_height,
             human_point_count=human_point_count,
             context_geometry=context_geometry,
-            model_target=model_target,
+            model_target=dump_target(model_target),
             north_angle=north_angle,
             sun_up_hours_path=sun_up_hours_path,
             indirect_ill_path=indirect_ill_path,
@@ -402,6 +414,7 @@ def register(mcp: FastMCP) -> None:
             identifier=identifier,
             return_data_collection=return_data_collection,
         )
+        return validate_output(MutationResultModel, result)
 
     @mcp.tool(
         name="LB_Analyze_Data_Collection",
@@ -424,7 +437,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Inline Ladybug DataCollection dictionary."),
         ] = None,
         data_collection_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Garden target dictionary pointing to a persisted DataCollection."),
         ] = None,
         data_collections: Annotated[
@@ -432,7 +445,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional list of inline Ladybug DataCollection dicts for batch/multi-collection operations."),
         ] = None,
         data_collection_targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[DataCollectionTargetRef] | None,
             Field(description="Optional list of Garden target dicts for multi-collection filtering or math."),
         ] = None,
         source_path: Annotated[
@@ -444,7 +457,22 @@ def register(mcp: FastMCP) -> None:
             Field(description="Numeric values list for action='create'."),
         ] = None,
         collection_type: Annotated[
-            str,
+            Literal[
+                "HourlyContinuous",
+                "HourlyDiscontinuous",
+                "Daily",
+                "Monthly",
+                "MonthlyPerHour",
+                "hourly",
+                "hourly_continuous",
+                "hourlycontinuous",
+                "hourly_discontinuous",
+                "hourlydiscontinuous",
+                "daily",
+                "monthly",
+                "monthly_per_hour",
+                "monthlyperhour",
+            ],
             Field(description="Collection type for action='create': HourlyContinuous, HourlyDiscontinuous, Daily, Monthly, MonthlyPerHour."),
         ] = "HourlyContinuous",
         header: Annotated[
@@ -477,7 +505,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         histogram_bins: Annotated[
             int,
-            Field(description="Number of histogram bins in action='inspect'."),
+            Field(ge=1, description="Number of histogram bins in action='inspect'."),
         ] = 10,
         include_values: Annotated[
             bool,
@@ -485,10 +513,18 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         max_values: Annotated[
             int,
-            Field(description="Maximum sample values returned when include_values=True."),
+            Field(ge=1, description="Maximum sample values returned when include_values=True."),
         ] = 24,
         filter_type: Annotated[
-            str | None,
+            Literal[
+                "analysis_period",
+                "hoys",
+                "range",
+                "conditional_statement",
+                "pattern",
+                "statement",
+            ]
+            | None,
             Field(description="Filter kind for action='filter': analysis_period, hoys, range, conditional_statement, pattern, or statement."),
         ] = None,
         hoys: Annotated[
@@ -516,16 +552,16 @@ def register(mcp: FastMCP) -> None:
             Field(description="Operation name for action='aggregate' or action='math'."),
         ] = None,
         aggregation_method: Annotated[
-            str,
-            Field(description="Aggregation statistic: average, total, percentile, minimum, maximum."),
+            Literal["average", "avg", "total", "percentile"],
+            Field(description="Aggregation statistic: average, avg, total, or percentile."),
         ] = "average",
         percentile_value: Annotated[
             float,
-            Field(description="Percentile (0-100) when aggregation_method='percentile'."),
+            Field(ge=0.0, le=100.0, description="Percentile (0-100) when aggregation_method='percentile'."),
         ] = 50.0,
         timestep: Annotated[
             int,
-            Field(description="Target timestep per hour for timestep resampling in action='aggregate'."),
+            Field(ge=1, description="Target timestep per hour for timestep resampling in action='aggregate'."),
         ] = 1,
         cumulative: Annotated[
             bool | None,
@@ -533,7 +569,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         area: Annotated[
             float | None,
-            Field(description="Area divisor for normalize_by_area in action='aggregate'."),
+            Field(gt=0.0, description="Area divisor for normalize_by_area in action='aggregate'."),
         ] = None,
         area_unit: Annotated[
             str,
@@ -552,7 +588,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Second inline DataCollection for aligned arithmetic in action='math'."),
         ] = None,
         other_data_collection_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Second Garden DataCollection target for aligned arithmetic in action='math'."),
         ] = None,
         base_temperature: Annotated[
@@ -579,17 +615,17 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Include full DataCollection JSON in response payload."),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Run DataCollection import, creation, inspection, filtering, aggregation, or math."""
         from garden.data_collection import analyze_data_collection as service
 
-        return service(
+        result = service(
             garden_root=garden_root,
             action=action,
             data_collection=data_collection,
-            data_collection_target=data_collection_target,
+            data_collection_target=dump_target(data_collection_target),
             data_collections=data_collections,
-            data_collection_targets=data_collection_targets,
+            data_collection_targets=dump_targets(data_collection_targets),
             source_path=source_path,
             values=values,
             collection_type=collection_type,
@@ -619,7 +655,7 @@ def register(mcp: FastMCP) -> None:
             target_unit=target_unit,
             scalar=scalar,
             other_data_collection=other_data_collection,
-            other_data_collection_target=other_data_collection_target,
+            other_data_collection_target=dump_target(other_data_collection_target),
             base_temperature=base_temperature,
             heating_base_temperature=heating_base_temperature,
             cooling_base_temperature=cooling_base_temperature,
@@ -627,6 +663,7 @@ def register(mcp: FastMCP) -> None:
             identifier=identifier,
             return_data_collection=return_data_collection,
         )
+        return validate_output(MutationResultModel, result)
 
     @mcp.tool(
         name="LB_Climate_Calc",
@@ -660,7 +697,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         weather_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(description="Garden weather target dictionary referencing an EPW."),
         ] = None,
         epw_path: Annotated[
@@ -680,25 +717,41 @@ def register(mcp: FastMCP) -> None:
             Field(description="Ladybug Location dictionary."),
         ] = None,
         translation_type: Annotated[
-            str | None,
+            Literal[
+                "epw_to_ddy",
+                "epw_to_ddy_monthly_cooling",
+                "epw_to_wea",
+                "epw_to_mos",
+                "stat_to_ddy",
+                "stat_to_wea",
+                "wea_from_stat",
+                "wea_from_clear_sky",
+                "wea_from_ashrae_revised_clear_sky",
+                "ashrae_revised_clear_sky_wea",
+                "wea_from_zhang_huang",
+                "wea_from_zhang_huang_solar",
+                "zhang_huang_solar_wea",
+            ]
+            | None,
             Field(
                 description=(
                     "Weather translation mode: epw_to_ddy, epw_to_ddy_monthly_cooling, epw_to_wea, "
-                    "epw_to_mos, stat_to_ddy, wea_from_stat, wea_from_clear_sky, or wea_from_zhang_huang."
+                    "epw_to_mos, stat_to_ddy, stat_to_wea, wea_from_stat, wea_from_clear_sky, "
+                    "ashrae_revised_clear_sky_wea, or zhang_huang_solar_wea."
                 )
             ),
         ] = None,
         percentile: Annotated[
             float,
-            Field(description="Percentile threshold for EPW-to-DDY translation (0.4 or 2.0)."),
+            Field(ge=0.0, le=100.0, description="Percentile threshold for EPW-to-DDY translation (0.4 or 2.0)."),
         ] = 0.4,
         annual_percentile: Annotated[
             float,
-            Field(description="Annual heating/cooling percentile for monthly cooling DDY."),
+            Field(ge=0.0, le=100.0, description="Annual heating/cooling percentile for monthly cooling DDY."),
         ] = 0.4,
         monthly_percentile: Annotated[
             float,
-            Field(description="Monthly percentile for epw_to_ddy_monthly_cooling."),
+            Field(ge=0.0, le=100.0, description="Monthly percentile for epw_to_ddy_monthly_cooling."),
         ] = 5.0,
         hoys: Annotated[
             list[float] | None,
@@ -706,7 +759,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         timestep: Annotated[
             int,
-            Field(description="Timestep per hour for WEA or sunpath calculations."),
+            Field(ge=1, description="Timestep per hour for WEA or sunpath calculations."),
         ] = 1,
         is_leap_year: Annotated[
             bool,
@@ -725,23 +778,23 @@ def register(mcp: FastMCP) -> None:
             Field(description="12 monthly diffuse optical depth values for ASHRAE revised clear sky."),
         ] = None,
         cloud_cover_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Garden target for total sky cover (tenths) for Zhang-Huang."),
         ] = None,
         relative_humidity_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Garden target for relative humidity (%) for Zhang-Huang/skymodel."),
         ] = None,
         dry_bulb_temperature_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Garden target for dry-bulb temperature (C) for Zhang-Huang/skymodel."),
         ] = None,
         wind_speed_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Garden target for wind speed (m/s) for Zhang-Huang."),
         ] = None,
         atmospheric_pressure_target: Annotated[
-            dict[str, Any] | None,
+            DataCollectionTargetRef | None,
             Field(description="Garden target for barometric pressure (Pa) for skymodel."),
         ] = None,
         use_disc: Annotated[
@@ -782,15 +835,15 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         month: Annotated[
             int | None,
-            Field(description="Month (1-12) for single-instant sunpath calculation."),
+            Field(ge=1, le=12, description="Month (1-12) for single-instant sunpath calculation."),
         ] = None,
         day: Annotated[
             int | None,
-            Field(description="Day of month (1-31) for single-instant sunpath calculation."),
+            Field(ge=1, le=31, description="Day of month (1-31) for single-instant sunpath calculation."),
         ] = None,
         hour: Annotated[
             float | None,
-            Field(description="Hour (0-24) for single-instant sunpath calculation."),
+            Field(ge=0.0, le=24.0, description="Hour (0-24) for single-instant sunpath calculation."),
         ] = None,
         solar_time: Annotated[
             bool,
@@ -809,28 +862,28 @@ def register(mcp: FastMCP) -> None:
             Field(description="Input dictionary (scalars, lists, or Garden targets) for psychrometrics/skymodel."),
         ] = None,
         terrain: Annotated[
-            str,
-            Field(description="Site terrain class for wind_profile ('city', 'suburban', 'country', 'ocean')."),
+            Literal["city", "suburban", "country", "water", "City", "Suburban", "Country", "Water"],
+            Field(description="Site terrain class for wind_profile ('city', 'suburban', 'country', 'water')."),
         ] = "city",
         meteorological_terrain: Annotated[
-            str,
+            Literal["city", "suburban", "country", "water", "City", "Suburban", "Country", "Water"],
             Field(description="Reference weather station terrain class for wind_profile."),
         ] = "country",
         meteorological_height: Annotated[
             float,
-            Field(description="Reference anemometer height (m) for wind_profile."),
+            Field(gt=0.0, description="Reference anemometer height (m) for wind_profile."),
         ] = 10.0,
         log_law: Annotated[
             bool,
             Field(description="Use logarithmic wind profile law instead of power law."),
         ] = False,
         wind_speed: Annotated[
-            float | list[float] | dict[str, Any] | None,
+            DataCollectionTargetRef | list[float] | float | None,
             Field(description="Input meteorological wind speed (scalar, list, or DataCollection/target) for wind_profile."),
         ] = None,
         height: Annotated[
             float,
-            Field(description="Target height above ground (m) for wind_profile."),
+            Field(gt=0.0, description="Target height above ground (m) for wind_profile."),
         ] = 1.0,
         heights: Annotated[
             list[float] | None,
@@ -838,11 +891,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         latitude: Annotated[
             float | None,
-            Field(description="Site latitude (degrees) for magnetic_north or skymodel."),
+            Field(ge=-90.0, le=90.0, description="Site latitude (degrees) for magnetic_north or skymodel."),
         ] = None,
         longitude: Annotated[
             float | None,
-            Field(description="Site longitude (degrees) for magnetic_north or skymodel."),
+            Field(ge=-180.0, le=180.0, description="Site longitude (degrees) for magnetic_north or skymodel."),
         ] = None,
         elevation: Annotated[
             float,
@@ -868,14 +921,14 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Include full serialized DataCollection payloads when applicable."),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> ArtifactResultModel:
         """Run pure-Python climate, sunpath, psychrometrics, skymodel, wind, or magnetic calculations."""
         from garden.climate_calc import climate_calc as service
 
-        return service(
+        result = service(
             garden_root=garden_root,
             action=action,
-            weather_target=weather_target,
+            weather_target=dump_target(weather_target),
             epw_path=epw_path,
             stat_path=stat_path,
             ddy_path=ddy_path,
@@ -890,32 +943,32 @@ def register(mcp: FastMCP) -> None:
             use_2017=use_2017,
             monthly_tau_beam=monthly_tau_beam,
             monthly_tau_diffuse=monthly_tau_diffuse,
-            cloud_cover_target=cloud_cover_target,
-            relative_humidity_target=relative_humidity_target,
-            dry_bulb_temperature_target=dry_bulb_temperature_target,
-            wind_speed_target=wind_speed_target,
-            atmospheric_pressure_target=atmospheric_pressure_target,
+            cloud_cover_target=dump_target(cloud_cover_target),
+            relative_humidity_target=dump_target(relative_humidity_target),
+            dry_bulb_temperature_target=dump_target(dry_bulb_temperature_target),
+            wind_speed_target=dump_target(wind_speed_target),
+            atmospheric_pressure_target=dump_target(atmospheric_pressure_target),
             use_disc=use_disc,
-            field_updates=field_updates,
+            field_updates=dump_input(field_updates),
             comments_1=comments_1,
             comments_2=comments_2,
             register_weather_target=register_weather_target,
             design_days=design_days,
             filter_keyword=filter_keyword,
             north_angle=north_angle,
-            analysis_period=analysis_period,
+            analysis_period=dump_input(analysis_period),
             month=month,
             day=day,
             hour=hour,
             solar_time=solar_time,
             depression=depression,
             operation=operation,
-            inputs=inputs,
+            inputs=dump_input(inputs),
             terrain=terrain,
             meteorological_terrain=meteorological_terrain,
             meteorological_height=meteorological_height,
             log_law=log_law,
-            wind_speed=wind_speed,
+            wind_speed=dump_input(wind_speed),
             height=height,
             heights=heights,
             latitude=latitude,
@@ -927,3 +980,4 @@ def register(mcp: FastMCP) -> None:
             output_subdir=output_subdir,
             return_data_collection=return_data_collection,
         )
+        return validate_output(ArtifactResultModel, result)

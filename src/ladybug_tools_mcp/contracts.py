@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, GetJsonSchemaHandler
+from pydantic_core import CoreSchema
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -184,7 +185,31 @@ def validate_output(model_cls: type[T], payload: Any) -> T:
     return model_cls.model_validate(payload)
 
 
-class GardenTargetRef(BaseModel):
+class _MappingReadMixin:
+    """Read-only dict-style lookup for direct Python tool.fn() callers."""
+
+    def _present_keys(self) -> set[str]:
+        fields_set = getattr(self, "model_fields_set", ())
+        extra = getattr(self, "__pydantic_extra__", None)
+        if extra:
+            return set(fields_set) | set(extra)
+        return set(fields_set)
+
+    def __getitem__(self, key: str) -> Any:
+        if key in self._present_keys():
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key in self._present_keys():
+            return getattr(self, key)
+        return default
+
+    def __contains__(self, key: object) -> bool:
+        return isinstance(key, str) and key in self._present_keys()
+
+
+class GardenTargetRef(_MappingReadMixin, BaseModel):
     """Base typed reference for Garden-managed targets and artifacts."""
 
     model_config = ConfigDict(extra="allow")
@@ -195,6 +220,19 @@ class GardenTargetRef(BaseModel):
     identifier: str | None = Field(default=None, description="Asset or object identifier.")
     domain: str | None = Field(default=None, description="Target domain (e.g. 'honeybee', 'dragonfly', 'energy').")
     path: str | None = Field(default=None, description="Garden-relative path to the asset or artifact.")
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls,
+        core_schema: CoreSchema,
+        handler: GetJsonSchemaHandler,
+    ) -> dict[str, Any]:
+        """Emit a compact object schema so multi-target tools stay well under schema budgets."""
+        return {
+            "type": "object",
+            "title": cls.__name__,
+            "additionalProperties": True,
+        }
 
 
 class BuildingModelTargetRef(GardenTargetRef):
@@ -257,7 +295,7 @@ class SkyTargetRef(GardenTargetRef):
     artifact_type: str | None = Field(default=None, description="Sky artifact type.")
 
 
-class FlowerpotRef(BaseModel):
+class FlowerpotRef(_MappingReadMixin, BaseModel):
     """Typed reference for opaque Flowerpot handoff envelopes."""
 
     model_config = ConfigDict(extra="allow")
@@ -270,8 +308,21 @@ class FlowerpotRef(BaseModel):
     payload_context: dict[str, Any] | None = Field(default=None, description="Contextual payload metadata.")
     platform: dict[str, Any] | None = Field(default=None, description="Target platform metadata.")
 
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls,
+        core_schema: CoreSchema,
+        handler: GetJsonSchemaHandler,
+    ) -> dict[str, Any]:
+        """Emit a compact object schema while preserving runtime FlowerpotRef validation."""
+        return {
+            "type": "object",
+            "title": cls.__name__,
+            "additionalProperties": True,
+        }
 
-class ToolReportModel(BaseModel):
+
+class ToolReportModel(_MappingReadMixin, BaseModel):
     """Compact tool report returned alongside structured payloads."""
 
     model_config = ConfigDict(extra="allow")
@@ -282,7 +333,7 @@ class ToolReportModel(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
-class PersistenceReceiptModel(BaseModel):
+class PersistenceReceiptModel(_MappingReadMixin, BaseModel):
     """Receipt describing Garden persistence and base-model mutations."""
 
     model_config = ConfigDict(extra="allow")
@@ -298,7 +349,7 @@ class PersistenceReceiptModel(BaseModel):
     change_summary: dict[str, Any] = Field(default_factory=dict)
 
 
-class ArtifactReceiptModel(BaseModel):
+class ArtifactReceiptModel(_MappingReadMixin, BaseModel):
     """Receipt describing a generated Garden artifact."""
 
     model_config = ConfigDict(extra="allow")
@@ -312,7 +363,7 @@ class ArtifactReceiptModel(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-class ToolResultModel(BaseModel):
+class ToolResultModel(_MappingReadMixin, BaseModel):
     """Base structured MCP tool output envelope."""
 
     model_config = ConfigDict(extra="allow")

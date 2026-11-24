@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
 from flowerpot.active_context import read_active_context, read_latest_active_context
+from ladybug_tools_mcp.contracts import (
+    FlowerpotRef,
+    GardenTargetRef,
+    MutationResultModel,
+    QueryResultModel,
+    dump_input,
+    dump_target,
+    validate_output,
+)
 
 
 def get_active_flowerpot_context(
@@ -50,7 +59,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         cleanup_scope: Annotated[
-            str,
+            Literal["orphaned", "expired", "all"],
             Field(
                 description=(
                     "Cleanup scope: orphaned for registry entries missing item "
@@ -66,18 +75,22 @@ def register(mcp: FastMCP) -> None:
         older_than_days: Annotated[
             int | None,
             Field(
-                description="Optional age threshold in days for cleanup_scope=expired."
+                description="Optional age threshold in days for cleanup_scope=expired.",
+                ge=0,
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Clean registered Flowerpot handoff state."""
         from flowerpot.registry import cleanup_flowerpots as service
 
-        return service(
-            garden_root=garden_root,
-            cleanup_scope=cleanup_scope,
-            dry_run=dry_run,
-            older_than_days=older_than_days,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                cleanup_scope=cleanup_scope,
+                dry_run=dry_run,
+                older_than_days=older_than_days,
+            ),
         )
 
     @mcp.tool(
@@ -105,7 +118,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         source: Annotated[
-            str,
+            Literal["garden", "base_honeybee_model", "base_dragonfly_model", "target"],
             Field(
                 description=(
                     "Flowerpot source value: garden, base_honeybee_model, "
@@ -116,7 +129,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = "garden",
         target: Annotated[
-            dict[str, Any] | None,
+            GardenTargetRef | None,
             Field(
                 description=(
                     'Registered typed target dict with target_type from a prior MCP result; required '
@@ -143,17 +156,20 @@ def register(mcp: FastMCP) -> None:
                 description="When false, reuse an existing Flowerpot with the same source, target, and platform context. Set true only when a distinct handoff record is required."
             ),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a registered Flowerpot from Garden entity content."""
         from flowerpot.registry import create_flowerpot as service
 
-        return service(
-            garden_root=garden_root,
-            source=source,
-            target=target,
-            label=label,
-            platform=platform,
-            force_new=force_new,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                source=source,
+                target=dump_target(target),
+                label=label,
+                platform=dump_input(platform),
+                force_new=force_new,
+            ),
         )
 
     @mcp.tool(
@@ -200,12 +216,15 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Read active Flowerpot context."""
-        return get_active_flowerpot_context(
-            garden_root=garden_root,
-            platform=platform,
-            root_folder=root_folder,
+        return validate_output(
+            QueryResultModel,
+            get_active_flowerpot_context(
+                garden_root=garden_root,
+                platform=platform,
+                root_folder=root_folder,
+            ),
         )
 
     @mcp.tool(
@@ -239,7 +258,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         flowerpot: Annotated[
-            dict[str, Any] | None,
+            FlowerpotRef | None,
             Field(
                 description='Optional opaque Flowerpot dict to summarize (pass unchanged).'
             ),
@@ -254,13 +273,16 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Get, list, or summarize Flowerpot context."""
         from flowerpot.registry import get_flowerpot as service
 
-        return service(
-            garden_root=garden_root,
-            flowerpot_id=flowerpot_id,
-            flowerpot=flowerpot,
-            include_body=include_body,
+        return validate_output(
+            QueryResultModel,
+            service(
+                garden_root=garden_root,
+                flowerpot_id=flowerpot_id,
+                flowerpot=dump_target(flowerpot),
+                include_body=include_body,
+            ),
         )

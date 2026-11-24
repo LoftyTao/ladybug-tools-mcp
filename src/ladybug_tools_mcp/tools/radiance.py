@@ -7,6 +7,24 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import (
+    ArtifactResultModel,
+    ArtifactTargetRef,
+    BuildingModelTargetRef,
+    BuildingObjectTargetRef,
+    LibraryObjectTargetRef,
+    MutationResultModel,
+    QueryResultModel,
+    RunResultModel,
+    RunTargetRef,
+    SkyTargetRef,
+    WeatherTargetRef,
+    dump_input,
+    dump_target,
+    dump_targets,
+    validate_output,
+)
+
 
 RAW_RADIANCE_FLAGS = (
     "ab",
@@ -117,11 +135,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         month: Annotated[
             int | None,
-            Field(description="Month number (1-12) for cie_sky, climate_based_sky, or from_epw_hoy."),
+            Field(description="Month number (1-12) for cie_sky, climate_based_sky, or from_epw_hoy.", ge=1, le=12),
         ] = None,
         day: Annotated[
             int | None,
-            Field(description="Day of month for cie_sky, climate_based_sky, or from_epw_hoy."),
+            Field(description="Day of month for cie_sky, climate_based_sky, or from_epw_hoy.", ge=1, le=31),
         ] = None,
         time: Annotated[
             str | float | None,
@@ -142,11 +160,11 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         solar_altitude: Annotated[
             float | None,
-            Field(description="Optional sun altitude angle in degrees (provide with solar_azimuth instead of month/day/time)."),
+            Field(description="Optional sun altitude angle in degrees (provide with solar_azimuth instead of month/day/time).", ge=-90, le=90),
         ] = None,
         solar_azimuth: Annotated[
             float | None,
-            Field(description="Optional sun azimuth angle in degrees (provide with solar_altitude instead of month/day/time)."),
+            Field(description="Optional sun azimuth angle in degrees (provide with solar_altitude instead of month/day/time).", ge=-360, le=360),
         ] = None,
         sky_type: Annotated[
             str,
@@ -159,11 +177,11 @@ def register(mcp: FastMCP) -> None:
         ] = "sunny",
         latitude: Annotated[
             float | None,
-            Field(description="Optional site latitude in degrees."),
+            Field(description="Optional site latitude in degrees.", ge=-90, le=90),
         ] = None,
         longitude: Annotated[
             float | None,
-            Field(description="Optional site longitude in degrees."),
+            Field(description="Optional site longitude in degrees.", ge=-180, le=180),
         ] = None,
         standard_meridian: Annotated[
             float | None,
@@ -171,50 +189,50 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         ground_reflectance: Annotated[
             float | None,
-            Field(description="Optional ground reflectance (-g). Defaults to 0.2."),
+            Field(description="Optional ground reflectance (-g). Defaults to 0.2.", ge=0, le=1),
         ] = None,
         sky_turbidity: Annotated[
             float | None,
-            Field(description="Optional sky turbidity for cie_sky (gensky -t)."),
+            Field(description="Optional sky turbidity for cie_sky (gensky -t).", gt=0),
         ] = None,
         solar_radiance: Annotated[
             float | None,
-            Field(description="Optional solar radiance for cie_sky (gensky -r)."),
+            Field(description="Optional solar radiance for cie_sky (gensky -r).", ge=0),
         ] = None,
         direct_horizontal_irradiance: Annotated[
             float | None,
-            Field(description="Optional direct horizontal irradiance for cie_sky (gensky -R)."),
+            Field(description="Optional direct horizontal irradiance for cie_sky (gensky -R).", ge=0),
         ] = None,
         zenith_brightness: Annotated[
             float | None,
-            Field(description="Optional zenith brightness for cie_sky (gensky -b)."),
+            Field(description="Optional zenith brightness for cie_sky (gensky -b).", ge=0),
         ] = None,
         diffuse_horizontal_irradiance: Annotated[
             float | None,
-            Field(description="Diffuse horizontal irradiance for cie_sky (gensky -B) or climate_based_sky (gendaylit -W)."),
+            Field(description="Diffuse horizontal irradiance for cie_sky (gensky -B) or climate_based_sky (gendaylit -W).", ge=0),
         ] = None,
         direct_normal_irradiance: Annotated[
             float | None,
-            Field(description="Direct normal irradiance for climate_based_sky (gendaylit -W)."),
+            Field(description="Direct normal irradiance for climate_based_sky (gendaylit -W).", ge=0),
         ] = None,
         direct_normal_illuminance: Annotated[
             float | None,
-            Field(description="Direct normal illuminance for climate_based_sky (gendaylit -L)."),
+            Field(description="Direct normal illuminance for climate_based_sky (gendaylit -L).", ge=0),
         ] = None,
         diffuse_horizontal_illuminance: Annotated[
             float | None,
-            Field(description="Diffuse horizontal illuminance for climate_based_sky (gendaylit -L)."),
+            Field(description="Diffuse horizontal illuminance for climate_based_sky (gendaylit -L).", ge=0),
         ] = None,
         output_mode: Annotated[
             int | None,
             Field(description="Optional gendaylit -O output mode for climate_based_sky."),
         ] = None,
         sky_part: Annotated[
-            str | None,
+            Literal["visible", "luminance", "solar", "radiance"] | None,
             Field(description="Optional climate_based_sky part: visible/luminance or solar/radiance."),
         ] = None,
         weather_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(description="Optional Garden weather_file target for EPW-backed skies/WEA/sky_matrix."),
         ] = None,
         epw_path: Annotated[
@@ -226,7 +244,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional Garden-relative .stat file path for sky_matrix (Wea.from_stat_file)."),
         ] = None,
         wea_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="Optional wea_file target for sky_matrix, leed_illuminance, or abnt_nbr_15575."),
         ] = None,
         location: Annotated[
@@ -247,11 +265,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         sky_clearness: Annotated[
             float,
-            Field(description="ASHRAE sky clearness value for wea_clear_sky or location-based sky_matrix."),
+            Field(description="ASHRAE sky clearness value for wea_clear_sky or location-based sky_matrix.", ge=0),
         ] = 1,
         timestep: Annotated[
             int,
-            Field(description="WEA timestep (default 1 for hourly data) for wea_from_epw or wea_clear_sky."),
+            Field(description="WEA timestep (default 1 for hourly data) for wea_from_epw or wea_clear_sky.", ge=1),
         ] = 1,
         hoys: Annotated[
             list[float] | None,
@@ -259,7 +277,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         hoy: Annotated[
             float | None,
-            Field(description="Optional hour of year (0-8759) for from_epw_hoy."),
+            Field(description="Optional hour of year (0-8759) for from_epw_hoy.", ge=0, le=8784),
         ] = None,
         is_leap_year: Annotated[
             bool,
@@ -283,11 +301,11 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         irradiance: Annotated[
             float | None,
-            Field(description="Horizontal diffuse irradiance (W/m2) for certain_irradiance."),
+            Field(description="Horizontal diffuse irradiance (W/m2) for certain_irradiance.", ge=0),
         ] = None,
         illuminance: Annotated[
             float | None,
-            Field(description="Horizontal illuminance (lux, including 0 for dark sky) for certain_irradiance."),
+            Field(description="Horizontal illuminance (lux, including 0 for dark sky) for certain_irradiance.", ge=0),
         ] = None,
         uniform: Annotated[
             bool,
@@ -299,11 +317,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         sky_density: Annotated[
             int,
-            Field(description="Sky patch density for skydome (1=145 patches)."),
+            Field(description="Sky patch density for skydome (1=145 patches).", ge=1),
         ] = 1,
         ground_emittance: Annotated[
             float,
-            Field(description="Ground emittance (0-1) for skydome."),
+            Field(description="Ground emittance (0-1) for skydome.", ge=0, le=1),
         ] = 0.2,
         is_colored: Annotated[
             bool,
@@ -319,7 +337,7 @@ def register(mcp: FastMCP) -> None:
         ] = 15.0,
         balance_offset: Annotated[
             float,
-            Field(description="Neutral deadband offset (C) around balance_temperature for benefit_matrix."),
+            Field(description="Neutral deadband offset (C) around balance_temperature for benefit_matrix.", ge=0),
         ] = 2.0,
         output_subdir: Annotated[
             str | None,
@@ -329,65 +347,68 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Return full Wea object_dict when creating WEA files. Keep false for compact handoff."),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> ArtifactResultModel:
         """Create a Radiance sky, WEA, or SkyMatrix asset."""
         from garden.radiance.sky import create_radiance_sky_asset as service
 
-        return service(
-            garden_root=garden_root,
-            asset_type=asset_type,
-            identifier=identifier,
-            month=month,
-            day=day,
-            time=time,
-            time_zone=time_zone,
-            solar_time=solar_time,
-            solar_altitude=solar_altitude,
-            solar_azimuth=solar_azimuth,
-            sky_type=sky_type,
-            latitude=latitude,
-            longitude=longitude,
-            standard_meridian=standard_meridian,
-            ground_reflectance=ground_reflectance,
-            sky_turbidity=sky_turbidity,
-            solar_radiance=solar_radiance,
-            direct_horizontal_irradiance=direct_horizontal_irradiance,
-            zenith_brightness=zenith_brightness,
-            diffuse_horizontal_irradiance=diffuse_horizontal_irradiance,
-            direct_normal_irradiance=direct_normal_irradiance,
-            direct_normal_illuminance=direct_normal_illuminance,
-            diffuse_horizontal_illuminance=diffuse_horizontal_illuminance,
-            output_mode=output_mode,
-            sky_part=sky_part,
-            weather_target=weather_target,
-            epw_path=epw_path,
-            stat_path=stat_path,
-            wea_target=wea_target,
-            location=location,
-            city=city,
-            region=region,
-            elevation=elevation,
-            sky_clearness=sky_clearness,
-            timestep=timestep,
-            hoys=hoys,
-            hoy=hoy,
-            is_leap_year=is_leap_year,
-            write_hours=write_hours,
-            north=north,
-            high_density=high_density,
-            compute=compute,
-            irradiance=irradiance,
-            illuminance=illuminance,
-            uniform=uniform,
-            cloudy=cloudy,
-            sky_density=sky_density,
-            ground_emittance=ground_emittance,
-            is_colored=is_colored,
-            benefit_matrix=benefit_matrix,
-            balance_temperature=balance_temperature,
-            balance_offset=balance_offset,
-            output_subdir=output_subdir,
-            return_object_dict=return_object_dict,
+        return validate_output(
+            ArtifactResultModel,
+            service(
+                garden_root=garden_root,
+                asset_type=asset_type,
+                identifier=identifier,
+                month=month,
+                day=day,
+                time=time,
+                time_zone=time_zone,
+                solar_time=solar_time,
+                solar_altitude=solar_altitude,
+                solar_azimuth=solar_azimuth,
+                sky_type=sky_type,
+                latitude=latitude,
+                longitude=longitude,
+                standard_meridian=standard_meridian,
+                ground_reflectance=ground_reflectance,
+                sky_turbidity=sky_turbidity,
+                solar_radiance=solar_radiance,
+                direct_horizontal_irradiance=direct_horizontal_irradiance,
+                zenith_brightness=zenith_brightness,
+                diffuse_horizontal_irradiance=diffuse_horizontal_irradiance,
+                direct_normal_irradiance=direct_normal_irradiance,
+                direct_normal_illuminance=direct_normal_illuminance,
+                diffuse_horizontal_illuminance=diffuse_horizontal_illuminance,
+                output_mode=output_mode,
+                sky_part=sky_part,
+                weather_target=dump_target(weather_target),
+                epw_path=epw_path,
+                stat_path=stat_path,
+                wea_target=dump_target(wea_target),
+                location=dump_input(location),
+                city=city,
+                region=region,
+                elevation=elevation,
+                sky_clearness=sky_clearness,
+                timestep=timestep,
+                hoys=hoys,
+                hoy=hoy,
+                is_leap_year=is_leap_year,
+                write_hours=write_hours,
+                north=north,
+                high_density=high_density,
+                compute=compute,
+                irradiance=irradiance,
+                illuminance=illuminance,
+                uniform=uniform,
+                cloudy=cloudy,
+                sky_density=sky_density,
+                ground_emittance=ground_emittance,
+                is_colored=is_colored,
+                benefit_matrix=benefit_matrix,
+                balance_temperature=balance_temperature,
+                balance_offset=balance_offset,
+                output_subdir=output_subdir,
+                return_object_dict=return_object_dict,
+            ),
         )
 
     @mcp.tool(
@@ -440,22 +461,22 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         specularity: Annotated[
             float | None,
-            Field(description="Specularity fraction (0-1) for opaque, metal, trans, plastic2, metal2, trans2."),
+            Field(description="Specularity fraction (0-1) for opaque, metal, trans, plastic2, metal2, trans2.", ge=0, le=1),
         ] = None,
         roughness: Annotated[
             float | None,
-            Field(description="Roughness fraction (0-1) for opaque, metal, or trans."),
+            Field(description="Roughness fraction (0-1) for opaque, metal, or trans.", ge=0, le=1),
         ] = None,
         transmitted_diff: Annotated[
             float | None,
-            Field(description="Diffuse transmitted fraction (0-1) for trans or trans2."),
+            Field(description="Diffuse transmitted fraction (0-1) for trans or trans2.", ge=0, le=1),
         ] = None,
         transmitted_spec: Annotated[
             float | None,
-            Field(description="Specular transmitted fraction (0-1) for trans or trans2."),
+            Field(description="Specular transmitted fraction (0-1) for trans or trans2.", ge=0, le=1),
         ] = None,
         alternate_material: Annotated[
-            str | dict[str, Any] | None,
+            LibraryObjectTargetRef | str | None,
             Field(description="Optional alternate material name (such as 'void') or modifier dict for mirror/illum."),
         ] = None,
         rgb_transmittance: Annotated[
@@ -468,10 +489,10 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         refraction_index: Annotated[
             float | None,
-            Field(description="Optional refraction index for glass or dielectric (default 1.52)."),
+            Field(description="Optional refraction index for glass or dielectric (default 1.52).", gt=0),
         ] = None,
         modifier: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | str | None,
             Field(description="Optional parent modifier (library target, identifier, or dict) for modifier chaining."),
         ] = None,
         params: Annotated[
@@ -498,26 +519,29 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Return the full modifier object_dict. Set false with garden_root for compact handoff."),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a Honeybee Radiance modifier."""
         from garden.radiance.modifiers import create_radiance_modifier as service
 
-        return service(
-            modifier_type=modifier_type,
-            identifier=identifier,
-            rgb_reflectance=rgb_reflectance,
-            specularity=specularity,
-            roughness=roughness,
-            transmitted_diff=transmitted_diff,
-            transmitted_spec=transmitted_spec,
-            alternate_material=alternate_material,
-            rgb_transmittance=rgb_transmittance,
-            rgb_transmissivity=rgb_transmissivity,
-            refraction_index=refraction_index,
-            modifier=modifier,
-            params=params,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
+        return validate_output(
+            MutationResultModel,
+            service(
+                modifier_type=modifier_type,
+                identifier=identifier,
+                rgb_reflectance=rgb_reflectance,
+                specularity=specularity,
+                roughness=roughness,
+                transmitted_diff=transmitted_diff,
+                transmitted_spec=transmitted_spec,
+                alternate_material=dump_input(alternate_material),
+                rgb_transmittance=rgb_transmittance,
+                rgb_transmissivity=rgb_transmissivity,
+                refraction_index=refraction_index,
+                modifier=dump_input(modifier),
+                params=dump_input(params),
+                garden_root=garden_root,
+                return_object_dict=return_object_dict,
+            ),
         )
 
     @mcp.tool(
@@ -542,7 +566,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Stable Radiance ModifierSet identifier."),
         ],
         base_modifier_set: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | str | None,
             Field(description="Optional base ModifierSet target, standards identifier, or dict to inherit defaults from."),
         ] = None,
         wall_set: Annotated[
@@ -570,7 +594,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional shade modifiers dict: {'exterior_modifier': ..., 'interior_modifier': ...}."),
         ] = None,
         air_boundary_modifier: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | str | None,
             Field(description="Optional modifier for AirBoundary faces."),
         ] = None,
         return_detail: Annotated[
@@ -585,23 +609,26 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Return full ModifierSet object_dict. Set false with garden_root for compact handoff."),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a Honeybee Radiance ModifierSet."""
         from garden.radiance.modifiers import create_radiance_modifier_set as service
 
-        return service(
-            identifier=identifier,
-            base_modifier_set=base_modifier_set,
-            wall_set=wall_set,
-            floor_set=floor_set,
-            roof_ceiling_set=roof_ceiling_set,
-            aperture_set=aperture_set,
-            door_set=door_set,
-            shade_set=shade_set,
-            air_boundary_modifier=air_boundary_modifier,
-            return_detail=return_detail,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
+        return validate_output(
+            MutationResultModel,
+            service(
+                identifier=identifier,
+                base_modifier_set=dump_input(base_modifier_set),
+                wall_set=dump_input(wall_set),
+                floor_set=dump_input(floor_set),
+                roof_ceiling_set=dump_input(roof_ceiling_set),
+                aperture_set=dump_input(aperture_set),
+                door_set=dump_input(door_set),
+                shade_set=dump_input(shade_set),
+                air_boundary_modifier=dump_input(air_boundary_modifier),
+                return_detail=return_detail,
+                garden_root=garden_root,
+                return_object_dict=return_object_dict,
+            ),
         )
 
     @mcp.tool(
@@ -668,14 +695,14 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         light_loss_factor: Annotated[
             float,
-            Field(description="Positive light loss multiplier for lamp/system depreciation."),
+            Field(description="Positive light loss multiplier for lamp/system depreciation.", gt=0),
         ] = 1.0,
         candela_multiplier: Annotated[
             float,
-            Field(description="Positive candela multiplier applied to the IES distribution."),
+            Field(description="Positive candela multiplier applied to the IES distribution.", gt=0),
         ] = 1.0,
         luminaires: Annotated[
-            list[dict[str, Any]] | None,
+            list[LibraryObjectTargetRef] | None,
             Field(description="Existing Luminaire object_dict values or Garden luminaire targets for attach."),
         ] = None,
         luminaire_identifiers: Annotated[
@@ -691,7 +718,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Also remove matching luminaire JSON files from Garden library when action='remove'."),
         ] = False,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(description="Optional Honeybee model target. Defaults to the Garden base model."),
         ] = None,
         replace_existing: Annotated[
@@ -702,7 +729,7 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Return the created Luminaire object_dict when creating."),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create, attach, list, or remove Honeybee Radiance Luminaires."""
         from garden.radiance.luminaires import (
             add_radiance_luminaire_to_model,
@@ -711,43 +738,60 @@ def register(mcp: FastMCP) -> None:
             remove_radiance_luminaire_from_model,
         )
 
+        dumped_model_target = dump_target(model_target)
+        dumped_luminaires = dump_targets(luminaires)
+        dumped_instances = dump_input(instances)
+        dumped_custom_lamp = dump_input(custom_lamp)
+
         if action == "list":
-            return list_radiance_luminaires(
-                garden_root=garden_root,
-                model_target=model_target,
+            return validate_output(
+                MutationResultModel,
+                list_radiance_luminaires(
+                    garden_root=garden_root,
+                    model_target=dumped_model_target,
+                ),
             )
         if action == "remove":
             if not garden_root:
                 raise ValueError("garden_root is required when action is 'remove'.")
-            return remove_radiance_luminaire_from_model(
-                garden_root=garden_root,
-                luminaire_identifiers=luminaire_identifiers,
-                model_target=model_target,
-                remove_all=remove_all,
-                remove_from_library=remove_from_library,
+            return validate_output(
+                MutationResultModel,
+                remove_radiance_luminaire_from_model(
+                    garden_root=garden_root,
+                    luminaire_identifiers=luminaire_identifiers,
+                    model_target=dumped_model_target,
+                    remove_all=remove_all,
+                    remove_from_library=remove_from_library,
+                ),
             )
         if action == "create":
-            return create_radiance_luminaire(
-                ies_content=ies_content,
-                ies_path=ies_path,
-                identifier=identifier,
-                instances=instances,
-                custom_lamp=custom_lamp,
-                light_loss_factor=light_loss_factor,
-                candela_multiplier=candela_multiplier,
-                garden_root=garden_root,
-                return_object_dict=return_object_dict,
+            return validate_output(
+                MutationResultModel,
+                create_radiance_luminaire(
+                    ies_content=ies_content,
+                    ies_path=ies_path,
+                    identifier=identifier,
+                    instances=dumped_instances,
+                    custom_lamp=dumped_custom_lamp,
+                    light_loss_factor=light_loss_factor,
+                    candela_multiplier=candela_multiplier,
+                    garden_root=garden_root,
+                    return_object_dict=return_object_dict,
+                ),
             )
         if action == "attach":
             if not garden_root:
                 raise ValueError("garden_root is required when action is 'attach'.")
-            if not luminaires:
+            if not dumped_luminaires:
                 raise ValueError("luminaires must be provided when action is 'attach'.")
-            return add_radiance_luminaire_to_model(
-                garden_root=garden_root,
-                luminaires=luminaires,
-                model_target=model_target,
-                replace_existing=replace_existing,
+            return validate_output(
+                MutationResultModel,
+                add_radiance_luminaire_to_model(
+                    garden_root=garden_root,
+                    luminaires=dumped_luminaires,
+                    model_target=dumped_model_target,
+                    replace_existing=replace_existing,
+                ),
             )
         if not garden_root:
             raise ValueError("garden_root is required when action is 'create_and_attach'.")
@@ -755,20 +799,20 @@ def register(mcp: FastMCP) -> None:
             ies_content=ies_content,
             ies_path=ies_path,
             identifier=identifier,
-            instances=instances,
-            custom_lamp=custom_lamp,
+            instances=dumped_instances,
+            custom_lamp=dumped_custom_lamp,
             light_loss_factor=light_loss_factor,
             candela_multiplier=candela_multiplier,
             garden_root=garden_root,
             return_object_dict=True,
         )
         to_attach: list[dict[str, Any]] = [created.get("target") or created["object_dict"]]
-        if luminaires:
-            to_attach.extend(luminaires)
+        if dumped_luminaires:
+            to_attach.extend(dumped_luminaires)
         attached = add_radiance_luminaire_to_model(
             garden_root=garden_root,
             luminaires=to_attach,
-            model_target=model_target,
+            model_target=dumped_model_target,
             replace_existing=replace_existing,
         )
         if created.get("target") is not None:
@@ -778,7 +822,7 @@ def register(mcp: FastMCP) -> None:
         if return_object_dict and "object_dict" in created:
             attached["object_dict"] = created["object_dict"]
         attached["summary_view"]["luminaire"] = created["summary_view"]
-        return attached
+        return validate_output(MutationResultModel, attached)
 
     @mcp.tool(
         name="RAD_Setup_Dynamic_Group",
@@ -807,7 +851,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[BuildingObjectTargetRef] | None,
             Field(
                 description=(
                     "Shade, Aperture, or Door typed targets to update for replace_all/add/clear; "
@@ -833,20 +877,20 @@ def register(mcp: FastMCP) -> None:
             Field(description="Operation: replace_all, add, clear, or auto_group."),
         ] = "replace_all",
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(description="Optional Honeybee model target for auto_group or tmtx_thickness."),
         ] = None,
         size: Annotated[
             float,
-            Field(description="Aperture sensor grid cell size (m) for auto_group."),
+            Field(description="Aperture sensor grid cell size (m) for auto_group.", gt=0),
         ] = 0.2,
         threshold: Annotated[
             float,
-            Field(description="View factor similarity threshold for clustering apertures in auto_group."),
+            Field(description="View factor similarity threshold for clustering apertures in auto_group.", gt=0),
         ] = 0.001,
         ambient_division: Annotated[
             int,
-            Field(description="Ambient divisions (-ad) for rfluxmtx view factor grouping in auto_group."),
+            Field(description="Ambient divisions (-ad) for rfluxmtx view factor grouping in auto_group.", ge=1),
         ] = 1000,
         room_based: Annotated[
             bool,
@@ -858,30 +902,33 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         vertical_tolerance: Annotated[
             float | None,
-            Field(description="Optional vertical separation limit between apertures in the same group for auto_group."),
+            Field(description="Optional vertical separation limit between apertures in the same group for auto_group.", ge=0),
         ] = None,
         tmtx_thickness: Annotated[
             float | None,
-            Field(description="Optional default 3-phase transmission matrix thickness to auto-generate vmtx/dmtx geometries."),
+            Field(description="Optional default 3-phase transmission matrix thickness to auto-generate vmtx/dmtx geometries.", ge=0),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Apply Radiance dynamic state settings or automatically group exterior apertures."""
         from garden.radiance.dynamic import setup_radiance_dynamic_group as service
 
-        return service(
-            garden_root=garden_root,
-            targets=targets,
-            dynamic_group_identifier=dynamic_group_identifier,
-            states=states,
-            operation=operation,
-            model_target=model_target,
-            size=size,
-            threshold=threshold,
-            ambient_division=ambient_division,
-            room_based=room_based,
-            view_factor_or_orientation=view_factor_or_orientation,
-            vertical_tolerance=vertical_tolerance,
-            tmtx_thickness=tmtx_thickness,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                targets=dump_targets(targets),
+                dynamic_group_identifier=dynamic_group_identifier,
+                states=dump_input(states),
+                operation=operation,
+                model_target=dump_target(model_target),
+                size=size,
+                threshold=threshold,
+                ambient_division=ambient_division,
+                room_based=room_based,
+                view_factor_or_orientation=view_factor_or_orientation,
+                vertical_tolerance=vertical_tolerance,
+                tmtx_thickness=tmtx_thickness,
+            ),
         )
 
     @mcp.tool(
@@ -940,11 +987,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         x_dim: Annotated[
             float | None,
-            Field(description="Rectangular workplane width or room grid X spacing."),
+            Field(description="Rectangular workplane width or room grid X spacing.", gt=0),
         ] = None,
         y_dim: Annotated[
             float | None,
-            Field(description="Rectangular workplane depth or room grid Y spacing."),
+            Field(description="Rectangular workplane depth or room grid Y spacing.", gt=0),
         ] = None,
         height: Annotated[
             float | None,
@@ -952,22 +999,22 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         x_count: Annotated[
             int | None,
-            Field(description="Sensor sample count along local x for rectangular or object sensor_grid."),
+            Field(description="Sensor sample count along local x for rectangular or object sensor_grid.", ge=1),
         ] = None,
         y_count: Annotated[
             int | None,
-            Field(description="Sensor sample count along local y for rectangular or object sensor_grid."),
+            Field(description="Sensor sample count along local y for rectangular or object sensor_grid.", ge=1),
         ] = None,
         grid_spacing: Annotated[
             float | None,
-            Field(description="Approximate sensor spacing in model units."),
+            Field(description="Approximate sensor spacing in model units.", gt=0),
         ] = None,
         origin: Annotated[
             VectorInput,
             Field(description="Rectangular sensor_grid origin [x, y, z] or {x,y,z}. Defaults to [0, 0, 0]."),
         ] = None,
         object_target: Annotated[
-            dict[str, Any] | None,
+            BuildingObjectTargetRef | None,
             Field(
                 description=(
                     "Optional Honeybee face, aperture, door, or shade target to sample into a "
@@ -1001,11 +1048,11 @@ def register(mcp: FastMCP) -> None:
         ] = "v",
         h_size: Annotated[
             float,
-            Field(description="Horizontal field of view/size for view."),
+            Field(description="Horizontal field of view/size for view.", gt=0),
         ] = 60,
         v_size: Annotated[
             float,
-            Field(description="Vertical field of view/size for view."),
+            Field(description="Vertical field of view/size for view.", gt=0),
         ] = 60,
         shift: Annotated[
             float | None,
@@ -1024,7 +1071,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional Honeybee Room identifier for grid/view association or generation."),
         ] = None,
         room_target: Annotated[
-            dict[str, Any] | None,
+            BuildingObjectTargetRef | None,
             Field(description="Optional Honeybee Room target used to infer room_identifier."),
         ] = None,
         group_identifier: Annotated[
@@ -1084,11 +1131,11 @@ def register(mcp: FastMCP) -> None:
             Field(description="Remove all matching SensorGrids/Views when action='remove'."),
         ] = False,
         sensor_grid_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="Existing radiance_sensor_grid target to convert (radial) or split."),
         ] = None,
         sensor_grid_targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[ArtifactTargetRef] | None,
             Field(description="List of radiance_sensor_grid targets for action='merge'."),
         ] = None,
         split_count: Annotated[
@@ -1108,7 +1155,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Garden root path containing garden.json."),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(description="Optional Honeybee model target. Defaults to the Garden base model when attaching."),
         ] = None,
         attach_to_model: Annotated[
@@ -1123,62 +1170,65 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Return the full SensorGrid or View object_dict. Set false for compact handoff."),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> ArtifactResultModel:
         """Create, generate from rooms, merge, split, or remove Radiance SensorGrids and Views."""
         from garden.radiance.assets import create_radiance_scene_asset as service
 
-        return service(
-            asset_type=asset_type,
-            action=action,
-            identifier=identifier,
-            positions=positions,
-            direction=direction,
-            directions=directions,
-            x_dim=x_dim,
-            y_dim=y_dim,
-            height=height,
-            x_count=x_count,
-            y_count=y_count,
-            grid_spacing=grid_spacing,
-            origin=origin,
-            object_target=object_target,
-            offset=offset,
-            flip_direction=flip_direction,
-            position=position,
-            target=target,
-            up_vector=up_vector,
-            view_type=view_type,
-            h_size=h_size,
-            v_size=v_size,
-            shift=shift,
-            lift=lift,
-            display_name=display_name,
-            room_identifier=room_identifier,
-            room_target=room_target,
-            group_identifier=group_identifier,
-            wall_offset=wall_offset,
-            remove_out=remove_out,
-            dir_count=dir_count,
-            start_vector=start_vector,
-            mesh_radius=mesh_radius,
-            face_type=face_type,
-            punched_geometry=punched_geometry,
-            aperture_type=aperture_type,
-            target_kind=target_kind,
-            grid_identifiers=grid_identifiers,
-            view_identifiers=view_identifiers,
-            filter_pattern=filter_pattern,
-            remove_all=remove_all,
-            sensor_grid_target=sensor_grid_target,
-            sensor_grid_targets=sensor_grid_targets,
-            split_count=split_count,
-            max_sensors=max_sensors,
-            replace_existing=replace_existing,
-            garden_root=garden_root,
-            model_target=model_target,
-            attach_to_model=attach_to_model,
-            output_subdir=output_subdir,
-            return_object_dict=return_object_dict,
+        return validate_output(
+            ArtifactResultModel,
+            service(
+                asset_type=asset_type,
+                action=action,
+                identifier=identifier,
+                positions=positions,
+                direction=dump_input(direction),
+                directions=directions,
+                x_dim=x_dim,
+                y_dim=y_dim,
+                height=height,
+                x_count=x_count,
+                y_count=y_count,
+                grid_spacing=grid_spacing,
+                origin=dump_input(origin),
+                object_target=dump_target(object_target),
+                offset=offset,
+                flip_direction=flip_direction,
+                position=dump_input(position),
+                target=dump_input(target),
+                up_vector=dump_input(up_vector),
+                view_type=view_type,
+                h_size=h_size,
+                v_size=v_size,
+                shift=shift,
+                lift=lift,
+                display_name=display_name,
+                room_identifier=room_identifier,
+                room_target=dump_target(room_target),
+                group_identifier=group_identifier,
+                wall_offset=wall_offset,
+                remove_out=remove_out,
+                dir_count=dir_count,
+                start_vector=dump_input(start_vector),
+                mesh_radius=mesh_radius,
+                face_type=face_type,
+                punched_geometry=punched_geometry,
+                aperture_type=aperture_type,
+                target_kind=target_kind,
+                grid_identifiers=grid_identifiers,
+                view_identifiers=view_identifiers,
+                filter_pattern=filter_pattern,
+                remove_all=remove_all,
+                sensor_grid_target=dump_target(sensor_grid_target),
+                sensor_grid_targets=dump_targets(sensor_grid_targets),
+                split_count=split_count,
+                max_sensors=max_sensors,
+                replace_existing=replace_existing,
+                garden_root=garden_root,
+                model_target=dump_target(model_target),
+                attach_to_model=attach_to_model,
+                output_subdir=output_subdir,
+                return_object_dict=return_object_dict,
+            ),
         )
 
     @mcp.tool(
@@ -1242,7 +1292,7 @@ def register(mcp: FastMCP) -> None:
         pt: Annotated[int | float | str | None, Field(description="Optional raw Radiance -pt pixel threshold override for view recipes.")] = None,
         pj: Annotated[int | float | str | None, Field(description="Optional raw Radiance -pj pixel jitter override for view recipes.")] = None,
         c: Annotated[int | float | str | None, Field(description="Optional raw Radiance -c sample count override for matrix recipes.")] = None,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Create recommended Radiance parameters."""
         from garden.radiance.parameters import create_radiance_parameters as service
 
@@ -1278,7 +1328,7 @@ def register(mcp: FastMCP) -> None:
             additional_par=combined_additional_par,
         )
         result["summary_view"]["raw_options_applied"] = raw_options is not None
-        return result
+        return validate_output(QueryResultModel, result)
 
     @mcp.tool(
         name="RAD_Start_Simulation",
@@ -1333,7 +1383,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Exact Honeybee Radiance or comfort-map recipe name to run."),
         ],
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description=(
                     "Optional Honeybee model target with target_type=honeybee_model. Defaults to "
@@ -1342,7 +1392,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         radiance_sky_file: Annotated[
-            dict[str, Any] | None,
+            SkyTargetRef | None,
             Field(
                 description=(
                     "Radiance sky file target from RAD_Create_Sky_Asset (required for "
@@ -1355,7 +1405,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional raw recipe sky string instead of radiance_sky_file."),
         ] = None,
         wea_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(
                 description=(
                     "Garden WEA target from RAD_Create_Sky_Asset for matrix, glare, "
@@ -1368,7 +1418,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional Garden-relative .wea path. Prefer wea_target."),
         ] = None,
         weather_file_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(
                 description=(
                     "Garden weather_file target (with annual epw_path) required for "
@@ -1381,7 +1431,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="SensorGrid identifier or pattern ('*' for all attached SensorGrids)."),
         ] = "*",
         sensor_grid_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="Optional radiance_sensor_grid target used when grid_filter is '*'."),
         ] = None,
         view_filter: Annotated[
@@ -1389,7 +1439,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Radiance View identifier or pattern ('*' for all attached Views)."),
         ] = "*",
         view_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="Optional radiance_view target used when view_filter is '*'."),
         ] = None,
         north: Annotated[
@@ -1401,7 +1451,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Minimum sensors per redistributed grid batch.", ge=1),
         ] = 1,
         radiance_parameters: Annotated[
-            str | dict[str, Any] | None,
+            ArtifactTargetRef | str | None,
             Field(description="Optional Radiance parameters string or RAD_Create_Parameters result."),
         ] = None,
         run_id: Annotated[
@@ -1441,7 +1491,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         cloudy_sky: Annotated[
-            str | None,
+            Literal["uniform", "cloudy"] | None,
             Field(description="Sky View condition ('uniform' or 'cloudy') for sky-view."),
         ] = None,
         resolution: Annotated[
@@ -1457,7 +1507,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional timestep for matrix recipes.", ge=1),
         ] = None,
         schedule: Annotated[
-            dict[str, Any] | list[float] | str | None,
+            LibraryObjectTargetRef | list[float] | str | None,
             Field(description="Optional annual occupancy schedule (Garden schedule target, 8760 list, CSV path, or inline CSV text)."),
         ] = None,
         thresholds: Annotated[
@@ -1512,49 +1562,52 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any] | None,
             Field(description="Optional extra recipe option overrides dictionary (including comfort-map inputs)."),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> RunResultModel:
         """Start a Honeybee Radiance or comfort-map simulation recipe."""
         from garden.radiance.run import start_radiance_simulation as service
 
-        return service(
-            garden_root=garden_root,
-            recipe=recipe,
-            model_target=model_target,
-            radiance_sky_file=radiance_sky_file,
-            sky=sky,
-            wea_target=wea_target,
-            wea_path=wea_path,
-            weather_file_target=weather_file_target,
-            grid_filter=grid_filter,
-            sensor_grid_target=sensor_grid_target,
-            view_filter=view_filter,
-            view_target=view_target,
-            north=north,
-            min_sensor_count=min_sensor_count,
-            radiance_parameters=radiance_parameters,
-            run_id=run_id,
-            workers=workers,
-            reload_old=reload_old,
-            silent=silent,
-            wait_seconds=wait_seconds,
-            poll_interval=poll_interval,
-            metric=metric,
-            cloudy_sky=cloudy_sky,
-            resolution=resolution,
-            skip_overture=skip_overture,
-            timestep=timestep,
-            schedule=schedule,
-            thresholds=thresholds,
-            output_type=output_type,
-            sky_density=sky_density,
-            grid_metrics=grid_metrics,
-            dgp_threshold=dgp_threshold,
-            luminance_factor=luminance_factor,
-            diffuse_transmission=diffuse_transmission,
-            specular_transmission=specular_transmission,
-            glare_control_devices=glare_control_devices,
-            debug_folder=debug_folder,
-            recipe_options=recipe_options,
+        return validate_output(
+            RunResultModel,
+            service(
+                garden_root=garden_root,
+                recipe=recipe,
+                model_target=dump_target(model_target),
+                radiance_sky_file=dump_target(radiance_sky_file),
+                sky=sky,
+                wea_target=dump_target(wea_target),
+                wea_path=wea_path,
+                weather_file_target=dump_target(weather_file_target),
+                grid_filter=grid_filter,
+                sensor_grid_target=dump_target(sensor_grid_target),
+                view_filter=view_filter,
+                view_target=dump_target(view_target),
+                north=north,
+                min_sensor_count=min_sensor_count,
+                radiance_parameters=dump_input(radiance_parameters),
+                run_id=run_id,
+                workers=workers,
+                reload_old=reload_old,
+                silent=silent,
+                wait_seconds=wait_seconds,
+                poll_interval=poll_interval,
+                metric=metric,
+                cloudy_sky=cloudy_sky,
+                resolution=resolution,
+                skip_overture=skip_overture,
+                timestep=timestep,
+                schedule=dump_input(schedule),
+                thresholds=thresholds,
+                output_type=output_type,
+                sky_density=sky_density,
+                grid_metrics=dump_input(grid_metrics),
+                dgp_threshold=dgp_threshold,
+                luminance_factor=luminance_factor,
+                diffuse_transmission=diffuse_transmission,
+                specular_transmission=specular_transmission,
+                glare_control_devices=glare_control_devices,
+                debug_folder=debug_folder,
+                recipe_options=dump_input(recipe_options),
+            ),
         )
 
     @mcp.tool(
@@ -1589,15 +1642,15 @@ def register(mcp: FastMCP) -> None:
             Field(description="Garden root path containing garden.json (required for start)."),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(description="Optional Honeybee model target resolved automatically for 'model' input."),
         ] = None,
         weather_file_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(description="Optional Garden weather_file target resolved for 'epw', 'ddy', or 'wea' inputs."),
         ] = None,
         weather_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(description="Alias for weather_file_target."),
         ] = None,
         epw_path: Annotated[
@@ -1609,7 +1662,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional Garden-relative DDY path."),
         ] = None,
         wea_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="Optional WEA target for 'wea' input."),
         ] = None,
         wea_path: Annotated[
@@ -1617,7 +1670,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional Garden-relative WEA path."),
         ] = None,
         radiance_sky_file: Annotated[
-            dict[str, Any] | None,
+            SkyTargetRef | None,
             Field(description="Optional Radiance sky target for 'sky' input."),
         ] = None,
         sky: Annotated[
@@ -1625,15 +1678,15 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional sky string for 'sky' input."),
         ] = None,
         schedule: Annotated[
-            dict[str, Any] | list[float] | str | None,
+            LibraryObjectTargetRef | list[float] | str | None,
             Field(description="Optional Garden schedule target, list, or CSV text materialized to .csv."),
         ] = None,
         sim_par: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | str | None,
             Field(description="Optional EnergyPlus simulation parameter target or dict for 'sim-par'."),
         ] = None,
         radiance_parameters: Annotated[
-            str | dict[str, Any] | None,
+            ArtifactTargetRef | str | None,
             Field(description="Optional Radiance parameters string or target."),
         ] = None,
         inputs: Annotated[
@@ -1664,33 +1717,36 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional Garden-relative debug folder path."),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> RunResultModel:
         """List, describe, or start any lbt-recipes or local Queenbee recipe."""
         from garden.recipes.runner import manage_recipes as service
 
-        return service(
-            action=action,
-            recipe=recipe,
-            garden_root=garden_root,
-            model_target=model_target,
-            weather_file_target=weather_file_target,
-            weather_target=weather_target,
-            epw_path=epw_path,
-            ddy_path=ddy_path,
-            wea_target=wea_target,
-            wea_path=wea_path,
-            radiance_sky_file=radiance_sky_file,
-            sky=sky,
-            schedule=schedule,
-            sim_par=sim_par,
-            radiance_parameters=radiance_parameters,
-            inputs=inputs,
-            recipe_options=recipe_options,
-            run_id=run_id,
-            workers=workers,
-            reload_old=reload_old,
-            silent=silent,
-            debug_folder=debug_folder,
+        return validate_output(
+            RunResultModel,
+            service(
+                action=action,
+                recipe=recipe,
+                garden_root=garden_root,
+                model_target=dump_target(model_target),
+                weather_file_target=dump_target(weather_file_target),
+                weather_target=dump_target(weather_target),
+                epw_path=epw_path,
+                ddy_path=ddy_path,
+                wea_target=dump_target(wea_target),
+                wea_path=wea_path,
+                radiance_sky_file=dump_target(radiance_sky_file),
+                sky=sky,
+                schedule=dump_input(schedule),
+                sim_par=dump_input(sim_par),
+                radiance_parameters=dump_input(radiance_parameters),
+                inputs=dump_input(inputs),
+                recipe_options=dump_input(recipe_options),
+                run_id=run_id,
+                workers=workers,
+                reload_old=reload_old,
+                silent=silent,
+                debug_folder=debug_folder,
+            ),
         )
 
     @mcp.tool(
@@ -1739,7 +1795,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Result summary / postprocessing mode."),
         ],
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(description="Completed radiance_run target returned by RAD_Start_Simulation, RAD_Manage_Recipes, or GD_Poll_Run."),
         ] = None,
         run_id: Annotated[
@@ -1768,7 +1824,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         dgp_threshold: Annotated[
             float,
-            Field(description="DGP exceedance threshold for glare summary."),
+            Field(description="DGP exceedance threshold for glare summary.", ge=0, le=1),
         ] = 0.4,
         thresholds: Annotated[
             dict[str, Any] | None,
@@ -1776,38 +1832,38 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         threshold: Annotated[
             float,
-            Field(description="Illuminance threshold (lux) for DA/sDA in annual_postprocess."),
+            Field(description="Illuminance threshold (lux) for DA/sDA in annual_postprocess.", ge=0),
         ] = 300.0,
         min_threshold: Annotated[
             float,
-            Field(description="Minimum UDI threshold (lux) for annual_postprocess."),
+            Field(description="Minimum UDI threshold (lux) for annual_postprocess.", ge=0),
         ] = 100.0,
         max_threshold: Annotated[
             float,
-            Field(description="Maximum UDI threshold (lux) for annual_postprocess."),
+            Field(description="Maximum UDI threshold (lux) for annual_postprocess.", ge=0),
         ] = 3000.0,
         target_time: Annotated[
             float,
-            Field(description="Occupied hours percentage threshold for sDA in annual_postprocess."),
+            Field(description="Occupied hours percentage threshold for sDA in annual_postprocess.", ge=0, le=100),
         ] = 50.0,
         ase_threshold: Annotated[
             float,
-            Field(description="Direct illuminance threshold (lux) for ASE in annual_postprocess."),
+            Field(description="Direct illuminance threshold (lux) for ASE in annual_postprocess.", ge=0),
         ] = 1000.0,
         ase_occ_hours: Annotated[
             int,
-            Field(description="Maximum annual direct hours for ASE in annual_postprocess."),
+            Field(description="Maximum annual direct hours for ASE in annual_postprocess.", ge=0),
         ] = 250,
         uniformity_threshold: Annotated[
             float,
-            Field(description="Minimum uniformity ratio threshold for annual_postprocess."),
+            Field(description="Minimum uniformity ratio threshold for annual_postprocess.", ge=0, le=1),
         ] = 0.5,
         schedule: Annotated[
-            dict[str, Any] | list[float] | str | None,
+            LibraryObjectTargetRef | list[float] | str | None,
             Field(description="Optional occupancy/base schedule target, 8760 list, or CSV path."),
         ] = None,
         dynamic_schedule: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | str | None,
             Field(description="Optional DynamicSchedule target, dict, or JSON path for postprocess or dimming."),
         ] = None,
         hoys: Annotated[
@@ -1824,15 +1880,15 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         ill_setpoint: Annotated[
             float,
-            Field(description="Target workplane illuminance setpoint (lux) for daylight_control_schedule."),
+            Field(description="Target workplane illuminance setpoint (lux) for daylight_control_schedule.", gt=0),
         ] = 300.0,
         min_power_in: Annotated[
             float,
-            Field(description="Minimum ballast power fraction at full dimming for daylight_control_schedule."),
+            Field(description="Minimum ballast power fraction at full dimming for daylight_control_schedule.", ge=0, le=1),
         ] = 0.3,
         min_light_out: Annotated[
             float,
-            Field(description="Minimum light output fraction before clamping for daylight_control_schedule."),
+            Field(description="Minimum light output fraction before clamping for daylight_control_schedule.", ge=0, le=1),
         ] = 0.2,
         off_at_min: Annotated[
             bool,
@@ -1852,7 +1908,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         maximum: Annotated[
             float,
-            Field(description="Maximum allowed illuminance (lux) on control sensor for dynamic_schedule mode='sensor_maximum'."),
+            Field(description="Maximum allowed illuminance (lux) on control sensor for dynamic_schedule mode='sensor_maximum'.", ge=0),
         ] = 3000.0,
         shade_transmittance: Annotated[
             float | dict[str, float],
@@ -1878,126 +1934,154 @@ def register(mcp: FastMCP) -> None:
             int,
             Field(description="Compliance space row page size (1-50).", ge=1, le=50),
         ] = 25,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Read compact metrics, run postprocessing, export schedules, or inspect outputs."""
+        dumped_run_target = dump_target(run_target)
         if result_kind == "annual_daylight":
             from garden.radiance.metrics import summarize_annual_daylight_metrics
 
-            return summarize_annual_daylight_metrics(
-                garden_root=garden_root,
-                run_target=run_target,
-                run_id=run_id,
-                grid_identifier=grid_identifier,
-                metrics=metrics,
-                save_report=save_report,
-                include_values=include_values,
+            return validate_output(
+                QueryResultModel,
+                summarize_annual_daylight_metrics(
+                    garden_root=garden_root,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                    grid_identifier=grid_identifier,
+                    metrics=metrics,
+                    save_report=save_report,
+                    include_values=include_values,
+                ),
             )
         if result_kind == "glare":
             from garden.radiance.metrics import summarize_radiance_glare_metrics
 
-            return summarize_radiance_glare_metrics(
-                garden_root=garden_root,
-                run_target=run_target,
-                run_id=run_id,
-                view_identifier=view_identifier,
-                dgp_threshold=dgp_threshold,
-                save_report=save_report,
-                include_values=include_values,
+            return validate_output(
+                QueryResultModel,
+                summarize_radiance_glare_metrics(
+                    garden_root=garden_root,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                    view_identifier=view_identifier,
+                    dgp_threshold=dgp_threshold,
+                    save_report=save_report,
+                    include_values=include_values,
+                ),
             )
         if result_kind == "grid_summary":
             from garden.radiance.metrics import summarize_radiance_grid_results
 
-            return summarize_radiance_grid_results(
-                garden_root=garden_root,
-                run_target=run_target,
-                run_id=run_id,
-                output_name=output_name,
-                grid_filter=grid_filter,
-                save_report=save_report,
-                include_values=include_values,
+            return validate_output(
+                QueryResultModel,
+                summarize_radiance_grid_results(
+                    garden_root=garden_root,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                    output_name=output_name,
+                    grid_filter=grid_filter,
+                    save_report=save_report,
+                    include_values=include_values,
+                ),
             )
         if result_kind == "annual_postprocess":
             from garden.radiance.metrics import run_annual_postprocess
 
-            return run_annual_postprocess(
-                garden_root=garden_root,
-                run_target=run_target,
-                run_id=run_id,
-                grid_filter=grid_filter,
-                thresholds=thresholds,
-                threshold=threshold,
-                min_threshold=min_threshold,
-                max_threshold=max_threshold,
-                target_time=target_time,
-                ase_threshold=ase_threshold,
-                ase_occ_hours=ase_occ_hours,
-                uniformity_threshold=uniformity_threshold,
-                schedule=schedule,
-                dynamic_schedule=dynamic_schedule,
-                hoys=hoys,
-                res_type=res_type,
-                mode=mode or "auto",
-                save_report=save_report,
-                include_values=include_values,
+            return validate_output(
+                QueryResultModel,
+                run_annual_postprocess(
+                    garden_root=garden_root,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                    grid_filter=grid_filter,
+                    thresholds=dump_input(thresholds),
+                    threshold=threshold,
+                    min_threshold=min_threshold,
+                    max_threshold=max_threshold,
+                    target_time=target_time,
+                    ase_threshold=ase_threshold,
+                    ase_occ_hours=ase_occ_hours,
+                    uniformity_threshold=uniformity_threshold,
+                    schedule=dump_input(schedule),
+                    dynamic_schedule=dump_input(dynamic_schedule),
+                    hoys=hoys,
+                    res_type=res_type,
+                    mode=mode or "auto",
+                    save_report=save_report,
+                    include_values=include_values,
+                ),
             )
         if result_kind == "daylight_control_schedule":
             from garden.radiance.metrics import export_daylight_control_schedules
 
-            return export_daylight_control_schedules(
-                garden_root=garden_root,
-                run_target=run_target,
-                run_id=run_id,
-                grid_filter=grid_filter,
-                schedule=schedule,
-                dynamic_schedule=dynamic_schedule,
-                ill_setpoint=ill_setpoint,
-                min_power_in=min_power_in,
-                min_light_out=min_light_out,
-                off_at_min=off_at_min,
-                identifier_prefix=identifier_prefix,
-                persist_to_garden=persist_to_garden,
+            return validate_output(
+                QueryResultModel,
+                export_daylight_control_schedules(
+                    garden_root=garden_root,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                    grid_filter=grid_filter,
+                    schedule=dump_input(schedule),
+                    dynamic_schedule=dump_input(dynamic_schedule),
+                    ill_setpoint=ill_setpoint,
+                    min_power_in=min_power_in,
+                    min_light_out=min_light_out,
+                    off_at_min=off_at_min,
+                    identifier_prefix=identifier_prefix,
+                    persist_to_garden=persist_to_garden,
+                ),
             )
         if result_kind == "dynamic_schedule":
             from garden.radiance.metrics import generate_radiance_dynamic_schedule
 
-            return generate_radiance_dynamic_schedule(
-                garden_root=garden_root,
-                run_target=run_target,
-                run_id=run_id,
-                mode=mode or "sensor_maximum",
-                grid_filter=grid_filter,
-                sensor_index=sensor_index,
-                maximum=maximum,
-                shade_transmittance=shade_transmittance,
-                use_states=use_states,
-                res_type=res_type,
+            return validate_output(
+                QueryResultModel,
+                generate_radiance_dynamic_schedule(
+                    garden_root=garden_root,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                    mode=mode or "sensor_maximum",
+                    grid_filter=grid_filter,
+                    sensor_index=sensor_index,
+                    maximum=maximum,
+                    shade_transmittance=dump_input(shade_transmittance),
+                    use_states=use_states,
+                    res_type=res_type,
+                ),
             )
         if result_kind == "comfort_map":
             from garden.radiance.metrics import summarize_comfort_map_metrics
 
-            return summarize_comfort_map_metrics(
-                garden_root=garden_root,
-                run_target=run_target,
-                run_id=run_id,
-                save_report=save_report,
-                include_values=include_values,
+            return validate_output(
+                QueryResultModel,
+                summarize_comfort_map_metrics(
+                    garden_root=garden_root,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                    save_report=save_report,
+                    include_values=include_values,
+                ),
             )
         if result_kind == "list_outputs":
             from garden.radiance.metrics import list_radiance_run_all_outputs
 
-            return list_radiance_run_all_outputs(
-                garden_root=garden_root,
-                run_target=run_target,
-                run_id=run_id,
+            return validate_output(
+                QueryResultModel,
+                list_radiance_run_all_outputs(
+                    garden_root=garden_root,
+                    run_target=dumped_run_target,
+                    run_id=run_id,
+                ),
             )
         from garden.radiance.compliance_results import read_daylight_compliance
 
-        return read_daylight_compliance(
-            garden_root=garden_root,
-            run_target=run_target,
-            run_id=run_id,
-            page=page,
-            page_size=page_size,
+        return validate_output(
+            QueryResultModel,
+            read_daylight_compliance(
+                garden_root=garden_root,
+                run_target=dumped_run_target,
+                run_id=run_id,
+                page=page,
+                page_size=page_size,
+            ),
         )
 
     @mcp.tool(
@@ -2043,7 +2127,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="HDR operation: falsecolor, gif, png, bmp, evalglare, pcond, pfilt, pcomb, or getinfo."),
         ],
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(description="Optional completed point-in-time-view radiance_run target."),
         ] = None,
         run_id: Annotated[
@@ -2096,7 +2180,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         gamma: Annotated[
             float | None,
-            Field(description="Optional gamma correction (for gif, bmp, png)."),
+            Field(description="Optional gamma correction (for gif, bmp, png).", gt=0),
         ] = None,
         black_and_white: Annotated[
             bool | None,
@@ -2104,11 +2188,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         colors: Annotated[
             int | None,
-            Field(description="Optional color count limit (-c) for gif."),
+            Field(description="Optional color count limit (-c) for gif.", ge=2),
         ] = None,
         sampling_factor: Annotated[
             int | None,
-            Field(description="Optional sampling factor (-n) for gif."),
+            Field(description="Optional sampling factor (-n) for gif.", ge=1),
         ] = None,
         detailed: Annotated[
             bool,
@@ -2116,7 +2200,7 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         threshold_factor: Annotated[
             float | None,
-            Field(description="Optional luminance threshold factor (-b, cd/m2) for evalglare."),
+            Field(description="Optional luminance threshold factor (-b, cd/m2) for evalglare.", gt=0),
         ] = None,
         correction_mode: Annotated[
             str | None,
@@ -2136,19 +2220,19 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         x_res: Annotated[
             int | None,
-            Field(description="Target X pixel resolution (-x) for pfilt."),
+            Field(description="Target X pixel resolution (-x) for pfilt.", ge=1),
         ] = None,
         y_res: Annotated[
             int | None,
-            Field(description="Target Y pixel resolution (-y) for pfilt."),
+            Field(description="Target Y pixel resolution (-y) for pfilt.", ge=1),
         ] = None,
         radius: Annotated[
             float | None,
-            Field(description="Gaussian filter radius (-r) for pfilt."),
+            Field(description="Gaussian filter radius (-r) for pfilt.", gt=0),
         ] = None,
         pixel_aspect: Annotated[
             float | None,
-            Field(description="Pixel aspect ratio (-p) for pfilt."),
+            Field(description="Pixel aspect ratio (-p) for pfilt.", gt=0),
         ] = None,
         expression: Annotated[
             str | None,
@@ -2166,44 +2250,47 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(description="Garden-relative output folder for image artifacts."),
         ] = "artifacts/radiance/images",
-    ) -> dict[str, Any]:
+    ) -> ArtifactResultModel:
         """Process or inspect a Radiance HDR image."""
         from garden.radiance.visual import process_radiance_hdr_image as service
 
-        return service(
-            garden_root=garden_root,
-            operation=operation,
-            run_target=run_target,
-            run_id=run_id,
-            image_path=image_path,
-            image_paths=image_paths,
-            image_name=image_name,
-            name=name,
-            scale=scale,
-            legend_label=legend_label,
-            legend_multiplier=legend_multiplier,
-            contour_lines=contour_lines,
-            contour_bands=contour_bands,
-            palette=palette,
-            exposure=exposure,
-            gamma=gamma,
-            black_and_white=black_and_white,
-            colors=colors,
-            sampling_factor=sampling_factor,
-            detailed=detailed,
-            threshold_factor=threshold_factor,
-            correction_mode=correction_mode,
-            check_image=check_image,
-            check_image_name=check_image_name,
-            human_vision=human_vision,
-            x_res=x_res,
-            y_res=y_res,
-            radius=radius,
-            pixel_aspect=pixel_aspect,
-            expression=expression,
-            dimensions_only=dimensions_only,
-            additional_options=additional_options,
-            output_subdir=output_subdir,
+        return validate_output(
+            ArtifactResultModel,
+            service(
+                garden_root=garden_root,
+                operation=operation,
+                run_target=dump_target(run_target),
+                run_id=run_id,
+                image_path=image_path,
+                image_paths=image_paths,
+                image_name=image_name,
+                name=name,
+                scale=scale,
+                legend_label=legend_label,
+                legend_multiplier=legend_multiplier,
+                contour_lines=contour_lines,
+                contour_bands=contour_bands,
+                palette=palette,
+                exposure=exposure,
+                gamma=gamma,
+                black_and_white=black_and_white,
+                colors=colors,
+                sampling_factor=sampling_factor,
+                detailed=detailed,
+                threshold_factor=threshold_factor,
+                correction_mode=correction_mode,
+                check_image=check_image,
+                check_image_name=check_image_name,
+                human_vision=human_vision,
+                x_res=x_res,
+                y_res=y_res,
+                radius=radius,
+                pixel_aspect=pixel_aspect,
+                expression=expression,
+                dimensions_only=dimensions_only,
+                additional_options=additional_options,
+                output_subdir=output_subdir,
+            ),
         )
 
     @mcp.tool(
@@ -2234,7 +2321,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(
                 description=(
                     "Optional completed radiance_run target with SensorGrid result outputs. Poll "
@@ -2259,11 +2346,11 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional subfolder inside the selected output, for example da or cumulative_radiation."),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(description="Optional model target override. Defaults to the model_target recorded on the run."),
         ] = None,
         color_by: Annotated[
-            str | None,
+            Literal["type", "boundary_condition", "none"] | None,
             Field(description="Model context coloring: type, boundary_condition, or none. Use none for result-first views."),
         ] = "none",
         include_wireframe: Annotated[
@@ -2279,7 +2366,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Hide colored model context by default when result data is primary."),
         ] = True,
         grid_data_display_mode: Annotated[
-            str,
+            Literal["Surface", "SurfaceWithEdges", "Wireframe", "Points"],
             Field(description="Result display mode: Surface, SurfaceWithEdges, Wireframe, or Points."),
         ] = "Surface",
         active_grid_data: Annotated[
@@ -2299,24 +2386,27 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> ArtifactResultModel:
         """Create a VisualizationSet from Radiance grid results."""
         from garden.radiance.visual import radiance_grid_result_to_visualization_set as service
 
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            run_id=run_id,
-            grid_data_path=grid_data_path,
-            output_name=output_name,
-            result_subfolder=result_subfolder,
-            model_target=model_target,
-            color_by=color_by,
-            include_wireframe=include_wireframe,
-            use_mesh=use_mesh,
-            hide_color_by=hide_color_by,
-            grid_data_display_mode=grid_data_display_mode,
-            active_grid_data=active_grid_data,
-            name=name,
-            return_visualization_set=return_visualization_set,
+        return validate_output(
+            ArtifactResultModel,
+            service(
+                garden_root=garden_root,
+                run_target=dump_target(run_target),
+                run_id=run_id,
+                grid_data_path=grid_data_path,
+                output_name=output_name,
+                result_subfolder=result_subfolder,
+                model_target=dump_target(model_target),
+                color_by=color_by,
+                include_wireframe=include_wireframe,
+                use_mesh=use_mesh,
+                hide_color_by=hide_color_by,
+                grid_data_display_mode=grid_data_display_mode,
+                active_grid_data=active_grid_data,
+                name=name,
+                return_visualization_set=return_visualization_set,
+            ),
         )

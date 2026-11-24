@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
+from pydantic import Field
 
+from garden.dragonfly_core._schemas import validate_dragonfly_batch_item
 from garden.dragonfly_core.conversion import (
     dragonfly_model_to_honeybee,
     honeybee_model_to_dragonfly,
@@ -62,42 +64,18 @@ from garden.dragonfly_core.queries import (
     query_dragonfly_room2ds_by_attribute,
 )
 from garden.dragonfly_core.search import search_dragonfly_model_objects
-from ladybug_tools_mcp.contracts import make_report
-
-
-_ROOM2D_BATCH_KEYS = (
-    "identifier",
-    "display_name",
-    "floor_height",
-    "vertices",
-    "floor_to_ceiling_height",
-    "model_target",
-    "is_ground_contact",
-    "is_top_exposed",
-    "x_dim",
-    "y_dim",
-    "origin",
-    "height",
-    "story_number",
-    "ceiling_plenum_depth",
-    "floor_plenum_depth",
-)
-
-_CONTEXT_SHADE_BATCH_KEYS = (
-    "identifier",
-    "geometry",
-    "vertices",
-    "model_target",
-    "is_detached",
-    "x_dim",
-    "y_dim",
-    "height",
-    "origin",
-    "display_name",
-    "context_shade_type",
-    "is_vegetation",
-    "cen_pt",
-    "radius",
+from ladybug_tools_mcp.contracts import (
+    ArtifactResultModel,
+    BuildingModelTargetRef,
+    BuildingObjectTargetRef,
+    MutationResultModel,
+    QueryResultModel,
+    ValidationResultModel,
+    dump_input,
+    dump_target,
+    dump_targets,
+    make_report,
+    validate_output,
 )
 
 
@@ -117,29 +95,22 @@ def _create_batch_objects(
 ) -> dict[str, Any]:
     if not items:
         raise ValueError("items must contain at least one object definition.")
-    allowed_keys = _ROOM2D_BATCH_KEYS if object_type == "room2d" else _CONTEXT_SHADE_BATCH_KEYS
     creator = create_dragonfly_room2d if object_type == "room2d" else create_dragonfly_context_shade
     current_model_target = model_target
     results: list[dict[str, Any]] = []
     targets: list[dict[str, Any]] = []
 
     for index, raw_item in enumerate(items):
-        if not isinstance(raw_item, dict):
-            raise ValueError(f"items[{index}] must be an object definition dictionary.")
-        unknown_keys = sorted(set(raw_item) - set(allowed_keys))
-        if unknown_keys:
-            raise ValueError(
-                f"Unsupported keys in items[{index}] for {object_type}: {', '.join(unknown_keys)}"
-            )
+        try:
+            validated_item = validate_dragonfly_batch_item(object_type, raw_item)
+        except ValueError as exc:
+            raise ValueError(f"items[{index}]: {exc}") from exc
+        item_model_target = dump_target(validated_item.pop("model_target", current_model_target))
         kwargs: dict[str, Any] = {
             "garden_root": garden_root,
-            "model_target": raw_item.get("model_target", current_model_target),
+            "model_target": item_model_target,
+            **validated_item,
         }
-        for key in allowed_keys:
-            if key != "model_target" and key in raw_item:
-                kwargs[key] = raw_item[key]
-        if not kwargs.get("identifier"):
-            raise ValueError(f"items[{index}].identifier is required for {object_type}.")
         created = creator(**kwargs)
         _strip_object_dict(created, return_object_dict)
         if isinstance(created.get("model_target"), dict):
@@ -173,19 +144,55 @@ def register(mcp: FastMCP) -> None:
         timeout=30,
     )
     def DF_Model(
-        garden_root: str,
-        identifier: str,
-        display_name: str | None = None,
-        unit_system: Literal["Metric", "Imperial"] | None = None,
-        units: Literal["Meters", "Millimeters", "Feet", "Inches", "Centimeters"] | None = None,
-        tolerance: float | None = None,
-        angle_tolerance: float = 1.0,
-        save_back: bool = True,
-        set_base: bool = True,
-        return_object_dict: bool = False,
-        latitude: float | None = None,
-        longitude: float | None = None,
-    ) -> dict[str, Any]:
+        garden_root: Annotated[
+            str,
+            Field(description="Root directory of the project Garden."),
+        ],
+        identifier: Annotated[
+            str,
+            Field(description="Unique Dragonfly Model identifier."),
+        ],
+        display_name: Annotated[
+            str | None,
+            Field(description="Optional human-readable Model display name."),
+        ] = None,
+        unit_system: Annotated[
+            Literal["Metric", "Imperial"] | None,
+            Field(description="Unit system preset ('Metric' or 'Imperial') when units is omitted."),
+        ] = None,
+        units: Annotated[
+            Literal["Meters", "Millimeters", "Feet", "Inches", "Centimeters"] | None,
+            Field(description="Explicit Model length units (overrides unit_system)."),
+        ] = None,
+        tolerance: Annotated[
+            float | None,
+            Field(gt=0.0, description="Model geometric tolerance in model units."),
+        ] = None,
+        angle_tolerance: Annotated[
+            float,
+            Field(gt=0.0, description="Model angular tolerance in degrees."),
+        ] = 1.0,
+        save_back: Annotated[
+            bool,
+            Field(description="Persist the created Model into the Garden."),
+        ] = True,
+        set_base: Annotated[
+            bool,
+            Field(description="Register this Model as the active Garden base Dragonfly model."),
+        ] = True,
+        return_object_dict: Annotated[
+            bool,
+            Field(description="Include full serialized DFJSON dictionary in response."),
+        ] = False,
+        latitude: Annotated[
+            float | None,
+            Field(ge=-90.0, le=90.0, description="Optional site latitude in degrees for geographic properties."),
+        ] = None,
+        longitude: Annotated[
+            float | None,
+            Field(ge=-180.0, le=180.0, description="Optional site longitude in degrees for geographic properties."),
+        ] = None,
+    ) -> MutationResultModel:
         """Create a Dragonfly Model in the Garden workspace.
 
         Uses ``units`` when specified, or derives Meters/Feet from ``unit_system``.
@@ -195,18 +202,21 @@ def register(mcp: FastMCP) -> None:
         resolved_units = units
         if resolved_units is None:
             resolved_units = "Feet" if unit_system == "Imperial" else "Meters"
-        return create_dragonfly_model(
-            garden_root=garden_root,
-            identifier=identifier,
-            display_name=display_name,
-            units=resolved_units,
-            tolerance=tolerance,
-            angle_tolerance=angle_tolerance,
-            save_back=save_back,
-            set_base=set_base,
-            include_body=return_object_dict,
-            latitude=latitude,
-            longitude=longitude,
+        return validate_output(
+            MutationResultModel,
+            create_dragonfly_model(
+                garden_root=garden_root,
+                identifier=identifier,
+                display_name=display_name,
+                units=resolved_units,
+                tolerance=tolerance,
+                angle_tolerance=angle_tolerance,
+                save_back=save_back,
+                set_base=set_base,
+                include_body=return_object_dict,
+                latitude=latitude,
+                longitude=longitude,
+            ),
         )
 
     @mcp.tool(
@@ -215,78 +225,211 @@ def register(mcp: FastMCP) -> None:
         timeout=30,
     )
     def DF_Create_Objects(
-        garden_root: str,
-        object_type: Literal[
-            "room2d",
-            "story",
-            "building",
-            "building_from_footprint",
-            "building_from_all_story_geometry",
-            "context_shade",
-            "add_stories_to_building",
+        garden_root: Annotated[
+            str,
+            Field(description="Root directory of the project Garden."),
         ],
-        identifier: str | None = None,
-        display_name: str | None = None,
-        model_target: dict[str, Any] | None = None,
-        items: list[dict[str, Any]] | None = None,
-        return_object_dict: bool = False,
+        object_type: Annotated[
+            Literal[
+                "room2d",
+                "story",
+                "building",
+                "building_from_footprint",
+                "building_from_all_story_geometry",
+                "context_shade",
+                "add_stories_to_building",
+            ],
+            Field(description="Dragonfly object category or builder mode to execute."),
+        ],
+        identifier: Annotated[
+            str | None,
+            Field(description="Object identifier (required for single-object modes)."),
+        ] = None,
+        display_name: Annotated[
+            str | None,
+            Field(description="Optional human-readable display name."),
+        ] = None,
+        model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+        ] = None,
+        items: Annotated[
+            list[dict[str, Any]] | None,
+            Field(description="Batch object definitions for room2d or context_shade creation."),
+        ] = None,
+        return_object_dict: Annotated[
+            bool,
+            Field(description="Include full DFJSON object_dict in response."),
+        ] = False,
         # room2d parameters
-        floor_height: float | None = None,
-        vertices: list[list[float]] | None = None,
-        floor_to_ceiling_height: float | None = None,
-        is_ground_contact: bool = False,
-        is_top_exposed: bool = False,
-        x_dim: float | None = None,
-        y_dim: float | None = None,
-        origin: list[float] | None = None,
-        height: float | None = None,
-        story_number: int | None = None,
-        ceiling_plenum_depth: float | None = None,
-        floor_plenum_depth: float | None = None,
+        floor_height: Annotated[
+            float | None,
+            Field(description="Floor elevation in model units for room2d or story."),
+        ] = None,
+        vertices: Annotated[
+            list[list[float]] | None,
+            Field(description="2D/3D polygon footprint vertices for room2d or context_shade."),
+        ] = None,
+        floor_to_ceiling_height: Annotated[
+            float | None,
+            Field(gt=0.0, description="Floor-to-ceiling height of the Room2D."),
+        ] = None,
+        is_ground_contact: Annotated[
+            bool,
+            Field(description="Mark Room2D bottom face as ground-contact."),
+        ] = False,
+        is_top_exposed: Annotated[
+            bool,
+            Field(description="Mark Room2D top face as exposed to outdoors."),
+        ] = False,
+        x_dim: Annotated[
+            float | None,
+            Field(gt=0.0, description="Rectangular footprint X dimension."),
+        ] = None,
+        y_dim: Annotated[
+            float | None,
+            Field(gt=0.0, description="Rectangular footprint Y dimension."),
+        ] = None,
+        origin: Annotated[
+            list[float] | None,
+            Field(description="Origin [x, y] or [x, y, z] for rectangular Room2D/ContextShade."),
+        ] = None,
+        height: Annotated[
+            float | None,
+            Field(gt=0.0, description="Extrusion height for Room2D box or ContextShade."),
+        ] = None,
+        story_number: Annotated[
+            int | None,
+            Field(description="Optional story index associated with Room2D."),
+        ] = None,
+        ceiling_plenum_depth: Annotated[
+            float | None,
+            Field(ge=0.0, description="Ceiling plenum depth in model units."),
+        ] = None,
+        floor_plenum_depth: Annotated[
+            float | None,
+            Field(ge=0.0, description="Floor plenum depth in model units."),
+        ] = None,
         # story parameters
-        room2d_targets: list[dict[str, Any]] | None = None,
-        floor_to_floor_height: float | None = None,
-        multiplier: int = 1,
-        story_type: str = "Standard",
+        room2d_targets: Annotated[
+            list[BuildingObjectTargetRef] | None,
+            Field(description="Room2D targets grouped into the new Story."),
+        ] = None,
+        floor_to_floor_height: Annotated[
+            float | None,
+            Field(gt=0.0, description="Story floor-to-floor height in model units."),
+        ] = None,
+        multiplier: Annotated[
+            int,
+            Field(ge=1, description="Story vertical multiplier count (>= 1)."),
+        ] = 1,
+        story_type: Annotated[
+            Literal["Standard", "CeilingPlenum", "FloorPlenum"],
+            Field(description="Story classification: Standard, CeilingPlenum, or FloorPlenum."),
+        ] = "Standard",
         # building / add_stories_to_building parameters
-        story_targets: list[dict[str, Any]] | None = None,
-        sort_stories: bool = True,
-        separate_top_bottom_floors: bool = False,
-        roof_geometry: Any = None,
-        basement_count: int = 0,
-        basement_remove_windows: bool = False,
-        building_identifier: str | None = None,
-        story_identifiers: list[str] | None = None,
+        story_targets: Annotated[
+            list[BuildingObjectTargetRef] | None,
+            Field(description="Story targets attached to the Building."),
+        ] = None,
+        sort_stories: Annotated[
+            bool,
+            Field(description="Sort building stories by floor_height from bottom to top."),
+        ] = True,
+        separate_top_bottom_floors: Annotated[
+            bool,
+            Field(description="Split multiplier stories into separate bottom/middle/top stories."),
+        ] = False,
+        roof_geometry: Annotated[
+            Any,
+            Field(description="Optional pitched/custom roof Face3D geometry for building."),
+        ] = None,
+        basement_count: Annotated[
+            int,
+            Field(ge=0, description="Number of bottom stories marked as basements (>= 0)."),
+        ] = 0,
+        basement_remove_windows: Annotated[
+            bool,
+            Field(description="Remove exterior windows on basement stories."),
+        ] = False,
+        building_identifier: Annotated[
+            str | None,
+            Field(description="Target Building ID for add_stories_to_building."),
+        ] = None,
+        story_identifiers: Annotated[
+            list[str] | None,
+            Field(description="Story identifiers to attach to the Building."),
+        ] = None,
         # building_from_footprint / building_from_all_story_geometry parameters
-        footprints: list[Any] | None = None,
-        all_story_geometry: list[list[Any]] | None = None,
-        floor_to_floor_heights: list[float] | None = None,
-        perimeter_offset: float | None = None,
-        tolerance: float | None = None,
+        footprints: Annotated[
+            list[Any] | None,
+            Field(description="Massing footprint polygons per story for building_from_footprint."),
+        ] = None,
+        all_story_geometry: Annotated[
+            list[list[Any]] | None,
+            Field(description="Per-story Face3D/polygon room footprints for building_from_all_story_geometry."),
+        ] = None,
+        floor_to_floor_heights: Annotated[
+            list[float] | None,
+            Field(description="Floor-to-floor heights matching footprints or all_story_geometry."),
+        ] = None,
+        perimeter_offset: Annotated[
+            float | None,
+            Field(ge=0.0, description="Core-perimeter split offset when building from footprint."),
+        ] = None,
+        tolerance: Annotated[
+            float | None,
+            Field(ge=0.0, description="Geometric tolerance for building creation."),
+        ] = None,
         # context_shade parameters
-        geometry: Any = None,
-        is_detached: bool = True,
-        context_shade_type: str | None = None,
-        is_vegetation: bool | None = None,
-        cen_pt: list[float] | None = None,
-        radius: float | None = None,
-    ) -> dict[str, Any]:
+        geometry: Annotated[
+            Any,
+            Field(description="Explicit Face3D/Mesh3D geometry for ContextShade."),
+        ] = None,
+        is_detached: Annotated[
+            bool,
+            Field(description="Mark ContextShade as site/context rather than building-attached."),
+        ] = True,
+        context_shade_type: Annotated[
+            str | None,
+            Field(description="Optional ContextShade preset (e.g., 'tree' or box)."),
+        ] = None,
+        is_vegetation: Annotated[
+            bool | None,
+            Field(description="Flag ContextShade as vegetation."),
+        ] = None,
+        cen_pt: Annotated[
+            list[float] | None,
+            Field(description="Center point [x, y, z] for tree ContextShade."),
+        ] = None,
+        radius: Annotated[
+            float | None,
+            Field(gt=0.0, description="Canopy radius for tree ContextShade."),
+        ] = None,
+    ) -> MutationResultModel:
         """Create Dragonfly Room2Ds, Stories, Buildings, ContextShades, or attach Stories.
 
         Supports batch ``items`` creation for ``object_type='room2d'`` and
         ``object_type='context_shade'``.
         """
+        dumped_model_target = dump_target(model_target)
+        dumped_room2d_targets = dump_targets(room2d_targets)
+        dumped_story_targets = dump_targets(story_targets)
+
         if items is not None:
             if object_type not in {"room2d", "context_shade"}:
                 raise ValueError(
                     "items batch creation is only supported for object_type 'room2d' or 'context_shade'."
                 )
-            return _create_batch_objects(
-                garden_root=garden_root,
-                object_type=object_type,
-                items=items,
-                model_target=model_target,
-                return_object_dict=return_object_dict,
+            return validate_output(
+                MutationResultModel,
+                _create_batch_objects(
+                    garden_root=garden_root,
+                    object_type=object_type,
+                    items=dump_input(items),
+                    model_target=dumped_model_target,
+                    return_object_dict=return_object_dict,
+                ),
             )
 
         if object_type == "room2d":
@@ -299,7 +442,7 @@ def register(mcp: FastMCP) -> None:
                 floor_height=floor_height,
                 vertices=vertices,
                 floor_to_ceiling_height=floor_to_ceiling_height,
-                model_target=model_target,
+                model_target=dumped_model_target,
                 is_ground_contact=is_ground_contact,
                 is_top_exposed=is_top_exposed,
                 x_dim=x_dim,
@@ -310,36 +453,39 @@ def register(mcp: FastMCP) -> None:
                 ceiling_plenum_depth=ceiling_plenum_depth,
                 floor_plenum_depth=floor_plenum_depth,
             )
-            return _strip_object_dict(result, return_object_dict)
+            return validate_output(MutationResultModel, _strip_object_dict(result, return_object_dict))
 
         if object_type == "story":
-            return create_dragonfly_story(
-                garden_root=garden_root,
-                room2d_targets=room2d_targets,
-                identifier=identifier,
-                model_target=model_target,
-                floor_to_floor_height=floor_to_floor_height,
-                floor_height=floor_height,
-                multiplier=multiplier,
-                story_type=story_type,
-                display_name=display_name,
+            return validate_output(
+                MutationResultModel,
+                create_dragonfly_story(
+                    garden_root=garden_root,
+                    room2d_targets=dumped_room2d_targets,
+                    identifier=identifier,
+                    model_target=dumped_model_target,
+                    floor_to_floor_height=floor_to_floor_height,
+                    floor_height=floor_height,
+                    multiplier=multiplier,
+                    story_type=story_type,
+                    display_name=display_name,
+                ),
             )
 
         if object_type == "building":
             result = create_dragonfly_building(
                 garden_root=garden_root,
-                story_targets=story_targets,
+                story_targets=dumped_story_targets,
                 identifier=identifier,
-                model_target=model_target,
+                model_target=dumped_model_target,
                 sort_stories=sort_stories,
                 display_name=display_name,
                 separate_top_bottom_floors=separate_top_bottom_floors,
-                roof_geometry=roof_geometry,
+                roof_geometry=dump_input(roof_geometry),
                 basement_count=basement_count,
                 basement_remove_windows=basement_remove_windows,
                 tolerance=tolerance,
             )
-            return _strip_object_dict(result, return_object_dict)
+            return validate_output(MutationResultModel, _strip_object_dict(result, return_object_dict))
 
         if object_type == "building_from_footprint":
             if not identifier:
@@ -350,18 +496,21 @@ def register(mcp: FastMCP) -> None:
                 raise ValueError(
                     "footprints and floor_to_floor_heights are required for object_type='building_from_footprint'."
                 )
-            return create_dragonfly_building_from_footprint(
-                garden_root=garden_root,
-                identifier=identifier,
-                footprints=footprints,
-                floor_to_floor_heights=floor_to_floor_heights,
-                perimeter_offset=perimeter_offset,
-                model_target=model_target,
-                display_name=display_name,
-                tolerance=tolerance,
-                roof_geometry=roof_geometry,
-                basement_count=basement_count,
-                basement_remove_windows=basement_remove_windows,
+            return validate_output(
+                MutationResultModel,
+                create_dragonfly_building_from_footprint(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    footprints=footprints,
+                    floor_to_floor_heights=floor_to_floor_heights,
+                    perimeter_offset=perimeter_offset,
+                    model_target=dumped_model_target,
+                    display_name=display_name,
+                    tolerance=tolerance,
+                    roof_geometry=dump_input(roof_geometry),
+                    basement_count=basement_count,
+                    basement_remove_windows=basement_remove_windows,
+                ),
             )
 
         if object_type == "building_from_all_story_geometry":
@@ -374,18 +523,21 @@ def register(mcp: FastMCP) -> None:
                     "all_story_geometry and floor_to_floor_heights are required for "
                     "object_type='building_from_all_story_geometry'."
                 )
-            return create_dragonfly_building_from_all_story_geometry(
-                garden_root=garden_root,
-                identifier=identifier,
-                all_story_geometry=all_story_geometry,
-                floor_to_floor_heights=floor_to_floor_heights,
-                perimeter_offset=perimeter_offset,
-                model_target=model_target,
-                display_name=display_name,
-                tolerance=tolerance,
-                roof_geometry=roof_geometry,
-                basement_count=basement_count,
-                basement_remove_windows=basement_remove_windows,
+            return validate_output(
+                MutationResultModel,
+                create_dragonfly_building_from_all_story_geometry(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    all_story_geometry=all_story_geometry,
+                    floor_to_floor_heights=floor_to_floor_heights,
+                    perimeter_offset=perimeter_offset,
+                    model_target=dumped_model_target,
+                    display_name=display_name,
+                    tolerance=tolerance,
+                    roof_geometry=dump_input(roof_geometry),
+                    basement_count=basement_count,
+                    basement_remove_windows=basement_remove_windows,
+                ),
             )
 
         if object_type == "context_shade":
@@ -394,9 +546,9 @@ def register(mcp: FastMCP) -> None:
             result = create_dragonfly_context_shade(
                 garden_root=garden_root,
                 identifier=identifier,
-                geometry=geometry,
+                geometry=dump_input(geometry),
                 vertices=vertices,
-                model_target=model_target,
+                model_target=dumped_model_target,
                 is_detached=is_detached,
                 x_dim=x_dim,
                 y_dim=y_dim,
@@ -408,20 +560,23 @@ def register(mcp: FastMCP) -> None:
                 cen_pt=cen_pt,
                 radius=radius,
             )
-            return _strip_object_dict(result, return_object_dict)
+            return validate_output(MutationResultModel, _strip_object_dict(result, return_object_dict))
 
         resolved_building_identifier = building_identifier or identifier
         if not resolved_building_identifier:
             raise ValueError(
                 "building_identifier (or identifier) is required for object_type='add_stories_to_building'."
             )
-        return add_dragonfly_stories_to_building(
-            garden_root=garden_root,
-            building_identifier=resolved_building_identifier,
-            story_targets=story_targets,
-            model_target=model_target,
-            story_identifiers=story_identifiers,
-            separate_top_bottom_floors=separate_top_bottom_floors,
+        return validate_output(
+            MutationResultModel,
+            add_dragonfly_stories_to_building(
+                garden_root=garden_root,
+                building_identifier=resolved_building_identifier,
+                story_targets=dumped_story_targets,
+                model_target=dumped_model_target,
+                story_identifiers=story_identifiers,
+                separate_top_bottom_floors=separate_top_bottom_floors,
+            ),
         )
 
     @mcp.tool(
@@ -430,59 +585,137 @@ def register(mcp: FastMCP) -> None:
         timeout=30,
     )
     def DF_Edit_Object(
-        garden_root: str,
-        object_type: Literal["model", "building", "story", "room2d"] | None = None,
-        target: dict[str, Any] | None = None,
-        model_target: dict[str, Any] | None = None,
-        building_identifier: str | None = None,
-        story_target: dict[str, Any] | None = None,
-        story_identifier: str | None = None,
-        room2d_target: dict[str, Any] | None = None,
-        room_identifier: str | None = None,
-        display_name: str | None = None,
-        units: str | None = None,
-        convert_geometry: bool = True,
-        tolerance: float | None = None,
-        angle_tolerance: float | None = None,
-        sort_stories: bool = False,
-        separate_top_bottom_floors: bool = False,
-        floor_height: float | None = None,
-        floor_to_floor_height: float | None = None,
-        multiplier: int | None = None,
-        vertices: list[list[float]] | None = None,
-        floor_to_ceiling_height: float | None = None,
-        zone: str | None = None,
-        is_ground_contact: bool | None = None,
-        is_top_exposed: bool | None = None,
-        projection_distance: float = 0,
-    ) -> dict[str, Any]:
+        garden_root: Annotated[
+            str,
+            Field(description="Root directory of the project Garden."),
+        ],
+        object_type: Annotated[
+            Literal["model", "building", "story", "room2d"] | None,
+            Field(description="Target Dragonfly object type: model, building, story, or room2d."),
+        ] = None,
+        target: Annotated[
+            BuildingObjectTargetRef | None,
+            Field(description="Explicit Dragonfly object or model target reference."),
+        ] = None,
+        model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+        ] = None,
+        building_identifier: Annotated[
+            str | None,
+            Field(description="Building identifier when editing a Building without target."),
+        ] = None,
+        story_target: Annotated[
+            BuildingObjectTargetRef | None,
+            Field(description="Optional Story target reference."),
+        ] = None,
+        story_identifier: Annotated[
+            str | None,
+            Field(description="Story identifier when editing a Story without target."),
+        ] = None,
+        room2d_target: Annotated[
+            BuildingObjectTargetRef | None,
+            Field(description="Optional Room2D target reference."),
+        ] = None,
+        room_identifier: Annotated[
+            str | None,
+            Field(description="Room2D identifier when editing a Room2D without target."),
+        ] = None,
+        display_name: Annotated[
+            str | None,
+            Field(description="Updated display_name on the target object."),
+        ] = None,
+        units: Annotated[
+            Literal["Meters", "Millimeters", "Feet", "Inches", "Centimeters"] | None,
+            Field(description="Updated Model length units."),
+        ] = None,
+        convert_geometry: Annotated[
+            bool,
+            Field(description="Scale geometry coordinates when changing Model units."),
+        ] = True,
+        tolerance: Annotated[
+            float | None,
+            Field(gt=0.0, description="Updated Model geometric tolerance."),
+        ] = None,
+        angle_tolerance: Annotated[
+            float | None,
+            Field(gt=0.0, description="Updated Model angular tolerance in degrees."),
+        ] = None,
+        sort_stories: Annotated[
+            bool,
+            Field(description="Re-sort Building stories from bottom to top."),
+        ] = False,
+        separate_top_bottom_floors: Annotated[
+            bool,
+            Field(description="Separate multiplied Building stories into unique top/bottom floors."),
+        ] = False,
+        floor_height: Annotated[
+            float | None,
+            Field(description="Updated floor elevation in model units."),
+        ] = None,
+        floor_to_floor_height: Annotated[
+            float | None,
+            Field(gt=0.0, description="Updated Story floor-to-floor height."),
+        ] = None,
+        multiplier: Annotated[
+            int | None,
+            Field(ge=1, description="Updated Story multiplier count (>= 1)."),
+        ] = None,
+        vertices: Annotated[
+            list[list[float]] | None,
+            Field(description="Updated 2D/3D polygon footprint vertices for Room2D."),
+        ] = None,
+        floor_to_ceiling_height: Annotated[
+            float | None,
+            Field(gt=0.0, description="Updated Room2D floor-to-ceiling height."),
+        ] = None,
+        zone: Annotated[
+            str | None,
+            Field(description="Updated Room2D zone identifier."),
+        ] = None,
+        is_ground_contact: Annotated[
+            bool | None,
+            Field(description="Updated ground-contact flag on Room2D."),
+        ] = None,
+        is_top_exposed: Annotated[
+            bool | None,
+            Field(description="Updated top-exposed flag on Room2D."),
+        ] = None,
+        projection_distance: Annotated[
+            float,
+            Field(description="Optional projection distance when resetting Room2D properties."),
+        ] = 0,
+    ) -> MutationResultModel:
         """Edit properties of a Dragonfly Model, Building, Story, or Room2D."""
-        return edit_dragonfly_object(
-            garden_root=garden_root,
-            object_type=object_type,
-            target=target,
-            model_target=model_target,
-            building_identifier=building_identifier,
-            story_target=story_target,
-            story_identifier=story_identifier,
-            room2d_target=room2d_target,
-            room_identifier=room_identifier,
-            display_name=display_name,
-            units=units,
-            convert_geometry=convert_geometry,
-            tolerance=tolerance,
-            angle_tolerance=angle_tolerance,
-            sort_stories=sort_stories,
-            separate_top_bottom_floors=separate_top_bottom_floors,
-            floor_height=floor_height,
-            floor_to_floor_height=floor_to_floor_height,
-            multiplier=multiplier,
-            vertices=vertices,
-            floor_to_ceiling_height=floor_to_ceiling_height,
-            zone=zone,
-            is_ground_contact=is_ground_contact,
-            is_top_exposed=is_top_exposed,
-            projection_distance=projection_distance,
+        return validate_output(
+            MutationResultModel,
+            edit_dragonfly_object(
+                garden_root=garden_root,
+                object_type=object_type,
+                target=dump_target(target),
+                model_target=dump_target(model_target),
+                building_identifier=building_identifier,
+                story_target=dump_target(story_target),
+                story_identifier=story_identifier,
+                room2d_target=dump_target(room2d_target),
+                room_identifier=room_identifier,
+                display_name=display_name,
+                units=units,
+                convert_geometry=convert_geometry,
+                tolerance=tolerance,
+                angle_tolerance=angle_tolerance,
+                sort_stories=sort_stories,
+                separate_top_bottom_floors=separate_top_bottom_floors,
+                floor_height=floor_height,
+                floor_to_floor_height=floor_to_floor_height,
+                multiplier=multiplier,
+                vertices=vertices,
+                floor_to_ceiling_height=floor_to_ceiling_height,
+                zone=zone,
+                is_ground_contact=is_ground_contact,
+                is_top_exposed=is_top_exposed,
+                projection_distance=projection_distance,
+            ),
         )
 
     @mcp.tool(
@@ -491,29 +724,62 @@ def register(mcp: FastMCP) -> None:
         timeout=30,
     )
     def DF_Remove_Objects(
-        garden_root: str,
-        object_type: Literal["building", "story", "room2d", "context_shade"] | None = None,
-        object_targets: list[dict[str, Any]] | None = None,
-        identifiers: list[str] | None = None,
-        building_identifier: str | None = None,
-        story_identifiers: list[str] | None = None,
-        building_identifiers: list[str] | None = None,
-        room2d_identifiers: list[str] | None = None,
-        context_shade_identifiers: list[str] | None = None,
-        model_target: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        garden_root: Annotated[
+            str,
+            Field(description="Root directory of the project Garden."),
+        ],
+        object_type: Annotated[
+            Literal["building", "story", "room2d", "context_shade"] | None,
+            Field(description="Object category to remove: building, story, room2d, or context_shade."),
+        ] = None,
+        object_targets: Annotated[
+            list[BuildingObjectTargetRef] | None,
+            Field(description="Explicit Dragonfly object target references to remove."),
+        ] = None,
+        identifiers: Annotated[
+            list[str] | None,
+            Field(description="Generic object identifiers to remove for object_type."),
+        ] = None,
+        building_identifier: Annotated[
+            str | None,
+            Field(description="Parent Building ID when removing Stories."),
+        ] = None,
+        story_identifiers: Annotated[
+            list[str] | None,
+            Field(description="Story identifiers to remove."),
+        ] = None,
+        building_identifiers: Annotated[
+            list[str] | None,
+            Field(description="Building identifiers to remove."),
+        ] = None,
+        room2d_identifiers: Annotated[
+            list[str] | None,
+            Field(description="Room2D identifiers to remove."),
+        ] = None,
+        context_shade_identifiers: Annotated[
+            list[str] | None,
+            Field(description="ContextShade identifiers to remove."),
+        ] = None,
+        model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+        ] = None,
+    ) -> MutationResultModel:
         """Remove Buildings, Stories from a Building, Room2Ds, or ContextShades."""
-        return remove_dragonfly_objects(
-            garden_root=garden_root,
-            object_type=object_type,
-            object_targets=object_targets,
-            identifiers=identifiers,
-            building_identifier=building_identifier,
-            story_identifiers=story_identifiers,
-            building_identifiers=building_identifiers,
-            room2d_identifiers=room2d_identifiers,
-            context_shade_identifiers=context_shade_identifiers,
-            model_target=model_target,
+        return validate_output(
+            MutationResultModel,
+            remove_dragonfly_objects(
+                garden_root=garden_root,
+                object_type=object_type,
+                object_targets=dump_targets(object_targets),
+                identifiers=identifiers,
+                building_identifier=building_identifier,
+                story_identifiers=story_identifiers,
+                building_identifiers=building_identifiers,
+                room2d_identifiers=room2d_identifiers,
+                context_shade_identifiers=context_shade_identifiers,
+                model_target=dump_target(model_target),
+            ),
         )
 
     @mcp.tool(
@@ -522,103 +788,223 @@ def register(mcp: FastMCP) -> None:
         timeout=45,
     )
     def DF_Process_Geometry(
-        garden_root: str,
-        operation: Literal[
-            "align",
-            "clean",
-            "intersect",
-            "join_small",
-            "solve_adjacency",
-            "reset_adjacency",
-            "core_perimeter",
-            "pull_to_story",
-            "fill_holes",
-            "join_room_2ds",
-            "split_with_story_above",
-            "convert_multipliers",
-            "separate_plenums",
-            "transform",
-            "merge_model",
+        garden_root: Annotated[
+            str,
+            Field(description="Root directory of the project Garden."),
         ],
-        model_target: dict[str, Any] | None = None,
-        host_type: str | None = None,
-        host_target: dict[str, Any] | None = None,
-        story_target: dict[str, Any] | None = None,
-        story_identifier: str | None = None,
-        room2d_target: dict[str, Any] | None = None,
-        room_identifier: str | None = None,
-        building_identifier: str | None = None,
-        lines: list[list[list[float]]] | list[dict[str, Any]] | None = None,
-        distance: float = 0.5,
-        area_threshold: float = 10.0,
-        join_into_large: bool = False,
-        tolerance: float = 0.01,
-        intersect: bool = False,
-        resolve_window_conflicts: bool = True,
-        remove_duplicate_vertices: bool = True,
-        remove_colinear_vertices: bool = True,
-        remove_short_segments_distance: float | None = None,
-        preserve_wall_props: bool = True,
-        angle_tolerance: float = 1.0,
-        perimeter_offset: float | None = None,
-        air_boundary: bool = False,
-        base_story_id: str | None = None,
-        pulled_story_ids: list[str] | None = None,
-        coordinate_vertices: bool = True,
-        constrain_edges: bool = False,
-        base_name: str = "Room",
-        room_identifiers: list[str] | None = None,
-        story_above_identifier: str | None = None,
-        target_floor_to_ceiling: float | None = None,
-        floor_plenum: bool = False,
-        transform_type: Literal["move", "rotate_xy", "scale"] | None = None,
-        vector: list[float] | None = None,
-        angle: float | None = None,
-        factor: float | None = None,
-        origin: list[float] | None = None,
-        incoming_model_target: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        operation: Annotated[
+            Literal[
+                "align",
+                "clean",
+                "intersect",
+                "join_small",
+                "solve_adjacency",
+                "reset_adjacency",
+                "core_perimeter",
+                "pull_to_story",
+                "fill_holes",
+                "join_room_2ds",
+                "split_with_story_above",
+                "convert_multipliers",
+                "separate_plenums",
+                "transform",
+                "merge_model",
+            ],
+            Field(description="Dragonfly geometry processing, transform, or model-merge operation."),
+        ],
+        model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+        ] = None,
+        host_type: Annotated[
+            str | None,
+            Field(description="Host scope type: 'room2d', 'story', 'building', or 'model'."),
+        ] = None,
+        host_target: Annotated[
+            BuildingObjectTargetRef | None,
+            Field(description="Optional host target scope (Room2D, Story, Building, or Model)."),
+        ] = None,
+        story_target: Annotated[
+            BuildingObjectTargetRef | None,
+            Field(description="Optional Story target scope."),
+        ] = None,
+        story_identifier: Annotated[
+            str | None,
+            Field(description="Story identifier scope."),
+        ] = None,
+        room2d_target: Annotated[
+            BuildingObjectTargetRef | None,
+            Field(description="Optional Room2D target scope."),
+        ] = None,
+        room_identifier: Annotated[
+            str | None,
+            Field(description="Room2D identifier scope."),
+        ] = None,
+        building_identifier: Annotated[
+            str | None,
+            Field(description="Building identifier scope."),
+        ] = None,
+        lines: Annotated[
+            list[list[list[float]]] | list[dict[str, Any]] | None,
+            Field(description="2D alignment lines or LineSegment2D dicts for align operation."),
+        ] = None,
+        distance: Annotated[
+            float,
+            Field(ge=0.0, description="Snap/pull distance threshold in model units."),
+        ] = 0.5,
+        area_threshold: Annotated[
+            float,
+            Field(ge=0.0, description="Minimum room/hole area threshold in model square units."),
+        ] = 10.0,
+        join_into_large: Annotated[
+            bool,
+            Field(description="Merge small rooms into larger neighbors in join_small."),
+        ] = False,
+        tolerance: Annotated[
+            float,
+            Field(gt=0.0, description="Geometric tolerance in model units."),
+        ] = 0.01,
+        intersect: Annotated[
+            bool,
+            Field(description="Intersect collinear Room2D segments during solve_adjacency."),
+        ] = False,
+        resolve_window_conflicts: Annotated[
+            bool,
+            Field(description="Resolve conflicting window parameters across adjacent walls."),
+        ] = True,
+        remove_duplicate_vertices: Annotated[
+            bool,
+            Field(description="Remove duplicate consecutive vertices during clean."),
+        ] = True,
+        remove_colinear_vertices: Annotated[
+            bool,
+            Field(description="Remove colinear vertices during clean."),
+        ] = True,
+        remove_short_segments_distance: Annotated[
+            float | None,
+            Field(gt=0.0, description="Optional minimum segment length for short-edge cleanup."),
+        ] = None,
+        preserve_wall_props: Annotated[
+            bool,
+            Field(description="Preserve wall/window parameters across vertex cleanup or joins."),
+        ] = True,
+        angle_tolerance: Annotated[
+            float,
+            Field(gt=0.0, description="Angular tolerance in degrees."),
+        ] = 1.0,
+        perimeter_offset: Annotated[
+            float | None,
+            Field(gt=0.0, description="Zone depth offset for core_perimeter splitting."),
+        ] = None,
+        air_boundary: Annotated[
+            bool,
+            Field(description="Assign AirBoundary between core and perimeter zones."),
+        ] = False,
+        base_story_id: Annotated[
+            str | None,
+            Field(description="Reference Story ID for pull_to_story alignment."),
+        ] = None,
+        pulled_story_ids: Annotated[
+            list[str] | None,
+            Field(description="Subset of Story IDs pulled toward base_story_id."),
+        ] = None,
+        coordinate_vertices: Annotated[
+            bool,
+            Field(description="Coordinate footprint vertices during pull_to_story."),
+        ] = True,
+        constrain_edges: Annotated[
+            bool,
+            Field(description="Constrain vertices along existing footprint edges in pull_to_story."),
+        ] = False,
+        base_name: Annotated[
+            str,
+            Field(description="Identifier prefix for rooms created by fill_holes."),
+        ] = "Room",
+        room_identifiers: Annotated[
+            list[str] | None,
+            Field(description="Room2D identifiers to merge in join_room_2ds."),
+        ] = None,
+        story_above_identifier: Annotated[
+            str | None,
+            Field(description="Upper Story ID for split_with_story_above."),
+        ] = None,
+        target_floor_to_ceiling: Annotated[
+            float | None,
+            Field(gt=0.0, description="Clear ceiling height target for separate_plenums."),
+        ] = None,
+        floor_plenum: Annotated[
+            bool,
+            Field(description="Create floor plenums instead of ceiling plenums in separate_plenums."),
+        ] = False,
+        transform_type: Annotated[
+            Literal["move", "rotate_xy", "scale"] | None,
+            Field(description="Geometric transform kind: 'move', 'rotate_xy', or 'scale'."),
+        ] = None,
+        vector: Annotated[
+            list[float] | None,
+            Field(description="Translation vector [dx, dy, dz] for transform_type='move'."),
+        ] = None,
+        angle: Annotated[
+            float | None,
+            Field(description="Rotation angle in degrees for transform_type='rotate_xy'."),
+        ] = None,
+        factor: Annotated[
+            float | None,
+            Field(description="Scale multiplier for transform_type='scale'."),
+        ] = None,
+        origin: Annotated[
+            list[float] | None,
+            Field(description="Origin [x, y, z] for rotate_xy or scale transforms."),
+        ] = None,
+        incoming_model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Second Dragonfly Model target merged by operation='merge_model'."),
+        ] = None,
+    ) -> MutationResultModel:
         """Run Room2D/Story/Building/Model geometry processing, transforms, or model merge."""
-        return process_dragonfly_geometry(
-            garden_root=garden_root,
-            operation=operation,
-            model_target=model_target,
-            host_type=host_type,
-            host_target=host_target,
-            story_target=story_target,
-            story_identifier=story_identifier,
-            room2d_target=room2d_target,
-            room_identifier=room_identifier,
-            building_identifier=building_identifier,
-            lines=lines,
-            distance=distance,
-            area_threshold=area_threshold,
-            join_into_large=join_into_large,
-            tolerance=tolerance,
-            intersect=intersect,
-            resolve_window_conflicts=resolve_window_conflicts,
-            remove_duplicate_vertices=remove_duplicate_vertices,
-            remove_colinear_vertices=remove_colinear_vertices,
-            remove_short_segments_distance=remove_short_segments_distance,
-            preserve_wall_props=preserve_wall_props,
-            angle_tolerance=angle_tolerance,
-            perimeter_offset=perimeter_offset,
-            air_boundary=air_boundary,
-            base_story_id=base_story_id,
-            pulled_story_ids=pulled_story_ids,
-            coordinate_vertices=coordinate_vertices,
-            constrain_edges=constrain_edges,
-            base_name=base_name,
-            room_identifiers=room_identifiers,
-            story_above_identifier=story_above_identifier,
-            target_floor_to_ceiling=target_floor_to_ceiling,
-            floor_plenum=floor_plenum,
-            transform_type=transform_type,
-            vector=vector,
-            angle=angle,
-            factor=factor,
-            origin=origin,
-            incoming_model_target=incoming_model_target,
+        return validate_output(
+            MutationResultModel,
+            process_dragonfly_geometry(
+                garden_root=garden_root,
+                operation=operation,
+                model_target=dump_target(model_target),
+                host_type=host_type,
+                host_target=dump_target(host_target),
+                story_target=dump_target(story_target),
+                story_identifier=story_identifier,
+                room2d_target=dump_target(room2d_target),
+                room_identifier=room_identifier,
+                building_identifier=building_identifier,
+                lines=dump_input(lines),
+                distance=distance,
+                area_threshold=area_threshold,
+                join_into_large=join_into_large,
+                tolerance=tolerance,
+                intersect=intersect,
+                resolve_window_conflicts=resolve_window_conflicts,
+                remove_duplicate_vertices=remove_duplicate_vertices,
+                remove_colinear_vertices=remove_colinear_vertices,
+                remove_short_segments_distance=remove_short_segments_distance,
+                preserve_wall_props=preserve_wall_props,
+                angle_tolerance=angle_tolerance,
+                perimeter_offset=perimeter_offset,
+                air_boundary=air_boundary,
+                base_story_id=base_story_id,
+                pulled_story_ids=pulled_story_ids,
+                coordinate_vertices=coordinate_vertices,
+                constrain_edges=constrain_edges,
+                base_name=base_name,
+                room_identifiers=room_identifiers,
+                story_above_identifier=story_above_identifier,
+                target_floor_to_ceiling=target_floor_to_ceiling,
+                floor_plenum=floor_plenum,
+                transform_type=transform_type,
+                vector=vector,
+                angle=angle,
+                factor=factor,
+                origin=origin,
+                incoming_model_target=dump_target(incoming_model_target),
+            ),
         )
 
     @mcp.tool(
@@ -627,182 +1013,455 @@ def register(mcp: FastMCP) -> None:
         timeout=30,
     )
     def DF_Apply_Properties(
-        garden_root: str,
-        property_domain: Literal["energy", "radiance", "window", "shading", "skylight", "clerestory", "wall"],
-        host_target: dict[str, Any] | None = None,
-        host_type: Literal["room2d", "story", "building", "context_shade", "model"] | None = None,
-        model_target: dict[str, Any] | None = None,
+        garden_root: Annotated[
+            str,
+            Field(description="Root directory of the project Garden."),
+        ],
+        property_domain: Annotated[
+            Literal["energy", "radiance", "window", "shading", "skylight", "clerestory", "wall"],
+            Field(description="Property domain to configure or apply."),
+        ],
+        host_target: Annotated[
+            BuildingObjectTargetRef | None,
+            Field(description="Target Dragonfly object receiving the property."),
+        ] = None,
+        host_type: Annotated[
+            Literal["room2d", "story", "building", "context_shade", "model"] | None,
+            Field(description="Host scope type when applying envelope or energy properties."),
+        ] = None,
+        model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+        ] = None,
         # Energy properties
-        program_type_identifier: str | None = None,
-        construction_set_identifier: str | None = None,
-        program_type: Any = None,
-        construction_set: Any = None,
-        hvac: Any = None,
-        shw: Any = None,
-        person_count: float | None = None,
-        lighting_watts: float | None = None,
-        electric_equipment_watts: float | None = None,
-        gas_equipment_watts: float | None = None,
-        hot_water_flow: float | None = None,
-        infiltration_ach: float | None = None,
-        daylighting_control: dict[str, Any] | None = None,
-        daylight_center: dict[str, Any] | None = None,
-        window_vent_control: dict[str, Any] | None = None,
-        window_vent_opening: dict[str, Any] | None = None,
-        fans: list[Any] | None = None,
-        remove_existing_fans: bool = False,
-        process_loads: list[Any] | None = None,
-        remove_existing_process_loads: bool = False,
-        diversify: dict[str, Any] | bool | None = None,
-        ceiling_plenum_construction: Any = None,
-        floor_plenum_construction: Any = None,
-        construction: Any = None,
-        transmittance_schedule: Any = None,
+        program_type_identifier: Annotated[
+            str | None,
+            Field(description="Library ProgramType identifier for energy domain."),
+        ] = None,
+        construction_set_identifier: Annotated[
+            str | None,
+            Field(description="Library ConstructionSet identifier for energy domain."),
+        ] = None,
+        program_type: Annotated[
+            Any,
+            Field(description="ProgramType target, dict, or identifier."),
+        ] = None,
+        construction_set: Annotated[
+            Any,
+            Field(description="ConstructionSet target, dict, or identifier."),
+        ] = None,
+        hvac: Annotated[
+            Any,
+            Field(description="HVAC system target, dict, or identifier."),
+        ] = None,
+        shw: Annotated[
+            Any,
+            Field(description="Service hot water target or dict."),
+        ] = None,
+        person_count: Annotated[
+            float | None,
+            Field(ge=0.0, description="Explicit occupant count override."),
+        ] = None,
+        lighting_watts: Annotated[
+            float | None,
+            Field(ge=0.0, description="Explicit lighting power (W)."),
+        ] = None,
+        electric_equipment_watts: Annotated[
+            float | None,
+            Field(ge=0.0, description="Explicit electric equipment power (W)."),
+        ] = None,
+        gas_equipment_watts: Annotated[
+            float | None,
+            Field(ge=0.0, description="Explicit gas equipment power (W)."),
+        ] = None,
+        hot_water_flow: Annotated[
+            float | None,
+            Field(ge=0.0, description="Service hot water flow rate override."),
+        ] = None,
+        infiltration_ach: Annotated[
+            float | None,
+            Field(ge=0.0, description="Infiltration air changes per hour."),
+        ] = None,
+        daylighting_control: Annotated[
+            dict[str, Any] | None,
+            Field(description="DaylightingControl settings dict."),
+        ] = None,
+        daylight_center: Annotated[
+            dict[str, Any] | None,
+            Field(description="Daylight sensor placement dict."),
+        ] = None,
+        window_vent_control: Annotated[
+            dict[str, Any] | None,
+            Field(description="VentilationControl dict for natural ventilation."),
+        ] = None,
+        window_vent_opening: Annotated[
+            dict[str, Any] | None,
+            Field(description="VentilationOpening dict for operable windows."),
+        ] = None,
+        fans: Annotated[
+            list[Any] | None,
+            Field(description="List of VentilationFan dicts or targets."),
+        ] = None,
+        remove_existing_fans: Annotated[
+            bool,
+            Field(description="Clear existing ventilation fans before adding new ones."),
+        ] = False,
+        process_loads: Annotated[
+            list[Any] | None,
+            Field(description="List of ProcessLoad dicts or targets."),
+        ] = None,
+        remove_existing_process_loads: Annotated[
+            bool,
+            Field(description="Clear existing process loads before adding new ones."),
+        ] = False,
+        diversify: Annotated[
+            dict[str, Any] | bool | None,
+            Field(description="Load diversification bool or config dict."),
+        ] = None,
+        ceiling_plenum_construction: Annotated[
+            Any,
+            Field(description="Ceiling plenum construction target or dict."),
+        ] = None,
+        floor_plenum_construction: Annotated[
+            Any,
+            Field(description="Floor plenum construction target or dict."),
+        ] = None,
+        construction: Annotated[
+            Any,
+            Field(description="ContextShade construction target or dict."),
+        ] = None,
+        transmittance_schedule: Annotated[
+            Any,
+            Field(description="ContextShade transmittance schedule target or dict."),
+        ] = None,
         # Radiance properties
-        modifier_set_identifier: str | None = None,
-        modifier_set: Any = None,
-        modifier: Any = None,
-        grid_parameter_type: str | None = None,
-        grid_dimension: float | None = None,
-        grid_offset: float | None = None,
-        wall_offset: float = 0,
-        face_type: str = "Wall",
-        aperture_type: str = "All",
-        punched_geometry: bool = False,
-        dir_count: int = 8,
-        start_vector: list[float] | None = None,
-        mesh_radius: float | None = None,
-        include_mesh: bool = True,
-        remove_existing_grid_parameters: bool = False,
+        modifier_set_identifier: Annotated[
+            str | None,
+            Field(description="Library ModifierSet identifier for radiance domain."),
+        ] = None,
+        modifier_set: Annotated[
+            Any,
+            Field(description="ModifierSet target, dict, or identifier."),
+        ] = None,
+        modifier: Annotated[
+            Any,
+            Field(description="ContextShade Radiance Modifier target or dict."),
+        ] = None,
+        grid_parameter_type: Annotated[
+            Literal[
+                "room_grid",
+                "room_radial_grid",
+                "exterior_face_grid",
+                "exterior_aperture_grid",
+            ]
+            | None,
+            Field(description="SensorGridParameter kind: room_grid, room_radial_grid, exterior_face_grid, or exterior_aperture_grid."),
+        ] = None,
+        grid_dimension: Annotated[
+            float | None,
+            Field(gt=0.0, description="Sensor grid cell dimension in model units."),
+        ] = None,
+        grid_offset: Annotated[
+            float | None,
+            Field(ge=0.0, description="Sensor offset distance from floor or face."),
+        ] = None,
+        wall_offset: Annotated[
+            float,
+            Field(description="Sensor perimeter inset distance from Room2D walls."),
+        ] = 0,
+        face_type: Annotated[
+            Literal["Wall", "Roof", "Floor", "All", "wall", "roof", "floor", "all"],
+            Field(description="Face type for exterior_face_grid: Wall, Roof, Floor, or All."),
+        ] = "Wall",
+        aperture_type: Annotated[
+            Literal["Window", "Skylight", "All", "window", "skylight", "all"],
+            Field(description="Aperture type for exterior_aperture_grid: Window, Skylight, or All."),
+        ] = "All",
+        punched_geometry: Annotated[
+            bool,
+            Field(description="Generate exterior_face_grid using punched wall geometry."),
+        ] = False,
+        dir_count: Annotated[
+            int,
+            Field(ge=1, description="Radial direction count for room_radial_grid."),
+        ] = 8,
+        start_vector: Annotated[
+            list[float] | None,
+            Field(description="Radial grid start vector [x, y] or [x, y, z]."),
+        ] = None,
+        mesh_radius: Annotated[
+            float | None,
+            Field(gt=0.0, description="Optional disk mesh radius for radial sensors."),
+        ] = None,
+        include_mesh: Annotated[
+            bool,
+            Field(description="Include SensorGrid mesh faces alongside sensors."),
+        ] = True,
+        remove_existing_grid_parameters: Annotated[
+            bool,
+            Field(description="Remove existing grid parameters before applying."),
+        ] = False,
         # Window / Shading / Skylight / Clerestory / Wall parameters
-        window_parameter: dict[str, Any] | None = None,
-        shading_parameter: dict[str, Any] | None = None,
-        skylight_parameter: dict[str, Any] | None = None,
-        clerestory_parameter: dict[str, Any] | None = None,
-        parameter_type: str | None = None,
-        application_scope: str = "all_outdoor",
-        segment_index: int | list[int] | None = None,
-        window_ratio: float | None = None,
-        rect_split: bool = True,
-        window_height: float | None = None,
-        sill_height: float | None = None,
-        horizontal_separation: float | None = None,
-        vertical_separation: float = 0,
-        width: float | None = None,
-        height: float | None = None,
-        window_area: float | None = None,
-        window_width: float | None = None,
-        origins: list[list[float]] | None = None,
-        widths: list[float] | None = None,
-        heights: list[float] | None = None,
-        polygons: list[list[list[float]]] | None = None,
-        are_doors: list[bool] | None = None,
-        depth: float | None = None,
-        angle: float = 0,
-        distance: float | None = None,
-        louver_count: int | None = None,
-        offset: float = 0,
-        contour_vector: list[float] | None = None,
-        flip_start_side: bool = False,
-        skylight_area: float | None = None,
-        skylight_ratio: float | None = None,
-        spacing: float | str | None = None,
-        story_identifier: str | None = None,
-        air_boundary: bool | None = None,
-        air_boundaries: list[bool] | None = None,
-        boundary_condition: str | dict[str, Any] | None = None,
-        guide_lines: list[list[list[float]]] | None = None,
-        room_identifiers: list[str] | None = None,
-        wall_modifiers: dict[str, Any] | None = None,
-        tolerance: float = 0.01,
-    ) -> dict[str, Any]:
+        window_parameter: Annotated[
+            dict[str, Any] | None,
+            Field(description="Prebuilt Dragonfly WindowParameter dict."),
+        ] = None,
+        shading_parameter: Annotated[
+            dict[str, Any] | None,
+            Field(description="Prebuilt Dragonfly ShadingParameter dict."),
+        ] = None,
+        skylight_parameter: Annotated[
+            dict[str, Any] | None,
+            Field(description="Prebuilt Dragonfly SkylightParameter dict."),
+        ] = None,
+        clerestory_parameter: Annotated[
+            dict[str, Any] | None,
+            Field(description="Dragonfly ClerestoryParameter dict."),
+        ] = None,
+        parameter_type: Annotated[
+            str | None,
+            Field(description="Window, shading, or skylight parameter subclass name."),
+        ] = None,
+        application_scope: Annotated[
+            str,
+            Field(description="Wall segment scope: 'all_outdoor' or 'segment_index'."),
+        ] = "all_outdoor",
+        segment_index: Annotated[
+            int | list[int] | None,
+            Field(description="Room2D wall segment index or list of indices."),
+        ] = None,
+        window_ratio: Annotated[
+            float | None,
+            Field(ge=0.0, le=1.0, description="Window-to-wall glazing ratio (0-1)."),
+        ] = None,
+        rect_split: Annotated[
+            bool,
+            Field(description="Split rectangular windows per sub-wall span."),
+        ] = True,
+        window_height: Annotated[
+            float | None,
+            Field(gt=0.0, description="Continuous/repeating window height."),
+        ] = None,
+        sill_height: Annotated[
+            float | None,
+            Field(ge=0.0, description="Window sill elevation above floor."),
+        ] = None,
+        horizontal_separation: Annotated[
+            float | None,
+            Field(ge=0.0, description="Horizontal gap between repeating windows."),
+        ] = None,
+        vertical_separation: Annotated[
+            float,
+            Field(ge=0.0, description="Vertical separation for repeating windows."),
+        ] = 0,
+        width: Annotated[
+            float | None,
+            Field(gt=0.0, description="Width for rectangular/single window parameters."),
+        ] = None,
+        height: Annotated[
+            float | None,
+            Field(gt=0.0, description="Height for rectangular/single window parameters."),
+        ] = None,
+        window_area: Annotated[
+            float | None,
+            Field(gt=0.0, description="Target area for DetailedRectangularWindows."),
+        ] = None,
+        window_width: Annotated[
+            float | None,
+            Field(gt=0.0, description="Width for RepeatingWindowRatio / RectangularWindows."),
+        ] = None,
+        origins: Annotated[
+            list[list[float]] | None,
+            Field(description="Window origin points for RectangularWindows."),
+        ] = None,
+        widths: Annotated[
+            list[float] | None,
+            Field(description="Per-window widths for RectangularWindows."),
+        ] = None,
+        heights: Annotated[
+            list[float] | None,
+            Field(description="Per-window heights for RectangularWindows."),
+        ] = None,
+        polygons: Annotated[
+            list[list[list[float]]] | None,
+            Field(description="Custom 2D vertices for DetailedWindows or DetailedSkylights."),
+        ] = None,
+        are_doors: Annotated[
+            list[bool] | None,
+            Field(description="Door flags matching rectangular or detailed openings."),
+        ] = None,
+        depth: Annotated[
+            float | None,
+            Field(description="Shade depth in model units."),
+        ] = None,
+        angle: Annotated[
+            float,
+            Field(description="Shade tilt or louver angle in degrees."),
+        ] = 0,
+        distance: Annotated[
+            float | None,
+            Field(description="Spacing distance between louvers."),
+        ] = None,
+        louver_count: Annotated[
+            int | None,
+            Field(ge=1, description="Number of louvers for LouversByCount."),
+        ] = None,
+        offset: Annotated[
+            float,
+            Field(description="Shade offset from wall plane."),
+        ] = 0,
+        contour_vector: Annotated[
+            list[float] | None,
+            Field(description="Louver orientation vector [x, y]."),
+        ] = None,
+        flip_start_side: Annotated[
+            bool,
+            Field(description="Flip louver start side along wall."),
+        ] = False,
+        skylight_area: Annotated[
+            float | None,
+            Field(gt=0.0, description="Grid cell skylight area."),
+        ] = None,
+        skylight_ratio: Annotated[
+            float | None,
+            Field(ge=0.0, le=1.0, description="Grid skylight-to-roof ratio (0-1)."),
+        ] = None,
+        spacing: Annotated[
+            float | str | None,
+            Field(description="Grid spacing distance or expression for GriddedSkylights."),
+        ] = None,
+        story_identifier: Annotated[
+            str | None,
+            Field(description="Story ID for clerestory parameter application."),
+        ] = None,
+        air_boundary: Annotated[
+            bool | None,
+            Field(description="Set wall segment air-boundary flag."),
+        ] = None,
+        air_boundaries: Annotated[
+            list[bool] | None,
+            Field(description="Per-segment air-boundary flags for Room2D."),
+        ] = None,
+        boundary_condition: Annotated[
+            str | dict[str, Any] | None,
+            Field(description="Wall boundary condition name or Surface/OtherSideTemp dict."),
+        ] = None,
+        guide_lines: Annotated[
+            list[list[list[float]]] | None,
+            Field(description="2D guide lines for wall intersection or properties."),
+        ] = None,
+        room_identifiers: Annotated[
+            list[str] | None,
+            Field(description="Room2D identifiers for wall property edits."),
+        ] = None,
+        wall_modifiers: Annotated[
+            dict[str, Any] | None,
+            Field(description="Radiance wall modifier overrides dictionary."),
+        ] = None,
+        tolerance: Annotated[
+            float,
+            Field(gt=0.0, description="Geometric tolerance for wall operations."),
+        ] = 0.01,
+    ) -> MutationResultModel:
         """Apply Energy, Radiance, Window, Shading, Skylight, Clerestory, or Wall properties."""
+        dumped_host_target = dump_target(host_target)
+        dumped_model_target = dump_target(model_target)
+
         if property_domain == "energy":
-            if host_target is None and host_type != "model":
+            if dumped_host_target is None and host_type != "model":
                 raise ValueError(
                     "host_target is required for property_domain='energy' (or set host_type='model')."
                 )
-            return apply_dragonfly_energy_properties(
-                garden_root=garden_root,
-                host_target=host_target,
-                model_target=model_target,
-                program_type_identifier=program_type_identifier,
-                construction_set_identifier=construction_set_identifier,
-                program_type=program_type,
-                construction_set=construction_set,
-                hvac=hvac,
-                shw=shw,
-                person_count=person_count,
-                lighting_watts=lighting_watts,
-                electric_equipment_watts=electric_equipment_watts,
-                gas_equipment_watts=gas_equipment_watts,
-                hot_water_flow=hot_water_flow,
-                infiltration_ach=infiltration_ach,
-                daylighting_control=daylighting_control,
-                daylight_center=daylight_center,
-                window_vent_control=window_vent_control,
-                window_vent_opening=window_vent_opening,
-                fans=fans,
-                remove_existing_fans=remove_existing_fans,
-                process_loads=process_loads,
-                remove_existing_process_loads=remove_existing_process_loads,
-                diversify=diversify,
-                ceiling_plenum_construction=ceiling_plenum_construction,
-                floor_plenum_construction=floor_plenum_construction,
-                construction=construction,
-                transmittance_schedule=transmittance_schedule,
+            return validate_output(
+                MutationResultModel,
+                apply_dragonfly_energy_properties(
+                    garden_root=garden_root,
+                    host_target=dumped_host_target,
+                    model_target=dumped_model_target,
+                    program_type_identifier=program_type_identifier,
+                    construction_set_identifier=construction_set_identifier,
+                    program_type=dump_input(program_type),
+                    construction_set=dump_input(construction_set),
+                    hvac=dump_input(hvac),
+                    shw=dump_input(shw),
+                    person_count=person_count,
+                    lighting_watts=lighting_watts,
+                    electric_equipment_watts=electric_equipment_watts,
+                    gas_equipment_watts=gas_equipment_watts,
+                    hot_water_flow=hot_water_flow,
+                    infiltration_ach=infiltration_ach,
+                    daylighting_control=daylighting_control,
+                    daylight_center=daylight_center,
+                    window_vent_control=window_vent_control,
+                    window_vent_opening=window_vent_opening,
+                    fans=dump_input(fans),
+                    remove_existing_fans=remove_existing_fans,
+                    process_loads=dump_input(process_loads),
+                    remove_existing_process_loads=remove_existing_process_loads,
+                    diversify=dump_input(diversify),
+                    ceiling_plenum_construction=dump_input(ceiling_plenum_construction),
+                    floor_plenum_construction=dump_input(floor_plenum_construction),
+                    construction=dump_input(construction),
+                    transmittance_schedule=dump_input(transmittance_schedule),
+                ),
             )
 
         if property_domain == "radiance":
-            if host_target is None:
+            if dumped_host_target is None:
                 raise ValueError("host_target is required for property_domain='radiance'.")
-            return apply_dragonfly_radiance_properties(
-                garden_root=garden_root,
-                host_target=host_target,
-                model_target=model_target,
-                modifier_set_identifier=modifier_set_identifier,
-                modifier_set=modifier_set,
-                modifier=modifier,
-                grid_parameter_type=grid_parameter_type,
-                grid_dimension=grid_dimension,
-                grid_offset=grid_offset,
-                wall_offset=wall_offset,
-                face_type=face_type,
-                aperture_type=aperture_type,
-                punched_geometry=punched_geometry,
-                dir_count=dir_count,
-                start_vector=start_vector,
-                mesh_radius=mesh_radius,
-                include_mesh=include_mesh,
-                remove_existing_grid_parameters=remove_existing_grid_parameters,
+            return validate_output(
+                MutationResultModel,
+                apply_dragonfly_radiance_properties(
+                    garden_root=garden_root,
+                    host_target=dumped_host_target,
+                    model_target=dumped_model_target,
+                    modifier_set_identifier=modifier_set_identifier,
+                    modifier_set=dump_input(modifier_set),
+                    modifier=dump_input(modifier),
+                    grid_parameter_type=grid_parameter_type,
+                    grid_dimension=grid_dimension,
+                    grid_offset=grid_offset,
+                    wall_offset=wall_offset,
+                    face_type=face_type,
+                    aperture_type=aperture_type,
+                    punched_geometry=punched_geometry,
+                    dir_count=dir_count,
+                    start_vector=start_vector,
+                    mesh_radius=mesh_radius,
+                    include_mesh=include_mesh,
+                    remove_existing_grid_parameters=remove_existing_grid_parameters,
+                ),
             )
 
         if property_domain == "window":
-            resolved_window = window_parameter
+            resolved_window = dump_input(window_parameter)
             if resolved_window is None:
                 if parameter_type is None:
                     raise ValueError(
                         "Provide window_parameter dict or parameter_type with its fields."
                     )
-                if host_target is None and host_type is None:
-                    return create_dragonfly_window_parameter(
-                        garden_root=garden_root,
-                        parameter_type=parameter_type,
-                        window_ratio=window_ratio,
-                        rect_split=rect_split,
-                        window_height=window_height,
-                        sill_height=sill_height,
-                        horizontal_separation=horizontal_separation,
-                        vertical_separation=vertical_separation,
-                        width=width,
-                        height=height,
-                        window_area=window_area,
-                        window_width=window_width,
-                        origins=origins,
-                        widths=widths,
-                        heights=heights,
-                        polygons=polygons,
-                        are_doors=are_doors,
+                if dumped_host_target is None and host_type is None:
+                    return validate_output(
+                        MutationResultModel,
+                        create_dragonfly_window_parameter(
+                            garden_root=garden_root,
+                            parameter_type=parameter_type,
+                            window_ratio=window_ratio,
+                            rect_split=rect_split,
+                            window_height=window_height,
+                            sill_height=sill_height,
+                            horizontal_separation=horizontal_separation,
+                            vertical_separation=vertical_separation,
+                            width=width,
+                            height=height,
+                            window_area=window_area,
+                            window_width=window_width,
+                            origins=origins,
+                            widths=widths,
+                            heights=heights,
+                            polygons=polygons,
+                            are_doors=are_doors,
+                        ),
                     )
                 resolved_window = {
                     k: v
@@ -826,34 +1485,40 @@ def register(mcp: FastMCP) -> None:
                     }.items()
                     if v is not None
                 }
-            return apply_dragonfly_window_parameter(
-                garden_root=garden_root,
-                window_parameter=resolved_window,
-                host_type=host_type,
-                host_target=host_target,
-                model_target=model_target,
-                application_scope=application_scope,
-                segment_index=segment_index,
+            return validate_output(
+                MutationResultModel,
+                apply_dragonfly_window_parameter(
+                    garden_root=garden_root,
+                    window_parameter=resolved_window,
+                    host_type=host_type,
+                    host_target=dumped_host_target,
+                    model_target=dumped_model_target,
+                    application_scope=application_scope,
+                    segment_index=segment_index,
+                ),
             )
 
         if property_domain == "shading":
-            resolved_shading = shading_parameter
+            resolved_shading = dump_input(shading_parameter)
             if resolved_shading is None:
                 if parameter_type is None or depth is None:
                     raise ValueError(
                         "Provide shading_parameter dict or both parameter_type and depth."
                     )
-                if host_target is None and host_type is None:
-                    return create_dragonfly_shading_parameter(
-                        garden_root=garden_root,
-                        parameter_type=parameter_type,
-                        depth=depth,
-                        angle=angle,
-                        distance=distance,
-                        louver_count=louver_count,
-                        offset=offset,
-                        contour_vector=contour_vector,
-                        flip_start_side=flip_start_side,
+                if dumped_host_target is None and host_type is None:
+                    return validate_output(
+                        MutationResultModel,
+                        create_dragonfly_shading_parameter(
+                            garden_root=garden_root,
+                            parameter_type=parameter_type,
+                            depth=depth,
+                            angle=angle,
+                            distance=distance,
+                            louver_count=louver_count,
+                            offset=offset,
+                            contour_vector=contour_vector,
+                            flip_start_side=flip_start_side,
+                        ),
                     )
                 resolved_shading = {
                     k: v
@@ -869,32 +1534,38 @@ def register(mcp: FastMCP) -> None:
                     }.items()
                     if v is not None
                 }
-            return apply_dragonfly_shading_parameter(
-                garden_root=garden_root,
-                shading_parameter=resolved_shading,
-                host_type=host_type,
-                host_target=host_target,
-                model_target=model_target,
-                application_scope=application_scope,
-                segment_index=segment_index,
+            return validate_output(
+                MutationResultModel,
+                apply_dragonfly_shading_parameter(
+                    garden_root=garden_root,
+                    shading_parameter=resolved_shading,
+                    host_type=host_type,
+                    host_target=dumped_host_target,
+                    model_target=dumped_model_target,
+                    application_scope=application_scope,
+                    segment_index=segment_index,
+                ),
             )
 
         if property_domain == "skylight":
-            resolved_skylight = skylight_parameter
+            resolved_skylight = dump_input(skylight_parameter)
             if resolved_skylight is None:
                 if parameter_type is None:
                     raise ValueError(
                         "Provide skylight_parameter dict or parameter_type with its fields."
                     )
-                if host_target is None and host_type is None:
-                    return create_dragonfly_skylight_parameter(
-                        garden_root=garden_root,
-                        parameter_type=parameter_type,
-                        skylight_area=skylight_area,
-                        skylight_ratio=skylight_ratio,
-                        spacing=spacing,
-                        polygons=polygons,
-                        are_doors=are_doors,
+                if dumped_host_target is None and host_type is None:
+                    return validate_output(
+                        MutationResultModel,
+                        create_dragonfly_skylight_parameter(
+                            garden_root=garden_root,
+                            parameter_type=parameter_type,
+                            skylight_area=skylight_area,
+                            skylight_ratio=skylight_ratio,
+                            spacing=spacing,
+                            polygons=polygons,
+                            are_doors=are_doors,
+                        ),
                     )
                 resolved_skylight = {
                     k: v
@@ -908,38 +1579,47 @@ def register(mcp: FastMCP) -> None:
                     }.items()
                     if v is not None
                 }
-            return apply_dragonfly_skylight_parameter(
-                garden_root=garden_root,
-                skylight_parameter=resolved_skylight,
-                host_type=host_type,
-                host_target=host_target,
-                model_target=model_target,
+            return validate_output(
+                MutationResultModel,
+                apply_dragonfly_skylight_parameter(
+                    garden_root=garden_root,
+                    skylight_parameter=resolved_skylight,
+                    host_type=host_type,
+                    host_target=dumped_host_target,
+                    model_target=dumped_model_target,
+                ),
             )
 
         if property_domain == "clerestory":
             if clerestory_parameter is None:
                 raise ValueError("clerestory_parameter dict is required for property_domain='clerestory'.")
-            return apply_dragonfly_clerestory_parameter(
-                garden_root=garden_root,
-                clerestory_parameter=clerestory_parameter,
-                host_target=host_target,
-                story_identifier=story_identifier,
-                model_target=model_target,
+            return validate_output(
+                MutationResultModel,
+                apply_dragonfly_clerestory_parameter(
+                    garden_root=garden_root,
+                    clerestory_parameter=dump_input(clerestory_parameter),
+                    host_target=dumped_host_target,
+                    story_identifier=story_identifier,
+                    model_target=dumped_model_target,
+                ),
             )
 
-        return apply_dragonfly_wall_properties(
-            garden_root=garden_root,
-            host_target=host_target,
-            host_type=host_type,
-            model_target=model_target,
-            segment_index=segment_index,
-            air_boundary=air_boundary,
-            air_boundaries=air_boundaries,
-            boundary_condition=boundary_condition,
-            guide_lines=guide_lines,
-            room_identifiers=room_identifiers,
-            wall_modifiers=wall_modifiers,
-            tolerance=tolerance,
+        return validate_output(
+            MutationResultModel,
+            apply_dragonfly_wall_properties(
+                garden_root=garden_root,
+                host_target=dumped_host_target,
+                host_type=host_type,
+                model_target=dumped_model_target,
+                segment_index=segment_index,
+                air_boundary=air_boundary,
+                air_boundaries=air_boundaries,
+                boundary_condition=dump_input(boundary_condition),
+                guide_lines=guide_lines,
+                room_identifiers=room_identifiers,
+                wall_modifiers=dump_input(wall_modifiers),
+                tolerance=tolerance,
+            ),
         )
 
     @mcp.tool(
@@ -948,68 +1628,110 @@ def register(mcp: FastMCP) -> None:
         timeout=30,
     )
     def DF_Inspect_Model(
-        garden_root: str,
-        view: Literal[
-            "model_summary",
-            "properties_summary",
-            "geometry_properties",
-            "list_attributes",
-            "query_by_attribute",
+        garden_root: Annotated[
+            str,
+            Field(description="Root directory of the project Garden."),
+        ],
+        view: Annotated[
+            Literal[
+                "model_summary",
+                "properties_summary",
+                "geometry_properties",
+                "list_attributes",
+                "query_by_attribute",
+            ],
+            Field(description="Inspection view: model_summary, properties_summary, geometry_properties, list_attributes, or query_by_attribute."),
         ] = "model_summary",
-        model_target: dict[str, Any] | None = None,
-        target: dict[str, Any] | None = None,
-        attributes: list[str] | None = None,
-        attribute: str | None = None,
-        operator: Literal[
-            "==",
-            "!=",
-            "<",
-            "<=",
-            ">",
-            ">=",
-            "in",
-            "contains",
-            "equals",
-            "not_equals",
-            "gt",
-            "lt",
-            "gte",
-            "lte",
-        ]
-        | None = None,
-        value: Any = None,
-    ) -> dict[str, Any]:
+        model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+        ] = None,
+        target: Annotated[
+            BuildingObjectTargetRef | None,
+            Field(description="Target Dragonfly object for geometry_properties."),
+        ] = None,
+        attributes: Annotated[
+            list[str] | None,
+            Field(description="Specific geometry properties to return in geometry_properties."),
+        ] = None,
+        attribute: Annotated[
+            str | None,
+            Field(description="Room2D attribute name for view='query_by_attribute'."),
+        ] = None,
+        operator: Annotated[
+            Literal[
+                "==",
+                "!=",
+                "<",
+                "<=",
+                ">",
+                ">=",
+                "in",
+                "contains",
+                "equals",
+                "not_equals",
+                "gt",
+                "lt",
+                "gte",
+                "lte",
+            ]
+            | None,
+            Field(description="Comparison operator for query_by_attribute."),
+        ] = None,
+        value: Annotated[
+            Any,
+            Field(description="Comparison value for query_by_attribute."),
+        ] = None,
+    ) -> QueryResultModel:
         """Inspect Dragonfly model summaries, Energy/Radiance properties, geometry, or Room2D attributes."""
+        dumped_model_target = dump_target(model_target)
+        dumped_target = dump_target(target)
+
         if view == "model_summary":
-            return get_dragonfly_model_summary(
-                garden_root=garden_root,
-                model_target=model_target,
+            return validate_output(
+                QueryResultModel,
+                get_dragonfly_model_summary(
+                    garden_root=garden_root,
+                    model_target=dumped_model_target,
+                ),
             )
         if view == "properties_summary":
-            return get_dragonfly_properties_summary(
-                garden_root=garden_root,
-                model_target=model_target,
+            return validate_output(
+                QueryResultModel,
+                get_dragonfly_properties_summary(
+                    garden_root=garden_root,
+                    model_target=dumped_model_target,
+                ),
             )
         if view == "geometry_properties":
-            return get_dragonfly_geometry_properties(
-                garden_root=garden_root,
-                target=target,
-                model_target=model_target,
-                attributes=attributes,
+            return validate_output(
+                QueryResultModel,
+                get_dragonfly_geometry_properties(
+                    garden_root=garden_root,
+                    target=dumped_target,
+                    model_target=dumped_model_target,
+                    attributes=attributes,
+                ),
             )
         if view == "list_attributes":
-            return list_dragonfly_room2d_attributes(
-                garden_root=garden_root,
-                model_target=model_target,
+            return validate_output(
+                QueryResultModel,
+                list_dragonfly_room2d_attributes(
+                    garden_root=garden_root,
+                    model_target=dumped_model_target,
+                ),
             )
         if not attribute:
             raise ValueError("attribute is required for view='query_by_attribute'.")
-        return query_dragonfly_room2ds_by_attribute(
-            garden_root=garden_root,
-            attribute=attribute,
-            model_target=model_target,
-            operator=operator,
-            value=value,
+        return validate_output(
+            QueryResultModel,
+            query_dragonfly_room2ds_by_attribute(
+                garden_root=garden_root,
+                attribute=attribute,
+                model_target=dumped_model_target,
+                operator=operator,
+                value=value,
+            ),
         )
 
     @mcp.tool(
@@ -1018,33 +1740,72 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def DF_Search_Objects(
-        garden_root: str,
-        model_target: dict[str, Any] | None = None,
-        object_type: Literal["all", "building", "story", "room2d", "context_shade"] = "all",
-        identifier: str | None = None,
-        query: str | None = None,
-        building_identifier: str | None = None,
-        story_identifier: str | None = None,
-        children_scope: Literal["none", "direct", "all"] | None = None,
-        include_counts: bool = False,
-        include_geometry: bool = False,
-        include_properties: bool = False,
-        limit: int | None = None,
-    ) -> dict[str, Any]:
+        garden_root: Annotated[
+            str,
+            Field(description="Root directory of the project Garden."),
+        ],
+        model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+        ] = None,
+        object_type: Annotated[
+            Literal["all", "building", "story", "room2d", "context_shade"],
+            Field(description="Dragonfly object category filter: all, building, story, room2d, or context_shade."),
+        ] = "all",
+        identifier: Annotated[
+            str | None,
+            Field(description="Exact object identifier filter."),
+        ] = None,
+        query: Annotated[
+            str | None,
+            Field(description="Case-insensitive substring search across identifiers and display names."),
+        ] = None,
+        building_identifier: Annotated[
+            str | None,
+            Field(description="Restrict search to objects within this Building ID."),
+        ] = None,
+        story_identifier: Annotated[
+            str | None,
+            Field(description="Restrict search to objects within this Story ID."),
+        ] = None,
+        children_scope: Annotated[
+            Literal["none", "direct", "all"] | BuildingObjectTargetRef | None,
+            Field(description="Children expansion depth ('none', 'direct', 'all') or parent object target."),
+        ] = None,
+        include_counts: Annotated[
+            bool,
+            Field(description="Include child object counts per match."),
+        ] = False,
+        include_geometry: Annotated[
+            bool,
+            Field(description="Include footprint/geometry fields in matches."),
+        ] = False,
+        include_properties: Annotated[
+            bool,
+            Field(description="Include Energy/Radiance property summaries in matches."),
+        ] = False,
+        limit: Annotated[
+            int | None,
+            Field(ge=1, description="Maximum number of matches returned."),
+        ] = None,
+    ) -> QueryResultModel:
         """Search and inspect Dragonfly Buildings, Stories, Room2Ds, or ContextShades."""
-        return search_dragonfly_model_objects(
-            garden_root=garden_root,
-            model_target=model_target,
-            object_type=object_type,
-            identifier=identifier,
-            query=query,
-            building_identifier=building_identifier,
-            story_identifier=story_identifier,
-            children_scope=children_scope,
-            include_counts=include_counts,
-            include_geometry=include_geometry,
-            include_properties=include_properties,
-            limit=limit,
+        return validate_output(
+            QueryResultModel,
+            search_dragonfly_model_objects(
+                garden_root=garden_root,
+                model_target=dump_target(model_target),
+                object_type=object_type,
+                identifier=identifier,
+                query=query,
+                building_identifier=building_identifier,
+                story_identifier=story_identifier,
+                children_scope=dump_input(children_scope),
+                include_counts=include_counts,
+                include_geometry=include_geometry,
+                include_properties=include_properties,
+                limit=limit,
+            ),
         )
 
     @mcp.tool(
@@ -1053,109 +1814,205 @@ def register(mcp: FastMCP) -> None:
         timeout=60,
     )
     def DF_Transfer_Model(
-        garden_root: str,
-        operation: Literal["import_file", "export_file", "to_honeybee", "from_honeybee"],
-        model_target: dict[str, Any] | None = None,
+        garden_root: Annotated[
+            str,
+            Field(description="Root directory of the project Garden."),
+        ],
+        operation: Annotated[
+            Literal["import_file", "export_file", "to_honeybee", "from_honeybee"],
+            Field(description="Transfer mode: import_file, export_file, to_honeybee, or from_honeybee."),
+        ],
+        model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+        ] = None,
         # import_file / export_file parameters
-        file_path: str | None = None,
-        file_type: Literal[
-            "dfjson",
-            "geojson",
-            "dfpkl",
-            "pomf",
-            "osm",
-            "idf",
-            "gbxml",
-            "sdd",
-            "rad",
-            "rad_folder",
-        ]
-        | None = None,
-        identifier: str | None = None,
-        artifact_name: str | None = None,
-        set_base: bool = True,
-        include_body: bool = False,
-        location: dict[str, Any] | None = None,
-        point: list[float] | None = None,
-        all_polygons_to_buildings: bool = False,
-        existing_to_context: bool = False,
-        units: str = "Meters",
-        tolerance: float | None = None,
-        angle_tolerance: float = 1.0,
+        file_path: Annotated[
+            str | None,
+            Field(description="Source file path for import_file (or destination path for export_file)."),
+        ] = None,
+        file_type: Annotated[
+            Literal[
+                "dfjson",
+                "geojson",
+                "dfpkl",
+                "pomf",
+                "osm",
+                "idf",
+                "gbxml",
+                "sdd",
+                "rad",
+                "rad_folder",
+            ]
+            | None,
+            Field(description="Model interchange format: dfjson, geojson, dfpkl, pomf, osm, idf, gbxml, sdd, rad, or rad_folder."),
+        ] = None,
+        identifier: Annotated[
+            str | None,
+            Field(description="Identifier for newly imported or converted Model."),
+        ] = None,
+        artifact_name: Annotated[
+            str | None,
+            Field(description="Base filename for exported model artifact."),
+        ] = None,
+        set_base: Annotated[
+            bool,
+            Field(description="Set the resulting Model as the active Garden base model."),
+        ] = True,
+        include_body: Annotated[
+            bool,
+            Field(description="Include serialized model dictionary in response."),
+        ] = False,
+        location: Annotated[
+            dict[str, Any] | None,
+            Field(description="Ladybug Location dict for GeoJSON origin projection."),
+        ] = None,
+        point: Annotated[
+            list[float] | None,
+            Field(description="Reference 2D [lon, lat] point for GeoJSON projection."),
+        ] = None,
+        all_polygons_to_buildings: Annotated[
+            bool,
+            Field(description="Convert all GeoJSON polygons to Buildings instead of context."),
+        ] = False,
+        existing_to_context: Annotated[
+            bool,
+            Field(description="Import existing GeoJSON footprints as ContextShades."),
+        ] = False,
+        units: Annotated[
+            Literal["Meters", "Millimeters", "Feet", "Inches", "Centimeters"],
+            Field(description="Model length units for file import."),
+        ] = "Meters",
+        tolerance: Annotated[
+            float | None,
+            Field(gt=0.0, description="Geometric tolerance override."),
+        ] = None,
+        angle_tolerance: Annotated[
+            float,
+            Field(gt=0.0, description="Angular tolerance in degrees."),
+        ] = 1.0,
         # to_honeybee parameters
-        object_per_model: Literal["District", "Building", "Story", "Room2D"] = "Building",
-        shade_distance: float | None = None,
-        use_multiplier: bool = True,
-        exclude_plenums: bool = False,
-        cap: bool = False,
-        solve_ceiling_adjacencies: bool = False,
-        merge_method: str | None = None,
-        enforce_adj: bool = True,
-        enforce_solid: bool = True,
+        object_per_model: Annotated[
+            Literal["District", "Building", "Story", "Room2D"],
+            Field(description="Honeybee conversion granularity: District, Building, Story, or Room2D."),
+        ] = "Building",
+        shade_distance: Annotated[
+            float | None,
+            Field(ge=0.0, description="Maximum distance for transferring neighbor context shades."),
+        ] = None,
+        use_multiplier: Annotated[
+            bool,
+            Field(description="Use Honeybee Zone multipliers instead of expanding stories."),
+        ] = True,
+        exclude_plenums: Annotated[
+            bool,
+            Field(description="Exclude plenum stories during Dragonfly-to-Honeybee conversion."),
+        ] = False,
+        cap: Annotated[
+            bool,
+            Field(description="Cap solid ceiling/floor boundary conditions on multiplied stories."),
+        ] = False,
+        solve_ceiling_adjacencies: Annotated[
+            bool,
+            Field(description="Solve vertical floor/ceiling adjacencies between stacked stories."),
+        ] = False,
+        merge_method: Annotated[
+            Literal["None", "Zones", "PlenumZones", "Stories", "PlenumStories"] | None,
+            Field(description="Room2D coplanar merging strategy: None, Zones, PlenumZones, Stories, or PlenumStories."),
+        ] = None,
+        enforce_adj: Annotated[
+            bool,
+            Field(description="Enforce adjacent wall matching when exporting to Honeybee."),
+        ] = True,
+        enforce_solid: Annotated[
+            bool,
+            Field(description="Enforce closed Room volumes when exporting to Honeybee."),
+        ] = True,
         # from_honeybee parameters
-        honeybee_model_target: dict[str, Any] | None = None,
-        conversion_method: Literal["AllRoom2D", "ExtrudedOnly"] = "AllRoom2D",
-    ) -> dict[str, Any]:
+        honeybee_model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Source Honeybee Model target for operation='from_honeybee'."),
+        ] = None,
+        conversion_method: Annotated[
+            Literal["AllRoom2D", "ExtrudedOnly"],
+            Field(description="Honeybee-to-Dragonfly strategy: AllRoom2D or ExtrudedOnly."),
+        ] = "AllRoom2D",
+    ) -> ArtifactResultModel:
         """Import or export DFJSON/GeoJSON/DFPKL/POMF/OSM/IDF/gbXML/SDD/RAD files, or convert between Dragonfly and Honeybee."""
+        dumped_model_target = dump_target(model_target)
+        dumped_hb_target = dump_target(honeybee_model_target)
+
         if operation == "import_file":
             if not file_path or not file_type:
                 raise ValueError(
                     "file_path and file_type are required for operation='import_file'."
                 )
-            return import_dragonfly_model_file(
-                garden_root=garden_root,
-                file_path=file_path,
-                file_type=file_type,
-                identifier=identifier,
-                set_base=set_base,
-                include_body=include_body,
-                location=location,
-                point=point,
-                all_polygons_to_buildings=all_polygons_to_buildings,
-                existing_to_context=existing_to_context,
-                units=units,
-                tolerance=tolerance,
-                angle_tolerance=angle_tolerance,
-                conversion_method=conversion_method,
+            return validate_output(
+                ArtifactResultModel,
+                import_dragonfly_model_file(
+                    garden_root=garden_root,
+                    file_path=file_path,
+                    file_type=file_type,
+                    identifier=identifier,
+                    set_base=set_base,
+                    include_body=include_body,
+                    location=location,
+                    point=point,
+                    all_polygons_to_buildings=all_polygons_to_buildings,
+                    existing_to_context=existing_to_context,
+                    units=units,
+                    tolerance=tolerance,
+                    angle_tolerance=angle_tolerance,
+                    conversion_method=conversion_method,
+                ),
             )
 
         if operation == "export_file":
             if not file_type:
                 raise ValueError("file_type is required for operation='export_file'.")
-            return export_dragonfly_model_file(
-                garden_root=garden_root,
-                model_target=model_target,
-                file_type=file_type,
-                artifact_name=artifact_name,
-                include_body=include_body,
-                location=location,
-                point=point,
-                tolerance=tolerance,
+            return validate_output(
+                ArtifactResultModel,
+                export_dragonfly_model_file(
+                    garden_root=garden_root,
+                    model_target=dumped_model_target,
+                    file_type=file_type,
+                    artifact_name=artifact_name,
+                    include_body=include_body,
+                    location=location,
+                    point=point,
+                    tolerance=tolerance,
+                ),
             )
 
         if operation == "to_honeybee":
-            return dragonfly_model_to_honeybee(
-                garden_root=garden_root,
-                model_target=model_target,
-                object_per_model=object_per_model,
-                shade_distance=shade_distance,
-                use_multiplier=use_multiplier,
-                exclude_plenums=exclude_plenums,
-                cap=cap,
-                solve_ceiling_adjacencies=solve_ceiling_adjacencies,
-                merge_method=merge_method,
-                tolerance=tolerance,
-                enforce_adj=enforce_adj,
-                enforce_solid=enforce_solid,
-                set_base=set_base,
+            return validate_output(
+                ArtifactResultModel,
+                dragonfly_model_to_honeybee(
+                    garden_root=garden_root,
+                    model_target=dumped_model_target,
+                    object_per_model=object_per_model,
+                    shade_distance=shade_distance,
+                    use_multiplier=use_multiplier,
+                    exclude_plenums=exclude_plenums,
+                    cap=cap,
+                    solve_ceiling_adjacencies=solve_ceiling_adjacencies,
+                    merge_method=merge_method,
+                    tolerance=tolerance,
+                    enforce_adj=enforce_adj,
+                    enforce_solid=enforce_solid,
+                    set_base=set_base,
+                ),
             )
 
-        return honeybee_model_to_dragonfly(
-            garden_root=garden_root,
-            identifier=identifier or "dragonfly_from_honeybee",
-            honeybee_model_target=honeybee_model_target,
-            conversion_method=conversion_method,
-            set_base=set_base,
+        return validate_output(
+            ArtifactResultModel,
+            honeybee_model_to_dragonfly(
+                garden_root=garden_root,
+                identifier=identifier or "dragonfly_from_honeybee",
+                honeybee_model_target=dumped_hb_target,
+                conversion_method=conversion_method,
+                set_base=set_base,
+            ),
         )
 
     @mcp.tool(
@@ -1164,83 +2021,192 @@ def register(mcp: FastMCP) -> None:
         timeout=45,
     )
     def DF_To_Visualization_Set(
-        garden_root: str,
-        mode: Literal[
-            "model",
-            "targets",
-            "attribute",
-            "envelope_edges",
-            "comparison",
-            "opening_projection",
+        garden_root: Annotated[
+            str,
+            Field(description="Root directory of the project Garden."),
+        ],
+        mode: Annotated[
+            Literal[
+                "model",
+                "targets",
+                "attribute",
+                "envelope_edges",
+                "comparison",
+                "opening_projection",
+            ],
+            Field(description="Visualization mode: model, targets, attribute, envelope_edges, comparison, or opening_projection."),
         ] = "model",
-        model_target: dict[str, Any] | None = None,
+        model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+        ] = None,
         # targets mode
-        target: dict[str, Any] | None = None,
-        targets: list[dict[str, Any]] | None = None,
-        selection: dict[str, Any] | None = None,
+        target: Annotated[
+            BuildingObjectTargetRef | None,
+            Field(description="Single Dragonfly object target for mode='targets'."),
+        ] = None,
+        targets: Annotated[
+            list[BuildingObjectTargetRef] | None,
+            Field(description="List of Dragonfly object targets for mode='targets'."),
+        ] = None,
+        selection: Annotated[
+            dict[str, Any] | None,
+            Field(description="Selection payload dict from DF_Search_Objects for mode='targets'."),
+        ] = None,
         # attribute mode
-        attribute_result: dict[str, Any] | None = None,
-        attribute: str | None = None,
-        room_attrs: list[Any] | None = None,
-        face_attrs: list[Any] | None = None,
+        attribute_result: Annotated[
+            dict[str, Any] | None,
+            Field(description="Attribute query result dict for mode='attribute'."),
+        ] = None,
+        attribute: Annotated[
+            str | None,
+            Field(description="Room2D/Face attribute name to visualize in mode='attribute'."),
+        ] = None,
+        room_attrs: Annotated[
+            list[Any] | None,
+            Field(description="Room attribute specs for Dragonfly display."),
+        ] = None,
+        face_attrs: Annotated[
+            list[Any] | None,
+            Field(description="Face attribute specs for Dragonfly display."),
+        ] = None,
         # comparison / opening_projection mode
-        base_model_target: dict[str, Any] | None = None,
-        incoming_model_target: dict[str, Any] | None = None,
-        honeybee_model_target: dict[str, Any] | None = None,
-        wall_modifier_data: Any = None,
-        projection_distance: float = 0,
-        angle_tolerance: float | None = None,
-        exclude_existing_openings: bool = True,
+        base_model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Baseline Dragonfly Model target for mode='comparison'."),
+        ] = None,
+        incoming_model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Modified Dragonfly Model target for mode='comparison'."),
+        ] = None,
+        honeybee_model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Honeybee Model target for mode='opening_projection'."),
+        ] = None,
+        wall_modifier_data: Annotated[
+            Any,
+            Field(description="Optional wall modifier data for mode='opening_projection'."),
+        ] = None,
+        projection_distance: Annotated[
+            float,
+            Field(description="Maximum aperture projection distance for opening_projection."),
+        ] = 0,
+        angle_tolerance: Annotated[
+            float | None,
+            Field(gt=0.0, description="Angular tolerance in degrees for opening_projection."),
+        ] = None,
+        exclude_existing_openings: Annotated[
+            bool,
+            Field(description="Skip Room2Ds that already have window parameters in opening_projection."),
+        ] = True,
         # model mode options
-        view_mode: str | None = None,
-        use_multiplier: bool = True,
-        exclude_plenums: bool = False,
-        solve_ceiling_adjacencies: bool = False,
-        merge_method: str = "None",
-        color_by: str | None = "type",
-        include_wireframe: bool = True,
-        use_mesh: bool = True,
-        hide_color_by: bool = False,
-        grid_display_mode: str = "Default",
-        hide_grid: bool = False,
-        reset_coordinates: bool = False,
+        view_mode: Annotated[
+            Literal["quick", "all", "floors", "wireframe", "custom"] | None,
+            Field(description="Display preset for mode='model': quick, all, floors, wireframe, or custom."),
+        ] = None,
+        use_multiplier: Annotated[
+            bool,
+            Field(description="Display geometry with Story multipliers or expand."),
+        ] = True,
+        exclude_plenums: Annotated[
+            bool,
+            Field(description="Hide plenum stories in visualization."),
+        ] = False,
+        solve_ceiling_adjacencies: Annotated[
+            bool,
+            Field(description="Solve ceiling/floor adjacencies in visualization preview."),
+        ] = False,
+        merge_method: Annotated[
+            Literal["None", "Zones", "PlenumZones", "Stories", "PlenumStories"],
+            Field(description="Room2D merging method for visualization."),
+        ] = "None",
+        color_by: Annotated[
+            Literal["type", "boundary_condition", "None", "none"] | None,
+            Field(description="Face coloring mode: 'type', 'boundary_condition', or 'None'."),
+        ] = "type",
+        include_wireframe: Annotated[
+            bool,
+            Field(description="Include wireframe outlines in VisualizationSet."),
+        ] = True,
+        use_mesh: Annotated[
+            bool,
+            Field(description="Use triangulated meshes instead of Face3D."),
+        ] = True,
+        hide_color_by: Annotated[
+            bool,
+            Field(description="Hide colored face geometry layer initially."),
+        ] = False,
+        grid_display_mode: Annotated[
+            Literal["Default", "Points", "Wireframe", "Surface", "SurfaceWithEdges", "None"],
+            Field(description="Sensor grid display mode."),
+        ] = "Default",
+        hide_grid: Annotated[
+            bool,
+            Field(description="Hide sensor grids layer initially."),
+        ] = False,
+        reset_coordinates: Annotated[
+            bool,
+            Field(description="Translate model near world origin in visualization."),
+        ] = False,
         # envelope_edges options
-        coplanar_type: str = "FloorPlatesOnly",
-        mullion_thickness: float | None = None,
+        coplanar_type: Annotated[
+            Literal["None", "FloorPlatesOnly", "All"],
+            Field(description="Coplanar edge filter for envelope_edges: None, FloorPlatesOnly, or All."),
+        ] = "FloorPlatesOnly",
+        mullion_thickness: Annotated[
+            float | None,
+            Field(gt=0.0, description="Optional mullion width for envelope_edges visualization."),
+        ] = None,
         # common output options
-        name: str | None = None,
-        return_visualization_set: bool = True,
-    ) -> dict[str, Any]:
+        name: Annotated[
+            str | None,
+            Field(description="Optional VisualizationSet display name."),
+        ] = None,
+        return_visualization_set: Annotated[
+            bool,
+            Field(description="Include full VisualizationSet dictionary in response."),
+        ] = True,
+    ) -> MutationResultModel:
         """Convert a Dragonfly Model, targets/selection, attributes, edges, opening projection, or diff to VisualizationSet."""
+        dumped_model_target = dump_target(model_target)
+        dumped_target = dump_target(target)
+        dumped_targets = dump_targets(targets)
+
         if mode == "model":
-            return dragonfly_model_to_visualization_set(
-                garden_root=garden_root,
-                model_target=model_target,
-                view_mode=view_mode,
-                use_multiplier=use_multiplier,
-                exclude_plenums=exclude_plenums,
-                solve_ceiling_adjacencies=solve_ceiling_adjacencies,
-                merge_method=merge_method,
-                color_by=color_by,
-                include_wireframe=include_wireframe,
-                use_mesh=use_mesh,
-                hide_color_by=hide_color_by,
-                grid_display_mode=grid_display_mode,
-                hide_grid=hide_grid,
-                reset_coordinates=reset_coordinates,
-                name=name,
-                return_visualization_set=return_visualization_set,
+            return validate_output(
+                MutationResultModel,
+                dragonfly_model_to_visualization_set(
+                    garden_root=garden_root,
+                    model_target=dumped_model_target,
+                    view_mode=view_mode,
+                    use_multiplier=use_multiplier,
+                    exclude_plenums=exclude_plenums,
+                    solve_ceiling_adjacencies=solve_ceiling_adjacencies,
+                    merge_method=merge_method,
+                    color_by=color_by,
+                    include_wireframe=include_wireframe,
+                    use_mesh=use_mesh,
+                    hide_color_by=hide_color_by,
+                    grid_display_mode=grid_display_mode,
+                    hide_grid=hide_grid,
+                    reset_coordinates=reset_coordinates,
+                    name=name,
+                    return_visualization_set=return_visualization_set,
+                ),
             )
 
         if mode == "targets":
-            return dragonfly_targets_to_visualization_set(
-                garden_root=garden_root,
-                target=target,
-                selection=selection,
-                targets=targets,
-                model_target=model_target,
-                name=name,
-                return_visualization_set=return_visualization_set,
+            return validate_output(
+                MutationResultModel,
+                dragonfly_targets_to_visualization_set(
+                    garden_root=garden_root,
+                    target=dumped_target,
+                    selection=dump_input(selection),
+                    targets=dumped_targets,
+                    model_target=dumped_model_target,
+                    name=name,
+                    return_visualization_set=return_visualization_set,
+                ),
             )
 
         if mode == "attribute":
@@ -1253,57 +2219,71 @@ def register(mcp: FastMCP) -> None:
                 raise ValueError(
                     "Provide attribute_result, attribute, room_attrs, or face_attrs for mode='attribute'."
                 )
-            return dragonfly_room2d_attribute_to_visualization_set(
-                garden_root=garden_root,
-                attribute_result=attribute_result,
-                attribute=attribute,
-                room_attrs=room_attrs,
-                face_attrs=face_attrs,
-                model_target=model_target,
-                name=name,
-                return_visualization_set=return_visualization_set,
+            return validate_output(
+                MutationResultModel,
+                dragonfly_room2d_attribute_to_visualization_set(
+                    garden_root=garden_root,
+                    attribute_result=dump_input(attribute_result),
+                    attribute=attribute,
+                    room_attrs=dump_input(room_attrs),
+                    face_attrs=dump_input(face_attrs),
+                    model_target=dumped_model_target,
+                    name=name,
+                    return_visualization_set=return_visualization_set,
+                ),
             )
 
         if mode == "envelope_edges":
-            return dragonfly_model_envelope_edges_to_visualization_set(
-                garden_root=garden_root,
-                model_target=model_target,
-                coplanar_type=coplanar_type,
-                mullion_thickness=mullion_thickness,
-                reset_coordinates=reset_coordinates,
-                name=name,
-                return_visualization_set=return_visualization_set,
+            return validate_output(
+                MutationResultModel,
+                dragonfly_model_envelope_edges_to_visualization_set(
+                    garden_root=garden_root,
+                    model_target=dumped_model_target,
+                    coplanar_type=coplanar_type,
+                    mullion_thickness=mullion_thickness,
+                    reset_coordinates=reset_coordinates,
+                    name=name,
+                    return_visualization_set=return_visualization_set,
+                ),
             )
 
         if mode == "opening_projection":
-            return dragonfly_opening_projection_to_visualization_set(
-                garden_root=garden_root,
-                honeybee_model_target=honeybee_model_target,
-                model_target=model_target,
-                wall_modifier_data=wall_modifier_data,
-                projection_distance=projection_distance,
-                angle_tolerance=angle_tolerance,
-                exclude_existing_openings=exclude_existing_openings,
-                reset_coordinates=reset_coordinates,
-                name=name,
-                return_visualization_set=return_visualization_set,
+            return validate_output(
+                MutationResultModel,
+                dragonfly_opening_projection_to_visualization_set(
+                    garden_root=garden_root,
+                    honeybee_model_target=dump_target(honeybee_model_target),
+                    model_target=dumped_model_target,
+                    wall_modifier_data=dump_input(wall_modifier_data),
+                    projection_distance=projection_distance,
+                    angle_tolerance=angle_tolerance,
+                    exclude_existing_openings=exclude_existing_openings,
+                    reset_coordinates=reset_coordinates,
+                    name=name,
+                    return_visualization_set=return_visualization_set,
+                ),
             )
 
-        if base_model_target is None or incoming_model_target is None:
+        dumped_base = dump_target(base_model_target)
+        dumped_incoming = dump_target(incoming_model_target)
+        if dumped_base is None or dumped_incoming is None:
             raise ValueError(
                 "base_model_target and incoming_model_target are required for mode='comparison'."
             )
-        return dragonfly_models_to_comparison_visualization_set(
-            garden_root=garden_root,
-            base_model_target=base_model_target,
-            incoming_model_target=incoming_model_target,
-            use_multiplier=use_multiplier,
-            exclude_plenums=exclude_plenums,
-            solve_ceiling_adjacencies=solve_ceiling_adjacencies,
-            merge_method=merge_method,
-            reset_coordinates=reset_coordinates,
-            name=name,
-            return_visualization_set=return_visualization_set,
+        return validate_output(
+            MutationResultModel,
+            dragonfly_models_to_comparison_visualization_set(
+                garden_root=garden_root,
+                base_model_target=dumped_base,
+                incoming_model_target=dumped_incoming,
+                use_multiplier=use_multiplier,
+                exclude_plenums=exclude_plenums,
+                solve_ceiling_adjacencies=solve_ceiling_adjacencies,
+                merge_method=merge_method,
+                reset_coordinates=reset_coordinates,
+                name=name,
+                return_visualization_set=return_visualization_set,
+            ),
         )
 
     @mcp.tool(
@@ -1312,11 +2292,20 @@ def register(mcp: FastMCP) -> None:
         timeout=30,
     )
     def DF_Validate_Model(
-        garden_root: str,
-        model_target: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        garden_root: Annotated[
+            str,
+            Field(description="Root directory of the project Garden."),
+        ],
+        model_target: Annotated[
+            BuildingModelTargetRef | None,
+            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+        ] = None,
+    ) -> ValidationResultModel:
         """Validate a Dragonfly Model for geometry, adjacency, and property issues."""
-        return validate_dragonfly_model(
-            garden_root=garden_root,
-            model_target=model_target,
+        return validate_output(
+            ValidationResultModel,
+            validate_dragonfly_model(
+                garden_root=garden_root,
+                model_target=dump_target(model_target),
+            ),
         )

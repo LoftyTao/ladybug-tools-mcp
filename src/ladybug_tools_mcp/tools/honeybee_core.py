@@ -7,6 +7,20 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import (
+    ArtifactTargetRef,
+    BuildingModelTargetRef,
+    BuildingObjectTargetRef,
+    LibraryObjectTargetRef,
+    MutationResultModel,
+    QueryResultModel,
+    ValidationResultModel,
+    dump_input,
+    dump_target,
+    dump_targets,
+    validate_output,
+)
+
 PostprocessStrategy = Literal[
     "none",
     "suggest_validate",
@@ -60,10 +74,10 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         tolerance: Annotated[
-            float | None, Field(description="Optional model tolerance.")
+            float | None, Field(gt=0, description="Optional model tolerance.")
         ] = None,
         angle_tolerance: Annotated[
-            float, Field(description="Model angle tolerance.")
+            float, Field(gt=0, description="Model angle tolerance.")
         ] = 1.0,
         geometry_to_faces: Annotated[
             bool,
@@ -109,7 +123,7 @@ def register(mcp: FastMCP) -> None:
                 description="Optional postprocess strategy override (none, suggest_validate, auto_validate, auto_relate_existing_geometry, auto_relate_intersect_clone_single)."
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create or import a Honeybee Model."""
         if unit_system is not None:
             normalized_unit_system = unit_system.strip().lower()
@@ -132,12 +146,15 @@ def register(mcp: FastMCP) -> None:
                     import_honeybee_model_with_postprocess as import_service,
                 )
 
-                return import_service(
-                    garden_root=garden_root,
-                    file_path=import_file_path,
-                    identifier=identifier,
-                    set_base=set_base,
-                    postprocess_strategy=postprocess_strategy,
+                return validate_output(
+                    MutationResultModel,
+                    import_service(
+                        garden_root=garden_root,
+                        file_path=import_file_path,
+                        identifier=identifier,
+                        set_base=set_base,
+                        postprocess_strategy=postprocess_strategy,
+                    ),
                 )
             from garden.honeybee_core.model_io import (
                 import_honeybee_model_file,
@@ -162,7 +179,7 @@ def register(mcp: FastMCP) -> None:
                 reset_properties=reset_properties,
             )
             if postprocess_strategy is None or postprocess_strategy == "none":
-                return imported
+                return validate_output(MutationResultModel, imported)
             garden_root_path = Path(garden_root).expanduser().resolve()
             manifest, resolved_target = resolve_model_target(
                 garden_root_path,
@@ -194,7 +211,10 @@ def register(mcp: FastMCP) -> None:
                 imported["model_target"] = updated_target
                 imported["persistence_receipt"]["model_target"] = updated_target
                 imported["persistence_receipt"]["persisted_path"] = persisted_path
-            return attach_postprocess_result(imported, postprocess)
+            return validate_output(
+                MutationResultModel,
+                attach_postprocess_result(imported, postprocess),
+            )
 
         if not identifier or not identifier.strip():
             raise ValueError(
@@ -203,17 +223,20 @@ def register(mcp: FastMCP) -> None:
 
         from garden.honeybee_core.creation import create_honeybee_model as service
 
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            units=units,
-            tolerance=tolerance,
-            angle_tolerance=angle_tolerance,
-            save_back=save_back,
-            set_base=set_base,
-            include_body=include_body,
-            add_objects=add_objects,
-            postprocess_strategy=postprocess_strategy,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                identifier=identifier,
+                units=units,
+                tolerance=tolerance,
+                angle_tolerance=angle_tolerance,
+                save_back=save_back,
+                set_base=set_base,
+                include_body=include_body,
+                add_objects=dump_input(add_objects),
+                postprocess_strategy=postprocess_strategy,
+            ),
         )
 
     @mcp.tool(
@@ -257,7 +280,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model."
             ),
@@ -276,15 +299,15 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         x_dim: Annotated[
             float | None,
-            Field(description="For object_type='room': box width (with y_dim and height)."),
+            Field(gt=0, description="For object_type='room': box width (with y_dim and height)."),
         ] = None,
         y_dim: Annotated[
             float | None,
-            Field(description="For object_type='room': box depth (with x_dim and height)."),
+            Field(gt=0, description="For object_type='room': box depth (with x_dim and height)."),
         ] = None,
         height: Annotated[
             float | None,
-            Field(description="For object_type='room': box height (with x_dim and y_dim)."),
+            Field(gt=0, description="For object_type='room': box height (with x_dim and y_dim)."),
         ] = None,
         origin: Annotated[
             list[float] | dict[str, Any] | None,
@@ -299,7 +322,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         host_target: Annotated[
-            dict[str, Any] | None,
+            BuildingObjectTargetRef | None,
             Field(
                 description="For object_type='door': Honeybee Face typed target dict from HB_Search_Model_Objects."
             ),
@@ -307,19 +330,22 @@ def register(mcp: FastMCP) -> None:
         door_width: Annotated[
             float | None,
             Field(
-                description="For object_type='door': optional rectangular door width when geometry is omitted (defaults to 0.9)."
+                gt=0,
+                description="For object_type='door': optional rectangular door width when geometry is omitted (defaults to 0.9).",
             ),
         ] = None,
         door_height: Annotated[
             float,
             Field(
-                description="For object_type='door': optional rectangular door height when geometry is omitted."
+                gt=0,
+                description="For object_type='door': optional rectangular door height when geometry is omitted.",
             ),
         ] = 2.1,
         sill_height: Annotated[
             float,
             Field(
-                description="For object_type='door': optional sill offset above host wall base."
+                ge=0,
+                description="For object_type='door': optional sill offset above host wall base.",
             ),
         ] = 0.05,
         placement: Annotated[
@@ -337,20 +363,25 @@ def register(mcp: FastMCP) -> None:
                 description="Optional postprocess strategy override; defaults to auto_relate_intersect_clone_single for room/face/door."
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create one or more Honeybee Rooms, Faces, or Doors."""
+        raw_model_target = dump_target(model_target)
+        raw_host_target = dump_target(host_target)
         if items is not None:
             if identifier is not None:
                 raise ValueError("Provide either identifier (single) or items (batch), not both.")
             from garden.honeybee_core.creation import create_honeybee_objects_batch
 
-            return create_honeybee_objects_batch(
-                garden_root=garden_root,
-                object_type=object_type,
-                items=items,
-                model_target=model_target,
-                default_host_target=host_target,
-                postprocess_strategy=postprocess_strategy,
+            return validate_output(
+                MutationResultModel,
+                create_honeybee_objects_batch(
+                    garden_root=garden_root,
+                    object_type=object_type,
+                    items=dump_input(items),
+                    model_target=raw_model_target,
+                    default_host_target=raw_host_target,
+                    postprocess_strategy=postprocess_strategy,
+                ),
             )
 
         if not identifier or not identifier.strip():
@@ -361,46 +392,55 @@ def register(mcp: FastMCP) -> None:
         if object_type == "room":
             from garden.honeybee_core.creation import create_honeybee_room
 
-            return create_honeybee_room(
-                garden_root=garden_root,
-                identifier=identifier,
-                faces=faces,
-                room_geometry=room_geometry,
-                x_dim=x_dim,
-                y_dim=y_dim,
-                height=height,
-                origin=origin,
-                model_target=model_target,
-                postprocess_strategy=postprocess_strategy,
+            return validate_output(
+                MutationResultModel,
+                create_honeybee_room(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    faces=dump_input(faces),
+                    room_geometry=dump_input(room_geometry),
+                    x_dim=x_dim,
+                    y_dim=y_dim,
+                    height=height,
+                    origin=dump_input(origin),
+                    model_target=raw_model_target,
+                    postprocess_strategy=postprocess_strategy,
+                ),
             )
         if object_type == "face":
             if geometry is None:
                 raise ValueError("geometry is required when object_type is 'face'.")
             from garden.honeybee_core.creation import create_honeybee_face
 
-            return create_honeybee_face(
-                garden_root=garden_root,
-                identifier=identifier,
-                geometry=geometry,
-                model_target=model_target,
-                postprocess_strategy=postprocess_strategy,
+            return validate_output(
+                MutationResultModel,
+                create_honeybee_face(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    geometry=dump_input(geometry),
+                    model_target=raw_model_target,
+                    postprocess_strategy=postprocess_strategy,
+                ),
             )
-        if host_target is None:
+        if raw_host_target is None:
             raise ValueError("host_target is required when object_type is 'door'.")
         from garden.honeybee_core.creation import create_honeybee_door
 
-        return create_honeybee_door(
-            garden_root=garden_root,
-            identifier=identifier,
-            host_target=host_target,
-            geometry=geometry,
-            model_target=model_target,
-            is_glass=is_glass,
-            door_width=door_width,
-            door_height=door_height,
-            sill_height=sill_height,
-            placement=placement,
-            postprocess_strategy=postprocess_strategy,
+        return validate_output(
+            MutationResultModel,
+            create_honeybee_door(
+                garden_root=garden_root,
+                identifier=identifier,
+                host_target=raw_host_target,
+                geometry=dump_input(geometry),
+                model_target=raw_model_target,
+                is_glass=is_glass,
+                door_width=door_width,
+                door_height=door_height,
+                sill_height=sill_height,
+                placement=placement,
+                postprocess_strategy=postprocess_strategy,
+            ),
         )
 
     @mcp.tool(
@@ -439,13 +479,13 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = "parameters",
         host_target: Annotated[
-            dict[str, Any] | None,
+            BuildingObjectTargetRef | None,
             Field(
                 description="Single host Honeybee Face typed target from HB_Search_Model_Objects."
             ),
         ] = None,
         host_targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[BuildingObjectTargetRef] | None,
             Field(
                 description="Batch list of host Honeybee Face typed targets sharing top-level parameters."
             ),
@@ -457,7 +497,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model."
             ),
@@ -484,20 +524,22 @@ def register(mcp: FastMCP) -> None:
         ratio: Annotated[
             float | None,
             Field(
-                description="Aperture-to-face area ratio between 0 and 1 (for mode='parameters' with by_ratio, or mode='skylight_ratio')."
+                gt=0,
+                lt=1,
+                description="Aperture-to-face area ratio between 0 and 1 (for mode='parameters' with by_ratio, or mode='skylight_ratio').",
             ),
         ] = None,
         aperture_width: Annotated[
             float | None,
-            Field(description="For mode='parameters' + by_width_height: aperture width in model units."),
+            Field(gt=0, description="For mode='parameters' + by_width_height: aperture width in model units."),
         ] = None,
         aperture_height: Annotated[
             float | None,
-            Field(description="For mode='parameters' + by_width_height: aperture height in model units."),
+            Field(gt=0, description="For mode='parameters' + by_width_height: aperture height in model units."),
         ] = None,
         sill_height: Annotated[
             float,
-            Field(description="For mode='parameters' + by_width_height: sill height in model units."),
+            Field(ge=0, description="For mode='parameters' + by_width_height: sill height in model units."),
         ] = 1.0,
         aperture_identifier: Annotated[
             str | None,
@@ -511,7 +553,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         tolerance: Annotated[
             float,
-            Field(description="Geometry and ratio matching tolerance."),
+            Field(gt=0, description="Geometry and ratio matching tolerance."),
         ] = 0.01,
         rect_split: Annotated[
             bool,
@@ -527,33 +569,39 @@ def register(mcp: FastMCP) -> None:
                 description="Optional postprocess strategy override; defaults to auto_relate_intersect_clone_single for apertures."
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create Honeybee Apertures on one or more host Faces."""
-        if host_targets is not None or items is not None:
+        raw_host_target = dump_target(host_target)
+        raw_host_targets = dump_targets(host_targets)
+        raw_model_target = dump_target(model_target)
+        if raw_host_targets is not None or items is not None:
             from garden.honeybee_core.creation import create_honeybee_apertures_batch
 
-            return create_honeybee_apertures_batch(
-                garden_root=garden_root,
-                mode=mode,
-                host_target=host_target,
-                host_targets=host_targets,
-                items=items,
-                model_target=model_target,
-                generation_mode=generation_mode,
-                ratio=ratio,
-                aperture_width=aperture_width,
-                aperture_height=aperture_height,
-                sill_height=sill_height,
-                aperture_identifier=aperture_identifier,
-                identifier_prefix=identifier_prefix,
-                tolerance=tolerance,
-                rect_split=rect_split,
-                guide_surfaces=guide_surfaces,
-                is_operable=is_operable,
-                postprocess_strategy=postprocess_strategy,
+            return validate_output(
+                MutationResultModel,
+                create_honeybee_apertures_batch(
+                    garden_root=garden_root,
+                    mode=mode,
+                    host_target=raw_host_target,
+                    host_targets=raw_host_targets,
+                    items=dump_input(items),
+                    model_target=raw_model_target,
+                    generation_mode=generation_mode,
+                    ratio=ratio,
+                    aperture_width=aperture_width,
+                    aperture_height=aperture_height,
+                    sill_height=sill_height,
+                    aperture_identifier=aperture_identifier,
+                    identifier_prefix=identifier_prefix,
+                    tolerance=tolerance,
+                    rect_split=rect_split,
+                    guide_surfaces=dump_input(guide_surfaces),
+                    is_operable=is_operable,
+                    postprocess_strategy=postprocess_strategy,
+                ),
             )
 
-        if host_target is None:
+        if raw_host_target is None:
             raise ValueError(
                 "host_target is required for single-host aperture creation (or pass host_targets/items)."
             )
@@ -565,48 +613,57 @@ def register(mcp: FastMCP) -> None:
                 raise ValueError("geometry is required when mode is 'geometry'.")
             from garden.honeybee_core.creation import create_honeybee_aperture
 
-            return create_honeybee_aperture(
-                garden_root=garden_root,
-                identifier=identifier,
-                geometry=geometry,
-                host_target=host_target,
-                model_target=model_target,
-                is_operable=is_operable,
-                postprocess_strategy=postprocess_strategy,
+            return validate_output(
+                MutationResultModel,
+                create_honeybee_aperture(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    geometry=dump_input(geometry),
+                    host_target=raw_host_target,
+                    model_target=raw_model_target,
+                    is_operable=is_operable,
+                    postprocess_strategy=postprocess_strategy,
+                ),
             )
         if mode == "parameters":
             from garden.honeybee_core.creation import (
                 create_honeybee_apertures_by_parameters,
             )
 
-            return create_honeybee_apertures_by_parameters(
-                garden_root=garden_root,
-                host_target=host_target,
-                generation_mode=generation_mode,
-                model_target=model_target,
-                ratio=ratio,
-                aperture_width=aperture_width,
-                aperture_height=aperture_height,
-                sill_height=sill_height,
-                aperture_identifier=aperture_identifier,
-                identifier_prefix=identifier_prefix,
-                tolerance=tolerance,
-                rect_split=rect_split,
-                postprocess_strategy=postprocess_strategy,
+            return validate_output(
+                MutationResultModel,
+                create_honeybee_apertures_by_parameters(
+                    garden_root=garden_root,
+                    host_target=raw_host_target,
+                    generation_mode=generation_mode,
+                    model_target=raw_model_target,
+                    ratio=ratio,
+                    aperture_width=aperture_width,
+                    aperture_height=aperture_height,
+                    sill_height=sill_height,
+                    aperture_identifier=aperture_identifier,
+                    identifier_prefix=identifier_prefix,
+                    tolerance=tolerance,
+                    rect_split=rect_split,
+                    postprocess_strategy=postprocess_strategy,
+                ),
             )
         if mode == "skylight_ratio":
             if ratio is None:
                 raise ValueError("ratio is required when mode is 'skylight_ratio'.")
             from garden.honeybee_core.creation import create_honeybee_skylights_by_ratio
 
-            return create_honeybee_skylights_by_ratio(
-                garden_root=garden_root,
-                host_target=host_target,
-                ratio=ratio,
-                model_target=model_target,
-                tolerance=tolerance,
-                identifier_prefix=identifier_prefix,
-                postprocess_strategy=postprocess_strategy,
+            return validate_output(
+                MutationResultModel,
+                create_honeybee_skylights_by_ratio(
+                    garden_root=garden_root,
+                    host_target=raw_host_target,
+                    ratio=ratio,
+                    model_target=raw_model_target,
+                    tolerance=tolerance,
+                    identifier_prefix=identifier_prefix,
+                    postprocess_strategy=postprocess_strategy,
+                ),
             )
         if not guide_surfaces:
             raise ValueError("guide_surfaces is required when mode is 'guide_surface'.")
@@ -614,14 +671,17 @@ def register(mcp: FastMCP) -> None:
             create_honeybee_apertures_by_guide_surface,
         )
 
-        return create_honeybee_apertures_by_guide_surface(
-            garden_root=garden_root,
-            host_target=host_target,
-            guide_surfaces=guide_surfaces,
-            model_target=model_target,
-            tolerance=tolerance,
-            identifier_prefix=identifier_prefix,
-            postprocess_strategy=postprocess_strategy,
+        return validate_output(
+            MutationResultModel,
+            create_honeybee_apertures_by_guide_surface(
+                garden_root=garden_root,
+                host_target=raw_host_target,
+                guide_surfaces=dump_input(guide_surfaces),
+                model_target=raw_model_target,
+                tolerance=tolerance,
+                identifier_prefix=identifier_prefix,
+                postprocess_strategy=postprocess_strategy,
+            ),
         )
 
     @mcp.tool(
@@ -657,19 +717,19 @@ def register(mcp: FastMCP) -> None:
             Field(description="Shade creation mode: geometry (default) or parameters."),
         ] = "geometry",
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         host_target: Annotated[
-            dict[str, Any] | None,
+            BuildingObjectTargetRef | None,
             Field(
                 description="Optional host Room/Face/Aperture/Door typed target (required for mode='parameters'; omit for orphaned geometry shades)."
             ),
         ] = None,
         host_targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[BuildingObjectTargetRef] | None,
             Field(
                 description="Batch list of Face/Aperture typed targets for mode='parameters'."
             ),
@@ -716,23 +776,29 @@ def register(mcp: FastMCP) -> None:
                 description="Optional postprocess strategy override; defaults to suggest_validate for shades."
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create one or more Honeybee Shades."""
-        if host_targets is not None or items is not None:
+        raw_model_target = dump_target(model_target)
+        raw_host_target = dump_target(host_target)
+        raw_host_targets = dump_targets(host_targets)
+        if raw_host_targets is not None or items is not None:
             from garden.honeybee_core.creation import create_honeybee_shades_batch
 
-            return create_honeybee_shades_batch(
-                garden_root=garden_root,
-                mode=mode,
-                host_target=host_target,
-                host_targets=host_targets,
-                items=items,
-                model_target=model_target,
-                attach_side=attach_side,
-                is_detached=is_detached,
-                generation_mode=generation_mode,
-                parameters=parameters,
-                postprocess_strategy=postprocess_strategy,
+            return validate_output(
+                MutationResultModel,
+                create_honeybee_shades_batch(
+                    garden_root=garden_root,
+                    mode=mode,
+                    host_target=raw_host_target,
+                    host_targets=raw_host_targets,
+                    items=dump_input(items),
+                    model_target=raw_model_target,
+                    attach_side=attach_side,
+                    is_detached=is_detached,
+                    generation_mode=generation_mode,
+                    parameters=dump_input(parameters),
+                    postprocess_strategy=postprocess_strategy,
+                ),
             )
 
         if mode == "geometry":
@@ -742,18 +808,21 @@ def register(mcp: FastMCP) -> None:
                 raise ValueError("geometry is required when mode is 'geometry'.")
             from garden.honeybee_core.creation import create_honeybee_shade
 
-            return create_honeybee_shade(
-                garden_root=garden_root,
-                identifier=identifier,
-                geometry=geometry,
-                model_target=model_target,
-                host_target=host_target,
-                attach_side=attach_side,
-                is_detached=is_detached,
-                postprocess_strategy=postprocess_strategy,
+            return validate_output(
+                MutationResultModel,
+                create_honeybee_shade(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    geometry=dump_input(geometry),
+                    model_target=raw_model_target,
+                    host_target=raw_host_target,
+                    attach_side=attach_side,
+                    is_detached=is_detached,
+                    postprocess_strategy=postprocess_strategy,
+                ),
             )
 
-        if host_target is None:
+        if raw_host_target is None:
             raise ValueError("host_target is required when mode is 'parameters'.")
         if not generation_mode:
             raise ValueError("generation_mode is required when mode is 'parameters'.")
@@ -761,13 +830,16 @@ def register(mcp: FastMCP) -> None:
             raise ValueError("parameters is required when mode is 'parameters'.")
         from garden.honeybee_core.creation import create_honeybee_shades_by_parameters
 
-        return create_honeybee_shades_by_parameters(
-            garden_root=garden_root,
-            host_target=host_target,
-            generation_mode=generation_mode,
-            parameters=parameters,
-            model_target=model_target,
-            postprocess_strategy=postprocess_strategy,
+        return validate_output(
+            MutationResultModel,
+            create_honeybee_shades_by_parameters(
+                garden_root=garden_root,
+                host_target=raw_host_target,
+                generation_mode=generation_mode,
+                parameters=dump_input(parameters),
+                model_target=raw_model_target,
+                postprocess_strategy=postprocess_strategy,
+            ),
         )
 
     @mcp.tool(
@@ -801,7 +873,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         target: Annotated[
-            dict[str, Any],
+            BuildingModelTargetRef,
             Field(
                 description=(
                     "Required Honeybee model target dict from HB_Create_Model, "
@@ -826,13 +898,13 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = True,
         tolerance: Annotated[
-            float | None, Field(description="Optional updated model tolerance.")
+            float | None, Field(gt=0, description="Optional updated model tolerance.")
         ] = None,
         angle_tolerance: Annotated[
-            float | None, Field(description="Optional updated model angle tolerance.")
+            float | None, Field(gt=0, description="Optional updated model angle tolerance.")
         ] = None,
         electric_load_center: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="Optional Honeybee Energy ElectricLoadCenter dict or Garden Properties Library electric_load_center target from EP_Create_PV_Or_Load_Center."
             ),
@@ -844,31 +916,31 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         add_sensor_grids: Annotated[
-            list[dict[str, Any]] | None,
+            list[ArtifactTargetRef] | None,
             Field(
                 description="Optional list of existing radiance_sensor_grid target dicts to attach to Honeybee Model Radiance properties."
             ),
         ] = None,
         radiance_sensor_grid_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(
                 description="Optional single radiance_sensor_grid target dict; converted into add_sensor_grids=[target]."
             ),
         ] = None,
         add_radiance_views: Annotated[
-            list[dict[str, Any]] | None,
+            list[ArtifactTargetRef] | None,
             Field(
                 description="Optional list of existing radiance_view target dicts to attach to Honeybee Model Radiance properties."
             ),
         ] = None,
         radiance_view_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(
                 description="Optional single radiance_view target dict; converted into add_radiance_views=[target]."
             ),
         ] = None,
         remove_targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[BuildingObjectTargetRef] | None,
             Field(
                 description="Optional Honeybee typed targets from HB_Search_Model_Objects to remove from the model (top-level Room and orphaned objects)."
             ),
@@ -879,7 +951,7 @@ def register(mcp: FastMCP) -> None:
                 description="Optional postprocess strategy override; defaults to auto_validate for model edits."
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Edit a Honeybee Model."""
         from garden.honeybee_core.edit import edit_honeybee_model as service
         from garden.radiance.assets import (
@@ -887,10 +959,17 @@ def register(mcp: FastMCP) -> None:
             attach_radiance_views_to_model,
         )
 
-        if add_sensor_grids is None and radiance_sensor_grid_target is not None:
-            add_sensor_grids = [radiance_sensor_grid_target]
-        if add_radiance_views is None and radiance_view_target is not None:
-            add_radiance_views = [radiance_view_target]
+        raw_target = dump_target(target) or {}
+        raw_sensor_grids = dump_targets(add_sensor_grids)
+        if raw_sensor_grids is None and radiance_sensor_grid_target is not None:
+            dumped_grid = dump_target(radiance_sensor_grid_target)
+            if dumped_grid is not None:
+                raw_sensor_grids = [dumped_grid]
+        raw_radiance_views = dump_targets(add_radiance_views)
+        if raw_radiance_views is None and radiance_view_target is not None:
+            dumped_view = dump_target(radiance_view_target)
+            if dumped_view is not None:
+                raw_radiance_views = [dumped_view]
         has_core_edits = any(
             value is not None
             for value in (
@@ -904,7 +983,7 @@ def register(mcp: FastMCP) -> None:
                 remove_targets,
             )
         )
-        if not has_core_edits and not add_sensor_grids and not add_radiance_views:
+        if not has_core_edits and not raw_sensor_grids and not raw_radiance_views:
             raise ValueError(
                 "HB_Edit_Model requires at least one model edit, add_sensor_grids, or add_radiance_views input."
             )
@@ -913,30 +992,30 @@ def register(mcp: FastMCP) -> None:
         if has_core_edits:
             result = service(
                 garden_root=garden_root,
-                target=target,
+                target=raw_target,
                 display_name=display_name,
                 user_data=user_data,
                 units=units,
                 convert_geometry=convert_geometry,
                 tolerance=tolerance,
                 angle_tolerance=angle_tolerance,
-                electric_load_center=electric_load_center,
-                add_objects=add_objects,
-                remove_targets=remove_targets,
+                electric_load_center=dump_input(electric_load_center),
+                add_objects=dump_input(add_objects),
+                remove_targets=dump_targets(remove_targets),
                 postprocess_strategy=postprocess_strategy,
             )
-            target = result.get("target") or result.get("model_target") or target
+            raw_target = result.get("target") or result.get("model_target") or raw_target
         else:
             result = {
-                "target": target,
-                "model_target": target,
-                "summary_view": {"model_identifier": target.get("identifier")},
+                "target": raw_target,
+                "model_target": raw_target,
+                "summary_view": {"model_identifier": raw_target.get("identifier")},
             }
-        if add_sensor_grids:
+        if raw_sensor_grids:
             attachment = attach_radiance_sensor_grids_to_model(
                 garden_root=garden_root,
-                model_target=target,
-                sensor_grid_targets=add_sensor_grids,
+                model_target=raw_target,
+                sensor_grid_targets=raw_sensor_grids,
             )
             result["target"] = attachment["target"]
             result["model_target"] = attachment["model_target"]
@@ -944,11 +1023,12 @@ def register(mcp: FastMCP) -> None:
             result.setdefault("summary_view", {}).update(
                 attachment.get("summary_view", {})
             )
-        if add_radiance_views:
+            raw_target = attachment["model_target"]
+        if raw_radiance_views:
             attachment = attach_radiance_views_to_model(
                 garden_root=garden_root,
-                model_target=target,
-                view_targets=add_radiance_views,
+                model_target=raw_target,
+                view_targets=raw_radiance_views,
             )
             result["target"] = attachment["target"]
             result["model_target"] = attachment["model_target"]
@@ -956,7 +1036,7 @@ def register(mcp: FastMCP) -> None:
             result.setdefault("summary_view", {}).update(
                 attachment.get("summary_view", {})
             )
-        return result
+        return validate_output(MutationResultModel, result)
 
     @mcp.tool(
         name="HB_Edit_Objects",
@@ -995,13 +1075,13 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         target: Annotated[
-            dict[str, Any] | str | None,
+            BuildingObjectTargetRef | str | None,
             Field(
                 description="Single Honeybee typed target from HB_Search_Model_Objects (or exact room identifier string with model_target). Mutually exclusive with targets and room_identifiers."
             ),
         ] = None,
         targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[BuildingObjectTargetRef] | None,
             Field(
                 description="Batch list of Honeybee object typed targets to update atomically in one save."
             ),
@@ -1013,7 +1093,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model."
             ),
@@ -1033,7 +1113,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         multiplier: Annotated[
             int | None,
-            Field(description="For Rooms: optional multiplier >= 1."),
+            Field(ge=1, description="For Rooms: optional multiplier >= 1."),
         ] = None,
         zone: Annotated[
             str | None, Field(description="For Rooms: optional Honeybee Room zone name.")
@@ -1058,77 +1138,77 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         program_type: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description="For Rooms: optional ProgramType dict, Garden target, or standards identifier."
             ),
         ] = None,
         construction_set: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description="For Rooms: optional ConstructionSet dict, Garden target, or standards identifier."
             ),
         ] = None,
         hvac: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="For Rooms: optional Honeybee Energy HVAC dict or Garden target."
             ),
         ] = None,
         people: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(description="For Rooms: optional People load dict, shorthand, or Garden load target."),
         ] = None,
         lighting: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(description="For Rooms: optional Lighting load dict, shorthand, or Garden load target."),
         ] = None,
         electric_equipment: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(description="For Rooms: optional ElectricEquipment load dict, shorthand, or Garden load target."),
         ] = None,
         gas_equipment: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(description="For Rooms: optional GasEquipment load dict, shorthand, or Garden load target."),
         ] = None,
         service_hot_water: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(description="For Rooms: optional ServiceHotWater load dict, shorthand, or Garden load target."),
         ] = None,
         infiltration: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(description="For Rooms: optional Infiltration load dict, shorthand, or Garden load target."),
         ] = None,
         ventilation: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="For Rooms: optional Honeybee Energy Ventilation dict or Garden load target."
             ),
         ] = None,
         exhaust: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(description="For Rooms: optional ExhaustAir dict or Garden target (requires honeybee-energy>=1.125)."),
         ] = None,
         zone_ventilation_fans: Annotated[
-            dict[str, Any] | list[dict[str, Any]] | None,
+            LibraryObjectTargetRef | dict[str, Any] | list[LibraryObjectTargetRef | dict[str, Any]] | None,
             Field(
                 description="For Rooms: optional fan target, list, or {operation: replace_all|add|clear, fans:[...]}."
             ),
         ] = None,
         process_loads: Annotated[
-            dict[str, Any] | list[dict[str, Any]] | None,
+            LibraryObjectTargetRef | dict[str, Any] | list[LibraryObjectTargetRef | dict[str, Any]] | None,
             Field(
                 description="For Rooms: optional Process load dict/target, list, or {operation: replace_all|add|clear, process_loads:[...]}."
             ),
         ] = None,
         internal_masses: Annotated[
-            dict[str, Any] | list[dict[str, Any]] | None,
+            LibraryObjectTargetRef | dict[str, Any] | list[LibraryObjectTargetRef | dict[str, Any]] | None,
             Field(
                 description="For Rooms: optional InternalMass dict/target, list, or {operation: replace_all|add|clear, internal_masses:[...]}."
             ),
         ] = None,
         shw: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(description="For Rooms: optional SHWSystem dict, shorthand, or Garden shw_system target."),
         ] = None,
         window_vent_control: Annotated[
@@ -1144,7 +1224,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="For Rooms: true or {conditioned, remove_infiltration, include_floor_area} to convert room into a plenum."),
         ] = None,
         make_ground: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(description="For Rooms: soil OpaqueConstruction (dict/target/identifier) or {soil_construction, include_floor_area} to convert room into ground."),
         ] = None,
         reset_fields: Annotated[
@@ -1152,13 +1232,13 @@ def register(mcp: FastMCP) -> None:
             Field(description="List of field names to clear back to None / program defaults (e.g. ['lighting', 'loads', 'hvac'])."),
         ] = None,
         setpoint: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="For Rooms: optional Honeybee Energy Setpoint dict or Garden target."
             ),
         ] = None,
         modifier_set: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description="For Rooms: optional Honeybee Radiance ModifierSet dict, Garden target, or standards identifier."
             ),
@@ -1190,7 +1270,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="For orphaned Shades: optional is_detached flag."),
         ] = None,
         construction: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description="For Faces/Apertures/Doors/Shades: optional Honeybee Energy construction dict, Garden target, or standards identifier."
             ),
@@ -1202,25 +1282,25 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         transmittance_schedule: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="For Shades: optional Honeybee Energy schedule dict or Garden target."
             ),
         ] = None,
         pv_properties: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="For Shades: optional Honeybee Energy PVProperties dict or Garden target."
             ),
         ] = None,
         modifier: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description="For Faces/Apertures/Doors/Shades: optional Radiance modifier dict, Garden target, or identifier."
             ),
         ] = None,
         modifier_blk: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description="For Faces/Apertures/Doors/Shades: optional Radiance black modifier dict, Garden target, or identifier."
             ),
@@ -1243,61 +1323,64 @@ def register(mcp: FastMCP) -> None:
                 description="Optional postprocess strategy override (none, suggest_validate, auto_validate, auto_relate_existing_geometry, auto_relate_intersect_clone_single)."
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Edit one or multiple Honeybee objects in one atomic save."""
         from garden.honeybee_core.edit import edit_honeybee_objects as service
 
-        return service(
-            garden_root=garden_root,
-            target=target,
-            targets=targets,
-            room_identifiers=room_identifiers,
-            model_target=model_target,
-            display_name=display_name,
-            user_data=user_data,
-            geometry=geometry,
-            multiplier=multiplier,
-            zone=zone,
-            story=story,
-            exclude_floor_area=exclude_floor_area,
-            energy_properties=energy_properties,
-            program_type=program_type,
-            construction_set=construction_set,
-            hvac=hvac,
-            people=people,
-            lighting=lighting,
-            electric_equipment=electric_equipment,
-            gas_equipment=gas_equipment,
-            service_hot_water=service_hot_water,
-            infiltration=infiltration,
-            ventilation=ventilation,
-            exhaust=exhaust,
-            zone_ventilation_fans=zone_ventilation_fans,
-            process_loads=process_loads,
-            internal_masses=internal_masses,
-            shw=shw,
-            window_vent_control=window_vent_control,
-            daylighting_control=daylighting_control,
-            make_plenum=make_plenum,
-            make_ground=make_ground,
-            reset_fields=reset_fields,
-            setpoint=setpoint,
-            modifier_set=modifier_set,
-            face_type=face_type,
-            boundary_condition=boundary_condition,
-            vent_crack=vent_crack,
-            is_operable=is_operable,
-            is_glass=is_glass,
-            is_detached=is_detached,
-            construction=construction,
-            vent_opening=vent_opening,
-            transmittance_schedule=transmittance_schedule,
-            pv_properties=pv_properties,
-            modifier=modifier,
-            modifier_blk=modifier_blk,
-            dynamic_group_identifier=dynamic_group_identifier,
-            states=states,
-            postprocess_strategy=postprocess_strategy,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                target=dump_input(target),
+                targets=dump_targets(targets),
+                room_identifiers=room_identifiers,
+                model_target=dump_target(model_target),
+                display_name=display_name,
+                user_data=user_data,
+                geometry=dump_input(geometry),
+                multiplier=multiplier,
+                zone=zone,
+                story=story,
+                exclude_floor_area=exclude_floor_area,
+                energy_properties=dump_input(energy_properties),
+                program_type=dump_input(program_type),
+                construction_set=dump_input(construction_set),
+                hvac=dump_input(hvac),
+                people=dump_input(people),
+                lighting=dump_input(lighting),
+                electric_equipment=dump_input(electric_equipment),
+                gas_equipment=dump_input(gas_equipment),
+                service_hot_water=dump_input(service_hot_water),
+                infiltration=dump_input(infiltration),
+                ventilation=dump_input(ventilation),
+                exhaust=dump_input(exhaust),
+                zone_ventilation_fans=dump_input(zone_ventilation_fans),
+                process_loads=dump_input(process_loads),
+                internal_masses=dump_input(internal_masses),
+                shw=dump_input(shw),
+                window_vent_control=dump_input(window_vent_control),
+                daylighting_control=dump_input(daylighting_control),
+                make_plenum=dump_input(make_plenum),
+                make_ground=dump_input(make_ground),
+                reset_fields=reset_fields,
+                setpoint=dump_input(setpoint),
+                modifier_set=dump_input(modifier_set),
+                face_type=dump_input(face_type),
+                boundary_condition=dump_input(boundary_condition),
+                vent_crack=dump_input(vent_crack),
+                is_operable=is_operable,
+                is_glass=is_glass,
+                is_detached=is_detached,
+                construction=dump_input(construction),
+                vent_opening=dump_input(vent_opening),
+                transmittance_schedule=dump_input(transmittance_schedule),
+                pv_properties=dump_input(pv_properties),
+                modifier=dump_input(modifier),
+                modifier_blk=dump_input(modifier_blk),
+                dynamic_group_identifier=dynamic_group_identifier,
+                states=dump_input(states),
+                postprocess_strategy=postprocess_strategy,
+            ),
         )
 
     @mcp.tool(
@@ -1335,19 +1418,19 @@ def register(mcp: FastMCP) -> None:
             Field(description="Required geometric transform operation: move, rotate, scale, or mirror."),
         ],
         target: Annotated[
-            dict[str, Any] | None,
+            BuildingObjectTargetRef | BuildingModelTargetRef | None,
             Field(
                 description="Single Honeybee model target or object typed target. Mutually exclusive with targets."
             ),
         ] = None,
         targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[BuildingObjectTargetRef | BuildingModelTargetRef] | None,
             Field(
                 description="Batch list of Honeybee model or object typed targets to transform in one save."
             ),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model unless target is a model target."
             ),
@@ -1376,7 +1459,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         factor: Annotated[
             float | None,
-            Field(description="Required for operation='scale': positive scale factor."),
+            Field(gt=0, description="Required for operation='scale': positive scale factor."),
         ] = None,
         plane: Annotated[
             dict[str, Any] | None,
@@ -1390,23 +1473,26 @@ def register(mcp: FastMCP) -> None:
                 description="Optional postprocess strategy override (none, suggest_validate, auto_validate, auto_relate_existing_geometry, auto_relate_intersect_clone_single)."
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Move, rotate, scale, or mirror Honeybee targets."""
         from garden.honeybee_core.transform import transform_objects as service
 
-        return service(
-            garden_root=garden_root,
-            operation=operation,
-            target=target,
-            targets=targets,
-            model_target=model_target,
-            vector=vector,
-            axis=axis,
-            angle_degrees=angle_degrees,
-            origin=origin,
-            factor=factor,
-            plane=plane,
-            postprocess_strategy=postprocess_strategy,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                operation=operation,
+                target=dump_target(target),
+                targets=dump_targets(targets),
+                model_target=dump_target(model_target),
+                vector=dump_input(vector),
+                axis=dump_input(axis),
+                angle_degrees=angle_degrees,
+                origin=dump_input(origin),
+                factor=factor,
+                plane=dump_input(plane),
+                postprocess_strategy=postprocess_strategy,
+            ),
         )
 
     @mcp.tool(
@@ -1438,19 +1524,19 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         target: Annotated[
-            dict[str, Any] | None,
+            BuildingObjectTargetRef | None,
             Field(
                 description="Single Honeybee object typed target from HB_Search_Model_Objects. Mutually exclusive with targets."
             ),
         ] = None,
         targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[BuildingObjectTargetRef] | None,
             Field(
                 description="Batch list of Honeybee object typed targets to remove in one save."
             ),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model."
             ),
@@ -1461,16 +1547,19 @@ def register(mcp: FastMCP) -> None:
                 description="Optional postprocess strategy override (none, suggest_validate, auto_validate, auto_relate_existing_geometry, auto_relate_intersect_clone_single)."
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Remove one or more Honeybee objects by typed target."""
         from garden.honeybee_core.removal import remove_honeybee_objects as service
 
-        return service(
-            garden_root=garden_root,
-            target=target,
-            targets=targets,
-            model_target=model_target,
-            postprocess_strategy=postprocess_strategy,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                target=dump_target(target),
+                targets=dump_targets(targets),
+                model_target=dump_target(model_target),
+                postprocess_strategy=postprocess_strategy,
+            ),
         )
 
     @mcp.tool(
@@ -1497,13 +1586,13 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         relation_mode: Annotated[
-            str,
+            Literal["solve_adjacency", "explicit_relate_full"],
             Field(
                 description="Relation mode: solve_adjacency or explicit_relate_full. explicit_relate_full enables high-risk overwrite, cleanup, remove_mismatched_subfaces, and clone_missing Aperture/Door repair defaults."
             ),
@@ -1565,35 +1654,40 @@ def register(mcp: FastMCP) -> None:
         tolerance: Annotated[
             float | None,
             Field(
-                description="Optional distance tolerance. Defaults to model tolerance."
+                gt=0,
+                description="Optional distance tolerance. Defaults to model tolerance.",
             ),
         ] = None,
         angle_tolerance: Annotated[
             float | None,
             Field(
-                description="Optional angle tolerance in degrees. Defaults to model angle tolerance."
+                gt=0,
+                description="Optional angle tolerance in degrees. Defaults to model angle tolerance.",
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Solve Honeybee model relationships with the SDK."""
         from garden.honeybee_core.relate import relate_honeybee_model as service
 
         if solve_adjacency is True:
             relation_mode = "solve_adjacency"
-        return service(
-            garden_root=garden_root,
-            model_target=model_target,
-            relation_mode=relation_mode,
-            intersect=intersect,
-            merge_coplanar=merge_coplanar,
-            overwrite=overwrite,
-            remove_mismatched_sub_faces=remove_mismatched_sub_faces,
-            subface_mismatch_policy=subface_mismatch_policy,
-            air_boundary=air_boundary,
-            adiabatic=adiabatic,
-            relationship_cleanup=relationship_cleanup,
-            tolerance=tolerance,
-            angle_tolerance=angle_tolerance,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                model_target=dump_target(model_target),
+                relation_mode=relation_mode,
+                intersect=intersect,
+                merge_coplanar=merge_coplanar,
+                overwrite=overwrite,
+                remove_mismatched_sub_faces=remove_mismatched_sub_faces,
+                subface_mismatch_policy=subface_mismatch_policy,
+                air_boundary=air_boundary,
+                adiabatic=adiabatic,
+                relationship_cleanup=relationship_cleanup,
+                tolerance=tolerance,
+                angle_tolerance=angle_tolerance,
+            ),
         )
 
     @mcp.tool(
@@ -1633,7 +1727,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | BuildingObjectTargetRef | None,
             Field(
                 description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
             ),
@@ -1681,7 +1775,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         children_scope: Annotated[
-            dict[str, Any] | None,
+            BuildingObjectTargetRef | None,
             Field(
                 description="Optional typed Honeybee parent target dict (room, face, aperture, or door) to filter returned child objects."
             ),
@@ -1714,39 +1808,42 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         min_area: Annotated[
             float | None,
-            Field(description="Optional minimum area filter in model area units (floor_area for Rooms, face area for Faces/sub-faces/Shades)."),
+            Field(ge=0, description="Optional minimum area filter in model area units (floor_area for Rooms, face area for Faces/sub-faces/Shades)."),
         ] = None,
         max_area: Annotated[
             float | None,
-            Field(description="Optional maximum area filter in model area units."),
+            Field(ge=0, description="Optional maximum area filter in model area units."),
         ] = None,
         limit: Annotated[
             int | None,
-            Field(description="Optional maximum number of object matches to return."),
+            Field(ge=1, description="Optional maximum number of object matches to return."),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Search Honeybee objects and return typed targets."""
         from garden.honeybee_core.search import (
             search_honeybee_model_objects as service,
         )
 
-        return service(
-            garden_root=garden_root,
-            model_target=model_target,
-            object_type=object_type,
-            identifier=identifier,
-            room_identifier=room_identifier,
-            face_identifier=face_identifier,
-            query=query,
-            face_type=face_type,
-            boundary_condition=boundary_condition,
-            children_scope=children_scope,
-            orientation=orientation,
-            story=story,
-            zone=zone,
-            min_area=min_area,
-            max_area=max_area,
-            limit=limit,
+        return validate_output(
+            QueryResultModel,
+            service(
+                garden_root=garden_root,
+                model_target=dump_target(model_target),
+                object_type=object_type,
+                identifier=identifier,
+                room_identifier=room_identifier,
+                face_identifier=face_identifier,
+                query=query,
+                face_type=face_type,
+                boundary_condition=dump_input(boundary_condition),
+                children_scope=dump_target(children_scope),
+                orientation=orientation,
+                story=story,
+                zone=zone,
+                min_area=min_area,
+                max_area=max_area,
+                limit=limit,
+            ),
         )
 
     @mcp.tool(
@@ -1770,18 +1867,21 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Summarize Honeybee model geometry, WWR, and Energy/Radiance coverage."""
         from garden.honeybee_core.search import (
             get_honeybee_model_summary as service,
         )
 
-        return service(garden_root=garden_root, model_target=model_target)
+        return validate_output(
+            QueryResultModel,
+            service(garden_root=garden_root, model_target=dump_target(model_target)),
+        )
 
     @mcp.tool(
         name="HB_Validate_Model",
@@ -1809,7 +1909,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description=(
                     "Optional Honeybee model target dict, usually HB_Create_Model['target']; "
@@ -1817,13 +1917,16 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> ValidationResultModel:
         """Validate a Honeybee model and return structured issues."""
         from garden.honeybee_core.model_io import (
             validate_honeybee_model as service,
         )
 
-        return service(garden_root=garden_root, model_target=model_target)
+        return validate_output(
+            ValidationResultModel,
+            service(garden_root=garden_root, model_target=dump_target(model_target)),
+        )
 
     @mcp.tool(
         name="HB_Repair_Model",
@@ -1872,13 +1975,13 @@ def register(mcp: FastMCP) -> None:
             Field(description="Repair, cleanup, merge, or comparison action to execute."),
         ],
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         other_model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description="Required for action='add_model' or 'comparison_report': second Honeybee model target dict."
             ),
@@ -1891,11 +1994,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         tolerance: Annotated[
             float | None,
-            Field(description="Optional geometric tolerance override (defaults to model tolerance)."),
+            Field(gt=0, description="Optional geometric tolerance override (defaults to model tolerance)."),
         ] = None,
         angle_tolerance: Annotated[
             float | None,
-            Field(description="Optional angle tolerance override in degrees (defaults to model angle_tolerance)."),
+            Field(gt=0, description="Optional angle tolerance override in degrees (defaults to model angle_tolerance)."),
         ] = None,
         new_origin: Annotated[
             dict[str, Any] | list[float] | None,
@@ -1911,7 +2014,7 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         offset_distance: Annotated[
             float,
-            Field(description="For action='fix_invalid_sub_faces': inward edge offset distance after trimming."),
+            Field(ge=0, description="For action='fix_invalid_sub_faces': inward edge offset distance after trimming."),
         ] = 0.05,
         include_surface_faces: Annotated[
             bool,
@@ -1919,7 +2022,7 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         min_difference: Annotated[
             float,
-            Field(description="For action='assign_stories_by_floor_height': minimum elevation difference between distinct stories."),
+            Field(gt=0, description="For action='assign_stories_by_floor_height': minimum elevation difference between distinct stories."),
         ] = 2.0,
         overwrite: Annotated[
             bool,
@@ -1937,26 +2040,29 @@ def register(mcp: FastMCP) -> None:
             PostprocessStrategy | None,
             Field(description="Optional postprocess strategy override for mutating repair actions."),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Run Honeybee Model repair, cleanup, merge, or comparison diagnostics."""
         from garden.honeybee_core.repair import repair_honeybee_model as service
 
-        return service(
-            garden_root=garden_root,
-            action=action,
-            model_target=model_target,
-            other_model_target=other_model_target,
-            other_model_prefix=other_model_prefix,
-            tolerance=tolerance,
-            angle_tolerance=angle_tolerance,
-            new_origin=new_origin,
-            trim_with_parent=trim_with_parent,
-            union_overlaps=union_overlaps,
-            offset_distance=offset_distance,
-            include_surface_faces=include_surface_faces,
-            min_difference=min_difference,
-            overwrite=overwrite,
-            ignore_deleted=ignore_deleted,
-            ignore_added=ignore_added,
-            postprocess_strategy=postprocess_strategy,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                action=action,
+                model_target=dump_target(model_target),
+                other_model_target=dump_target(other_model_target),
+                other_model_prefix=other_model_prefix,
+                tolerance=tolerance,
+                angle_tolerance=angle_tolerance,
+                new_origin=dump_input(new_origin),
+                trim_with_parent=trim_with_parent,
+                union_overlaps=union_overlaps,
+                offset_distance=offset_distance,
+                include_surface_faces=include_surface_faces,
+                min_difference=min_difference,
+                overwrite=overwrite,
+                ignore_deleted=ignore_deleted,
+                ignore_added=ignore_added,
+                postprocess_strategy=postprocess_strategy,
+            ),
         )

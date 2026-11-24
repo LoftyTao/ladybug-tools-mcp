@@ -7,6 +7,17 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import (
+    BuildingModelTargetRef,
+    BuildingObjectTargetRef,
+    LibraryObjectTargetRef,
+    MutationResultModel,
+    dump_input,
+    dump_target,
+    dump_targets,
+    validate_output,
+)
+
 
 MaterialType = Literal[
     "opaque",
@@ -46,6 +57,7 @@ LoadType = Literal[
     "shw_system",
 ]
 ScheduleMode = Literal["ruleset", "fixed_interval", "type_limit"]
+NumericType = Literal["Continuous", "Discrete", "continuous", "discrete"]
 PVOrLoadCenterType = Literal["pv_properties", "electric_load_center"]
 RoomEnergyControlType = Literal[
     "simple_ventilation",
@@ -127,17 +139,20 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a Honeybee Energy material layer."""
         from garden.energy.constructionsets import create_material as service
 
-        return service(
-            material_type=material_type,
-            identifier=identifier,
-            params=params,
-            return_detail=return_detail,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
+        return validate_output(
+            MutationResultModel,
+            service(
+                material_type=material_type,
+                identifier=identifier,
+                params=dump_input(params),
+                return_detail=return_detail,
+                garden_root=garden_root,
+                return_object_dict=return_object_dict,
+            ),
         )
 
     @mcp.tool(
@@ -180,7 +195,7 @@ def register(mcp: FastMCP) -> None:
         ],
         identifier: Annotated[str, Field(description="Construction identifier.")],
         materials: Annotated[
-            list[dict[str, Any] | str] | None,
+            list[LibraryObjectTargetRef | dict[str, Any] | str] | None,
             Field(
                 description=(
                     "Ordered material layers from outside to inside for opaque or layered window "
@@ -193,32 +208,38 @@ def register(mcp: FastMCP) -> None:
         u_factor: Annotated[
             float | None,
             Field(
+                ge=0.0,
+                le=12.0,
                 description=(
                     "Window system U-factor in W/m2-K when construction_type='window' and "
                     "materials is omitted."
-                )
+                ),
             ),
         ] = None,
         shgc: Annotated[
             float | None,
             Field(
+                ge=0.0,
+                le=1.0,
                 description=(
                     "Solar heat gain coefficient when construction_type='window' and materials is "
                     "omitted."
-                )
+                ),
             ),
         ] = None,
         vt: Annotated[
             float,
             Field(
+                ge=0.0,
+                le=1.0,
                 description=(
                     "Visible transmittance when construction_type='window' and materials is "
                     "omitted."
-                )
+                ),
             ),
         ] = 0.6,
         frame: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description=(
                     "Optional EnergyWindowFrame object_dict, Garden target, or identifier for "
@@ -265,22 +286,25 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a Honeybee Energy construction."""
         from garden.energy.constructionsets import create_construction as service
 
-        return service(
-            construction_type=construction_type,
-            identifier=identifier,
-            materials=materials,
-            u_factor=u_factor,
-            shgc=shgc,
-            vt=vt,
-            frame=frame,
-            params=params,
-            return_detail=return_detail,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
+        return validate_output(
+            MutationResultModel,
+            service(
+                construction_type=construction_type,
+                identifier=identifier,
+                materials=dump_input(materials),
+                u_factor=u_factor,
+                shgc=shgc,
+                vt=vt,
+                frame=dump_input(frame),
+                params=dump_input(params),
+                return_detail=return_detail,
+                garden_root=garden_root,
+                return_object_dict=return_object_dict,
+            ),
         )
 
     @mcp.tool(
@@ -310,7 +334,7 @@ def register(mcp: FastMCP) -> None:
     def create_construction_set(
         identifier: Annotated[str, Field(description="ConstructionSet identifier.")],
         base_construction_set: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description=(
                     "Optional base ConstructionSet object_dict, Garden target, or standards-library "
@@ -319,7 +343,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         wall_set: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description=(
                     "Optional WallConstructionSet dict, inline slot dict "
@@ -329,7 +353,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         floor_set: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description=(
                     "Optional FloorConstructionSet dict, inline slot dict "
@@ -339,7 +363,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         roof_ceiling_set: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description=(
                     "Optional RoofCeilingConstructionSet dict, inline slot dict "
@@ -349,7 +373,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         aperture_set: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description=(
                     "Optional ApertureConstructionSet dict, inline slot dict "
@@ -359,7 +383,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         door_set: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description=(
                     "Optional DoorConstructionSet dict, inline slot dict "
@@ -370,13 +394,13 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         shade_construction: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description="Optional ShadeConstruction dict, Garden target, inline dict, or library identifier."
             ),
         ] = None,
         air_boundary_construction: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description="Optional AirBoundaryConstruction or OpaqueConstruction dict, Garden target, inline dict, or library identifier."
             ),
@@ -399,23 +423,26 @@ def register(mcp: FastMCP) -> None:
                 description="Return the full ConstructionSet object_dict. Set false with garden_root to return only target/summary/receipt."
             ),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a Honeybee Energy ConstructionSet object."""
         from garden.energy.constructionsets import create_construction_set as service
 
-        return service(
-            identifier=identifier,
-            base_construction_set=base_construction_set,
-            wall_set=wall_set,
-            floor_set=floor_set,
-            roof_ceiling_set=roof_ceiling_set,
-            aperture_set=aperture_set,
-            door_set=door_set,
-            shade_construction=shade_construction,
-            air_boundary_construction=air_boundary_construction,
-            return_detail=return_detail,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
+        return validate_output(
+            MutationResultModel,
+            service(
+                identifier=identifier,
+                base_construction_set=dump_input(base_construction_set),
+                wall_set=dump_input(wall_set),
+                floor_set=dump_input(floor_set),
+                roof_ceiling_set=dump_input(roof_ceiling_set),
+                aperture_set=dump_input(aperture_set),
+                door_set=dump_input(door_set),
+                shade_construction=dump_input(shade_construction),
+                air_boundary_construction=dump_input(air_boundary_construction),
+                return_detail=return_detail,
+                garden_root=garden_root,
+                return_object_dict=return_object_dict,
+            ),
         )
 
     @mcp.tool(
@@ -481,16 +508,19 @@ def register(mcp: FastMCP) -> None:
                 description="Return the full load object_dict. Set false with garden_root to return only target/summary/receipt."
             ),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a Honeybee Energy load, setpoint, or zone ventilation fan."""
         from garden.energy.programtypes import create_load as service
 
-        return service(
-            load_type=load_type,
-            identifier=identifier,
-            params=params,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
+        return validate_output(
+            MutationResultModel,
+            service(
+                load_type=load_type,
+                identifier=identifier,
+                params=dump_input(params),
+                garden_root=garden_root,
+                return_object_dict=return_object_dict,
+            ),
         )
 
     @mcp.tool(
@@ -518,61 +548,61 @@ def register(mcp: FastMCP) -> None:
     def create_program_type(
         identifier: Annotated[str, Field(description="ProgramType identifier.")],
         base_program_type: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description="Optional base ProgramType dict, Garden Properties Library target, or ProgramType library identifier."
             ),
         ] = None,
         people: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="Optional People object_dict, Garden load target, or shorthand dict ({'people_per_area': ...})."
             ),
         ] = None,
         lighting: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="Optional Lighting object_dict, Garden load target, or shorthand dict ({'watts_per_area': ...})."
             ),
         ] = None,
         electric_equipment: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="Optional ElectricEquipment object_dict, Garden load target, or shorthand dict ({'watts_per_area': ...})."
             ),
         ] = None,
         gas_equipment: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="Optional GasEquipment object_dict, Garden load target, or shorthand dict ({'watts_per_area': ...})."
             ),
         ] = None,
         service_hot_water: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="Optional ServiceHotWater object_dict, Garden load target, or shorthand dict ({'flow_per_area': ...})."
             ),
         ] = None,
         infiltration: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="Optional Infiltration object_dict, Garden load target, or shorthand dict ({'flow_per_exterior_area': ...})."
             ),
         ] = None,
         ventilation: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="Optional Ventilation object_dict, Garden load target, or shorthand dict ({'flow_per_person': ..., 'flow_per_area': ..., 'flow_per_zone': ..., 'air_changes_per_hour': ...})."
             ),
         ] = None,
         setpoint: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="Optional Setpoint object_dict, Garden load target, or shorthand dict ({'heating_setpoint': ..., 'cooling_setpoint': ...})."
             ),
         ] = None,
         exhaust: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | dict[str, Any] | None,
             Field(
                 description="Optional ExhaustAir object_dict or Garden target (supported only when honeybee-energy>=1.125 is installed)."
             ),
@@ -589,24 +619,27 @@ def register(mcp: FastMCP) -> None:
                 description="Return the full ProgramType object_dict. Set false with garden_root to return only target/summary/receipt."
             ),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a Honeybee Energy ProgramType object."""
         from garden.energy.programtypes import create_program_type as service
 
-        return service(
-            identifier=identifier,
-            base_program_type=base_program_type,
-            people=people,
-            lighting=lighting,
-            electric_equipment=electric_equipment,
-            gas_equipment=gas_equipment,
-            service_hot_water=service_hot_water,
-            infiltration=infiltration,
-            ventilation=ventilation,
-            setpoint=setpoint,
-            exhaust=exhaust,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
+        return validate_output(
+            MutationResultModel,
+            service(
+                identifier=identifier,
+                base_program_type=dump_input(base_program_type),
+                people=dump_input(people),
+                lighting=dump_input(lighting),
+                electric_equipment=dump_input(electric_equipment),
+                gas_equipment=dump_input(gas_equipment),
+                service_hot_water=dump_input(service_hot_water),
+                infiltration=dump_input(infiltration),
+                ventilation=dump_input(ventilation),
+                setpoint=dump_input(setpoint),
+                exhaust=dump_input(exhaust),
+                garden_root=garden_root,
+                return_object_dict=return_object_dict,
+            ),
         )
 
     @mcp.tool(
@@ -674,7 +707,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         schedule_type_limit: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(
                 description=(
                     "Optional ScheduleTypeLimit dict, Garden Properties Library target/identifier, "
@@ -713,10 +746,12 @@ def register(mcp: FastMCP) -> None:
         timestep: Annotated[
             int | None,
             Field(
+                ge=1,
+                le=60,
                 description=(
                     "For fixed_interval mode: steps per hour (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, "
                     "30, or 60; default 1)."
-                )
+                ),
             ),
         ] = None,
         start_date: Annotated[
@@ -753,7 +788,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         numeric_type: Annotated[
-            str | None,
+            NumericType | None,
             Field(
                 description="For type_limit mode: 'Continuous' (default) or 'Discrete'."
             ),
@@ -787,7 +822,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         data_timestep: Annotated[
             int,
-            Field(description="DataCollection timestep, in steps per hour. Ignored when data_analysis_period is provided."),
+            Field(
+                ge=1,
+                le=60,
+                description="DataCollection timestep, in steps per hour. Ignored when data_analysis_period is provided.",
+            ),
         ] = 1,
         data_start_date: Annotated[
             dict[str, Any] | str | None,
@@ -819,41 +858,44 @@ def register(mcp: FastMCP) -> None:
                 description="Return the full schedule object_dict. Set false with garden_root to return only target/summary/receipt."
             ),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a Honeybee Energy ScheduleRuleset, ScheduleFixedInterval, or ScheduleTypeLimit."""
         from garden.energy.schedules import create_schedule_ruleset as service
 
-        return service(
-            identifier=identifier,
-            schedule_type=schedule_type,
-            default_day_schedule=default_day_schedule,
-            schedule_rules=schedule_rules,
-            rules=rules,
-            schedule_type_limit=schedule_type_limit,
-            default_value=default_value,
-            summer_designday_schedule=summer_designday_schedule,
-            winter_designday_schedule=winter_designday_schedule,
-            holiday_schedule=holiday_schedule,
-            values=values,
-            timestep=timestep,
-            start_date=start_date,
-            placeholder_value=placeholder_value,
-            interpolate=interpolate,
-            lower_limit=lower_limit,
-            upper_limit=upper_limit,
-            numeric_type=numeric_type,
-            unit_type=unit_type,
-            include_data=include_data,
-            data_analysis_period=data_analysis_period,
-            data_timestep=data_timestep,
-            data_start_date=data_start_date,
-            data_end_date=data_end_date,
-            data_start_dow=data_start_dow,
-            data_holidays=data_holidays,
-            data_leap_year=data_leap_year,
-            garden_root=garden_root,
-            return_data=return_data,
-            return_object_dict=return_object_dict,
+        return validate_output(
+            MutationResultModel,
+            service(
+                identifier=identifier,
+                schedule_type=schedule_type,
+                default_day_schedule=dump_input(default_day_schedule),
+                schedule_rules=dump_input(schedule_rules),
+                rules=dump_input(rules),
+                schedule_type_limit=dump_input(schedule_type_limit),
+                default_value=default_value,
+                summer_designday_schedule=dump_input(summer_designday_schedule),
+                winter_designday_schedule=dump_input(winter_designday_schedule),
+                holiday_schedule=dump_input(holiday_schedule),
+                values=values,
+                timestep=timestep,
+                start_date=dump_input(start_date),
+                placeholder_value=placeholder_value,
+                interpolate=interpolate,
+                lower_limit=lower_limit,
+                upper_limit=upper_limit,
+                numeric_type=numeric_type,
+                unit_type=unit_type,
+                include_data=include_data,
+                data_analysis_period=dump_input(data_analysis_period),
+                data_timestep=data_timestep,
+                data_start_date=dump_input(data_start_date),
+                data_end_date=dump_input(data_end_date),
+                data_start_dow=data_start_dow,
+                data_holidays=dump_input(data_holidays),
+                data_leap_year=data_leap_year,
+                garden_root=garden_root,
+                return_data=return_data,
+                return_object_dict=return_object_dict,
+            ),
         )
 
     @mcp.tool(
@@ -915,18 +957,18 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         sensible_heat_recovery: Annotated[
             float | None,
-            Field(description="Optional sensible heat recovery effectiveness from 0 to 1."),
+            Field(ge=0.0, le=1.0, description="Optional sensible heat recovery effectiveness from 0 to 1."),
         ] = None,
         latent_heat_recovery: Annotated[
             float | None,
-            Field(description="Optional latent heat recovery effectiveness from 0 to 1."),
+            Field(ge=0.0, le=1.0, description="Optional latent heat recovery effectiveness from 0 to 1."),
         ] = None,
         demand_controlled_ventilation: Annotated[
             bool | None,
             Field(description="Optional demand controlled ventilation flag."),
         ] = None,
         doas_availability_schedule: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(description="Optional DOAS availability schedule dict, Garden target, or library identifier."),
         ] = None,
         radiant_type: Annotated[
@@ -935,11 +977,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         minimum_operation_time: Annotated[
             float | None,
-            Field(description="Optional radiant minimum operation time in hours."),
+            Field(ge=0.0, description="Optional radiant minimum operation time in hours."),
         ] = None,
         switch_over_time: Annotated[
             float | None,
-            Field(description="Optional radiant switch-over time in hours."),
+            Field(ge=0.0, description="Optional radiant switch-over time in hours."),
         ] = None,
         heating_air_temperature: Annotated[
             float | None,
@@ -958,11 +1000,11 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional IdealAirSystem cooling capacity in W, 'autosize', or 'no_limit'."),
         ] = None,
         heating_availability: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(description="Optional IdealAirSystem heating availability schedule dict, Garden target, or library identifier."),
         ] = None,
         cooling_availability: Annotated[
-            dict[str, Any] | str | None,
+            LibraryObjectTargetRef | dict[str, Any] | str | None,
             Field(description="Optional IdealAirSystem cooling availability schedule dict, Garden target, or library identifier."),
         ] = None,
         heater_efficiency: Annotated[
@@ -975,7 +1017,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         ambient_loss_coefficient: Annotated[
             float | None,
-            Field(description="Optional SHWSystem tank ambient loss coefficient [W/K] when system_type='SHWSystem'."),
+            Field(ge=0.0, description="Optional SHWSystem tank ambient loss coefficient [W/K] when system_type='SHWSystem'."),
         ] = None,
         return_object: Annotated[
             bool,
@@ -991,40 +1033,43 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         limit: Annotated[
             int,
-            Field(description="Maximum number of template search matches to return."),
+            Field(ge=1, description="Maximum number of template search matches to return."),
         ] = 10,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Search HVAC templates or create IdealAirSystem, SHWSystem, or standards HVAC."""
         from garden.energy.hvac import create_hvac_template as service
 
-        return service(
-            query=query,
-            system_type=system_type,
-            family=family,
-            identifier=identifier,
-            vintage=vintage,
-            equipment_type=equipment_type,
-            economizer_type=economizer_type,
-            sensible_heat_recovery=sensible_heat_recovery,
-            latent_heat_recovery=latent_heat_recovery,
-            demand_controlled_ventilation=demand_controlled_ventilation,
-            doas_availability_schedule=doas_availability_schedule,
-            radiant_type=radiant_type,
-            minimum_operation_time=minimum_operation_time,
-            switch_over_time=switch_over_time,
-            heating_air_temperature=heating_air_temperature,
-            cooling_air_temperature=cooling_air_temperature,
-            heating_limit=heating_limit,
-            cooling_limit=cooling_limit,
-            heating_availability=heating_availability,
-            cooling_availability=cooling_availability,
-            heater_efficiency=heater_efficiency,
-            ambient_condition=ambient_condition,
-            ambient_loss_coefficient=ambient_loss_coefficient,
-            return_object=return_object,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
-            limit=limit,
+        return validate_output(
+            MutationResultModel,
+            service(
+                query=query,
+                system_type=system_type,
+                family=family,
+                identifier=identifier,
+                vintage=vintage,
+                equipment_type=equipment_type,
+                economizer_type=economizer_type,
+                sensible_heat_recovery=sensible_heat_recovery,
+                latent_heat_recovery=latent_heat_recovery,
+                demand_controlled_ventilation=demand_controlled_ventilation,
+                doas_availability_schedule=dump_input(doas_availability_schedule),
+                radiant_type=radiant_type,
+                minimum_operation_time=minimum_operation_time,
+                switch_over_time=switch_over_time,
+                heating_air_temperature=heating_air_temperature,
+                cooling_air_temperature=cooling_air_temperature,
+                heating_limit=heating_limit,
+                cooling_limit=cooling_limit,
+                heating_availability=dump_input(heating_availability),
+                cooling_availability=dump_input(cooling_availability),
+                heater_efficiency=heater_efficiency,
+                ambient_condition=ambient_condition,
+                ambient_loss_coefficient=ambient_loss_coefficient,
+                return_object=return_object,
+                garden_root=garden_root,
+                return_object_dict=return_object_dict,
+                limit=limit,
+            ),
         )
 
     @mcp.tool(
@@ -1075,16 +1120,19 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="When garden_root is provided, set false to return only compact target and summary."),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create Honeybee Energy PVProperties or ElectricLoadCenter."""
         from garden.energy.ventilation import create_pv_or_load_center as service
 
-        return service(
-            object_type=object_type,
-            identifier=identifier,
-            params=params,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
+        return validate_output(
+            MutationResultModel,
+            service(
+                object_type=object_type,
+                identifier=identifier,
+                params=dump_input(params),
+                garden_root=garden_root,
+                return_object_dict=return_object_dict,
+            ),
         )
 
     @mcp.tool(
@@ -1121,7 +1169,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
         ],
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(description="Optional Honeybee model target. Defaults to the Garden base model."),
         ] = None,
         room_identifiers: Annotated[
@@ -1129,7 +1177,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional room identifiers to update (mutually exclusive with room_targets). Omit both to target all Rooms."),
         ] = None,
         room_targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[BuildingObjectTargetRef] | None,
             Field(description="Optional Honeybee Room typed targets from HB_Search_Model_Objects (mutually exclusive with room_identifiers)."),
         ] = None,
         clear: Annotated[
@@ -1157,16 +1205,19 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Configure or clear room-level ventilation, AirflowNetwork, or daylighting controls."""
         from garden.energy.ventilation import setup_room_energy_controls as service
 
-        return service(
-            control_type=control_type,
-            garden_root=garden_root,
-            model_target=model_target,
-            room_identifiers=room_identifiers,
-            room_targets=room_targets,
-            clear=clear,
-            params=params,
+        return validate_output(
+            MutationResultModel,
+            service(
+                control_type=control_type,
+                garden_root=garden_root,
+                model_target=dump_target(model_target),
+                room_identifiers=room_identifiers,
+                room_targets=dump_targets(room_targets),
+                clear=clear,
+                params=dump_input(params),
+            ),
         )

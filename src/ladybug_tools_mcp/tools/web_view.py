@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import ToolResultModel, validate_output
 from web_view import (
     start_preview_url_fallback,
     start_web_view_session,
@@ -40,7 +41,16 @@ def register(mcp: FastMCP) -> None:
             Field(description="Human-readable viewer session name."),
         ] = "Code Mode vtk.js Preview",
         preview_kinds: Annotated[
-            list[str] | None,
+            list[
+                Literal[
+                    "base_honeybee_model",
+                    "base_dragonfly_model",
+                    "object_edit",
+                    "search_highlight",
+                    "analysis_overlay",
+                ]
+            ]
+            | None,
             Field(
                 description="Optional preview kinds such as object_edit, base_honeybee_model, base_dragonfly_model, search_highlight, or analysis_overlay."
             ),
@@ -53,7 +63,7 @@ def register(mcp: FastMCP) -> None:
                 le=65535,
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> ToolResultModel:
         """Enable local Web View Mode and return the sidebar viewer URL."""
         viewer = start_preview_url_fallback(garden_root=garden_root, name=name, port=port)
         result = start_web_view_session(
@@ -64,7 +74,7 @@ def register(mcp: FastMCP) -> None:
         result["viewer"] = viewer
         result["summary_view"]["viewer_url"] = viewer["url"]
         result["summary_view"]["viewer_port"] = viewer["port"]
-        return result
+        return validate_output(ToolResultModel, result)
 
     @mcp.tool(
         name="GD_Web_View_Stop_Mode",
@@ -87,7 +97,7 @@ def register(mcp: FastMCP) -> None:
             str,
             Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
         ],
-    ) -> dict[str, Any]:
+    ) -> ToolResultModel:
         """Disable Web View Mode for a Garden."""
         result = stop_web_view_session(garden_root=garden_root)
         result["url_fallback"] = stop_preview_url_fallback(garden_root=garden_root)
@@ -97,4 +107,4 @@ def register(mcp: FastMCP) -> None:
             "library": "vtk.js",
             "mode": "mcp_app_preview",
         }
-        return result
+        return validate_output(ToolResultModel, result)

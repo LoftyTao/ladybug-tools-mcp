@@ -7,6 +7,19 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import (
+    ArtifactTargetRef,
+    GardenTargetRef,
+    MutationResultModel,
+    QueryResultModel,
+    RunResultModel,
+    RunTargetRef,
+    dump_input,
+    dump_target,
+    dump_targets,
+    validate_output,
+)
+
 
 GridObjectKind = Literal[
     "substation",
@@ -67,7 +80,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="OpenDSS transformer properties identifier from LB_Search_Standards_Library (for transformer)."),
         ] = None,
         transformer_properties_target: Annotated[
-            dict[str, Any] | None,
+            GardenTargetRef | None,
             Field(description="Optional custom transformer_properties target (from kind='transformer_properties')."),
         ] = None,
         power_line_identifier: Annotated[
@@ -75,19 +88,19 @@ def register(mcp: FastMCP) -> None:
             Field(description="OpenDSS power-line identifier from LB_Search_Standards_Library (for electrical_connector)."),
         ] = None,
         power_line_target: Annotated[
-            dict[str, Any] | None,
+            GardenTargetRef | None,
             Field(description="Optional custom power_line target (from kind='power_line')."),
         ] = None,
         substation_target: Annotated[
-            dict[str, Any] | None,
+            GardenTargetRef | None,
             Field(description="Substation target for electrical_network or road_network."),
         ] = None,
         transformer_targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[GardenTargetRef] | None,
             Field(description="Transformer targets for electrical_network."),
         ] = None,
         connector_targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[GardenTargetRef] | None,
             Field(description="ElectricalConnector targets for electrical_network."),
         ] = None,
         road_segments: Annotated[
@@ -100,7 +113,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         analysis_years: Annotated[
             int,
-            Field(description="REopt analysis period in years (for financial_parameters)."),
+            Field(description="REopt analysis period in years (for financial_parameters).", ge=1),
         ] = 25,
         escalation_rate: Annotated[
             float,
@@ -108,7 +121,7 @@ def register(mcp: FastMCP) -> None:
         ] = 0.023,
         tax_rate: Annotated[
             float,
-            Field(description="Tax rate fraction (for financial_parameters)."),
+            Field(description="Tax rate fraction (for financial_parameters).", ge=0, le=1),
         ] = 0.26,
         discount_rate: Annotated[
             float,
@@ -132,26 +145,26 @@ def register(mcp: FastMCP) -> None:
         ] = "Meters",
         ampacity: Annotated[
             float,
-            Field(description="Wire ampacity (A) for kind='wire'."),
+            Field(description="Wire ampacity (A) for kind='wire'.", gt=0),
         ] = 220,
         geometrical_mean_radius: Annotated[
             float,
-            Field(description="Wire GMR (mm) for kind='wire'."),
+            Field(description="Wire GMR (mm) for kind='wire'.", gt=0),
         ] = 3.9,
         resistance: Annotated[
             float,
-            Field(description="Resistance (Ohm/km or per-unit) for wire or transformer_properties."),
+            Field(description="Resistance (Ohm/km or per-unit) for wire or transformer_properties.", gt=0),
         ] = 0.3937,
         diameter: Annotated[
             float,
-            Field(description="Wire diameter (mm) for kind='wire'."),
+            Field(description="Wire diameter (mm) for kind='wire'.", gt=0),
         ] = 10,
         voltage_level: Annotated[
-            str,
+            Literal["LV", "MV", "LV or MV"],
             Field(description="Voltage level ('MV' or 'LV') for kind='wire'."),
         ] = "MV",
         wire_type: Annotated[
-            str,
+            Literal["OH", "UG", "UG concentric neutral"],
             Field(description="Wire type ('OH' or 'UG') for kind='wire'."),
         ] = "OH",
         concentric_properties: Annotated[
@@ -159,7 +172,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional ConcentricProperties fields dict for underground kind='wire'."),
         ] = None,
         wires: Annotated[
-            list[Any] | None,
+            list[GardenTargetRef | str] | None,
             Field(description="Wire targets, dicts, or catalog IDs for kind='power_line'."),
         ] = None,
         heights: Annotated[
@@ -176,38 +189,38 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         phase_count: Annotated[
             int | None,
-            Field(description="Phase count for power_line or transformer_properties."),
+            Field(description="Phase count for power_line or transformer_properties.", ge=1, le=3),
         ] = None,
         nominal_voltage: Annotated[
             float | None,
-            Field(description="Optional nominal voltage for kind='power_line'."),
+            Field(description="Optional nominal voltage for kind='power_line'.", gt=0),
         ] = None,
         kva: Annotated[
             float | None,
-            Field(description="kVA rating for kind='transformer_properties'."),
+            Field(description="kVA rating for kind='transformer_properties'.", gt=0),
         ] = None,
         reactance: Annotated[
             float,
-            Field(description="Per-unit reactance for kind='transformer_properties'."),
+            Field(description="Per-unit reactance for kind='transformer_properties'.", ge=0),
         ] = 0.1,
         high_voltage: Annotated[
             float,
-            Field(description="High-side voltage (kV) for kind='transformer_properties'."),
+            Field(description="High-side voltage (kV) for kind='transformer_properties'.", gt=0),
         ] = 13.2,
         low_voltage: Annotated[
             float,
-            Field(description="Low-side voltage (kV) for kind='transformer_properties'."),
+            Field(description="Low-side voltage (kV) for kind='transformer_properties'.", gt=0),
         ] = 0.48,
         is_center_tap: Annotated[
             bool,
             Field(description="Center-tap flag for kind='transformer_properties'."),
         ] = False,
         connection: Annotated[
-            str,
+            Literal["Wye-Wye", "Wye-Delta", "Delta-Wye", "Delta-Delta"],
             Field(description="Winding connection (e.g. Wye-Wye) for kind='transformer_properties'."),
         ] = "Wye-Wye",
         financial_parameters_target: Annotated[
-            dict[str, Any] | None,
+            GardenTargetRef | None,
             Field(description="Optional FinancialParameter target for kind='reopt_parameter'."),
         ] = None,
         financial_parameter: Annotated[
@@ -234,159 +247,196 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Return the serialized SDK object dict in addition to the compact target."),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create and persist a Dragonfly Electric Grid object."""
         from garden.dragonfly_grid import authoring
+
+        dumped_transformer_properties_target = dump_target(transformer_properties_target)
+        dumped_power_line_target = dump_target(power_line_target)
+        dumped_substation_target = dump_target(substation_target)
 
         if kind == "substation":
             if footprint_points is None:
                 raise ValueError("kind='substation' requires footprint_points.")
-            return authoring.create_substation(
-                garden_root=garden_root,
-                identifier=identifier,
-                footprint_points=footprint_points,
-                display_name=display_name,
-                include_body=include_body,
+            return validate_output(
+                MutationResultModel,
+                authoring.create_substation(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    footprint_points=footprint_points,
+                    display_name=display_name,
+                    include_body=include_body,
+                ),
             )
         if kind == "transformer":
             if footprint_points is None or (
                 transformer_properties_identifier is None
-                and transformer_properties_target is None
+                and dumped_transformer_properties_target is None
             ):
                 raise ValueError(
                     "kind='transformer' requires footprint_points and either "
                     "transformer_properties_identifier or transformer_properties_target."
                 )
-            return authoring.create_transformer(
-                garden_root=garden_root,
-                identifier=identifier,
-                footprint_points=footprint_points,
-                transformer_properties_identifier=transformer_properties_identifier,
-                transformer_properties_target=transformer_properties_target,
-                display_name=display_name,
-                include_body=include_body,
+            return validate_output(
+                MutationResultModel,
+                authoring.create_transformer(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    footprint_points=footprint_points,
+                    transformer_properties_identifier=transformer_properties_identifier,
+                    transformer_properties_target=dumped_transformer_properties_target,
+                    display_name=display_name,
+                    include_body=include_body,
+                ),
             )
         if kind == "electrical_connector":
             if polyline_points is None or (
-                power_line_identifier is None and power_line_target is None
+                power_line_identifier is None and dumped_power_line_target is None
             ):
                 raise ValueError(
                     "kind='electrical_connector' requires polyline_points and either "
                     "power_line_identifier or power_line_target."
                 )
-            return authoring.create_electrical_connector(
-                garden_root=garden_root,
-                identifier=identifier,
-                polyline_points=polyline_points,
-                power_line_identifier=power_line_identifier,
-                power_line_target=power_line_target,
-                display_name=display_name,
-                include_body=include_body,
+            return validate_output(
+                MutationResultModel,
+                authoring.create_electrical_connector(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    polyline_points=polyline_points,
+                    power_line_identifier=power_line_identifier,
+                    power_line_target=dumped_power_line_target,
+                    display_name=display_name,
+                    include_body=include_body,
+                ),
             )
         if kind == "electrical_network":
-            return authoring.create_electrical_network(
-                garden_root=garden_root,
-                identifier=identifier,
-                substation_target=substation_target,
-                transformer_targets=transformer_targets,
-                connector_targets=connector_targets,
-                geojson_file_path=geojson_file_path,
-                location=location,
-                point=point,
-                units=units,
-                display_name=display_name,
-                include_body=include_body,
+            return validate_output(
+                MutationResultModel,
+                authoring.create_electrical_network(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    substation_target=dumped_substation_target,
+                    transformer_targets=dump_targets(transformer_targets),
+                    connector_targets=dump_targets(connector_targets),
+                    geojson_file_path=geojson_file_path,
+                    location=dump_input(location),
+                    point=point,
+                    units=units,
+                    display_name=display_name,
+                    include_body=include_body,
+                ),
             )
         if kind == "road_network":
-            if substation_target is None or road_segments is None:
+            if dumped_substation_target is None or road_segments is None:
                 raise ValueError("kind='road_network' requires substation_target and road_segments.")
-            return authoring.create_road_network(
-                garden_root=garden_root,
-                identifier=identifier,
-                substation_target=substation_target,
-                road_segments=road_segments,
-                display_name=display_name,
-                include_body=include_body,
+            return validate_output(
+                MutationResultModel,
+                authoring.create_road_network(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    substation_target=dumped_substation_target,
+                    road_segments=dump_input(road_segments),
+                    display_name=display_name,
+                    include_body=include_body,
+                ),
             )
         if kind == "ground_photovoltaics":
             if footprint_points is None:
                 raise ValueError("kind='ground_photovoltaics' requires footprint_points.")
-            return authoring.create_ground_photovoltaics(
-                garden_root=garden_root,
-                identifier=identifier,
-                footprint_points=footprint_points,
-                building_identifier=building_identifier,
-                display_name=display_name,
-                include_body=include_body,
+            return validate_output(
+                MutationResultModel,
+                authoring.create_ground_photovoltaics(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    footprint_points=footprint_points,
+                    building_identifier=building_identifier,
+                    display_name=display_name,
+                    include_body=include_body,
+                ),
             )
         if kind == "wire":
-            return authoring.create_wire(
-                garden_root=garden_root,
-                identifier=identifier,
-                ampacity=ampacity,
-                geometrical_mean_radius=geometrical_mean_radius,
-                resistance=resistance,
-                diameter=diameter,
-                voltage_level=voltage_level,
-                wire_type=wire_type,
-                concentric_properties=concentric_properties,
-                display_name=display_name,
-                include_body=include_body,
+            return validate_output(
+                MutationResultModel,
+                authoring.create_wire(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    ampacity=ampacity,
+                    geometrical_mean_radius=geometrical_mean_radius,
+                    resistance=resistance,
+                    diameter=diameter,
+                    voltage_level=voltage_level,
+                    wire_type=wire_type,
+                    concentric_properties=dump_input(concentric_properties),
+                    display_name=display_name,
+                    include_body=include_body,
+                ),
             )
         if kind == "power_line":
             if wires is None or heights is None or relative_xs is None or phases is None:
                 raise ValueError(
                     "kind='power_line' requires wires, heights, relative_xs, and phases."
                 )
-            return authoring.create_power_line(
-                garden_root=garden_root,
-                identifier=identifier,
-                wires=wires,
-                heights=heights,
-                relative_xs=relative_xs,
-                phases=phases,
-                phase_count=phase_count,
-                nominal_voltage=nominal_voltage,
-                display_name=display_name,
-                include_body=include_body,
+            return validate_output(
+                MutationResultModel,
+                authoring.create_power_line(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    wires=dump_input(wires),
+                    heights=heights,
+                    relative_xs=relative_xs,
+                    phases=phases,
+                    phase_count=phase_count,
+                    nominal_voltage=nominal_voltage,
+                    display_name=display_name,
+                    include_body=include_body,
+                ),
             )
         if kind == "transformer_properties":
             if kva is None:
                 raise ValueError("kind='transformer_properties' requires kva.")
-            return authoring.create_transformer_properties(
-                garden_root=garden_root,
-                identifier=identifier,
-                kva=kva,
-                resistance=0.1 if resistance == 0.3937 else resistance,
-                reactance=reactance,
-                phase_count=phase_count or 3,
-                high_voltage=high_voltage,
-                low_voltage=low_voltage,
-                is_center_tap=is_center_tap,
-                connection=connection,
-                display_name=display_name,
-                include_body=include_body,
+            return validate_output(
+                MutationResultModel,
+                authoring.create_transformer_properties(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    kva=kva,
+                    resistance=0.1 if resistance == 0.3937 else resistance,
+                    reactance=reactance,
+                    phase_count=phase_count or 3,
+                    high_voltage=high_voltage,
+                    low_voltage=low_voltage,
+                    is_center_tap=is_center_tap,
+                    connection=connection,
+                    display_name=display_name,
+                    include_body=include_body,
+                ),
             )
         if kind == "reopt_parameter":
-            return authoring.create_reopt_parameter(
+            return validate_output(
+                MutationResultModel,
+                authoring.create_reopt_parameter(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    financial_parameters_target=dump_target(financial_parameters_target),
+                    financial_parameter=dump_input(financial_parameter),
+                    pv_parameter=dump_input(pv_parameter),
+                    storage_parameter=dump_input(storage_parameter),
+                    wind_parameter=dump_input(wind_parameter),
+                    generator_parameter=dump_input(generator_parameter),
+                    include_body=include_body,
+                ),
+            )
+        return validate_output(
+            MutationResultModel,
+            authoring.create_financial_parameters(
                 garden_root=garden_root,
                 identifier=identifier,
-                financial_parameters_target=financial_parameters_target,
-                financial_parameter=financial_parameter,
-                pv_parameter=pv_parameter,
-                storage_parameter=storage_parameter,
-                wind_parameter=wind_parameter,
-                generator_parameter=generator_parameter,
+                analysis_years=analysis_years,
+                escalation_rate=escalation_rate,
+                tax_rate=tax_rate,
+                discount_rate=discount_rate,
                 include_body=include_body,
-            )
-        return authoring.create_financial_parameters(
-            garden_root=garden_root,
-            identifier=identifier,
-            analysis_years=analysis_years,
-            escalation_rate=escalation_rate,
-            tax_rate=tax_rate,
-            discount_rate=discount_rate,
-            include_body=include_body,
+            ),
         )
 
     @mcp.tool(
@@ -410,11 +460,11 @@ def register(mcp: FastMCP) -> None:
             Field(description="Grid simulation engine: 'opendss', 'reopt', or 'rnm'."),
         ],
         feature_geojson_target: Annotated[
-            dict[str, Any],
+            ArtifactTargetRef,
             Field(description="Feature GeoJSON artifact target for the Grid project."),
         ],
         scenario_csv_target: Annotated[
-            dict[str, Any],
+            ArtifactTargetRef,
             Field(description="Scenario CSV artifact target paired with the feature GeoJSON."),
         ],
         run_id: Annotated[
@@ -434,7 +484,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional REopt developer key (redacted in reports; engine='reopt')."),
         ] = None,
         financial_parameters_target: Annotated[
-            dict[str, Any] | None,
+            GardenTargetRef | None,
             Field(description="Optional saved FinancialParameter target for engine='reopt'."),
         ] = None,
         financial_parameters: Annotated[
@@ -442,7 +492,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional inline FinancialParameter dict for engine='reopt'."),
         ] = None,
         reopt_parameter_target: Annotated[
-            dict[str, Any] | None,
+            GardenTargetRef | None,
             Field(description="Optional saved REoptParameter target for engine='reopt'."),
         ] = None,
         reopt_parameter: Annotated[
@@ -451,7 +501,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         underground_ratio: Annotated[
             float,
-            Field(description="RNM underground ratio (engine='rnm')."),
+            Field(description="RNM underground ratio (engine='rnm').", ge=0, le=1),
         ] = 0.9,
         lv_only: Annotated[
             bool,
@@ -459,57 +509,69 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         nodes_per_building: Annotated[
             int,
-            Field(description="RNM nodes per building (engine='rnm')."),
+            Field(description="RNM nodes per building (engine='rnm').", ge=1),
         ] = 1,
         wait_seconds: Annotated[
             float | None,
-            Field(description="Optional seconds to poll for completion before returning; omit to return immediately."),
+            Field(description="Optional seconds to poll for completion before returning; omit to return immediately.", ge=0),
         ] = None,
         poll_interval: Annotated[
             float,
-            Field(description="Polling interval in seconds when wait_seconds is provided."),
+            Field(description="Polling interval in seconds when wait_seconds is provided.", gt=0),
         ] = 2.0,
-    ) -> dict[str, Any]:
+    ) -> RunResultModel:
         """Start or block an OpenDSS, REopt, or RNM simulation run."""
         from garden.dragonfly_grid import runs
 
+        dumped_feature = dump_target(feature_geojson_target) or {}
+        dumped_scenario = dump_target(scenario_csv_target) or {}
+
         if engine == "opendss":
-            return runs.start_opendss(
-                garden_root=garden_root,
-                feature_geojson_target=feature_geojson_target,
-                scenario_csv_target=scenario_csv_target,
-                run_id=run_id,
-                autosize=autosize,
-                wait_seconds=wait_seconds,
-                poll_interval=poll_interval,
+            return validate_output(
+                RunResultModel,
+                runs.start_opendss(
+                    garden_root=garden_root,
+                    feature_geojson_target=dumped_feature,
+                    scenario_csv_target=dumped_scenario,
+                    run_id=run_id,
+                    autosize=autosize,
+                    wait_seconds=wait_seconds,
+                    poll_interval=poll_interval,
+                ),
             )
         if engine == "reopt":
             if not urdb_label:
                 raise ValueError("engine='reopt' requires urdb_label.")
-            return runs.start_reopt(
+            return validate_output(
+                RunResultModel,
+                runs.start_reopt(
+                    garden_root=garden_root,
+                    feature_geojson_target=dumped_feature,
+                    scenario_csv_target=dumped_scenario,
+                    urdb_label=urdb_label,
+                    financial_parameters_target=dump_target(financial_parameters_target),
+                    financial_parameters=dump_input(financial_parameters),
+                    reopt_parameter_target=dump_target(reopt_parameter_target),
+                    reopt_parameter=dump_input(reopt_parameter),
+                    run_id=run_id,
+                    developer_key=developer_key,
+                    wait_seconds=wait_seconds,
+                    poll_interval=poll_interval,
+                ),
+            )
+        return validate_output(
+            RunResultModel,
+            runs.start_rnm(
                 garden_root=garden_root,
-                feature_geojson_target=feature_geojson_target,
-                scenario_csv_target=scenario_csv_target,
-                urdb_label=urdb_label,
-                financial_parameters_target=financial_parameters_target,
-                financial_parameters=financial_parameters,
-                reopt_parameter_target=reopt_parameter_target,
-                reopt_parameter=reopt_parameter,
+                feature_geojson_target=dumped_feature,
+                scenario_csv_target=dumped_scenario,
                 run_id=run_id,
-                developer_key=developer_key,
+                underground_ratio=underground_ratio,
+                lv_only=lv_only,
+                nodes_per_building=nodes_per_building,
                 wait_seconds=wait_seconds,
                 poll_interval=poll_interval,
-            )
-        return runs.start_rnm(
-            garden_root=garden_root,
-            feature_geojson_target=feature_geojson_target,
-            scenario_csv_target=scenario_csv_target,
-            run_id=run_id,
-            underground_ratio=underground_ratio,
-            lv_only=lv_only,
-            nodes_per_building=nodes_per_building,
-            wait_seconds=wait_seconds,
-            poll_interval=poll_interval,
+            ),
         )
 
     @mcp.tool(
@@ -538,15 +600,15 @@ def register(mcp: FastMCP) -> None:
             Field(description="Grid result action: 'read_opendss_result', 'read_reopt_result', 'network_to_vis_set', or 'results_to_vis_set'."),
         ],
         result_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="Registered OpenDSS CSV result artifact target (action='read_opendss_result')."),
         ] = None,
         result_targets: Annotated[
-            list[dict[str, Any]] | None,
+            list[ArtifactTargetRef] | None,
             Field(description="Registered OpenDSS CSV result artifact targets."),
         ] = None,
         network_target: Annotated[
-            dict[str, Any] | None,
+            GardenTargetRef | None,
             Field(description="ElectricalNetwork target (for 'network_to_vis_set' or matching geometry in 'results_to_vis_set')."),
         ] = None,
         attr_name: Annotated[
@@ -558,7 +620,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Collection aggregation ('max', 'min', 'average', 'total', or integer step) for 'results_to_vis_set'."),
         ] = "max",
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(description="Completed REopt run_target for action='read_reopt_result'."),
         ] = None,
         report_json_path: Annotated[
@@ -571,7 +633,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         max_rows: Annotated[
             int,
-            Field(description="Maximum preview rows to return for action='read_opendss_result'."),
+            Field(description="Maximum preview rows to return for action='read_opendss_result'.", ge=1),
         ] = 25,
         name: Annotated[
             str | None,
@@ -581,43 +643,60 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Return the full VisualizationSet dict; keep false for compact target handoff."),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Read OpenDSS/REopt results or convert Grid networks/results to VisualizationSets."""
         from garden.dragonfly_grid import authoring
 
+        dumped_result_target = dump_target(result_target)
+        dumped_result_targets = dump_targets(result_targets)
+        dumped_network_target = dump_target(network_target)
+        dumped_run_target = dump_target(run_target)
+
         if action == "read_opendss_result":
-            if result_target is None and result_targets is None:
+            if dumped_result_target is None and dumped_result_targets is None:
                 raise ValueError("action='read_opendss_result' requires result_target or result_targets.")
-            return authoring.read_opendss_result(
-                garden_root=garden_root,
-                result_target=result_target,
-                result_targets=result_targets,
-                max_rows=max_rows,
+            return validate_output(
+                QueryResultModel,
+                authoring.read_opendss_result(
+                    garden_root=garden_root,
+                    result_target=dumped_result_target,
+                    result_targets=dumped_result_targets,
+                    max_rows=max_rows,
+                ),
             )
         if action == "read_reopt_result":
-            return authoring.read_reopt_result(
-                garden_root=garden_root,
-                report_json_path=report_json_path,
-                report_csv_path=report_csv_path,
-                run_target=run_target,
+            return validate_output(
+                QueryResultModel,
+                authoring.read_reopt_result(
+                    garden_root=garden_root,
+                    report_json_path=report_json_path,
+                    report_csv_path=report_csv_path,
+                    run_target=dumped_run_target,
+                ),
             )
         if action == "network_to_vis_set":
-            if network_target is None:
+            if dumped_network_target is None:
                 raise ValueError("action='network_to_vis_set' requires network_target.")
-            return authoring.grid_network_to_visualization_set(
-                garden_root=garden_root,
-                network_target=network_target,
-                attr_name=attr_name,
-                name=name,
-                return_visualization_set=return_visualization_set,
+            return validate_output(
+                QueryResultModel,
+                authoring.grid_network_to_visualization_set(
+                    garden_root=garden_root,
+                    network_target=dumped_network_target,
+                    attr_name=attr_name,
+                    name=name,
+                    return_visualization_set=return_visualization_set,
+                ),
             )
-        if result_targets is None:
+        if dumped_result_targets is None:
             raise ValueError("action='results_to_vis_set' requires result_targets.")
-        return authoring.grid_results_to_visualization_set(
-            garden_root=garden_root,
-            result_targets=result_targets,
-            network_target=network_target,
-            attribute=attribute,
-            name=name or "OpenDSS Results",
-            return_visualization_set=return_visualization_set,
+        return validate_output(
+            QueryResultModel,
+            authoring.grid_results_to_visualization_set(
+                garden_root=garden_root,
+                result_targets=dumped_result_targets,
+                network_target=dumped_network_target,
+                attribute=attribute,
+                name=name or "OpenDSS Results",
+                return_visualization_set=return_visualization_set,
+            ),
         )

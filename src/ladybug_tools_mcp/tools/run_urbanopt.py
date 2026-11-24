@@ -7,6 +7,18 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import (
+    ArtifactResultModel,
+    ArtifactTargetRef,
+    LibraryObjectTargetRef,
+    QueryResultModel,
+    RunResultModel,
+    WeatherTargetRef,
+    dump_input,
+    dump_target,
+    validate_output,
+)
+
 
 def register(mcp: FastMCP) -> None:
     """Register run_urbanopt tools."""
@@ -29,16 +41,16 @@ def register(mcp: FastMCP) -> None:
             Field(description="Garden root containing garden.json; URBANopt project setup is written inside this Garden."),
         ],
         feature_geojson_target: Annotated[
-            dict[str, Any],
+            ArtifactTargetRef,
             Field(description="Dragonfly URBANopt/DES feature GeoJSON artifact target to prepare."),
         ],
         weather_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(description="Optional Garden weather_file target; when provided its EPW is written into the base Honeybee OSW."),
         ] = None,
         cpu_count: Annotated[
             int | None,
-            Field(description="Optional positive CPU count for the URBANopt project preparation step."),
+            Field(description="Optional positive CPU count for the URBANopt project preparation step.", ge=1),
         ] = None,
         verbose: Annotated[
             bool,
@@ -49,7 +61,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Target URBANopt workflow mode: 'energy' (default) or 'des'."),
         ] = "energy",
         sim_par_target: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | None,
             Field(description="Optional SimulationParameter target/dict written as sim_par_json into the base OSW."),
         ] = None,
         additional_measures: Annotated[
@@ -66,26 +78,29 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         emissions_year: Annotated[
             int | None,
-            Field(description="Optional future electricity emissions year for Cambium emissions reporting."),
+            Field(description="Optional future electricity emissions year for Cambium emissions reporting.", ge=2000),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> ArtifactResultModel:
         """Prepare an URBANopt Energy or DES project folder."""
         if workflow_mode == "des":
             from garden.dragonfly_des.runs import prepare_urbanopt_project as service
         else:
             from garden.run_urbanopt import prepare_project as service
 
-        return service(
-            garden_root=garden_root,
-            feature_geojson_target=feature_geojson_target,
-            weather_target=weather_target,
-            cpu_count=cpu_count,
-            verbose=verbose,
-            sim_par_target=sim_par_target,
-            additional_measures=additional_measures,
-            additional_mapper_measures=additional_mapper_measures,
-            base_osw=base_osw,
-            emissions_year=emissions_year,
+        return validate_output(
+            ArtifactResultModel,
+            service(
+                garden_root=garden_root,
+                feature_geojson_target=dump_target(feature_geojson_target) or {},
+                weather_target=dump_target(weather_target),
+                cpu_count=cpu_count,
+                verbose=verbose,
+                sim_par_target=dump_target(sim_par_target),
+                additional_measures=dump_input(additional_measures),
+                additional_mapper_measures=dump_input(additional_mapper_measures),
+                base_osw=dump_input(base_osw),
+                emissions_year=emissions_year,
+            ),
         )
 
     @mcp.tool(
@@ -106,15 +121,15 @@ def register(mcp: FastMCP) -> None:
             Field(description="Garden root containing garden.json; the URBANopt run ledger is written inside this Garden."),
         ],
         feature_geojson_target: Annotated[
-            dict[str, Any],
+            ArtifactTargetRef,
             Field(description="Dragonfly URBANopt/DES feature GeoJSON artifact target for the simulation."),
         ],
         scenario_csv_target: Annotated[
-            dict[str, Any],
+            ArtifactTargetRef,
             Field(description="URBANopt scenario CSV artifact target paired with the feature GeoJSON."),
         ],
         prepared_project_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="URBANopt project folder target returned by DF_URBANopt_Prepare_Project; required when workflow_mode='energy'."),
         ] = None,
         workflow_mode: Annotated[
@@ -127,46 +142,55 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         cpu_count: Annotated[
             int | None,
-            Field(description="Optional CPU count passed to the Dragonfly Energy URBANopt runner."),
+            Field(description="Optional CPU count passed to the Dragonfly Energy URBANopt runner.", ge=1),
         ] = None,
         wait_seconds: Annotated[
             float | None,
-            Field(description="Optional seconds to poll for completion before returning; omit to return immediately."),
+            Field(description="Optional seconds to poll for completion before returning; omit to return immediately.", ge=0),
         ] = None,
         poll_interval: Annotated[
             float,
-            Field(description="Polling interval in seconds when wait_seconds is provided."),
+            Field(description="Polling interval in seconds when wait_seconds is provided.", gt=0),
         ] = 2.0,
-    ) -> dict[str, Any]:
+    ) -> RunResultModel:
         """Start an URBANopt Energy or DES simulation."""
+        dumped_feature = dump_target(feature_geojson_target) or {}
+        dumped_scenario = dump_target(scenario_csv_target) or {}
+        dumped_prepared = dump_target(prepared_project_target)
         if workflow_mode == "des":
             from garden.dragonfly_des.runs import start_urbanopt_simulation as service
 
-            return service(
-                garden_root=garden_root,
-                feature_geojson_target=feature_geojson_target,
-                scenario_csv_target=scenario_csv_target,
-                run_id=run_id,
-                cpu_count=cpu_count,
-                wait_seconds=wait_seconds,
-                poll_interval=poll_interval,
+            return validate_output(
+                RunResultModel,
+                service(
+                    garden_root=garden_root,
+                    feature_geojson_target=dumped_feature,
+                    scenario_csv_target=dumped_scenario,
+                    run_id=run_id,
+                    cpu_count=cpu_count,
+                    wait_seconds=wait_seconds,
+                    poll_interval=poll_interval,
+                ),
             )
 
-        if prepared_project_target is None:
+        if dumped_prepared is None:
             raise ValueError(
                 "prepared_project_target is required when workflow_mode='energy'."
             )
         from garden.run_urbanopt import start_simulation as service
 
-        return service(
-            garden_root=garden_root,
-            prepared_project_target=prepared_project_target,
-            feature_geojson_target=feature_geojson_target,
-            scenario_csv_target=scenario_csv_target,
-            run_id=run_id,
-            cpu_count=cpu_count,
-            wait_seconds=wait_seconds,
-            poll_interval=poll_interval,
+        return validate_output(
+            RunResultModel,
+            service(
+                garden_root=garden_root,
+                prepared_project_target=dumped_prepared,
+                feature_geojson_target=dumped_feature,
+                scenario_csv_target=dumped_scenario,
+                run_id=run_id,
+                cpu_count=cpu_count,
+                wait_seconds=wait_seconds,
+                poll_interval=poll_interval,
+            ),
         )
 
     @mcp.tool(
@@ -185,11 +209,11 @@ def register(mcp: FastMCP) -> None:
             Field(description="Garden root containing garden.json."),
         ],
         feature_geojson_target: Annotated[
-            dict[str, Any],
+            ArtifactTargetRef,
             Field(description="Dragonfly URBANopt/DES feature GeoJSON artifact target."),
         ],
         scenario_csv_target: Annotated[
-            dict[str, Any],
+            ArtifactTargetRef,
             Field(description="URBANopt scenario CSV artifact target."),
         ],
         run_default_report: Annotated[
@@ -204,15 +228,18 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional eGRID/Cambium subregion code for per-building SQL emissions."),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Read URBANopt default scenario reports and per-building SQL summaries."""
         from garden.run_urbanopt import read_urbanopt_results as service
 
-        return service(
-            garden_root=garden_root,
-            feature_geojson_target=feature_geojson_target,
-            scenario_csv_target=scenario_csv_target,
-            run_default_report=run_default_report,
-            include_building_sql_summary=include_building_sql_summary,
-            subregion=subregion,
+        return validate_output(
+            QueryResultModel,
+            service(
+                garden_root=garden_root,
+                feature_geojson_target=dump_target(feature_geojson_target) or {},
+                scenario_csv_target=dump_target(scenario_csv_target) or {},
+                run_default_report=run_default_report,
+                include_building_sql_summary=include_building_sql_summary,
+                subregion=subregion,
+            ),
         )

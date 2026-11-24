@@ -7,6 +7,18 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import (
+    ArtifactTargetRef,
+    BuildingModelTargetRef,
+    BuildingObjectTargetRef,
+    MutationResultModel,
+    RunResultModel,
+    WeatherTargetRef,
+    dump_input,
+    dump_target,
+    validate_output,
+)
+
 
 def register(mcp: FastMCP) -> None:
     """Register run_uwg tools."""
@@ -33,11 +45,11 @@ def register(mcp: FastMCP) -> None:
             Field(description="Action to run: 'get_summary', 'apply', or 'create_helper'."),
         ] = "get_summary",
         host_target: Annotated[
-            dict[str, Any] | None,
+            BuildingObjectTargetRef | None,
             Field(description="Dragonfly model, Building, or ContextShade target (required when action='apply')."),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(description="Optional Dragonfly model target with target_type=dragonfly_model. Defaults to base Dragonfly model."),
         ] = None,
         climate_zone: Annotated[
@@ -47,9 +59,13 @@ def register(mcp: FastMCP) -> None:
         helper_type: Annotated[
             Literal[
                 "terrain",
+                "traffic",
                 "traffic_parameter",
+                "vegetation",
                 "vegetation_parameter",
                 "reference_epw_site",
+                "refsite",
+                "boundary_layer",
                 "boundary_layer_parameter",
             ]
             | None,
@@ -69,11 +85,11 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         tree_coverage_fraction: Annotated[
             float | None,
-            Field(description="Optional model-level tree coverage fraction from 0 to 1."),
+            Field(description="Optional model-level tree coverage fraction from 0 to 1.", ge=0, le=1),
         ] = None,
         grass_coverage_fraction: Annotated[
             float | None,
-            Field(description="Optional model-level grass/shrub coverage fraction from 0 to 1."),
+            Field(description="Optional model-level grass/shrub coverage fraction from 0 to 1.", ge=0, le=1),
         ] = None,
         program: Annotated[
             Literal[
@@ -103,23 +119,23 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         fract_heat_to_canyon: Annotated[
             float | None,
-            Field(description="Optional fraction of waste heat rejected to the urban canyon."),
+            Field(description="Optional fraction of waste heat rejected to the urban canyon.", ge=0, le=1),
         ] = None,
         shgc: Annotated[
             float | None,
-            Field(description="Optional average window solar heat gain coefficient."),
+            Field(description="Optional average window solar heat gain coefficient.", ge=0, le=1),
         ] = None,
         wall_albedo: Annotated[
             float | None,
-            Field(description="Optional wall albedo for UWG building surfaces."),
+            Field(description="Optional wall albedo for UWG building surfaces.", ge=0, le=1),
         ] = None,
         roof_albedo: Annotated[
             float | None,
-            Field(description="Optional roof albedo for UWG building surfaces."),
+            Field(description="Optional roof albedo for UWG building surfaces.", ge=0, le=1),
         ] = None,
         roof_veg_fraction: Annotated[
             float | None,
-            Field(description="Optional fraction of roof covered by vegetation."),
+            Field(description="Optional fraction of roof covered by vegetation.", ge=0, le=1),
         ] = None,
         is_vegetation: Annotated[
             bool | None,
@@ -129,17 +145,21 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Infer Building UWG program from its Dragonfly Energy ProgramType when action='apply'."),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Inspect, construct helpers for, or apply Dragonfly UWG properties."""
+        dumped_model_target = dump_target(model_target)
         if action == "get_summary":
             from garden.dragonfly_core.uwg_properties import (
                 get_dragonfly_uwg_properties_summary as service,
             )
 
-            return service(
-                garden_root=garden_root,
-                model_target=model_target,
-                climate_zone=climate_zone,
+            return validate_output(
+                MutationResultModel,
+                service(
+                    garden_root=garden_root,
+                    model_target=dumped_model_target,
+                    climate_zone=climate_zone,
+                ),
             )
 
         if action == "create_helper":
@@ -147,34 +167,41 @@ def register(mcp: FastMCP) -> None:
                 raise ValueError("DF_UWG_Properties with action='create_helper' requires helper_type.")
             from garden.dragonfly_core.uwg_properties import create_uwg_helper as service
 
-            return service(
-                helper_type=helper_type,
-                params=helper_params,
-                garden_root=garden_root,
-                model_target=model_target,
+            return validate_output(
+                MutationResultModel,
+                service(
+                    helper_type=helper_type,
+                    params=dump_input(helper_params),
+                    garden_root=garden_root,
+                    model_target=dumped_model_target,
+                ),
             )
 
-        if host_target is None:
+        dumped_host_target = dump_target(host_target)
+        if dumped_host_target is None:
             raise ValueError("DF_UWG_Properties with action='apply' requires host_target.")
         from garden.dragonfly_core.uwg_properties import apply_dragonfly_uwg_properties as service
 
-        return service(
-            garden_root=garden_root,
-            host_target=host_target,
-            model_target=model_target,
-            terrain=terrain,
-            traffic=traffic,
-            tree_coverage_fraction=tree_coverage_fraction,
-            grass_coverage_fraction=grass_coverage_fraction,
-            program=program,
-            vintage=vintage,
-            fract_heat_to_canyon=fract_heat_to_canyon,
-            shgc=shgc,
-            wall_albedo=wall_albedo,
-            roof_albedo=roof_albedo,
-            roof_veg_fraction=roof_veg_fraction,
-            is_vegetation=is_vegetation,
-            infer_program_from_energy_program=infer_program_from_energy_program,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                host_target=dumped_host_target,
+                model_target=dumped_model_target,
+                terrain=dump_input(terrain),
+                traffic=dump_input(traffic),
+                tree_coverage_fraction=tree_coverage_fraction,
+                grass_coverage_fraction=grass_coverage_fraction,
+                program=program,
+                vintage=vintage,
+                fract_heat_to_canyon=fract_heat_to_canyon,
+                shgc=shgc,
+                wall_albedo=wall_albedo,
+                roof_albedo=roof_albedo,
+                roof_veg_fraction=roof_veg_fraction,
+                is_vegetation=is_vegetation,
+                infer_program_from_energy_program=infer_program_from_energy_program,
+            ),
         )
 
     @mcp.tool(
@@ -199,15 +226,15 @@ def register(mcp: FastMCP) -> None:
             Field(description="UWG workflow mode: 'create_parameter', 'export_json', or 'simulate'."),
         ] = "simulate",
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(description="Optional Dragonfly model target with target_type=dragonfly_model. Defaults to base Dragonfly model."),
         ] = None,
         weather_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(description="Garden weather_file target returned by LB_Manage_Weather."),
         ] = None,
         simulation_parameter_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="Optional uwg_simulation_parameter target."),
         ] = None,
         simulation_parameter: Annotated[
@@ -228,7 +255,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         timestep: Annotated[
             int,
-            Field(description="UWG timesteps per hour when mode='create_parameter'. Default is 12."),
+            Field(description="UWG timesteps per hour when mode='create_parameter'. Default is 12.", ge=1),
         ] = 12,
         vegetation_parameter: Annotated[
             dict[str, Any] | None,
@@ -272,53 +299,66 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         wait_seconds: Annotated[
             float | None,
-            Field(description="Optional seconds to poll for completion when mode='simulate'; omit to return immediately."),
+            Field(description="Optional seconds to poll for completion when mode='simulate'; omit to return immediately.", ge=0),
         ] = None,
         poll_interval: Annotated[
             float,
-            Field(description="Polling interval in seconds when wait_seconds is provided."),
+            Field(description="Polling interval in seconds when wait_seconds is provided.", gt=0),
         ] = 2.0,
-    ) -> dict[str, Any]:
+    ) -> RunResultModel:
         """Create UWG parameters, export UWG JSON, or run UWG simulation."""
         if mode == "create_parameter":
             from garden.run_uwg import create_uwg_simulation_parameter as service
 
-            return service(
-                garden_root=garden_root,
-                identifier=identifier,
-                climate_zone=climate_zone,
-                run_period=run_period,
-                timestep=timestep,
-                vegetation_parameter=vegetation_parameter,
-                reference_epw_site=reference_epw_site,
-                boundary_layer_parameter=boundary_layer_parameter,
-                save=save,
-                include_body=include_body,
+            return validate_output(
+                RunResultModel,
+                service(
+                    garden_root=garden_root,
+                    identifier=identifier,
+                    climate_zone=climate_zone,
+                    run_period=dump_input(run_period),
+                    timestep=timestep,
+                    vegetation_parameter=dump_input(vegetation_parameter),
+                    reference_epw_site=dump_input(reference_epw_site),
+                    boundary_layer_parameter=dump_input(boundary_layer_parameter),
+                    save=save,
+                    include_body=include_body,
+                ),
             )
+        dumped_model_target = dump_target(model_target)
+        dumped_weather_target = dump_target(weather_target)
+        dumped_sim_par_target = dump_target(simulation_parameter_target)
+        dumped_sim_par = dump_input(simulation_parameter)
         if mode == "export_json":
             from garden.run_uwg import dragonfly_model_to_uwg as service
 
-            return service(
-                garden_root=garden_root,
-                model_target=model_target,
-                weather_target=weather_target,
-                simulation_parameter_target=simulation_parameter_target,
-                simulation_parameter=simulation_parameter,
-                name=name,
-                include_body=include_body,
+            return validate_output(
+                RunResultModel,
+                service(
+                    garden_root=garden_root,
+                    model_target=dumped_model_target,
+                    weather_target=dumped_weather_target,
+                    simulation_parameter_target=dumped_sim_par_target,
+                    simulation_parameter=dumped_sim_par,
+                    name=name,
+                    include_body=include_body,
+                ),
             )
         from garden.run_uwg import start_uwg_run as service
 
-        return service(
-            garden_root=garden_root,
-            model_target=model_target,
-            weather_target=weather_target,
-            simulation_parameter_target=simulation_parameter_target,
-            simulation_parameter=simulation_parameter,
-            run_id=run_id,
-            reload_old=reload_old,
-            silent=silent,
-            validate_weather=validate_weather,
-            wait_seconds=wait_seconds,
-            poll_interval=poll_interval,
+        return validate_output(
+            RunResultModel,
+            service(
+                garden_root=garden_root,
+                model_target=dumped_model_target,
+                weather_target=dumped_weather_target,
+                simulation_parameter_target=dumped_sim_par_target,
+                simulation_parameter=dumped_sim_par,
+                run_id=run_id,
+                reload_old=reload_old,
+                silent=silent,
+                validate_weather=validate_weather,
+                wait_seconds=wait_seconds,
+                poll_interval=poll_interval,
+            ),
         )

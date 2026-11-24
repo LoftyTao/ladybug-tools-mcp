@@ -8,7 +8,14 @@ from typing import Annotated, Any, Callable, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
-from ladybug_tools_mcp.contracts import make_report
+from ladybug_tools_mcp.contracts import (
+    LibraryObjectTargetRef,
+    MutationResultModel,
+    QueryResultModel,
+    dump_target,
+    make_report,
+    validate_output,
+)
 
 
 @dataclass(frozen=True)
@@ -347,7 +354,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         target: Annotated[
-            dict[str, Any] | None,
+            LibraryObjectTargetRef | None,
             Field(
                 description=(
                     "For action='get': optional garden_properties_library_object target from "
@@ -377,31 +384,37 @@ def register(mcp: FastMCP) -> None:
                 ge=1,
             ),
         ] = 10,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Search, read, or save objects in the Garden Properties Library."""
         if action == "search":
             from garden.libraries.properties import (
                 search_garden_properties_library_objects as service,
             )
 
-            return service(
-                garden_root=garden_root,
-                query=query,
-                domain=domain,
-                object_family=object_family,
-                limit=limit,
+            return validate_output(
+                MutationResultModel,
+                service(
+                    garden_root=garden_root,
+                    query=query,
+                    domain=domain,
+                    object_family=object_family,
+                    limit=limit,
+                ),
             )
         if action == "get":
             from garden.libraries.properties import (
                 get_garden_properties_library_object as service,
             )
 
-            return service(
-                garden_root=garden_root,
-                target=target,
-                domain=domain,
-                object_family=object_family,
-                identifier=identifier,
+            return validate_output(
+                MutationResultModel,
+                service(
+                    garden_root=garden_root,
+                    target=dump_target(target),
+                    domain=domain,
+                    object_family=object_family,
+                    identifier=identifier,
+                ),
             )
         if not domain or not object_family or object_dict is None:
             raise ValueError(
@@ -411,13 +424,16 @@ def register(mcp: FastMCP) -> None:
             save_garden_properties_library_object as service,
         )
 
-        return service(
-            garden_root=garden_root,
-            domain=domain,
-            object_family=object_family,
-            object_dict=object_dict,
-            identifier=identifier,
-            overwrite=overwrite,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                domain=domain,
+                object_family=object_family,
+                object_dict=object_dict,
+                identifier=identifier,
+                overwrite=overwrite,
+            ),
         )
 
     @mcp.tool(
@@ -481,7 +497,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         catalogs: Annotated[
-            list[str] | None,
+            list[Literal["transformer_properties", "power_lines", "wires"]] | None,
             Field(
                 description=(
                     "Optional OpenDSS catalog filter list when domain='opendss': "
@@ -517,58 +533,79 @@ def register(mcp: FastMCP) -> None:
             int,
             Field(description="Maximum number of matching standards identifiers to return.", ge=1),
         ] = 10,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Search or inspect built-in Energy, Radiance, OpenDSS, or THERM standards catalogs."""
         if action == "get":
             target_identifier = (identifier if identifier is not None else query).strip()
             if domain == "energy":
                 from garden.energy.libraries import get_energy_library_object
 
-                return get_energy_library_object(
-                    identifier=target_identifier,
-                    object_family=object_family,
+                return validate_output(
+                    QueryResultModel,
+                    get_energy_library_object(
+                        identifier=target_identifier,
+                        object_family=object_family,
+                    ),
                 )
             if domain == "radiance":
-                return _get_radiance_library_object(
-                    identifier=target_identifier,
-                    object_family=object_family,
+                return validate_output(
+                    QueryResultModel,
+                    _get_radiance_library_object(
+                        identifier=target_identifier,
+                        object_family=object_family,
+                    ),
                 )
             if domain == "opendss":
-                return _get_opendss_library_object(
+                return validate_output(
+                    QueryResultModel,
+                    _get_opendss_library_object(
+                        identifier=target_identifier,
+                        object_family=object_family,
+                        catalogs=catalogs,
+                    ),
+                )
+            return validate_output(
+                QueryResultModel,
+                _get_therm_library_object(
                     identifier=target_identifier,
                     object_family=object_family,
-                    catalogs=catalogs,
-                )
-            return _get_therm_library_object(
-                identifier=target_identifier,
-                object_family=object_family,
+                ),
             )
 
         if domain == "energy":
             from garden.energy.libraries import search_energy_library_objects
 
-            return search_energy_library_objects(
-                query=query,
-                object_family=object_family,
-                climate_zone=climate_zone,
-                vintage=vintage,
-                construction_type=construction_type,
-                building_type=building_type,
-                limit=limit,
+            return validate_output(
+                QueryResultModel,
+                search_energy_library_objects(
+                    query=query,
+                    object_family=object_family,
+                    climate_zone=climate_zone,
+                    vintage=vintage,
+                    construction_type=construction_type,
+                    building_type=building_type,
+                    limit=limit,
+                ),
             )
         if domain == "radiance":
             from garden.radiance.libraries import search_radiance_library_objects
 
-            return search_radiance_library_objects(
-                query=query,
-                object_family=object_family,
-                limit=limit,
+            return validate_output(
+                QueryResultModel,
+                search_radiance_library_objects(
+                    query=query,
+                    object_family=object_family,
+                    limit=limit,
+                ),
             )
         if domain == "therm":
-            return _search_therm_library(
-                query=query,
-                object_family=object_family,
-                limit=limit,
+            return validate_output(
+                QueryResultModel,
+                _search_therm_library(
+                    query=query,
+                    object_family=object_family,
+                    limit=limit,
+                ),
             )
         from garden.dragonfly_grid.authoring import search_opendss
 
@@ -578,8 +615,11 @@ def register(mcp: FastMCP) -> None:
             if catalogs is not None
             else ([object_family] if object_family and object_family != "all" else None)
         )
-        return search_opendss(
-            keywords=tokens,
-            catalogs=resolved_catalogs,
-            limit=limit,
+        return validate_output(
+            QueryResultModel,
+            search_opendss(
+                keywords=tokens,
+                catalogs=resolved_catalogs,
+                limit=limit,
+            ),
         )

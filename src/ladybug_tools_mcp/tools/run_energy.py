@@ -8,10 +8,51 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import (
+    ArtifactTargetRef,
+    BuildingModelTargetRef,
+    MutationResultModel,
+    QueryResultModel,
+    RunResultModel,
+    RunTargetRef,
+    WeatherTargetRef,
+    dump_input,
+    dump_target,
+    make_report,
+    validate_output,
+)
+
 
 WeatherAction = Literal["search", "import", "download", "read_data"]
 SimulationParameterMode = Literal["simulation_parameter", "output_request", "inspect_measures"]
 SimulationFileType = Literal["auto", "idf", "osm"]
+WeatherFormat = Literal["epw", "zip", "EPW", "ZIP"]
+TerrainType = Literal[
+    "Ocean",
+    "Country",
+    "Suburbs",
+    "Urban",
+    "City",
+    "ocean",
+    "country",
+    "suburbs",
+    "urban",
+    "city",
+]
+ReportingFrequency = Literal[
+    "Annual",
+    "Monthly",
+    "Daily",
+    "Hourly",
+    "Timestep",
+    "annual",
+    "monthly",
+    "daily",
+    "hourly",
+    "timestep",
+]
+SimulationUnits = Literal["si", "ip", "SI", "IP"]
+SummaryPeriod = Literal["annual", "monthly", "Annual", "Monthly"]
 SummaryKind = Literal[
     "energy_use",
     "loads",
@@ -75,7 +116,7 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         max_results: Annotated[
             int,
-            Field(description="For action='search': maximum number of Garden EPW matches to return."),
+            Field(ge=1, description="For action='search': maximum number of Garden EPW matches to return."),
         ] = 10,
         require_ddy: Annotated[
             bool,
@@ -110,15 +151,15 @@ def register(mcp: FastMCP) -> None:
             Field(description="For action='download': exact epwapi administrative-region name."),
         ] = None,
         format: Annotated[
-            str,
+            WeatherFormat,
             Field(description="For action='download': archive format filter (epw or zip)."),
         ] = "zip",
         page_size: Annotated[
             int,
-            Field(description="For action='download': epwapi page_size from 1 to 200."),
+            Field(ge=1, le=200, description="For action='download': epwapi page_size from 1 to 200."),
         ] = 20,
         weather_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(description="For action='read_data': Garden weather_file target. Provide exactly one of weather_target or epw_path."),
         ] = None,
         epw_path: Annotated[
@@ -146,64 +187,76 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         max_values: Annotated[
             int,
-            Field(description="For action='read_data': maximum raw values returned in summary when include_values is true."),
+            Field(ge=0, description="For action='read_data': maximum raw values returned in summary when include_values is true."),
         ] = 24,
         return_data_collection: Annotated[
             bool,
             Field(description="For action='read_data': return the full Ladybug DataCollection dict."),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Search, import, download, or read EPW weather data in a Garden."""
         if action == "search":
             from garden.run_energy.config import search_weather_files as service
 
-            return service(
-                garden_root=garden_root,
-                query=query,
-                max_results=max_results,
-                require_ddy=require_ddy,
+            return validate_output(
+                MutationResultModel,
+                service(
+                    garden_root=garden_root,
+                    query=query,
+                    max_results=max_results,
+                    require_ddy=require_ddy,
+                ),
             )
         if action == "import":
             if not source_path:
                 raise ValueError("source_path is required when action='import'.")
             from garden.run_energy.config import import_local_weather_folder as service
 
-            return service(
-                garden_root=garden_root,
-                source_path=source_path,
-                identifier=identifier,
-                overwrite=overwrite,
+            return validate_output(
+                MutationResultModel,
+                service(
+                    garden_root=garden_root,
+                    source_path=source_path,
+                    identifier=identifier,
+                    overwrite=overwrite,
+                ),
             )
         if action == "download":
             from garden.run_energy.weather_download import download_weather as service
 
-            return service(
-                garden_root=garden_root,
-                query=query,
-                file_id=file_id,
-                file_name=file_name,
-                object_key=object_key,
-                file_target=file_target,
-                region=region,
-                country=country,
-                admin_region=admin_region,
-                file_format=format,
-                page_size=page_size,
-                overwrite=overwrite,
+            return validate_output(
+                MutationResultModel,
+                service(
+                    garden_root=garden_root,
+                    query=query,
+                    file_id=file_id,
+                    file_name=file_name,
+                    object_key=object_key,
+                    file_target=dump_input(file_target),
+                    region=region,
+                    country=country,
+                    admin_region=admin_region,
+                    file_format=format,
+                    page_size=page_size,
+                    overwrite=overwrite,
+                ),
             )
         if action == "read_data":
             from garden.run_energy.weather_data import read_weather_file_data as service
 
-            return service(
-                garden_root=garden_root,
-                weather_target=weather_target,
-                epw_path=epw_path,
-                data_type=data_type,
-                analysis_period=analysis_period,
-                identifier=identifier,
-                include_values=include_values,
-                max_values=max_values,
-                return_data_collection=return_data_collection,
+            return validate_output(
+                MutationResultModel,
+                service(
+                    garden_root=garden_root,
+                    weather_target=dump_target(weather_target),
+                    epw_path=epw_path,
+                    data_type=data_type,
+                    analysis_period=dump_input(analysis_period),
+                    identifier=identifier,
+                    include_values=include_values,
+                    max_values=max_values,
+                    return_data_collection=return_data_collection,
+                ),
             )
         raise ValueError(f"Unsupported weather action: {action!r}.")
 
@@ -254,14 +307,14 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         timestep: Annotated[
             int | None,
-            Field(description="Optional timesteps per hour (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, or 60)."),
+            Field(ge=1, le=60, description="Optional timesteps per hour (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, or 60)."),
         ] = None,
         north_angle: Annotated[
             float | None,
-            Field(description="Optional clockwise north rotation angle in degrees (-360 to 360)."),
+            Field(ge=-360, le=360, description="Optional clockwise north rotation angle in degrees (-360 to 360)."),
         ] = None,
         terrain_type: Annotated[
-            str | None,
+            TerrainType | None,
             Field(description="Optional site terrain type: Ocean, Country, Suburbs, Urban, or City."),
         ] = None,
         simulation_control: Annotated[
@@ -289,7 +342,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="For mode='inspect_measures': optional list of {folder, arguments} specs or folder strings to inspect and validate."),
         ] = None,
         output_request_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="Optional existing energy_output_request target."),
         ] = None,
         output_request: Annotated[
@@ -309,7 +362,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional EnergyPlus summary reports such as AllSummary or AnnualBuildingUtilityPerformanceSummary."),
         ] = None,
         reporting_frequency: Annotated[
-            str,
+            ReportingFrequency,
             Field(description="EnergyPlus reporting frequency for output variables: Annual, Monthly, Daily, Hourly, or Timestep."),
         ] = "Hourly",
         include_sqlite: Annotated[
@@ -322,17 +375,17 @@ def register(mcp: FastMCP) -> None:
         ] = True,
         unmet_setpoint_tolerance: Annotated[
             float,
-            Field(description="Unmet setpoint tolerance in degrees Celsius."),
+            Field(ge=0.0, le=10.0, description="Unmet setpoint tolerance in degrees Celsius."),
         ] = 1.11,
         weather_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(description="Optional weather_file target with ddy_path; when supplied, design_days strategies are resolved during creation."),
         ] = None,
         include_body: Annotated[
             bool,
             Field(description="Return the full SDK SimulationParameter dictionary when mode='simulation_parameter'."),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a reusable Energy SimulationParameter, energy_output_request target, or inspect OpenStudio measures."""
         from garden.run_energy.annual import inspect_openstudio_measures
         from garden.run_energy.output_requests import (
@@ -343,11 +396,14 @@ def register(mcp: FastMCP) -> None:
         )
 
         if mode == "inspect_measures":
-            return inspect_openstudio_measures(
-                garden_root=garden_root,
-                measure_folder=measure_folder,
-                measures_path=measures_path,
-                measures=measures,
+            return validate_output(
+                MutationResultModel,
+                inspect_openstudio_measures(
+                    garden_root=garden_root,
+                    measure_folder=measure_folder,
+                    measures_path=measures_path,
+                    measures=measures,
+                ),
             )
 
         allowed_output_keys = {
@@ -416,17 +472,20 @@ def register(mcp: FastMCP) -> None:
             req_identifier = inline_output_kwargs.pop("identifier", None) or identifier
             if not req_identifier:
                 raise ValueError("identifier is required when mode='output_request'.")
-            return output_request_service(
-                garden_root=garden_root,
-                identifier=str(req_identifier),
-                presets=inline_output_kwargs.get("presets"),
-                custom_outputs=inline_output_kwargs.get("custom_outputs"),
-                summary_reports=inline_output_kwargs.get("summary_reports"),
-                reporting_frequency=str(inline_output_kwargs.get("reporting_frequency", reporting_frequency)),
-                include_sqlite=bool(inline_output_kwargs.get("include_sqlite", include_sqlite)),
-                include_html=bool(inline_output_kwargs.get("include_html", include_html)),
-                unmet_setpoint_tolerance=float(
-                    inline_output_kwargs.get("unmet_setpoint_tolerance", unmet_setpoint_tolerance)
+            return validate_output(
+                MutationResultModel,
+                output_request_service(
+                    garden_root=garden_root,
+                    identifier=str(req_identifier),
+                    presets=inline_output_kwargs.get("presets"),
+                    custom_outputs=inline_output_kwargs.get("custom_outputs"),
+                    summary_reports=inline_output_kwargs.get("summary_reports"),
+                    reporting_frequency=str(inline_output_kwargs.get("reporting_frequency", reporting_frequency)),
+                    include_sqlite=bool(inline_output_kwargs.get("include_sqlite", include_sqlite)),
+                    include_html=bool(inline_output_kwargs.get("include_html", include_html)),
+                    unmet_setpoint_tolerance=float(
+                        inline_output_kwargs.get("unmet_setpoint_tolerance", unmet_setpoint_tolerance)
+                    ),
                 ),
             )
 
@@ -435,9 +494,9 @@ def register(mcp: FastMCP) -> None:
                 "measure_folder, measures_path, and measures are only valid when mode='inspect_measures'."
             )
 
-        resolved_output_request_target = output_request_target
+        resolved_output_request_target = dump_target(output_request_target)
         if inline_output_kwargs or output_request is not None:
-            if output_request_target is not None:
+            if resolved_output_request_target is not None:
                 raise ValueError(
                     "Provide either output_request_target or inline output_request/output settings, not both."
                 )
@@ -474,13 +533,13 @@ def register(mcp: FastMCP) -> None:
             holidays=holidays,
             daylight_saving_time=daylight_saving_time,
             output_request_target=resolved_output_request_target,
-            weather_target=weather_target,
+            weather_target=dump_target(weather_target),
             include_body=include_body,
         )
         if resolved_output_request_target is not None:
             result["output_request_target"] = resolved_output_request_target
             result.setdefault("summary_view", {})["output_request_target"] = resolved_output_request_target
-        return result
+        return validate_output(MutationResultModel, result)
 
     @mcp.tool(
         name="EP_Start_Simulation",
@@ -502,13 +561,13 @@ def register(mcp: FastMCP) -> None:
             Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
         ],
         weather_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(
                 description="Garden weather file target returned by LB_Manage_Weather, or a Garden-relative EPW path."
             ),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model."),
         ] = None,
         sim_par: Annotated[
@@ -516,11 +575,11 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional Honeybee Energy SimulationParameter dictionary. Mutually exclusive with simulation_parameter_target."),
         ] = None,
         simulation_parameter_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="Optional reusable simulation_parameter target returned by EP_Create_Simulation_Parameter. Mutually exclusive with sim_par."),
         ] = None,
         output_request_target: Annotated[
-            dict[str, Any] | None,
+            ArtifactTargetRef | None,
             Field(description="Optional energy_output_request target returned by EP_Create_Simulation_Parameter(mode='output_request')."),
         ] = None,
         additional_idf_path: Annotated[
@@ -552,12 +611,12 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional stable run identifier. Omit to generate one."),
         ] = None,
         units: Annotated[
-            str,
+            SimulationUnits,
             Field(description="EUI units for EnergyPlus result summaries: si or ip."),
         ] = "si",
         workers: Annotated[
             int | None,
-            Field(description="Optional recipe worker count."),
+            Field(ge=1, description="Optional recipe worker count."),
         ] = None,
         reload_old: Annotated[
             bool,
@@ -577,35 +636,37 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         poll_interval: Annotated[
             float,
-            Field(description="Wrapper-side polling interval in seconds when wait_seconds > 0."),
+            Field(gt=0, description="Wrapper-side polling interval in seconds when wait_seconds > 0."),
         ] = 2.0,
-    ) -> dict[str, Any]:
+    ) -> RunResultModel:
         """Start annual energy-use simulation and optionally wait for completion."""
         from garden.run_energy.annual import (
             get_energy_run,
             inspect_openstudio_measures,
             start_energy_run as service,
         )
-        from ladybug_tools_mcp.contracts import make_report
 
         if inspect_measures:
-            return inspect_openstudio_measures(
-                garden_root=garden_root,
-                measures_path=measures_path,
-                measures=measures,
+            return validate_output(
+                RunResultModel,
+                inspect_openstudio_measures(
+                    garden_root=garden_root,
+                    measures_path=measures_path,
+                    measures=measures,
+                ),
             )
 
         result = service(
             garden_root=garden_root,
-            weather_target=weather_target,
-            model_target=model_target,
-            sim_par=sim_par,
-            simulation_parameter_target=simulation_parameter_target,
-            output_request_target=output_request_target,
+            weather_target=dump_target(weather_target),
+            model_target=dump_target(model_target),
+            sim_par=dump_input(sim_par),
+            simulation_parameter_target=dump_target(simulation_parameter_target),
+            output_request_target=dump_target(output_request_target),
             additional_idf_path=additional_idf_path,
             additional_idf_text=additional_idf_text,
             measures_path=measures_path,
-            measures=measures,
+            measures=dump_input(measures),
             measures_only=measures_only,
             run_id=run_id,
             units=units,
@@ -651,7 +712,7 @@ def register(mcp: FastMCP) -> None:
             summary = result.setdefault("summary_view", {})
             summary["wait_seconds_requested"] = wait_seconds
             summary["wait_seconds_applied"] = applied_wait
-        return result
+        return validate_output(RunResultModel, result)
 
     @mcp.tool(
         name="EP_Run_Simulation_File",
@@ -678,7 +739,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Simulation file type: auto (infer from extension), idf, or osm."),
         ] = "auto",
         weather_target: Annotated[
-            dict[str, Any] | None,
+            WeatherTargetRef | None,
             Field(description="Optional Garden weather_file target returned by LB_Manage_Weather. Use instead of epw_path."),
         ] = None,
         epw_path: Annotated[
@@ -705,21 +766,24 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Run EnergyPlus/OpenStudio silently."),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> RunResultModel:
         """Run an edited IDF or OSM file and register an energy_run target."""
         from garden.run_energy.files import run_simulation_file as service
 
-        return service(
-            garden_root=garden_root,
-            file_path=file_path,
-            file_type=file_type,
-            weather_target=weather_target,
-            epw_path=epw_path,
-            expand_objects=expand_objects,
-            measures=measures,
-            measures_only=measures_only,
-            run_id=run_id,
-            silent=silent,
+        return validate_output(
+            RunResultModel,
+            service(
+                garden_root=garden_root,
+                file_path=file_path,
+                file_type=file_type,
+                weather_target=dump_target(weather_target),
+                epw_path=epw_path,
+                expand_objects=expand_objects,
+                measures=dump_input(measures),
+                measures_only=measures_only,
+                run_id=run_id,
+                silent=silent,
+            ),
         )
 
     @mcp.tool(
@@ -748,11 +812,11 @@ def register(mcp: FastMCP) -> None:
             Field(description="Summary intent: energy_use, loads, peaks, sizing, load_balance, unmet_hours, tabular, emissions, generation, zsz, rdd, or osw."),
         ] = "energy_use",
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(description="Energy run target returned by EP_Start_Simulation or EP_Run_Simulation_File."),
         ] = None,
         energy_run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(description="Alias for run_target."),
         ] = None,
         run_id: Annotated[
@@ -764,7 +828,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional zone, room, table, or output-name substring scope."),
         ] = None,
         period: Annotated[
-            str,
+            SummaryPeriod,
             Field(description="Requested time range for time-series summaries: annual or monthly."),
         ] = "annual",
         unit_preference: Annotated[
@@ -785,7 +849,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         max_results: Annotated[
             int,
-            Field(description="Maximum compact records/rows/outputs to return for sizing, tabular, rdd, or zsz."),
+            Field(ge=1, description="Maximum compact records/rows/outputs to return for sizing, tabular, rdd, or zsz."),
         ] = 50,
         table_name: Annotated[
             str | None,
@@ -805,7 +869,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         emissions_year: Annotated[
             int,
-            Field(description="For summary_kind='emissions': future US eGrid year (even year 2020-2050) when electricity_emissions is omitted."),
+            Field(ge=2020, le=2050, description="For summary_kind='emissions': future US eGrid year (even year 2020-2050) when electricity_emissions is omitted."),
         ] = 2030,
         include_values: Annotated[
             bool,
@@ -813,32 +877,35 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         max_values: Annotated[
             int,
-            Field(description="For summary_kind='zsz': maximum values per zone profile when include_values is true."),
+            Field(ge=0, description="For summary_kind='zsz': maximum values per zone profile when include_values is true."),
         ] = 24,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Return a compact intent-driven Energy result summary."""
         from garden.run_energy.summary import summarize_energy_results as service
 
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            energy_run_target=energy_run_target,
-            run_id=run_id,
-            summary_kind=summary_kind,
-            scope=scope,
-            period=period,
-            unit_preference=unit_preference,
-            zone=zone,
-            component=component,
-            sizing_category=sizing_category,
-            max_results=max_results,
-            table_name=table_name,
-            report_name=report_name,
-            j_to_kwh=j_to_kwh,
-            electricity_emissions=electricity_emissions,
-            emissions_year=emissions_year,
-            include_values=include_values,
-            max_values=max_values,
+        return validate_output(
+            QueryResultModel,
+            service(
+                garden_root=garden_root,
+                run_target=dump_target(run_target),
+                energy_run_target=dump_target(energy_run_target),
+                run_id=run_id,
+                summary_kind=summary_kind,
+                scope=dump_input(scope),
+                period=period,
+                unit_preference=unit_preference,
+                zone=zone,
+                component=component,
+                sizing_category=sizing_category,
+                max_results=max_results,
+                table_name=table_name,
+                report_name=report_name,
+                j_to_kwh=j_to_kwh,
+                electricity_emissions=electricity_emissions,
+                emissions_year=emissions_year,
+                include_values=include_values,
+                max_values=max_values,
+            ),
         )
 
     @mcp.tool(
@@ -861,7 +928,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
         ],
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(description="Energy run target returned by EP_Start_Simulation; pass run_target unless you provide run_id."),
         ] = None,
         run_id: Annotated[
@@ -894,7 +961,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         run_period_index: Annotated[
             int | None,
-            Field(description="Optional EnergyPlus run period index."),
+            Field(ge=0, description="Optional EnergyPlus run period index."),
         ] = None,
         include_values: Annotated[
             bool,
@@ -902,15 +969,15 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         max_values: Annotated[
             int,
-            Field(description="Maximum values per DataCollection when include_values is true."),
+            Field(ge=0, description="Maximum values per DataCollection when include_values is true."),
         ] = 24,
         max_collections: Annotated[
             int,
-            Field(description="Maximum DataCollection summaries to return."),
+            Field(ge=1, description="Maximum DataCollection summaries to return."),
         ] = 10,
         max_outputs: Annotated[
             int,
-            Field(description="Maximum SQL outputs selected by output_query/unit/data_type/object_type filters."),
+            Field(ge=1, description="Maximum SQL outputs selected by output_query/unit/data_type/object_type filters."),
         ] = 25,
         save_data_collections: Annotated[
             bool,
@@ -921,7 +988,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Optional Honeybee geometry matching via honeybee_energy.result.match: none, rooms, faces, or auto."),
         ] = "none",
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(description="Optional Honeybee model_target used when match_to != 'none' (defaults to the run's model or Garden base model)."),
         ] = None,
         invert_multiplier: Annotated[
@@ -936,31 +1003,34 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="For match_to='rooms': divide multiplier by room count per zone when space_based is false."),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Read Energy result DataCollection summaries."""
         from garden.run_energy.results import read_energy_result_data as service
 
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            run_id=run_id,
-            output_name=output_name,
-            output_names=output_names,
-            output_query=output_query,
-            unit=unit,
-            data_type=data_type,
-            object_type=object_type,
-            run_period_index=run_period_index,
-            include_values=include_values,
-            max_values=max_values,
-            max_collections=max_collections,
-            max_outputs=max_outputs,
-            save_data_collections=save_data_collections,
-            match_to=match_to,
-            model_target=model_target,
-            invert_multiplier=invert_multiplier,
-            space_based=space_based,
-            zone_correct_mult=zone_correct_mult,
+        return validate_output(
+            QueryResultModel,
+            service(
+                garden_root=garden_root,
+                run_target=dump_target(run_target),
+                run_id=run_id,
+                output_name=output_name,
+                output_names=output_names,
+                output_query=output_query,
+                unit=unit,
+                data_type=data_type,
+                object_type=object_type,
+                run_period_index=run_period_index,
+                include_values=include_values,
+                max_values=max_values,
+                max_collections=max_collections,
+                max_outputs=max_outputs,
+                save_data_collections=save_data_collections,
+                match_to=match_to,
+                model_target=dump_target(model_target),
+                invert_multiplier=invert_multiplier,
+                space_based=space_based,
+                zone_correct_mult=zone_correct_mult,
+            ),
         )
 
     @mcp.tool(
@@ -982,7 +1052,7 @@ def register(mcp: FastMCP) -> None:
             Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
         ],
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(description="Energy run target returned by EP_Start_Simulation; pass run_target unless you provide run_id."),
         ] = None,
         run_id: Annotated[
@@ -991,15 +1061,18 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         max_chars: Annotated[
             int,
-            Field(description="Maximum ERR text characters to return."),
+            Field(ge=1, description="Maximum ERR text characters to return."),
         ] = 12000,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Read Energy ERR output."""
         from garden.run_energy.annual import read_energy_errors as service
 
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            run_id=run_id,
-            max_chars=max_chars,
+        return validate_output(
+            QueryResultModel,
+            service(
+                garden_root=garden_root,
+                run_target=dump_target(run_target),
+                run_id=run_id,
+                max_chars=max_chars,
+            ),
         )
