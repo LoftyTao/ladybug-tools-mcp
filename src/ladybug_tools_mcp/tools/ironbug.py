@@ -7,46 +7,16 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field
 
-
-def dump_input(value: Any) -> Any:
-    """Recursively dump Pydantic models to plain dicts while dropping None fields."""
-    if isinstance(value, BaseModel):
-        return value.model_dump(exclude_none=True)
-    if isinstance(value, (list, tuple)):
-        return [dump_input(item) for item in value]
-    if isinstance(value, dict):
-        return {key: dump_input(item) for key, item in value.items()}
-    return value
-
-def dump_target(target: BaseModel | dict[str, Any] | None) -> dict[str, Any] | None:
-    """Convert an optional target ref model or dict into a plain dict."""
-    if target is None:
-        return None
-    if isinstance(target, BaseModel):
-        return target.model_dump(exclude_none=True)
-    return dump_input(target)
-
-class GardenTargetRef(BaseModel):
-    """Base typed reference for Garden-managed targets and artifacts."""
-
-    model_config = ConfigDict(extra="allow")
-
-    target_type: str | None = None
-    garden_id: str | None = None
-    id: str | None = None
-    identifier: str | None = None
-    domain: str | None = None
-    path: str | None = None
-
-class ToolReportModel(BaseModel):
-    """Compact tool report returned alongside structured payloads."""
-
-    model_config = ConfigDict(extra="allow")
-
-    status: str = "ok"
-    message: str = ""
-    warnings: list[str] = Field(default_factory=list)
-    details: dict[str, Any] = Field(default_factory=dict)
+from ladybug_tools_mcp.contracts import (
+    BuildingModelTargetRef,
+    BuildingObjectTargetRef,
+    GardenTargetRef,  # noqa: F401
+    IronbugModelTargetRef,
+    ToolReportModel,
+    dump_input,
+    dump_models,
+    dump_target,
+)
 
 IronbugCategory = Literal[
     "air_loop",
@@ -90,23 +60,6 @@ ReportingFrequency = Literal[
     "RunPeriod",
     "Annual",
 ]
-
-class IronbugModelTargetRef(GardenTargetRef):
-    """Target pointing to a Garden-managed Ironbug IB_HVACSystem asset."""
-
-    root_type: str | None = Field(default=None, description="C# root class name, typically 'IB_HVACSystem'.")
-
-class BuildingModelTargetRef(GardenTargetRef):
-    """Target pointing to a Garden-managed Honeybee or Dragonfly building model."""
-
-    model_identifier: str | None = Field(default=None, description="Building model identifier in the Garden.")
-
-class BuildingObjectTargetRef(GardenTargetRef):
-    """Target pointing to a Room, Room2D, Story, or Building object inside a model."""
-
-    model_identifier: str | None = Field(default=None, description="Owning building model identifier.")
-    object_type: str | None = Field(default=None, description="Object type such as 'room', 'room2d', 'story', or 'building'.")
-    object_identifier: str | None = Field(default=None, description="Identifier of the referenced object.")
 
 class IronbugOutputVariableSpec(BaseModel):
     """EnergyPlus Output:Variable attachment on an Ironbug component."""
@@ -712,30 +665,13 @@ class ApplyToModelResult(IronbugToolResult):
     summary_view: dict[str, Any] = Field(default_factory=dict)
     persistence_receipt: dict[str, Any] | None = None
 
-def dump_models(items: list[Any] | None) -> list[dict[str, Any]] | None:
-    """Convert a list of Pydantic config models to plain dicts for the service layer."""
-    if items is None:
-        return None
-    return [
-        item.model_dump(exclude_none=True) if isinstance(item, BaseModel) else dict(item)
-        for item in items
-    ]
-
 def dump_components(
     components: dict[str, IronbugComponentSpec] | list[NamedIronbugComponentSpec] | None,
 ) -> dict[str, dict[str, Any]] | list[dict[str, Any]] | None:
     """Convert typed component specs to plain dict/list payloads for the service layer."""
     if components is None:
         return None
-    if isinstance(components, dict):
-        return {
-            comp_id: (spec.model_dump(exclude_none=True) if isinstance(spec, BaseModel) else dict(spec))
-            for comp_id, spec in components.items()
-        }
-    return [
-        spec.model_dump(exclude_none=True) if isinstance(spec, BaseModel) else dict(spec)
-        for spec in components
-    ]
+    return dump_input(components)
 
 
 def register(mcp: FastMCP) -> None:

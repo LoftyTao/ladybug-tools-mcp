@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import wraps
@@ -12,8 +13,48 @@ from threading import Lock
 from typing import Any, Iterator
 from uuid import uuid4
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from garden.manifest import atomic_write_bytes, garden_lock, utc_now_iso
 from garden.paths import slugify_name, windows_path_key
+
+
+class RunTargetRecord(BaseModel):
+    """Typed run target schema persisted in run ledgers and returned by run tools."""
+
+    model_config = ConfigDict(extra="allow")
+
+    target_type: str | None = None
+    garden_id: str | None = None
+    domain: str | None = None
+    recipe: str | None = None
+    run_id: str | None = None
+
+
+class RunLedgerRecord(BaseModel):
+    """Lightweight run ledger record schema."""
+
+    model_config = ConfigDict(extra="allow")
+
+    run_id: str | None = None
+    target: dict[str, Any] | None = None
+    recipe: str | None = None
+    status: str | None = None
+    runtime_status: str | None = None
+    created_at: str | None = None
+    completed_at: str | None = None
+    run_folder: str | None = None
+    worker_pid: int | None = None
+    outputs: Any = None
+    error: str | None = None
+
+
+class RunLedgerIndex(BaseModel):
+    """Top-level ``{"runs": [...]}`` run ledger index schema."""
+
+    model_config = ConfigDict(extra="allow")
+
+    runs: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def serialized_run_start(function):
@@ -200,14 +241,21 @@ class RunLedger:
 
     def _decode(self, raw: str) -> dict[str, Any]:
         try:
-            return json.loads(raw)
+            payload = json.loads(raw)
         except json.JSONDecodeError as exc:
             if not self._recover_trailing_json or exc.msg != "Extra data":
                 raise
             payload, _ = json.JSONDecoder().raw_decode(raw)
             if not isinstance(payload, dict):
                 raise
-            return payload
+        index = RunLedgerIndex.model_validate(payload)
+        return {
+            **index.model_dump(),
+            "runs": [
+                RunLedgerRecord.model_validate(item).model_dump(exclude_unset=True)
+                for item in index.runs
+            ],
+        }
 
 
 def normalize_run_id(value: str | None, fallback: str) -> str:
@@ -224,13 +272,13 @@ def make_run_target(
     run_id: str,
 ) -> dict[str, str]:
     """Build the common target shape used by Garden run ledgers."""
-    return {
-        "target_type": target_type,
-        "garden_id": garden_id,
-        "domain": domain,
-        "recipe": recipe,
-        "run_id": run_id,
-    }
+    return RunTargetRecord(
+        target_type=target_type,
+        garden_id=garden_id,
+        domain=domain,
+        recipe=recipe,
+        run_id=run_id,
+    ).model_dump()
 
 
 def run_id_from_target_or_value(
@@ -248,22 +296,30 @@ def run_id_from_target_or_value(
 ) -> str:
     """Resolve a run identifier while preserving each target family's checks."""
     if target is not None:
-        if target.get("target_type") != target_type:
+        try:
+            parsed = RunTargetRecord.model_validate(target)
+        except ValidationError as exc:
+            raise ValueError(f"run_target must be a {target_type} target.") from exc
+        if parsed.target_type != target_type:
             raise ValueError(f"run_target must be a {target_type} target.")
-        if domain is not None and target.get("domain") != domain:
+        if domain is not None and parsed.domain != domain:
             raise ValueError(domain_message or f"run_target must reference {domain}.")
-        target_recipe = target.get("recipe")
-        if allowed_recipes is not None and target_recipe not in allowed_recipes:
+        if allowed_recipes is not None and parsed.recipe not in allowed_recipes:
             allowed = ", ".join(sorted(allowed_recipes))
             raise ValueError(f"run_target must reference one of: {allowed}.")
-        if recipe is not None and target_recipe != recipe:
+        if recipe is not None and parsed.recipe != recipe:
             raise ValueError(f"run_target must reference recipe '{recipe}'.")
         if target_run_id_required:
-            value = target.get("run_id")
-            if not value:
+            if not parsed.run_id:
                 raise ValueError("run_target requires run_id.")
-            return str(value)
-        return str(target["run_id"])
+            return parsed.run_id
+        if parsed.run_id is None:
+            if isinstance(target, Mapping) and "run_id" not in target:
+                raise KeyError("run_id")
+            if isinstance(target, Mapping):
+                return str(target["run_id"])
+            raise ValueError("run_target requires run_id.")
+        return parsed.run_id
     if run_id:
         return slugify_name(run_id) if slug_value else run_id
     raise ValueError(missing_message)

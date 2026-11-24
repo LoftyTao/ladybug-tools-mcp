@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 from typing import Any
 
 from honeybee_energy.construction.air import AirBoundaryConstruction
@@ -52,6 +51,20 @@ from honeybee_energy.material.shade import (
 )
 
 from ladybug_tools_mcp.contracts import make_report
+from garden.energy._schemas import (
+    INLINE_CONSTRUCTION_MODELS,
+    InlineAirBoundaryConstructionSpec,
+    InlineOpaqueConstructionSpec,
+    InlineShadeConstructionSpec,
+    InlineWindowConstructionSpec,
+    InlineWindowDynamicConstructionSpec,
+    InlineWindowShadeConstructionSpec,
+    OpaqueConstructionParams,
+    WindowConstructionParams,
+    validate_construction_params,
+    validate_inline_construction_dict,
+    validate_material_params,
+)
 from garden.energy.programtypes import _schedule_from_input
 from garden.libraries.properties import (
     get_garden_properties_library_object,
@@ -704,113 +717,80 @@ def _inline_construction_from_dict(
                 raw_type = "opaque"
         elif expected_types is not None and expected_types == (AirBoundaryConstruction,):
             raw_type = "air_boundary"
-    identifier = str(data.get("identifier") or f"custom_{raw_type or 'construction'}")
-    if raw_type == "opaque":
-        unknown = sorted(set(data) - {"construction_type", "identifier", "materials"})
-        if unknown:
-            raise ValueError(f"{field_name} contains unsupported opaque construction fields: {', '.join(unknown)}.")
-        materials = data.get("materials")
-        if not isinstance(materials, list) or not materials:
-            raise ValueError(f"{field_name} requires a non-empty materials list.")
+    if not raw_type:
+        raise ValueError(
+            f"{field_name} inline construction dictionary must specify materials, u_factor/shgc, or construction_type."
+        )
+    if raw_type not in INLINE_CONSTRUCTION_MODELS:
+        raise ValueError(
+            f"{field_name} inline construction dictionary has unsupported construction_type={raw_type!r}; "
+            "must specify materials, u_factor/shgc, or a valid construction_type."
+        )
+    spec = validate_inline_construction_dict(raw_type, data, field_name=field_name)
+    identifier = str(getattr(spec, "identifier", None) or f"custom_{raw_type}")
+    if isinstance(spec, InlineOpaqueConstructionSpec):
         return OpaqueConstruction(
             identifier,
-            [_material_from_input(mat, field_name=f"{field_name}.materials", garden_root=garden_root) for mat in materials],
+            [
+                _material_from_input(mat, field_name=f"{field_name}.materials", garden_root=garden_root)
+                for mat in spec.materials
+            ],
         )
-    if raw_type == "window":
-        unknown = sorted(set(data) - {"construction_type", "identifier", "materials", "u_factor", "shgc", "vt", "frame"})
-        if unknown:
-            raise ValueError(f"{field_name} contains unsupported window construction fields: {', '.join(unknown)}.")
-        materials = data.get("materials")
-        if materials is not None:
-            if not isinstance(materials, list) or not materials:
-                raise ValueError(f"{field_name}.materials must be a non-empty list.")
+    if isinstance(spec, InlineWindowConstructionSpec):
+        if spec.materials is not None:
             frame = (
-                _material_from_input(data["frame"], field_name=f"{field_name}.frame", garden_root=garden_root)
-                if data.get("frame") is not None
+                _material_from_input(spec.frame, field_name=f"{field_name}.frame", garden_root=garden_root)
+                if spec.frame is not None
                 else None
             )
             return WindowConstruction(
                 identifier,
-                [_material_from_input(mat, field_name=f"{field_name}.materials", garden_root=garden_root) for mat in materials],
+                [
+                    _material_from_input(mat, field_name=f"{field_name}.materials", garden_root=garden_root)
+                    for mat in spec.materials
+                ],
                 frame=frame,
             )
-        if data.get("u_factor") is None or data.get("shgc") is None:
-            raise ValueError(f"{field_name} requires materials or both u_factor and shgc.")
+        assert spec.u_factor is not None and spec.shgc is not None
         return WindowConstruction.from_simple_parameters(
             identifier,
-            float(data["u_factor"]),
-            float(data["shgc"]),
-            vt=float(data.get("vt", 0.6)),
+            spec.u_factor,
+            spec.shgc,
+            vt=spec.vt,
         )
-    if raw_type == "window_shade":
-        unknown = sorted(
-            set(data)
-            - {
-                "construction_type",
-                "identifier",
-                "window_construction",
-                "shade_material",
-                "shade_location",
-                "control_type",
-                "setpoint",
-                "schedule",
-            }
-        )
-        if unknown:
-            raise ValueError(
-                f"{field_name} contains unsupported window_shade construction fields: {', '.join(unknown)}."
-            )
-        if data.get("window_construction") is None or data.get("shade_material") is None:
-            raise ValueError(
-                f"{field_name} requires window_construction and shade_material for window_shade."
-            )
+    if isinstance(spec, InlineWindowShadeConstructionSpec):
         return _build_window_shade_construction(
             identifier=identifier,
-            window_construction=data["window_construction"],
-            shade_material=data["shade_material"],
-            shade_location=str(data.get("shade_location", "Interior")),
-            control_type=str(data.get("control_type", "AlwaysOn")),
-            setpoint=data.get("setpoint"),
-            schedule=data.get("schedule"),
+            window_construction=spec.window_construction,
+            shade_material=spec.shade_material,
+            shade_location=spec.shade_location,
+            control_type=spec.control_type,
+            setpoint=spec.setpoint,
+            schedule=spec.schedule,
             field_name=field_name,
             garden_root=garden_root,
         )
-    if raw_type == "window_dynamic":
-        unknown = sorted(set(data) - {"construction_type", "identifier", "constructions", "schedule"})
-        if unknown:
-            raise ValueError(
-                f"{field_name} contains unsupported window_dynamic construction fields: {', '.join(unknown)}."
-            )
-        if data.get("constructions") is None or data.get("schedule") is None:
-            raise ValueError(
-                f"{field_name} requires constructions and schedule for window_dynamic."
-            )
+    if isinstance(spec, InlineWindowDynamicConstructionSpec):
         return _build_window_dynamic_construction(
             identifier=identifier,
-            constructions=data["constructions"],
-            schedule=data["schedule"],
+            constructions=spec.constructions,
+            schedule=spec.schedule,
             field_name=field_name,
             garden_root=garden_root,
         )
-    if raw_type == "shade":
-        unknown = sorted(set(data) - {"construction_type", "identifier", "solar_reflectance", "visible_reflectance", "is_specular"})
-        if unknown:
-            raise ValueError(f"{field_name} contains unsupported shade construction fields: {', '.join(unknown)}.")
+    if isinstance(spec, InlineShadeConstructionSpec):
         return ShadeConstruction(
             identifier,
-            solar_reflectance=float(data.get("solar_reflectance", 0.2)),
-            visible_reflectance=float(data.get("visible_reflectance", 0.2)),
-            is_specular=bool(data.get("is_specular", False)),
+            solar_reflectance=spec.solar_reflectance,
+            visible_reflectance=spec.visible_reflectance,
+            is_specular=spec.is_specular,
         )
-    if raw_type == "air_boundary":
-        unknown = sorted(set(data) - {"construction_type", "identifier", "air_mixing_per_area", "air_mixing_schedule"})
-        if unknown:
-            raise ValueError(f"{field_name} contains unsupported air_boundary construction fields: {', '.join(unknown)}.")
+    if isinstance(spec, InlineAirBoundaryConstructionSpec):
         return AirBoundaryConstruction(
             identifier,
-            air_mixing_per_area=float(data.get("air_mixing_per_area", 0.1)),
+            air_mixing_per_area=spec.air_mixing_per_area,
             air_mixing_schedule=_schedule_from_input(
-                data.get("air_mixing_schedule"),
+                spec.air_mixing_schedule,
                 field_name=f"{field_name}.air_mixing_schedule",
                 garden_root=garden_root,
             ),
@@ -2102,40 +2082,13 @@ def create_material(
     if creator is None:
         allowed = ", ".join(sorted(_MATERIAL_CREATORS))
         raise ValueError(f"material_type must be one of: {allowed}.")
-    if params is None:
-        params_dict: dict[str, Any] = {}
-    elif isinstance(params, dict):
-        params_dict = dict(params)
-    else:
-        raise ValueError("params must be a dictionary.")
-
-    excluded = {"identifier", "return_detail", "garden_root", "return_object_dict"}
-    signature = inspect.signature(creator)
-    accepted = set(signature.parameters) - excluded
-    unknown = sorted(set(params_dict) - accepted)
-    if unknown:
-        allowed_params = ", ".join(sorted(accepted))
-        raise ValueError(
-            f"Unsupported params for material_type={normalized!r}: {', '.join(unknown)}. "
-            f"Accepted params: {allowed_params}."
-        )
-    missing = [
-        name
-        for name, param in signature.parameters.items()
-        if name not in excluded
-        and param.default is inspect.Parameter.empty
-        and name not in params_dict
-    ]
-    if missing:
-        raise ValueError(
-            f"material_type={normalized!r} requires params: {', '.join(missing)}."
-        )
+    validated_params = validate_material_params(normalized, params)
     return creator(
         identifier=identifier,
         return_detail=return_detail,
         garden_root=garden_root,
         return_object_dict=return_object_dict,
-        **params_dict,
+        **validated_params,
     )
 
 
@@ -2155,24 +2108,26 @@ def create_construction(
 ) -> dict[str, Any]:
     """Create any Honeybee Energy construction dispatched by construction_type."""
     normalized = str(construction_type or "").strip().lower().replace("-", "_")
-    if params is None:
-        params_dict: dict[str, Any] = {}
-    elif isinstance(params, dict):
-        params_dict = dict(params)
-    else:
-        raise ValueError("params must be a dictionary.")
+    if normalized not in {
+        "opaque",
+        "window",
+        "window_shade",
+        "window_dynamic",
+        "shade",
+        "air_boundary",
+    }:
+        raise ValueError(
+            "construction_type must be one of: opaque, window, window_shade, window_dynamic, shade, air_boundary."
+        )
 
     if normalized == "opaque":
         if u_factor is not None or shgc is not None or frame is not None:
             raise ValueError(
                 "u_factor, shgc, and frame apply only to construction_type='window'."
             )
-        unknown = sorted(set(params_dict) - {"materials"})
-        if unknown:
-            raise ValueError(
-                f"Unsupported params for construction_type='opaque': {', '.join(unknown)}."
-            )
-        resolved_materials = materials if materials is not None else params_dict.get("materials")
+        validated = validate_construction_params(normalized, params)
+        assert isinstance(validated, OpaqueConstructionParams)
+        resolved_materials = materials if materials is not None else validated.materials
         if resolved_materials is None:
             raise ValueError("construction_type='opaque' requires materials.")
         return create_opaque_construction(
@@ -2184,16 +2139,13 @@ def create_construction(
         )
 
     if normalized == "window":
-        unknown = sorted(set(params_dict) - {"materials", "u_factor", "shgc", "vt", "frame"})
-        if unknown:
-            raise ValueError(
-                f"Unsupported params for construction_type='window': {', '.join(unknown)}."
-            )
-        resolved_materials = materials if materials is not None else params_dict.get("materials")
-        resolved_u_factor = u_factor if u_factor is not None else params_dict.get("u_factor")
-        resolved_shgc = shgc if shgc is not None else params_dict.get("shgc")
-        resolved_vt = params_dict["vt"] if "vt" in params_dict else vt
-        resolved_frame = frame if frame is not None else params_dict.get("frame")
+        validated = validate_construction_params(normalized, params)
+        assert isinstance(validated, WindowConstructionParams)
+        resolved_materials = materials if materials is not None else validated.materials
+        resolved_u_factor = u_factor if u_factor is not None else validated.u_factor
+        resolved_shgc = shgc if shgc is not None else validated.shgc
+        resolved_vt = validated.vt if "vt" in validated.model_fields_set else vt
+        resolved_frame = frame if frame is not None else validated.frame
         return create_window_construction(
             identifier=identifier,
             materials=resolved_materials,
@@ -2206,105 +2158,32 @@ def create_construction(
             return_object_dict=return_object_dict,
         )
 
-    if normalized == "window_shade":
-        if materials is not None or u_factor is not None or shgc is not None or frame is not None:
+    if materials is not None or u_factor is not None or shgc is not None or frame is not None:
+        if normalized == "window_shade":
             raise ValueError(
                 "For construction_type='window_shade', pass window_construction and shade_material "
                 "inside params rather than top-level materials, u_factor, shgc, or frame."
             )
-        allowed = {
-            "window_construction",
-            "shade_material",
-            "shade_location",
-            "control_type",
-            "setpoint",
-            "schedule",
-        }
-        unknown = sorted(set(params_dict) - allowed)
-        if unknown:
-            raise ValueError(
-                f"Unsupported params for construction_type='window_shade': {', '.join(unknown)}. "
-                f"Accepted params: {', '.join(sorted(allowed))}."
-            )
-        if params_dict.get("window_construction") is None or params_dict.get("shade_material") is None:
-            raise ValueError(
-                "construction_type='window_shade' requires params['window_construction'] and "
-                "params['shade_material']."
-            )
-        return create_window_shade_construction(
-            identifier=identifier,
-            return_detail=return_detail,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
-            **params_dict,
-        )
-
-    if normalized == "window_dynamic":
-        if materials is not None or u_factor is not None or shgc is not None or frame is not None:
+        if normalized == "window_dynamic":
             raise ValueError(
                 "For construction_type='window_dynamic', pass constructions and schedule "
                 "inside params rather than top-level materials, u_factor, shgc, or frame."
             )
-        allowed = {"constructions", "schedule"}
-        unknown = sorted(set(params_dict) - allowed)
-        if unknown:
-            raise ValueError(
-                f"Unsupported params for construction_type='window_dynamic': {', '.join(unknown)}. "
-                f"Accepted params: {', '.join(sorted(allowed))}."
-            )
-        if params_dict.get("constructions") is None or params_dict.get("schedule") is None:
-            raise ValueError(
-                "construction_type='window_dynamic' requires params['constructions'] and "
-                "params['schedule']."
-            )
-        return create_window_dynamic_construction(
-            identifier=identifier,
-            return_detail=return_detail,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
-            **params_dict,
+        raise ValueError(
+            f"materials, u_factor, shgc, and frame are not supported for construction_type='{normalized}'."
         )
 
-    if normalized == "shade":
-        if materials is not None or u_factor is not None or shgc is not None or frame is not None:
-            raise ValueError(
-                "materials, u_factor, shgc, and frame are not supported for construction_type='shade'."
-            )
-        allowed = {"solar_reflectance", "visible_reflectance", "is_specular"}
-        unknown = sorted(set(params_dict) - allowed)
-        if unknown:
-            raise ValueError(
-                f"Unsupported params for construction_type='shade': {', '.join(unknown)}. "
-                f"Accepted params: {', '.join(sorted(allowed))}."
-            )
-        return create_shade_construction(
-            identifier=identifier,
-            return_detail=return_detail,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
-            **params_dict,
-        )
-
-    if normalized == "air_boundary":
-        if materials is not None or u_factor is not None or shgc is not None or frame is not None:
-            raise ValueError(
-                "materials, u_factor, shgc, and frame are not supported for construction_type='air_boundary'."
-            )
-        allowed = {"air_mixing_per_area", "air_mixing_schedule"}
-        unknown = sorted(set(params_dict) - allowed)
-        if unknown:
-            raise ValueError(
-                f"Unsupported params for construction_type='air_boundary': {', '.join(unknown)}. "
-                f"Accepted params: {', '.join(sorted(allowed))}."
-            )
-        return create_air_boundary_construction(
-            identifier=identifier,
-            return_detail=return_detail,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
-            **params_dict,
-        )
-
-    raise ValueError(
-        "construction_type must be one of: opaque, window, window_shade, window_dynamic, shade, air_boundary."
+    validated = validate_construction_params(normalized, params)
+    creators = {
+        "window_shade": create_window_shade_construction,
+        "window_dynamic": create_window_dynamic_construction,
+        "shade": create_shade_construction,
+        "air_boundary": create_air_boundary_construction,
+    }
+    return creators[normalized](
+        identifier=identifier,
+        return_detail=return_detail,
+        garden_root=garden_root,
+        return_object_dict=return_object_dict,
+        **validated.model_dump(),
     )

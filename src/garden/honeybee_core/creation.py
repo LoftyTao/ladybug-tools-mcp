@@ -19,6 +19,14 @@ from ladybug_geometry.geometry3d.pointvector import Point3D
 
 from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 from garden.manifest import GardenManifest
+from garden.honeybee_core._schemas import (
+    DoorBatchItemSpec,
+    FaceBatchItemSpec,
+    RoomBatchItemSpec,
+    validate_honeybee_aperture_batch_items,
+    validate_honeybee_object_batch_items,
+    validate_honeybee_shade_batch_items,
+)
 from garden.honeybee_core.geometry import (
     face3d_from_dict,
     polyface3d_from_dict,
@@ -764,6 +772,7 @@ def create_honeybee_objects_batch(
         raise ValueError("object_type must be one of room, face, or door.")
     if not isinstance(items, list) or not items:
         raise ValueError("items must be a non-empty list of object specification dicts.")
+    validated_items = validate_honeybee_object_batch_items(normalized_type, items)
 
     garden_root_path, manifest, resolved_model_target, model = _load_target_model(
         garden_root,
@@ -776,45 +785,43 @@ def create_honeybee_objects_batch(
     created_identifiers: list[str] = []
     object_summaries: list[dict[str, Any]] = []
 
-    for index, raw_item in enumerate(items):
-        if not isinstance(raw_item, dict):
-            raise ValueError(f"items[{index}] must be a dictionary.")
-        item_identifier = raw_item.get("identifier")
-        if not isinstance(item_identifier, str) or not item_identifier.strip():
-            raise ValueError(f"items[{index}].identifier is required.")
+    for index, item in enumerate(validated_items):
+        item_identifier = item.identifier
         try:
-            if normalized_type == "room":
+            if isinstance(item, RoomBatchItemSpec):
                 room, target = _add_room_in_model(
                     working_model,
                     manifest,
                     model_identifier,
                     identifier=item_identifier,
-                    faces=raw_item.get("faces"),
-                    room_geometry=raw_item.get("room_geometry"),
-                    x_dim=raw_item.get("x_dim"),
-                    y_dim=raw_item.get("y_dim"),
-                    height=raw_item.get("height"),
-                    origin=raw_item.get("origin"),
+                    faces=item.faces,
+                    room_geometry=item.room_geometry,
+                    x_dim=item.x_dim,
+                    y_dim=item.y_dim,
+                    height=item.height,
+                    origin=item.origin,
                 )
                 created_targets.append(target)
                 created_identifiers.append(room.identifier)
                 object_summaries.append(object_summary(target, room.to_dict()))
-            elif normalized_type == "face":
-                geometry = raw_item.get("geometry")
-                if geometry is None:
-                    raise ValueError("geometry is required for face creation.")
+            elif isinstance(item, FaceBatchItemSpec):
                 face, target = _add_face_in_model(
                     working_model,
                     manifest,
                     model_identifier,
                     identifier=item_identifier,
-                    geometry=geometry,
+                    geometry=item.geometry,
                 )
                 created_targets.append(target)
                 created_identifiers.append(face.identifier)
                 object_summaries.append(object_summary(target, face.to_dict()))
             else:
-                item_host = raw_item.get("host_target", default_host_target)
+                assert isinstance(item, DoorBatchItemSpec)
+                item_host = (
+                    item.host_target
+                    if "host_target" in item.model_fields_set
+                    else default_host_target
+                )
                 if item_host is None:
                     raise ValueError("host_target is required for door creation.")
                 door, target, adjacent_target, created_doors, _ = _add_door_in_model(
@@ -823,12 +830,12 @@ def create_honeybee_objects_batch(
                     model_identifier,
                     identifier=item_identifier,
                     host_target=item_host,
-                    geometry=raw_item.get("geometry"),
-                    is_glass=bool(raw_item.get("is_glass", False)),
-                    door_width=raw_item.get("door_width"),
-                    door_height=float(raw_item.get("door_height", 2.1)),
-                    sill_height=float(raw_item.get("sill_height", 0.05)),
-                    placement=str(raw_item.get("placement", "auto")),
+                    geometry=item.geometry,
+                    is_glass=item.is_glass,
+                    door_width=item.door_width,
+                    door_height=item.door_height,
+                    sill_height=item.sill_height,
+                    placement=item.placement,
                 )
                 created_targets.append(target)
                 created_identifiers.append(door.identifier)
@@ -1498,22 +1505,19 @@ def create_honeybee_apertures_batch(
     if host_targets is None and items is None:
         raise ValueError("Batch aperture creation requires host_targets or items.")
 
-    specs: list[dict[str, Any]] = []
     if host_targets is not None:
         if not isinstance(host_targets, list) or not host_targets:
             raise ValueError("host_targets must be a non-empty list.")
-        for ht in host_targets:
-            specs.append({"host_target": ht})
+        specs = validate_honeybee_aperture_batch_items(
+            [{"host_target": ht} for ht in host_targets]
+        )
     else:
         if not isinstance(items, list) or not items:
             raise ValueError("items must be a non-empty list.")
-        for index, item in enumerate(items):
-            if not isinstance(item, dict):
-                raise ValueError(f"items[{index}] must be a dictionary.")
-            spec = dict(item)
-            if "host_target" not in spec and host_target is not None:
-                spec["host_target"] = host_target
-            specs.append(spec)
+        specs = validate_honeybee_aperture_batch_items(
+            items,
+            default_host_target=host_target,
+        )
 
     garden_root_path, manifest, resolved_model_target, model = _load_target_model(
         garden_root,
@@ -1869,11 +1873,13 @@ def create_honeybee_shades_batch(
             raise ValueError(
                 "mode='geometry' batch creation requires a non-empty items list with identifier and geometry."
             )
-        for index, raw_item in enumerate(items):
-            if not isinstance(raw_item, dict):
-                raise ValueError(f"items[{index}] must be a dictionary.")
-            item_id = raw_item.get("identifier")
-            item_geom = raw_item.get("geometry")
+        geometry_specs = validate_honeybee_shade_batch_items(
+            items,
+            default_host_target=host_target,
+        )
+        for index, spec in enumerate(geometry_specs):
+            item_id = spec.get("identifier")
+            item_geom = spec.get("geometry")
             if not isinstance(item_id, str) or not item_id.strip():
                 raise ValueError(f"items[{index}].identifier is required.")
             if item_geom is None:
@@ -1885,9 +1891,9 @@ def create_honeybee_shades_batch(
                     model_identifier,
                     identifier=item_id,
                     geometry=item_geom,
-                    host_target=raw_item.get("host_target", host_target),
-                    attach_side=str(raw_item.get("attach_side", attach_side)),
-                    is_detached=bool(raw_item.get("is_detached", is_detached)),
+                    host_target=spec.get("host_target", host_target),
+                    attach_side=str(spec.get("attach_side", attach_side)),
+                    is_detached=bool(spec.get("is_detached", is_detached)),
                 )
             except Exception as exc:
                 raise ValueError(f"items[{index}] ({item_id}): {exc}") from exc
@@ -1895,21 +1901,19 @@ def create_honeybee_shades_batch(
             created_targets.append(target)
             object_summaries.append(object_summary(target, shade.to_dict()))
     else:
-        specs: list[dict[str, Any]] = []
         if host_targets is not None:
             if not isinstance(host_targets, list) or not host_targets:
                 raise ValueError("host_targets must be a non-empty list.")
-            specs = [{"host_target": ht} for ht in host_targets]
+            specs = validate_honeybee_shade_batch_items(
+                [{"host_target": ht} for ht in host_targets]
+            )
         else:
             if not isinstance(items, list) or not items:
                 raise ValueError("items must be a non-empty list.")
-            for index, raw_item in enumerate(items):
-                if not isinstance(raw_item, dict):
-                    raise ValueError(f"items[{index}] must be a dictionary.")
-                spec = dict(raw_item)
-                if "host_target" not in spec and host_target is not None:
-                    spec["host_target"] = host_target
-                specs.append(spec)
+            specs = validate_honeybee_shade_batch_items(
+                items,
+                default_host_target=host_target,
+            )
 
         for index, spec in enumerate(specs):
             raw_host = spec.get("host_target")

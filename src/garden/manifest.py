@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import json
 import os
@@ -12,6 +11,8 @@ from threading import Lock, RLock, local
 import time
 from typing import Any, Iterator, Mapping
 from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from garden.paths import resolve_contained_path, windows_path_key
 from ladybug_tools_mcp.contracts import make_garden_target
@@ -138,23 +139,87 @@ def garden_lock(garden_root: Path) -> Iterator[None]:
                         fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
-@dataclass(slots=True)
-class GardenManifest:
+class GardenManifest(BaseModel):
     """Garden project manifest persisted in ``garden.json``."""
 
+    model_config = ConfigDict(extra="ignore", validate_assignment=False)
+
+    schema_version: str = CURRENT_SCHEMA_VERSION
+    revision: int = 0
     garden_id: str
     name: str
     description: str = ""
-    schema_version: str = CURRENT_SCHEMA_VERSION
-    revision: int = 0
-    created_at: str = field(default_factory=utc_now_iso)
-    updated_at: str = field(default_factory=utc_now_iso)
+    created_at: str = Field(default_factory=utc_now_iso)
+    updated_at: str = Field(default_factory=utc_now_iso)
     base_honeybee_model: dict[str, Any] | None = None
     base_dragonfly_model: dict[str, Any] | None = None
     base_fairyfly_model: dict[str, Any] | None = None
-    models: list[dict[str, Any]] = field(default_factory=list)
-    weather_files: list[dict[str, Any]] = field(default_factory=list)
-    artifacts: list[dict[str, Any]] = field(default_factory=list)
+    models: list[dict[str, Any]] = Field(default_factory=list)
+    weather_files: list[dict[str, Any]] = Field(default_factory=list)
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def _validate_schema_version(cls, value: Any) -> str:
+        if not isinstance(value, str) or not value:
+            raise ValueError("Garden manifest schema_version must be a non-empty string.")
+        if value != CURRENT_SCHEMA_VERSION:
+            raise ValueError(
+                "Unsupported Garden manifest schema_version: "
+                f"{value!r}; supported version is {CURRENT_SCHEMA_VERSION!r}."
+            )
+        return value
+
+    @field_validator("revision", mode="before")
+    @classmethod
+    def _validate_revision(cls, value: Any) -> int:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError("Garden manifest revision must be a non-negative integer.")
+        return value
+
+    @field_validator("garden_id", "name", mode="before")
+    @classmethod
+    def _validate_non_blank_string(cls, value: Any, info: ValidationInfo) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"Garden manifest {info.field_name} must be a non-empty string.")
+        return value
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _validate_description(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("Garden manifest description must be a string.")
+        return value
+
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def _validate_timestamp(cls, value: Any, info: ValidationInfo) -> str:
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"Garden manifest {info.field_name} must be a non-empty string.")
+        return value
+
+    @field_validator(
+        "base_honeybee_model",
+        "base_dragonfly_model",
+        "base_fairyfly_model",
+        mode="before",
+    )
+    @classmethod
+    def _validate_base_model(
+        cls, value: Any, info: ValidationInfo
+    ) -> dict[str, Any] | None:
+        if value is not None and not isinstance(value, dict):
+            raise ValueError(f"Garden manifest {info.field_name} must be an object or null.")
+        return value
+
+    @field_validator("models", "weather_files", "artifacts", mode="before")
+    @classmethod
+    def _validate_object_list(
+        cls, value: Any, info: ValidationInfo
+    ) -> list[dict[str, Any]]:
+        if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+            raise ValueError(f"Garden manifest {info.field_name} must be a list of objects.")
+        return list(value)
 
     @classmethod
     def new(cls, name: str, description: str = "") -> "GardenManifest":
@@ -168,72 +233,11 @@ class GardenManifest:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "GardenManifest":
         """Load and validate a manifest from a JSON-compatible dict."""
-        schema_version = data.get("schema_version")
-        if not isinstance(schema_version, str) or not schema_version:
+        if not isinstance(data, dict):
+            raise ValueError("Garden manifest must be a JSON object.")
+        if "schema_version" not in data:
             raise ValueError("Garden manifest schema_version must be a non-empty string.")
-        if schema_version != CURRENT_SCHEMA_VERSION:
-            raise ValueError(
-                "Unsupported Garden manifest schema_version: "
-                f"{schema_version!r}; supported version is {CURRENT_SCHEMA_VERSION!r}."
-            )
-        revision = data.get("revision", 0)
-        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
-            raise ValueError("Garden manifest revision must be a non-negative integer.")
-        garden_id = data.get("garden_id")
-        if not isinstance(garden_id, str) or not garden_id.strip():
-            raise ValueError("Garden manifest garden_id must be a non-empty string.")
-        name = data.get("name")
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError("Garden manifest name must be a non-empty string.")
-        description = data.get("description", "")
-        if not isinstance(description, str):
-            raise ValueError("Garden manifest description must be a string.")
-        created_at = data.get("created_at", utc_now_iso())
-        updated_at = data.get("updated_at", utc_now_iso())
-        if not isinstance(created_at, str) or not created_at:
-            raise ValueError("Garden manifest created_at must be a non-empty string.")
-        if not isinstance(updated_at, str) or not updated_at:
-            raise ValueError("Garden manifest updated_at must be a non-empty string.")
-
-        base_models: dict[str, dict[str, Any] | None] = {}
-        for field_name in (
-            "base_honeybee_model",
-            "base_dragonfly_model",
-            "base_fairyfly_model",
-        ):
-            value = data.get(field_name)
-            if value is not None and not isinstance(value, dict):
-                raise ValueError(
-                    f"Garden manifest {field_name} must be an object or null."
-                )
-            base_models[field_name] = value
-
-        collections: dict[str, list[dict[str, Any]]] = {}
-        for field_name in ("models", "weather_files", "artifacts"):
-            value = data.get(field_name, [])
-            if not isinstance(value, list) or not all(
-                isinstance(item, dict) for item in value
-            ):
-                raise ValueError(
-                    f"Garden manifest {field_name} must be a list of objects."
-                )
-            collections[field_name] = list(value)
-
-        return cls(
-            garden_id=garden_id,
-            name=name,
-            description=description,
-            schema_version=schema_version,
-            revision=revision,
-            created_at=created_at,
-            updated_at=updated_at,
-            base_honeybee_model=base_models["base_honeybee_model"],
-            base_dragonfly_model=base_models["base_dragonfly_model"],
-            base_fairyfly_model=base_models["base_fairyfly_model"],
-            models=collections["models"],
-            weather_files=collections["weather_files"],
-            artifacts=collections["artifacts"],
-        )
+        return cls.model_validate(data)
 
     @classmethod
     def read(cls, garden_root: Path) -> "GardenManifest":
@@ -247,25 +251,14 @@ class GardenManifest:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the manifest."""
-        return {
-            "schema_version": self.schema_version,
-            "revision": self.revision,
-            "garden_id": self.garden_id,
-            "name": self.name,
-            "description": self.description,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-            "base_honeybee_model": self.base_honeybee_model,
-            "base_dragonfly_model": self.base_dragonfly_model,
-            "base_fairyfly_model": self.base_fairyfly_model,
-            "models": self.models,
-            "weather_files": self.weather_files,
-            "artifacts": self.artifacts,
-        }
+        return self.model_dump()
 
     def validate(self) -> None:
         """Validate the complete in-memory manifest before persistence."""
-        self.from_dict(self.to_dict())
+        # Validate current attributes directly so invalid mutations raise before model_dump().
+        type(self).model_validate(
+            {field_name: getattr(self, field_name) for field_name in type(self).model_fields}
+        )
 
     def upsert_artifact(
         self,

@@ -7,6 +7,8 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import RuntimeConfigResultModel, validate_output
+
 
 def register(mcp: FastMCP) -> None:
     """Register config tools."""
@@ -42,11 +44,11 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = True,
-    ) -> dict:
+    ) -> RuntimeConfigResultModel:
         """Return compact local Ladybug Tools SDK runtime configuration."""
         from garden.ladybug_tools_config import get_ladybug_tools_config as service
 
         result = service()
         if not include_path_updates:
             result["summary_view"].pop("path_updates", None)
-        return result
+        return validate_output(RuntimeConfigResultModel, result)
