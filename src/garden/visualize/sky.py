@@ -1,32 +1,51 @@
-"""Sunpath, sky dome, and radiation dome VisualizationSet services."""
+"""Sunpath, sky dome, radiation dome/rose, wind profile, view sphere, and compass VisualizationSet services."""
 
 from __future__ import annotations
 
 import json
+import math
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
+from ladybug.compass import Compass
 from ladybug.epw import EPW
 from ladybug.location import Location
 from ladybug.sunpath import Sunpath
+from ladybug.viewsphere import ViewSphere
 from ladybug.wea import Wea
+from ladybug.windprofile import WindProfile
+from ladybug_display.extension.compass import compass_to_vis_set
 from ladybug_display.extension.raddome import radiation_dome_to_vis_set
+from ladybug_display.extension.radrose import radiation_rose_to_vis_set
 from ladybug_display.extension.skydome import sky_dome_to_vis_set
 from ladybug_display.extension.sunpath import sunpath_to_vis_set
+from ladybug_display.extension.viewsphere import view_sphere_to_vis_set
+from ladybug_display.extension.windprofile import wind_profile_to_vis_set
+from ladybug_geometry.geometry2d.pointvector import Point2D
 from ladybug_geometry.geometry3d.pointvector import Point3D
+from ladybug_radiance.intersection import sky_intersection_matrix
 from ladybug_radiance.skymatrix import SkyMatrix
 from ladybug_radiance.visualize.raddome import RadiationDome
+from ladybug_radiance.visualize.radrose import RadiationRose
 from ladybug_radiance.visualize.skydome import SkyDome
 
-from ladybug_tools_mcp.contracts import make_report
+from garden.data_collection import collection_from_dict, load_data_collection
+from garden.honeybee_core.model_io import load_honeybee_model, resolve_model_target
 from garden.manifest import GardenManifest
 from garden.paths import slugify_name, to_posix_relative
 from garden.radiance.sky import SKY_MATRIX_TARGET_TYPE
 from garden.run_energy.config import WEATHER_TARGET_TYPE
-from garden.visualize.artifacts import save_visualization_set
-from garden.visualize.legend import legend_parameter_from_dict
+from garden.visualize.artifacts import coerce_legend_parameter, save_visualization_set
+from ladybug_tools_mcp.contracts import make_report
 
-PROJECTIONS = {"orthographic": "Orthographic", "stereographic": "Stereographic"}
+PROJECTIONS = {
+    "orthographic": "Orthographic",
+    "stereographic": "Stereographic",
+    "equidistant": "Equidistant",
+    "equisolid": "Equisolid",
+}
 
 
 def _garden_root(value: str | Path) -> Path:
@@ -175,6 +194,17 @@ def _sky_matrix_from_target(
     source = dict(payload.get("source") or {})
     parameters = dict(payload.get("parameters") or {})
     source_type = str(source.get("source_type") or "")
+    cached_direct = payload.get("direct_values")
+    cached_diffuse = payload.get("diffuse_values")
+    has_cached = cached_direct is not None and cached_diffuse is not None
+    hoys = payload.get("hoys") if "hoys" in payload else source.get("hoys")
+    benefit_matrix = (
+        payload.get("benefit_matrix")
+        if "benefit_matrix" in payload
+        else source.get("benefit_matrix")
+    )
+
+    wea: Wea | None = None
     if source_type == "wea_file":
         wea_path = _garden_relative_file(
             garden_root,
@@ -184,27 +214,77 @@ def _sky_matrix_from_target(
         )
         wea = Wea.from_file(str(wea_path))
     elif source_type in {"weather_file", "epw_path"}:
-        epw_path = _garden_relative_file(
+        epw_rel = source.get("epw_path") or (source.get("weather_target") or {}).get("epw_path")
+        if epw_rel:
+            epw_path = _garden_relative_file(
+                garden_root,
+                str(epw_rel),
+                field_name="sky_matrix.source.epw_path",
+                suffix=".epw",
+            )
+            wea = Wea.from_epw_file(str(epw_path))
+    elif source_type == "stat_file":
+        stat_path = _garden_relative_file(
             garden_root,
-            str(source.get("epw_path")),
-            field_name="sky_matrix.source.epw_path",
-            suffix=".epw",
+            str(source.get("stat_path")),
+            field_name="sky_matrix.source.stat_path",
+            suffix=".stat",
         )
-        wea = Wea.from_epw_file(str(epw_path))
+        wea = Wea.from_stat_file(str(stat_path))
     elif source_type == "ashrae_clear_sky":
         location = _location_from_dict(source.get("location") or {})
         wea = Wea.from_ashrae_clear_sky(
             location,
             sky_clearness=float(source.get("sky_clearness", 1)),
         )
+    elif has_cached and isinstance(source.get("location"), dict):
+        wea = Wea.from_ashrae_clear_sky(_location_from_dict(source["location"]))
+    elif has_cached:
+        wea = Wea.from_ashrae_clear_sky(Location())
     else:
         raise ValueError(f"Unsupported sky_matrix source_type: {source_type}.")
+
+    if wea is None:
+        if has_cached:
+            wea = Wea.from_ashrae_clear_sky(
+                _location_from_dict(source["location"])
+                if isinstance(source.get("location"), dict)
+                else Location()
+            )
+        else:
+            raise ValueError(f"Could not resolve Wea source for sky_matrix source_type={source_type!r}.")
+
+    if hoys:
+        wea = wea.filter_by_hoys(hoys)
+
+    north = float(parameters.get("north", 0))
+    high_density = bool(parameters.get("high_density", False))
+    ground_reflectance = float(parameters.get("ground_reflectance", 0.2))
     sky_matrix = SkyMatrix(
         wea,
-        north=float(parameters.get("north", 0)),
-        high_density=bool(parameters.get("high_density", False)),
-        ground_reflectance=float(parameters.get("ground_reflectance", 0.2)),
+        north=north,
+        high_density=high_density,
+        ground_reflectance=ground_reflectance,
     )
+    if isinstance(benefit_matrix, (list, tuple)):
+        if len(benefit_matrix) == len(wea):
+            sky_matrix.benefit_matrix = list(benefit_matrix)
+        else:
+            sky_matrix._benefit_matrix = list(benefit_matrix)
+
+    if has_cached:
+        sky_matrix._direct_values = tuple(float(v) for v in cached_direct)
+        sky_matrix._diffuse_values = tuple(float(v) for v in cached_diffuse)
+        dts = wea.direct_normal_irradiance.datetimes
+        meta_list: list[Any] = [north, ground_reflectance, dts[0], dts[-1]]
+        cached_meta = payload.get("metadata")
+        if isinstance(cached_meta, list) and len(cached_meta) > 4:
+            meta_list.extend(str(item) for item in cached_meta[4:])
+        else:
+            for key, val in wea.direct_normal_irradiance.header.metadata.items():
+                meta_list.append(f"{key} : {val}")
+        sky_matrix._metadata = tuple(meta_list)
+
     return sky_matrix, target, payload
 
 
@@ -230,6 +310,56 @@ def _point3d(value: dict[str, Any] | list[float] | tuple[float, ...] | None) -> 
     if isinstance(value, (list, tuple)) and len(value) >= 3:
         return Point3D(float(value[0]), float(value[1]), float(value[2]))
     raise ValueError("center_point must be a dict with x/y/z or a 3-item list.")
+
+
+def _model_context_faces(garden_root_path: Path, model_target: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    _, resolved_target = resolve_model_target(garden_root_path, model_target)
+    model = load_honeybee_model(garden_root_path, resolved_target)
+    context_geos: list[Any] = []
+    for room in model.rooms:
+        for face in room.faces:
+            context_geos.append(face.geometry)
+            for sh in face.shades:
+                context_geos.append(sh.geometry)
+        for sh in room.shades:
+            context_geos.append(sh.geometry)
+    for face in model.orphaned_faces:
+        context_geos.append(face.geometry)
+        for sh in face.shades:
+            context_geos.append(sh.geometry)
+    for sh in model.shades:
+        context_geos.append(sh.geometry)
+    if not context_geos:
+        raise ValueError("model_target contains no Face3D or Shade geometry for shading intersection.")
+    return context_geos, resolved_target
+
+
+def _compute_sky_intersection(
+    *,
+    sky_matrix: SkyMatrix,
+    center: Point3D,
+    vectors: tuple[Any, ...] | list[Any],
+    context_geometry: list[Any],
+) -> Any:
+    if sky_matrix.north != 0:
+        na = math.radians(sky_matrix.north)
+        normals = [v.rotate_xy(na) for v in vectors]
+    else:
+        normals = list(vectors)
+    points = [center] * len(normals)
+    saved_cwd = os.getcwd()
+    try:
+        with tempfile.TemporaryDirectory() as sim_dir:
+            return sky_intersection_matrix(
+                sky_matrix,
+                points,
+                normals,
+                context_geometry,
+                numericalize=False,
+                sim_folder=sim_dir,
+            )
+    finally:
+        os.chdir(saved_cwd)
 
 
 def _set_visualization_set_name(vis_set: Any, name: str) -> str:
@@ -307,6 +437,10 @@ def sunpath_to_visualization_set(
     epw_path: str | None = None,
     north_angle: float = 0,
     hoys: list[float] | None = None,
+    data_collection_targets: list[dict[str, Any]] | None = None,
+    data_collections: list[dict[str, Any]] | None = None,
+    legend_parameter: dict[str, Any] | None = None,
+    legend_parameters: list[dict[str, Any]] | None = None,
     radius: float = 100,
     center_point: dict[str, Any] | list[float] | None = None,
     solar_time: bool = False,
@@ -316,7 +450,7 @@ def sunpath_to_visualization_set(
     name: str = "sunpath",
     return_visualization_set: bool = True,
 ) -> dict[str, Any]:
-    """Create a Ladybug Sunpath VisualizationSet."""
+    """Create a Ladybug Sunpath VisualizationSet with optional colored sun data."""
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     location_obj, source = _resolve_location(
@@ -326,10 +460,30 @@ def sunpath_to_visualization_set(
         weather_target=weather_target,
         epw_path=epw_path,
     )
+    resolved_data: list[Any] = []
+    for tgt in data_collection_targets or []:
+        resolved_data.append(
+            load_data_collection(garden_root=garden_root_path, data_collection_target=tgt)
+        )
+    for item in data_collections or []:
+        resolved_data.append(collection_from_dict(item))
+
+    resolved_legend_pars: Any = None
+    if legend_parameters:
+        resolved_legend_pars = [coerce_legend_parameter(lp) for lp in legend_parameters]
+    elif legend_parameter is not None:
+        resolved_legend_pars = coerce_legend_parameter(legend_parameter)
+
+    effective_hoys = hoys
+    if not effective_hoys and resolved_data:
+        effective_hoys = [dt.hoy for dt in resolved_data[0].datetimes]
+
     sunpath = Sunpath.from_location(location_obj, north_angle=north_angle)
     vis_set = sunpath_to_vis_set(
         sunpath,
-        hoys=hoys,
+        hoys=effective_hoys,
+        data=resolved_data or None,
+        legend_parameters=resolved_legend_pars,
         radius=radius,
         center_point=_point3d(center_point),
         solar_time=solar_time,
@@ -339,11 +493,14 @@ def sunpath_to_visualization_set(
     )
     safe_name = _set_visualization_set_name(vis_set, name)
     visualization_set = vis_set.to_dict()
+    proj_value = _projection(projection)
     source.update(
         {
             "tool": "sunpath_to_visualization_set",
             "north_angle": north_angle,
-            "hoys": hoys or [],
+            "hoys": effective_hoys or [],
+            "projection": proj_value,
+            "data_collection_count": len(resolved_data),
         }
     )
     return _visualization_response(
@@ -354,7 +511,11 @@ def sunpath_to_visualization_set(
         source=source,
         message="Sunpath VisualizationSet created.",
         return_visualization_set=return_visualization_set,
-        extra_summary={"location": location_obj.to_dict()},
+        extra_summary={
+            "location": location_obj.to_dict(),
+            "projection": proj_value,
+            "data_collection_count": len(resolved_data),
+        },
     )
 
 
@@ -382,7 +543,7 @@ def sky_matrix_to_skydome_visualization_set(
     )
     sky_dome = SkyDome(
         sky_matrix,
-        legend_parameters=legend_parameter_from_dict(legend_parameter),
+        legend_parameters=coerce_legend_parameter(legend_parameter),
         plot_irradiance=plot_irradiance,
         center_point=_point3d(center_point),
         radius=radius,
@@ -395,11 +556,15 @@ def sky_matrix_to_skydome_visualization_set(
     )
     safe_name = _set_visualization_set_name(vis_set, name)
     visualization_set = vis_set.to_dict()
+    proj_value = _projection(projection)
+    used_cached = payload.get("direct_values") is not None and payload.get("diffuse_values") is not None
     source = {
         "tool": "sky_matrix_to_skydome_visualization_set",
         "sky_matrix_target": target,
         "sky_matrix_source": payload.get("source"),
         "plot_irradiance": plot_irradiance,
+        "projection": proj_value,
+        "used_cached_sky_matrix": used_cached,
     }
     return _visualization_response(
         garden_root=garden_root_path,
@@ -409,6 +574,10 @@ def sky_matrix_to_skydome_visualization_set(
         source=source,
         message="Sky dome VisualizationSet created.",
         return_visualization_set=return_visualization_set,
+        extra_summary={
+            "projection": proj_value,
+            "used_cached_sky_matrix": used_cached,
+        },
     )
 
 
@@ -416,6 +585,7 @@ def sky_matrix_to_radiation_dome_visualization_set(
     *,
     garden_root: str,
     sky_matrix_target: dict[str, Any],
+    model_target: dict[str, Any] | None = None,
     azimuth_count: int = 72,
     altitude_count: int = 18,
     legend_parameter: dict[str, Any] | None = None,
@@ -428,7 +598,7 @@ def sky_matrix_to_radiation_dome_visualization_set(
     name: str = "radiation_dome",
     return_visualization_set: bool = True,
 ) -> dict[str, Any]:
-    """Create a cumulative RadiationDome VisualizationSet from a SkyMatrix target."""
+    """Create a cumulative or shaded RadiationDome VisualizationSet from a SkyMatrix target."""
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     sky_matrix, target, payload = _sky_matrix_from_target(
@@ -436,13 +606,27 @@ def sky_matrix_to_radiation_dome_visualization_set(
         manifest=manifest,
         sky_matrix_target=sky_matrix_target,
     )
+    center = _point3d(center_point)
+    int_mtx = None
+    resolved_model_target = None
+    if model_target is not None:
+        context_geos, resolved_model_target = _model_context_faces(garden_root_path, model_target)
+        dome_vecs = RadiationDome.dome_vectors(azimuth_count, altitude_count)
+        int_mtx = _compute_sky_intersection(
+            sky_matrix=sky_matrix,
+            center=center,
+            vectors=dome_vecs,
+            context_geometry=context_geos,
+        )
+
     radiation_dome = RadiationDome(
         sky_matrix,
+        intersection_matrix=int_mtx,
         azimuth_count=azimuth_count,
         altitude_count=altitude_count,
-        legend_parameters=legend_parameter_from_dict(legend_parameter),
+        legend_parameters=coerce_legend_parameter(legend_parameter),
         plot_irradiance=plot_irradiance,
-        center_point=_point3d(center_point),
+        center_point=center,
         radius=radius,
         projection=_projection(projection),
     )
@@ -453,14 +637,23 @@ def sky_matrix_to_radiation_dome_visualization_set(
     )
     safe_name = _set_visualization_set_name(vis_set, name)
     visualization_set = vis_set.to_dict()
+    max_dir = [float(v) for v in radiation_dome.max_direction.to_array()]
+    max_info = str(radiation_dome.max_info)
+    proj_value = _projection(projection)
+    used_cached = payload.get("direct_values") is not None and payload.get("diffuse_values") is not None
+    total_rad = float(sum(radiation_dome.total_values)) if radiation_dome.total_values else 0.0
     source = {
         "tool": "sky_matrix_to_radiation_dome_visualization_set",
         "sky_matrix_target": target,
         "sky_matrix_source": payload.get("source"),
+        "model_target": resolved_model_target,
+        "shaded": model_target is not None,
         "mode": "cumulative",
         "azimuth_count": azimuth_count,
         "altitude_count": altitude_count,
         "plot_irradiance": plot_irradiance,
+        "projection": proj_value,
+        "used_cached_sky_matrix": used_cached,
     }
     return _visualization_response(
         garden_root=garden_root_path,
@@ -472,7 +665,270 @@ def sky_matrix_to_radiation_dome_visualization_set(
         return_visualization_set=return_visualization_set,
         extra_summary={
             "mode": "cumulative",
+            "shaded": model_target is not None,
             "azimuth_count": azimuth_count,
             "altitude_count": altitude_count,
+            "projection": proj_value,
+            "used_cached_sky_matrix": used_cached,
+            "total_radiation": total_rad,
+            "max_direction": max_dir,
+            "max_info": max_info,
         },
+    )
+
+
+def sky_matrix_to_radiation_rose_visualization_set(
+    *,
+    garden_root: str,
+    sky_matrix_target: dict[str, Any],
+    model_target: dict[str, Any] | None = None,
+    direction_count: int = 36,
+    tilt_angle: float = 0.0,
+    arrow_scale: float = 1.0,
+    max_rad: float | None = None,
+    legend_parameter: dict[str, Any] | None = None,
+    plot_irradiance: bool = False,
+    radius: float = 100,
+    center_point: dict[str, Any] | list[float] | None = None,
+    show_components: bool = False,
+    include_title: bool = True,
+    name: str = "radiation_rose",
+    return_visualization_set: bool = True,
+) -> dict[str, Any]:
+    """Create a RadiationRose VisualizationSet from a SkyMatrix target (with optional shading context)."""
+    garden_root_path = _garden_root(garden_root)
+    manifest = GardenManifest.read(garden_root_path)
+    sky_matrix, target, payload = _sky_matrix_from_target(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        sky_matrix_target=sky_matrix_target,
+    )
+    center = _point3d(center_point)
+    int_mtx = None
+    resolved_model_target = None
+    if model_target is not None:
+        context_geos, resolved_model_target = _model_context_faces(garden_root_path, model_target)
+        rose_vecs = RadiationRose.radial_vectors(direction_count, tilt_angle=tilt_angle)
+        int_mtx = _compute_sky_intersection(
+            sky_matrix=sky_matrix,
+            center=center,
+            vectors=rose_vecs,
+            context_geometry=context_geos,
+        )
+
+    rose = RadiationRose(
+        sky_matrix,
+        intersection_matrix=int_mtx,
+        direction_count=direction_count,
+        tilt_angle=tilt_angle,
+        legend_parameters=coerce_legend_parameter(legend_parameter),
+        plot_irradiance=plot_irradiance,
+        center_point=center,
+        radius=radius,
+        arrow_scale=arrow_scale,
+    )
+    vis_set = radiation_rose_to_vis_set(
+        rose,
+        max_rad=max_rad,
+        show_components=show_components,
+        include_title=include_title,
+    )
+    safe_name = _set_visualization_set_name(vis_set, name)
+    visualization_set = vis_set.to_dict()
+    used_cached = payload.get("direct_values") is not None and payload.get("diffuse_values") is not None
+    source = {
+        "tool": "sky_matrix_to_radiation_rose_visualization_set",
+        "sky_matrix_target": target,
+        "sky_matrix_source": payload.get("source"),
+        "model_target": resolved_model_target,
+        "shaded": model_target is not None,
+        "direction_count": direction_count,
+        "tilt_angle": tilt_angle,
+        "plot_irradiance": plot_irradiance,
+        "used_cached_sky_matrix": used_cached,
+    }
+    return _visualization_response(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        visualization_set=visualization_set,
+        name=safe_name,
+        source=source,
+        message="Radiation rose VisualizationSet created.",
+        return_visualization_set=return_visualization_set,
+        extra_summary={
+            "direction_count": direction_count,
+            "tilt_angle": tilt_angle,
+            "shaded": model_target is not None,
+            "used_cached_sky_matrix": used_cached,
+            "max_total_value": max(rose.total_values) if rose.total_values else None,
+            "min_total_value": min(rose.total_values) if rose.total_values else None,
+        },
+    )
+
+
+def wind_profile_to_visualization_set(
+    *,
+    garden_root: str,
+    terrain: str = "city",
+    meteorological_terrain: str = "country",
+    meteorological_height: float = 10.0,
+    log_law: bool = False,
+    meteorological_wind_speed: float = 5.0,
+    direction: float | None = None,
+    legend_parameter: dict[str, Any] | None = None,
+    center_point: dict[str, Any] | list[float] | None = None,
+    max_height: float = 30.0,
+    vector_spacing: float = 2.0,
+    vector_length_dimension: float = 5.0,
+    vector_height_dimension: float = 1.0,
+    max_speed: float | None = None,
+    scale_factor: float = 1.0,
+    feet_labels: bool = False,
+    name: str = "wind_profile",
+    return_visualization_set: bool = True,
+) -> dict[str, Any]:
+    """Create a Ladybug WindProfile VisualizationSet."""
+    garden_root_path = _garden_root(garden_root)
+    manifest = GardenManifest.read(garden_root_path)
+    profile = WindProfile(
+        terrain=terrain,
+        meteorological_terrain=meteorological_terrain,
+        meteorological_height=meteorological_height,
+        log_law=log_law,
+    )
+    vis_set = wind_profile_to_vis_set(
+        profile,
+        meteorological_wind_speed=meteorological_wind_speed,
+        direction=direction,
+        legend_parameters=coerce_legend_parameter(legend_parameter),
+        base_point=_point3d(center_point),
+        max_height=max_height,
+        vector_spacing=vector_spacing,
+        vector_length_dimension=vector_length_dimension,
+        vector_height_dimension=vector_height_dimension,
+        max_speed=max_speed,
+        scale_factor=scale_factor,
+        feet_labels=feet_labels,
+    )
+    safe_name = _set_visualization_set_name(vis_set, name)
+    visualization_set = vis_set.to_dict()
+    source = {
+        "tool": "wind_profile_to_visualization_set",
+        "terrain": terrain,
+        "meteorological_terrain": meteorological_terrain,
+        "meteorological_height": meteorological_height,
+        "log_law": log_law,
+        "meteorological_wind_speed": meteorological_wind_speed,
+    }
+    return _visualization_response(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        visualization_set=visualization_set,
+        name=safe_name,
+        source=source,
+        message="Wind profile VisualizationSet created.",
+        return_visualization_set=return_visualization_set,
+        extra_summary={"terrain": terrain, "max_height": max_height},
+    )
+
+
+def view_sphere_to_visualization_set(
+    *,
+    garden_root: str,
+    view_type: str = "HorizontalRadial",
+    resolution: int = 1,
+    center_point: dict[str, Any] | list[float] | None = None,
+    context_intersect_dist: list[float] | None = None,
+    dist_units: str = "m",
+    radius: float = 1.0,
+    legend_parameter: dict[str, Any] | None = None,
+    draw_view_rays: bool = True,
+    name: str = "view_sphere",
+    return_visualization_set: bool = True,
+) -> dict[str, Any]:
+    """Create a Ladybug ViewSphere VisualizationSet."""
+    garden_root_path = _garden_root(garden_root)
+    manifest = GardenManifest.read(garden_root_path)
+    vs = ViewSphere()
+    vis_set = view_sphere_to_vis_set(
+        vs,
+        view_type=view_type,
+        resolution=resolution,
+        center_point=_point3d(center_point),
+        context_intersect_dist=context_intersect_dist,
+        dist_units=dist_units,
+        radius=radius,
+        legend_parameters=coerce_legend_parameter(legend_parameter),
+        draw_view_rays=draw_view_rays,
+    )
+    safe_name = _set_visualization_set_name(vis_set, name)
+    visualization_set = vis_set.to_dict()
+    source = {
+        "tool": "view_sphere_to_visualization_set",
+        "view_type": view_type,
+        "resolution": resolution,
+        "radius": radius,
+    }
+    return _visualization_response(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        visualization_set=visualization_set,
+        name=safe_name,
+        source=source,
+        message="ViewSphere VisualizationSet created.",
+        return_visualization_set=return_visualization_set,
+        extra_summary={"view_type": view_type, "resolution": resolution},
+    )
+
+
+def compass_to_visualization_set(
+    *,
+    garden_root: str,
+    radius: float = 100.0,
+    center_point: dict[str, Any] | list[float] | None = None,
+    north_angle: float = 0.0,
+    spacing_factor: float = 0.15,
+    custom_angles: list[float] | None = None,
+    projection: str | None = None,
+    font: str = "Arial",
+    maj_txt_size: float | None = None,
+    min_txt_size: float | None = None,
+    name: str = "compass",
+    return_visualization_set: bool = True,
+) -> dict[str, Any]:
+    """Create a Ladybug Compass VisualizationSet."""
+    garden_root_path = _garden_root(garden_root)
+    manifest = GardenManifest.read(garden_root_path)
+    pt3 = _point3d(center_point)
+    compass = Compass(
+        radius=radius,
+        center=Point2D(pt3.x, pt3.y),
+        north_angle=north_angle,
+        spacing_factor=spacing_factor,
+    )
+    vis_set = compass_to_vis_set(
+        compass,
+        z=pt3.z,
+        custom_angles=custom_angles,
+        projection=_projection(projection),
+        font=font,
+        maj_txt_size=maj_txt_size,
+        min_txt_size=min_txt_size,
+    )
+    safe_name = _set_visualization_set_name(vis_set, name)
+    visualization_set = vis_set.to_dict()
+    source = {
+        "tool": "compass_to_visualization_set",
+        "radius": radius,
+        "north_angle": north_angle,
+        "projection": projection,
+    }
+    return _visualization_response(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        visualization_set=visualization_set,
+        name=safe_name,
+        source=source,
+        message="Compass VisualizationSet created.",
+        return_visualization_set=return_visualization_set,
     )

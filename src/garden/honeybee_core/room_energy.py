@@ -7,15 +7,36 @@ from typing import Any
 
 from honeybee.model import Model
 from honeybee.room import Room
+from honeybee_energy.load.equipment import ElectricEquipment, GasEquipment
+from honeybee_energy.load.hotwater import ServiceHotWater
+from honeybee_energy.load.infiltration import Infiltration
+from honeybee_energy.load.lighting import Lighting
+from honeybee_energy.load.people import People
 
 from garden.honeybee_core.edit import (
+    _apply_make_ground,
+    _apply_make_plenum,
+    _apply_room_fans_batch,
+    _apply_room_internal_masses_batch,
+    _apply_room_process_loads_batch,
+    _apply_room_reset_fields,
     _construction_set_from_input,
+    _daylighting_control_from_input,
+    _exhaust_from_input,
     _hvac_from_dict,
+    _internal_mass_from_input,
     _library_object_dict_from_target,
+    _parse_internal_masses_update,
+    _parse_process_loads_update,
     _parse_zone_ventilation_fan_update,
+    _process_from_input,
     _program_type_from_input,
+    _room_load_from_input,
     _setpoint_from_dict,
+    _shw_from_input,
+    _validate_reset_fields,
     _ventilation_from_dict,
+    _window_vent_control_from_input,
     _zone_ventilation_fan_from_dict,
 )
 from garden.honeybee_core.geometry import validate_honeybee_room
@@ -35,25 +56,54 @@ _ENERGY_FIELDS = (
     "program_type",
     "construction_set",
     "hvac",
+    "people",
+    "lighting",
+    "electric_equipment",
+    "gas_equipment",
+    "service_hot_water",
+    "infiltration",
     "ventilation",
+    "exhaust",
     "setpoint",
     "zone_ventilation_fans",
+    "process_loads",
+    "internal_masses",
+    "shw",
+    "window_vent_control",
+    "daylighting_control",
+    "make_plenum",
+    "make_ground",
+    "reset_fields",
 )
 _ENERGY_FIELD_SET = set(_ENERGY_FIELDS)
+_SINGLE_LOAD_CLASSES = {
+    "people": People,
+    "lighting": Lighting,
+    "electric_equipment": ElectricEquipment,
+    "gas_equipment": GasEquipment,
+    "service_hot_water": ServiceHotWater,
+    "infiltration": Infiltration,
+}
 _MAX_IDENTIFIER_SAMPLE = 5
 
 
 def apply_room_energy_properties(
     *,
     garden_root: str,
-    energy_properties: dict[str, Any],
+    energy_properties: dict[str, Any] | None = None,
     room_targets: list[dict[str, Any]] | None = None,
     room_identifiers: list[str] | None = None,
     model_target: dict[str, Any] | None = None,
+    reset_fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Apply one shared Honeybee Energy property change to multiple Rooms."""
     room_inputs = _validate_room_inputs(room_targets, room_identifiers)
-    property_inputs = _resolve_energy_properties(garden_root, energy_properties)
+    merged_props = dict(energy_properties or {})
+    if reset_fields is not None:
+        if "reset_fields" in merged_props:
+            raise ValueError("Provide reset_fields either at top level or inside energy_properties, not both.")
+        merged_props["reset_fields"] = reset_fields
+    property_inputs = _resolve_energy_properties(garden_root, merged_props)
 
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest, resolved_model_target = resolve_model_target(
@@ -79,7 +129,7 @@ def apply_room_energy_properties(
     updated_room_identifiers: list[str] = []
     for target in room_targets:
         room = working_rooms[target["object_identifier"]]
-        if _apply_properties(room, property_inputs):
+        if _apply_properties(room, property_inputs, garden_root_path=garden_root_path):
             updated_room_identifiers.append(room.identifier)
         validate_honeybee_room(room)
 
@@ -235,6 +285,7 @@ def _resolve_energy_properties(
             f"{', '.join(unknown)}. Supported fields: {', '.join(_ENERGY_FIELDS)}."
         )
 
+    garden_root_path = Path(garden_root).expanduser().resolve()
     resolved: dict[str, Any] = {}
     for field in _ENERGY_FIELDS:
         if field not in data:
@@ -242,9 +293,11 @@ def _resolve_energy_properties(
         value = data[field]
         if value is None:
             raise ValueError(f"energy_properties.{field} must not be null.")
-        if field == "program_type":
+        if field == "reset_fields":
+            resolved[field] = _validate_reset_fields(value, object_type="room")
+        elif field == "program_type":
             value = _library_object_dict_from_target(
-                garden_root=Path(garden_root).expanduser().resolve(),
+                garden_root=garden_root_path,
                 data=value,
                 field_name=field,
                 domain="honeybee_energy",
@@ -253,7 +306,7 @@ def _resolve_energy_properties(
             resolved[field] = _program_type_from_input(value)
         elif field == "construction_set":
             value = _library_object_dict_from_target(
-                garden_root=Path(garden_root).expanduser().resolve(),
+                garden_root=garden_root_path,
                 data=value,
                 field_name=field,
                 domain="honeybee_energy",
@@ -262,96 +315,127 @@ def _resolve_energy_properties(
             resolved[field] = _construction_set_from_input(value)
         elif field == "hvac":
             value = _library_object_dict_from_target(
-                garden_root=Path(garden_root).expanduser().resolve(),
+                garden_root=garden_root_path,
                 data=value,
                 field_name=field,
                 domain="honeybee_energy",
                 object_family="hvac",
             )
             resolved[field] = _hvac_from_dict(value)
+        elif field in _SINGLE_LOAD_CLASSES:
+            resolved[field] = _room_load_from_input(
+                value,
+                _SINGLE_LOAD_CLASSES[field],
+                field_name=field,
+                garden_root=garden_root_path,
+            )
         elif field == "ventilation":
             value = _library_object_dict_from_target(
-                garden_root=Path(garden_root).expanduser().resolve(),
+                garden_root=garden_root_path,
                 data=value,
                 field_name=field,
                 domain="honeybee_energy",
                 object_family="load",
             )
             resolved[field] = _ventilation_from_dict(value)
+        elif field == "exhaust":
+            resolved[field] = _exhaust_from_input(value, garden_root=garden_root_path)
         elif field == "setpoint":
             value = _library_object_dict_from_target(
-                garden_root=Path(garden_root).expanduser().resolve(),
+                garden_root=garden_root_path,
                 data=value,
                 field_name=field,
                 domain="honeybee_energy",
                 object_family="load",
             )
             resolved[field] = _setpoint_from_dict(value)
-        else:
+        elif field == "shw":
+            resolved[field] = _shw_from_input(value, garden_root=garden_root_path)
+        elif field == "window_vent_control":
+            resolved[field] = _window_vent_control_from_input(
+                value, garden_root=garden_root_path
+            )
+        elif field == "daylighting_control":
+            resolved[field] = _daylighting_control_from_input(value)
+        elif field == "zone_ventilation_fans":
             operation, fan_inputs = _parse_zone_ventilation_fan_update(value)
             fans = []
-            for fan_input in fan_inputs:
-                fan_input = _library_object_dict_from_target(
-                    garden_root=Path(garden_root).expanduser().resolve(),
-                    data=fan_input,
-                    field_name=field,
-                    domain="honeybee_energy",
-                    object_family="zone_ventilation_fan",
-                )
-                fans.append(_zone_ventilation_fan_from_dict(fan_input))
+            if operation != "clear":
+                for fan_input in fan_inputs:
+                    fan_input = _library_object_dict_from_target(
+                        garden_root=garden_root_path,
+                        data=fan_input,
+                        field_name=field,
+                        domain="honeybee_energy",
+                        object_family="zone_ventilation_fan",
+                    )
+                    fans.append(_zone_ventilation_fan_from_dict(fan_input))
             resolved[field] = {"operation": operation, "fans": fans}
+        elif field == "process_loads":
+            operation, proc_inputs = _parse_process_loads_update(value)
+            procs = (
+                [_process_from_input(item, garden_root=garden_root_path) for item in proc_inputs]
+                if operation != "clear"
+                else []
+            )
+            resolved[field] = {"operation": operation, "items": procs}
+        elif field == "internal_masses":
+            operation, mass_inputs = _parse_internal_masses_update(value)
+            masses = (
+                [_internal_mass_from_input(item, garden_root=garden_root_path) for item in mass_inputs]
+                if operation != "clear"
+                else []
+            )
+            resolved[field] = {"operation": operation, "items": masses}
+        elif field in {"make_plenum", "make_ground"}:
+            resolved[field] = value
     return resolved
 
 
-def _apply_properties(room: Room, properties: dict[str, Any]) -> bool:
+def _apply_properties(
+    room: Room,
+    properties: dict[str, Any],
+    *,
+    garden_root_path: Path | None = None,
+) -> bool:
     changed = False
     energy = room.properties.energy
+    if "reset_fields" in properties:
+        changed = _apply_room_reset_fields(room, properties["reset_fields"]) or changed
     for field, value in properties.items():
-        if field == "zone_ventilation_fans":
-            changed = _apply_fans(energy, value) or changed
+        if field in {"reset_fields", "make_plenum", "make_ground"}:
             continue
-        current = getattr(energy, field)
+        if field == "zone_ventilation_fans":
+            changed = _apply_room_fans_batch(energy, value["operation"], value["fans"]) or changed
+            continue
+        if field == "process_loads":
+            changed = (
+                _apply_room_process_loads_batch(energy, value["operation"], value["items"])
+                or changed
+            )
+            continue
+        if field == "internal_masses":
+            changed = (
+                _apply_room_internal_masses_batch(energy, value["operation"], value["items"])
+                or changed
+            )
+            continue
+        current = getattr(energy, f"_{field}", None)
         if _serialized(current) == _serialized(value):
             continue
         setattr(energy, field, _duplicate(value))
+        changed = True
+    if "make_plenum" in properties:
+        _apply_make_plenum(room, properties["make_plenum"])
+        changed = True
+    if "make_ground" in properties:
+        _apply_make_ground(room, properties["make_ground"], garden_root=garden_root_path)
         changed = True
     return changed
 
 
 def _apply_fans(energy: Any, update: dict[str, Any]) -> bool:
-    operation = update["operation"]
-    fans = list(energy.fans or [])
-    if operation == "clear":
-        if not fans:
-            return False
-        energy.remove_fans()
-        return True
-
-    desired = update["fans"]
-    if operation == "replace_all":
-        if [_serialized(fan) for fan in fans] == [_serialized(fan) for fan in desired]:
-            return False
-        energy.remove_fans()
-        for fan in desired:
-            energy.add_fan(_duplicate(fan))
-        return True
-
-    existing_by_identifier = {str(fan.identifier): fan for fan in fans}
-    pending: dict[str, Any] = {}
-    for fan in desired:
-        identifier = str(fan.identifier)
-        existing = existing_by_identifier.get(identifier) or pending.get(identifier)
-        if existing is not None:
-            if _serialized(existing) != _serialized(fan):
-                raise ValueError(
-                    "zone_ventilation_fans.add contains a conflicting fan "
-                    f"identifier: {identifier}."
-                )
-            continue
-        pending[identifier] = fan
-    for fan in pending.values():
-        energy.add_fan(_duplicate(fan))
-    return bool(pending)
+    return _apply_room_fans_batch(energy, update["operation"], update["fans"])
 
 
 def _duplicate(value: Any) -> Any:

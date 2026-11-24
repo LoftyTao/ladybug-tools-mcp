@@ -309,7 +309,14 @@ class RunManager:
     domain_message: str | None = None
     missing_message: str = "Provide run_target or run_id."
     not_found_label: str = "Simulation"
-    public_fields: tuple[str, ...] = ("run_id", "target", "recipe", "status", "created_at")
+    public_fields: tuple[str, ...] = (
+        "run_id",
+        "target",
+        "recipe",
+        "status",
+        "created_at",
+        "worker_pid",
+    )
     include_missing_public: bool = False
     ledger: RunLedger = field(default_factory=_default_run_ledger)
 
@@ -459,11 +466,24 @@ class RunManager:
 
     def public_run(self, record: dict[str, Any]) -> dict[str, Any]:
         """Project one internal record onto its public summary fields."""
-        return project_run(
+        projected = project_run(
             record,
             self.public_fields,
             include_missing=self.include_missing_public,
         )
+        if "worker_pid" in record and "worker_pid" not in projected:
+            projected["worker_pid"] = record["worker_pid"]
+        return projected
+
+    @staticmethod
+    def cancel_fields(reason: str | None = None) -> dict[str, Any]:
+        """Return standard cancellation status fields for run ledger updates."""
+        return {
+            "status": "cancelled",
+            "runtime_status": "cancelled",
+            "completed_at": utc_now_iso(),
+            "error": reason or "Cancelled by user.",
+        }
 
     @staticmethod
     def failure_fields(error: str, traceback_text: str | None = None) -> dict[str, Any]:

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from honeybee_energy.construction.air import AirBoundaryConstruction
 from honeybee_energy.construction.dictutil import dict_to_construction
+from honeybee_energy.construction.dynamic import WindowConstructionDynamic
 from honeybee_energy.construction.opaque import OpaqueConstruction
 from honeybee_energy.construction.shade import ShadeConstruction
 from honeybee_energy.construction.window import WindowConstruction
+from honeybee_energy.construction.windowshade import WindowConstructionShade
 from honeybee_energy.constructionset import (
     ApertureConstructionSet,
     ConstructionSet,
@@ -67,8 +70,18 @@ WindowMaterial = (
     | EnergyWindowMaterialBlind
 )
 AnyMaterial = OpaqueMaterial | WindowMaterial | EnergyWindowFrame
+_WINDOW_CONSTRUCTION_TYPES = (
+    WindowConstruction,
+    WindowConstructionShade,
+    WindowConstructionDynamic,
+)
 AnyConstruction = (
-    OpaqueConstruction | WindowConstruction | ShadeConstruction | AirBoundaryConstruction
+    OpaqueConstruction
+    | WindowConstruction
+    | WindowConstructionShade
+    | WindowConstructionDynamic
+    | ShadeConstruction
+    | AirBoundaryConstruction
 )
 
 
@@ -95,8 +108,8 @@ def _library_object_dict_from_target(
 def _public_value(value: Any) -> Any:
     if hasattr(value, "identifier"):
         return value.identifier
-    if isinstance(value, tuple):
-        return list(value)
+    if isinstance(value, (tuple, list)):
+        return [_public_value(item) for item in value]
     if isinstance(value, str | int | float | bool) or value is None:
         return value
     return str(value)
@@ -367,6 +380,8 @@ def _construction_summary(
     if hasattr(construction, "frame"):
         frame = construction.frame
         summary["frame"] = frame.identifier if frame else None
+    if hasattr(construction, "constructions"):
+        summary["constructions"] = [constr.identifier for constr in construction.constructions]
     _add_existing_fields(
         summary,
         construction,
@@ -391,6 +406,13 @@ def _construction_summary(
             "has_shade",
             "is_dynamic",
             "is_specular",
+            "is_switchable_glazing",
+            "window_construction",
+            "shade_material",
+            "shade_location",
+            "control_type",
+            "setpoint",
+            "schedule",
             "air_mixing_per_area",
         ),
     )
@@ -558,6 +580,246 @@ def _material_from_input(
     raise ValueError(f"{field_name} must be a material dict or library identifier.")
 
 
+def _build_window_shade_construction(
+    *,
+    identifier: str,
+    window_construction: dict[str, Any] | str,
+    shade_material: dict[str, Any] | str,
+    shade_location: str = "Interior",
+    control_type: str = "AlwaysOn",
+    setpoint: float | None = None,
+    schedule: dict[str, Any] | str | None = None,
+    field_name: str = "window_shade",
+    garden_root: str | None = None,
+) -> WindowConstructionShade:
+    base_window = _construction_from_input(
+        window_construction,
+        field_name=f"{field_name}.window_construction",
+        expected_types=(WindowConstruction,),
+        garden_root=garden_root,
+    )
+    shade_mat = _material_from_input(
+        shade_material,
+        field_name=f"{field_name}.shade_material",
+        garden_root=garden_root,
+    )
+    schedule_obj = (
+        _schedule_from_input(
+            schedule,
+            field_name=f"{field_name}.schedule",
+            garden_root=garden_root,
+        )
+        if schedule is not None
+        else None
+    )
+    try:
+        return WindowConstructionShade(
+            identifier,
+            base_window,
+            shade_mat,
+            shade_location=shade_location,
+            control_type=control_type,
+            setpoint=setpoint,
+            schedule=schedule_obj,
+        )
+    except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
+        raise ValueError(f"Invalid WindowConstructionShade input. {exc}") from exc
+
+
+def _build_window_dynamic_construction(
+    *,
+    identifier: str,
+    constructions: list[dict[str, Any] | str],
+    schedule: dict[str, Any] | str,
+    field_name: str = "window_dynamic",
+    garden_root: str | None = None,
+) -> WindowConstructionDynamic:
+    if not isinstance(constructions, (list, tuple)) or len(constructions) < 2:
+        raise ValueError(
+            f"{field_name} requires at least two WindowConstruction items in constructions."
+        )
+    if schedule is None:
+        raise ValueError(f"{field_name} requires a schedule.")
+    state_constructions = [
+        _construction_from_input(
+            constr,
+            field_name=f"{field_name}.constructions",
+            expected_types=(WindowConstruction,),
+            garden_root=garden_root,
+        )
+        for constr in constructions
+    ]
+    schedule_obj = _schedule_from_input(
+        schedule,
+        field_name=f"{field_name}.schedule",
+        garden_root=garden_root,
+    )
+    try:
+        return WindowConstructionDynamic(
+            identifier,
+            state_constructions,
+            schedule_obj,
+        )
+    except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
+        raise ValueError(f"Invalid WindowConstructionDynamic input. {exc}") from exc
+
+
+def _inline_construction_from_dict(
+    data: dict[str, Any],
+    *,
+    field_name: str,
+    expected_types: tuple[type, ...] | None = None,
+    garden_root: str | None = None,
+) -> AnyConstruction:
+    raw_type = str(data.get("construction_type") or "").strip().lower().replace("-", "_")
+    if not raw_type:
+        if "air_mixing_per_area" in data or "air_mixing_schedule" in data:
+            raw_type = "air_boundary"
+        elif "shade_material" in data:
+            raw_type = "window_shade"
+        elif "constructions" in data:
+            raw_type = "window_dynamic"
+        elif "u_factor" in data or "shgc" in data or "frame" in data or (
+            expected_types is not None
+            and any(cls in expected_types for cls in _WINDOW_CONSTRUCTION_TYPES)
+            and OpaqueConstruction not in expected_types
+            and "materials" not in data
+        ):
+            raw_type = "window"
+        elif (
+            "solar_reflectance" in data
+            or "visible_reflectance" in data
+            or "is_specular" in data
+            or (expected_types is not None and expected_types == (ShadeConstruction,))
+        ):
+            raw_type = "shade"
+        elif "materials" in data:
+            if (
+                expected_types is not None
+                and WindowConstruction in expected_types
+                and OpaqueConstruction not in expected_types
+            ):
+                raw_type = "window"
+            else:
+                raw_type = "opaque"
+        elif expected_types is not None and expected_types == (AirBoundaryConstruction,):
+            raw_type = "air_boundary"
+    identifier = str(data.get("identifier") or f"custom_{raw_type or 'construction'}")
+    if raw_type == "opaque":
+        unknown = sorted(set(data) - {"construction_type", "identifier", "materials"})
+        if unknown:
+            raise ValueError(f"{field_name} contains unsupported opaque construction fields: {', '.join(unknown)}.")
+        materials = data.get("materials")
+        if not isinstance(materials, list) or not materials:
+            raise ValueError(f"{field_name} requires a non-empty materials list.")
+        return OpaqueConstruction(
+            identifier,
+            [_material_from_input(mat, field_name=f"{field_name}.materials", garden_root=garden_root) for mat in materials],
+        )
+    if raw_type == "window":
+        unknown = sorted(set(data) - {"construction_type", "identifier", "materials", "u_factor", "shgc", "vt", "frame"})
+        if unknown:
+            raise ValueError(f"{field_name} contains unsupported window construction fields: {', '.join(unknown)}.")
+        materials = data.get("materials")
+        if materials is not None:
+            if not isinstance(materials, list) or not materials:
+                raise ValueError(f"{field_name}.materials must be a non-empty list.")
+            frame = (
+                _material_from_input(data["frame"], field_name=f"{field_name}.frame", garden_root=garden_root)
+                if data.get("frame") is not None
+                else None
+            )
+            return WindowConstruction(
+                identifier,
+                [_material_from_input(mat, field_name=f"{field_name}.materials", garden_root=garden_root) for mat in materials],
+                frame=frame,
+            )
+        if data.get("u_factor") is None or data.get("shgc") is None:
+            raise ValueError(f"{field_name} requires materials or both u_factor and shgc.")
+        return WindowConstruction.from_simple_parameters(
+            identifier,
+            float(data["u_factor"]),
+            float(data["shgc"]),
+            vt=float(data.get("vt", 0.6)),
+        )
+    if raw_type == "window_shade":
+        unknown = sorted(
+            set(data)
+            - {
+                "construction_type",
+                "identifier",
+                "window_construction",
+                "shade_material",
+                "shade_location",
+                "control_type",
+                "setpoint",
+                "schedule",
+            }
+        )
+        if unknown:
+            raise ValueError(
+                f"{field_name} contains unsupported window_shade construction fields: {', '.join(unknown)}."
+            )
+        if data.get("window_construction") is None or data.get("shade_material") is None:
+            raise ValueError(
+                f"{field_name} requires window_construction and shade_material for window_shade."
+            )
+        return _build_window_shade_construction(
+            identifier=identifier,
+            window_construction=data["window_construction"],
+            shade_material=data["shade_material"],
+            shade_location=str(data.get("shade_location", "Interior")),
+            control_type=str(data.get("control_type", "AlwaysOn")),
+            setpoint=data.get("setpoint"),
+            schedule=data.get("schedule"),
+            field_name=field_name,
+            garden_root=garden_root,
+        )
+    if raw_type == "window_dynamic":
+        unknown = sorted(set(data) - {"construction_type", "identifier", "constructions", "schedule"})
+        if unknown:
+            raise ValueError(
+                f"{field_name} contains unsupported window_dynamic construction fields: {', '.join(unknown)}."
+            )
+        if data.get("constructions") is None or data.get("schedule") is None:
+            raise ValueError(
+                f"{field_name} requires constructions and schedule for window_dynamic."
+            )
+        return _build_window_dynamic_construction(
+            identifier=identifier,
+            constructions=data["constructions"],
+            schedule=data["schedule"],
+            field_name=field_name,
+            garden_root=garden_root,
+        )
+    if raw_type == "shade":
+        unknown = sorted(set(data) - {"construction_type", "identifier", "solar_reflectance", "visible_reflectance", "is_specular"})
+        if unknown:
+            raise ValueError(f"{field_name} contains unsupported shade construction fields: {', '.join(unknown)}.")
+        return ShadeConstruction(
+            identifier,
+            solar_reflectance=float(data.get("solar_reflectance", 0.2)),
+            visible_reflectance=float(data.get("visible_reflectance", 0.2)),
+            is_specular=bool(data.get("is_specular", False)),
+        )
+    if raw_type == "air_boundary":
+        unknown = sorted(set(data) - {"construction_type", "identifier", "air_mixing_per_area", "air_mixing_schedule"})
+        if unknown:
+            raise ValueError(f"{field_name} contains unsupported air_boundary construction fields: {', '.join(unknown)}.")
+        return AirBoundaryConstruction(
+            identifier,
+            air_mixing_per_area=float(data.get("air_mixing_per_area", 0.1)),
+            air_mixing_schedule=_schedule_from_input(
+                data.get("air_mixing_schedule"),
+                field_name=f"{field_name}.air_mixing_schedule",
+                garden_root=garden_root,
+            ),
+        )
+    raise ValueError(
+        f"{field_name} inline construction dictionary must specify materials, u_factor/shgc, or construction_type."
+    )
+
+
 def _construction_from_input(
     data: dict[str, Any] | str,
     *,
@@ -572,28 +834,56 @@ def _construction_from_input(
         domain="honeybee_energy",
         object_family="construction",
     )
+    if isinstance(data, dict) and "type" not in data and set(data) == {"identifier"} and isinstance(data.get("identifier"), str):
+        data = data["identifier"]
     try:
         if isinstance(data, str):
-            try:
-                if expected_types and WindowConstruction in expected_types:
-                    construction = window_construction_by_identifier(data)
-                elif expected_types and ShadeConstruction in expected_types:
-                    construction = shade_construction_by_identifier(data)
+            construction = None
+            lookups = []
+            if expected_types is None:
+                lookups = [
+                    opaque_construction_by_identifier,
+                    window_construction_by_identifier,
+                    shade_construction_by_identifier,
+                ]
+            else:
+                if OpaqueConstruction in expected_types or AirBoundaryConstruction in expected_types:
+                    lookups.append(opaque_construction_by_identifier)
+                if any(cls in expected_types for cls in _WINDOW_CONSTRUCTION_TYPES):
+                    lookups.append(window_construction_by_identifier)
+                if ShadeConstruction in expected_types:
+                    lookups.append(shade_construction_by_identifier)
+            last_exc: Exception | None = None
+            for lookup in lookups:
+                try:
+                    construction = lookup(data)
+                    break
+                except Exception as exc:
+                    last_exc = exc
+            if construction is None:
+                if garden_root is not None:
+                    construction = dict_to_construction(
+                        get_garden_properties_library_object(
+                            garden_root=garden_root,
+                            domain="honeybee_energy",
+                            object_family="construction",
+                            identifier=data,
+                        )["object_dict"]
+                    )
+                elif last_exc is not None:
+                    raise last_exc
                 else:
-                    construction = opaque_construction_by_identifier(data)
-            except Exception:
-                if garden_root is None:
-                    raise
-                construction = dict_to_construction(
-                    get_garden_properties_library_object(
-                        garden_root=garden_root,
-                        domain="honeybee_energy",
-                        object_family="construction",
-                        identifier=data,
-                    )["object_dict"]
-                )
+                    raise ValueError(f"Unknown construction identifier: {data}")
         elif isinstance(data, dict):
-            construction = dict_to_construction(data)
+            if "type" in data:
+                construction = dict_to_construction(data)
+            else:
+                construction = _inline_construction_from_dict(
+                    data,
+                    field_name=field_name,
+                    expected_types=expected_types,
+                    garden_root=garden_root,
+                )
         else:
             raise TypeError("not a construction input")
     except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
@@ -621,14 +911,62 @@ def _construction_set_from_input(
     )
     if data is None:
         return None
+    if isinstance(data, dict) and "type" not in data and set(data) == {"identifier"} and isinstance(data.get("identifier"), str):
+        data = data["identifier"]
     try:
         if isinstance(data, str):
-            return construction_set_by_identifier(data)
+            try:
+                return construction_set_by_identifier(data)
+            except Exception:
+                if garden_root is not None:
+                    return ConstructionSet.from_dict(
+                        get_garden_properties_library_object(
+                            garden_root=garden_root,
+                            domain="honeybee_energy",
+                            object_family="construction_set",
+                            identifier=data,
+                        )["object_dict"]
+                    )
+                raise
         if isinstance(data, dict):
             return ConstructionSet.from_dict(data)
     except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
         raise ValueError(f"{field_name} must be a valid ConstructionSet. {exc}") from exc
     raise ValueError(f"{field_name} must be a ConstructionSet dict or library identifier.")
+
+
+def _subset_from_slots(
+    data: dict[str, Any],
+    cls: type,
+    *,
+    field_name: str,
+    slot_types: dict[str, tuple[type, ...]],
+    garden_root: str | None = None,
+    base_subset: Any = None,
+) -> Any:
+    unknown = sorted(set(data) - {"type", *slot_types})
+    if unknown:
+        raise ValueError(
+            f"{field_name} contains unsupported {cls.__name__} field(s): {', '.join(unknown)}."
+        )
+    resolved: dict[str, Any] = {}
+    for slot, expected in slot_types.items():
+        value = data.get(slot)
+        if value is not None:
+            resolved[slot] = _construction_from_input(
+                value,
+                field_name=f"{field_name}.{slot}",
+                expected_types=expected,
+                garden_root=garden_root,
+            )
+        elif base_subset is not None:
+            base_val = getattr(base_subset, slot, None)
+            if base_val is not None:
+                resolved[slot] = base_val.duplicate() if hasattr(base_val, "duplicate") else base_val
+    try:
+        return cls(**resolved)
+    except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
+        raise ValueError(f"{field_name} must be a valid {cls.__name__}. {exc}") from exc
 
 
 def _subset_from_input(data: dict[str, Any] | None, cls: type, *, field_name: str) -> Any:
@@ -648,75 +986,151 @@ def _opaque_subset_from_input(
     *,
     field_name: str,
     garden_root: str | None = None,
+    base_subset: Any = None,
 ) -> Any:
-    """Resolve subset input, wrapping a single OpaqueConstruction when provided."""
+    """Resolve subset input, supporting slot dicts, SDK dicts, or a single OpaqueConstruction."""
     if data is None:
-        return None
-    if isinstance(data, dict) and data.get("type") == cls.__name__:
-        return _subset_from_input(data, cls, field_name=field_name)
-    if isinstance(data, dict) and data.get("type") is None:
-        exterior_construction = data.get("exterior_construction")
-        if exterior_construction is not None:
-            return cls(
-                _construction_from_input(
-                    exterior_construction,
-                    field_name=f"{field_name}.exterior_construction",
-                    expected_types=(OpaqueConstruction,),
-                    garden_root=garden_root,
-                )
+        return base_subset.duplicate() if base_subset is not None else None
+    slot_types = {
+        "exterior_construction": (OpaqueConstruction,),
+        "interior_construction": (OpaqueConstruction,),
+        "ground_construction": (OpaqueConstruction,),
+    }
+    if isinstance(data, dict) and data.get("target_type") != "garden_properties_library_object":
+        if data.get("type") == cls.__name__ or any(slot in data for slot in slot_types) or data == {}:
+            if data.get("type") == cls.__name__ and all(
+                not isinstance(data.get(slot), dict) or "type" in data.get(slot, {})
+                for slot in slot_types
+                if data.get(slot) is not None
+            ):
+                if base_subset is None and not any(isinstance(data.get(slot), str) for slot in slot_types):
+                    return _subset_from_input(data, cls, field_name=field_name)
+            return _subset_from_slots(
+                data,
+                cls,
+                field_name=field_name,
+                slot_types=slot_types,
+                garden_root=garden_root,
+                base_subset=base_subset,
             )
-    try:
-        construction = _construction_from_input(
-            data,
-            field_name=field_name,
-            expected_types=(OpaqueConstruction,),
-            garden_root=garden_root,
-        )
-    except Exception:
-        if isinstance(data, dict):
-            return _subset_from_input(data, cls, field_name=field_name)
-        raise
-    return cls(construction)
+    construction = _construction_from_input(
+        data,
+        field_name=field_name,
+        expected_types=(OpaqueConstruction,),
+        garden_root=garden_root,
+    )
+    resolved: dict[str, Any] = {"exterior_construction": construction}
+    if base_subset is not None:
+        for slot in ("interior_construction", "ground_construction"):
+            base_val = getattr(base_subset, slot, None)
+            if base_val is not None:
+                resolved[slot] = base_val.duplicate() if hasattr(base_val, "duplicate") else base_val
+    return cls(**resolved)
 
 
 def _aperture_set_from_input(
     data: dict[str, Any] | str | None,
     *,
     garden_root: str | None = None,
+    base_subset: ApertureConstructionSet | None = None,
 ) -> ApertureConstructionSet | None:
     if data is None:
-        return None
-    if isinstance(data, dict) and data.get("type") is None:
-        window_construction = data.get("window_construction")
-        if window_construction is not None:
-            return ApertureConstructionSet(
-                _construction_from_input(
-                    window_construction,
-                    field_name="aperture_set.window_construction",
-                    expected_types=(WindowConstruction,),
-                    garden_root=garden_root,
-                )
+        return base_subset.duplicate() if base_subset is not None else None
+    slot_types = {
+        "window_construction": _WINDOW_CONSTRUCTION_TYPES,
+        "interior_construction": _WINDOW_CONSTRUCTION_TYPES,
+        "skylight_construction": _WINDOW_CONSTRUCTION_TYPES,
+        "operable_construction": _WINDOW_CONSTRUCTION_TYPES,
+    }
+    if isinstance(data, dict) and data.get("target_type") != "garden_properties_library_object":
+        if data.get("type") == "ApertureConstructionSet" or any(slot in data for slot in slot_types) or data == {}:
+            if data.get("type") == "ApertureConstructionSet" and all(
+                not isinstance(data.get(slot), dict) or "type" in data.get(slot, {})
+                for slot in slot_types
+                if data.get(slot) is not None
+            ):
+                if base_subset is None and not any(isinstance(data.get(slot), str) for slot in slot_types):
+                    return _subset_from_input(data, ApertureConstructionSet, field_name="aperture_set")
+            return _subset_from_slots(
+                data,
+                ApertureConstructionSet,
+                field_name="aperture_set",
+                slot_types=slot_types,
+                garden_root=garden_root,
+                base_subset=base_subset,
             )
-    if isinstance(data, dict) and data.get("type") == "ApertureConstructionSet":
-        try:
-            return ApertureConstructionSet.from_dict(data)
-        except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
-            raise ValueError(
-                f"aperture_set must be a valid ApertureConstructionSet. {exc}"
-            ) from exc
     try:
         window_construction = _construction_from_input(
             data,
             field_name="aperture_set",
-            expected_types=(WindowConstruction,),
+            expected_types=_WINDOW_CONSTRUCTION_TYPES,
             garden_root=garden_root,
         )
     except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
         raise ValueError(
             "aperture_set must be an ApertureConstructionSet or a "
-            f"WindowConstruction input that can be wrapped. {exc}"
+            "WindowConstruction, WindowConstructionShade, or WindowConstructionDynamic "
+            f"input that can be wrapped. {exc}"
         ) from exc
-    return ApertureConstructionSet(window_construction)
+    resolved: dict[str, Any] = {"window_construction": window_construction}
+    if base_subset is not None:
+        for slot in ("interior_construction", "skylight_construction", "operable_construction"):
+            base_val = getattr(base_subset, slot, None)
+            if base_val is not None:
+                resolved[slot] = base_val.duplicate() if hasattr(base_val, "duplicate") else base_val
+    return ApertureConstructionSet(**resolved)
+
+
+def _door_set_from_input(
+    data: dict[str, Any] | str | None,
+    *,
+    garden_root: str | None = None,
+    base_subset: DoorConstructionSet | None = None,
+) -> DoorConstructionSet | None:
+    if data is None:
+        return base_subset.duplicate() if base_subset is not None else None
+    slot_types = {
+        "exterior_construction": (OpaqueConstruction,),
+        "interior_construction": (OpaqueConstruction,),
+        "exterior_glass_construction": _WINDOW_CONSTRUCTION_TYPES,
+        "interior_glass_construction": _WINDOW_CONSTRUCTION_TYPES,
+        "overhead_construction": (OpaqueConstruction,),
+    }
+    if isinstance(data, dict) and data.get("target_type") != "garden_properties_library_object":
+        if data.get("type") == "DoorConstructionSet" or any(slot in data for slot in slot_types) or data == {}:
+            if data.get("type") == "DoorConstructionSet" and all(
+                not isinstance(data.get(slot), dict) or "type" in data.get(slot, {})
+                for slot in slot_types
+                if data.get(slot) is not None
+            ):
+                if base_subset is None and not any(isinstance(data.get(slot), str) for slot in slot_types):
+                    return _subset_from_input(data, DoorConstructionSet, field_name="door_set")
+            return _subset_from_slots(
+                data,
+                DoorConstructionSet,
+                field_name="door_set",
+                slot_types=slot_types,
+                garden_root=garden_root,
+                base_subset=base_subset,
+            )
+    exterior_construction = _construction_from_input(
+        data,
+        field_name="door_set",
+        expected_types=(OpaqueConstruction,),
+        garden_root=garden_root,
+    )
+    resolved: dict[str, Any] = {"exterior_construction": exterior_construction}
+    if base_subset is not None:
+        for slot in (
+            "interior_construction",
+            "exterior_glass_construction",
+            "interior_glass_construction",
+            "overhead_construction",
+        ):
+            base_val = getattr(base_subset, slot, None)
+            if base_val is not None:
+                resolved[slot] = base_val.duplicate() if hasattr(base_val, "duplicate") else base_val
+    return DoorConstructionSet(**resolved)
 
 
 def create_opaque_material(
@@ -1230,6 +1644,72 @@ def create_window_construction(
     )
 
 
+def create_window_shade_construction(
+    *,
+    identifier: str,
+    window_construction: dict[str, Any] | str,
+    shade_material: dict[str, Any] | str,
+    shade_location: str = "Interior",
+    control_type: str = "AlwaysOn",
+    setpoint: float | None = None,
+    schedule: dict[str, Any] | str | None = None,
+    return_detail: str = "summary",
+    garden_root: str | None = None,
+    return_object_dict: bool = True,
+) -> dict[str, Any]:
+    """Create a Honeybee Energy WindowConstructionShade object."""
+    construction = _build_window_shade_construction(
+        identifier=identifier,
+        window_construction=window_construction,
+        shade_material=shade_material,
+        shade_location=shade_location,
+        control_type=control_type,
+        setpoint=setpoint,
+        schedule=schedule,
+        garden_root=garden_root,
+    )
+    return _save_library_result(
+        _result(
+            construction,
+            _construction_summary(construction, return_detail=return_detail),
+            f"Created WindowConstructionShade: {identifier}",
+        ),
+        garden_root=garden_root,
+        object_family="construction",
+        ready_for="edit_honeybee_aperture.construction or create_construction_set.aperture_set",
+        return_object_dict=return_object_dict,
+    )
+
+
+def create_window_dynamic_construction(
+    *,
+    identifier: str,
+    constructions: list[dict[str, Any] | str],
+    schedule: dict[str, Any] | str,
+    return_detail: str = "summary",
+    garden_root: str | None = None,
+    return_object_dict: bool = True,
+) -> dict[str, Any]:
+    """Create a Honeybee Energy WindowConstructionDynamic object."""
+    construction = _build_window_dynamic_construction(
+        identifier=identifier,
+        constructions=constructions,
+        schedule=schedule,
+        garden_root=garden_root,
+    )
+    return _save_library_result(
+        _result(
+            construction,
+            _construction_summary(construction, return_detail=return_detail),
+            f"Created WindowConstructionDynamic: {identifier}",
+        ),
+        garden_root=garden_root,
+        object_family="construction",
+        ready_for="edit_honeybee_aperture.construction or create_construction_set.aperture_set",
+        return_object_dict=return_object_dict,
+    )
+
+
 def create_shade_construction(
     *,
     identifier: str,
@@ -1420,7 +1900,7 @@ def create_aperture_construction_set(
         _construction_from_input(
             window_construction,
             field_name="window_construction",
-            expected_types=(WindowConstruction,),
+            expected_types=_WINDOW_CONSTRUCTION_TYPES,
             garden_root=garden_root,
         )
         if window_construction is not None
@@ -1428,7 +1908,7 @@ def create_aperture_construction_set(
         _construction_from_input(
             interior_construction,
             field_name="interior_construction",
-            expected_types=(WindowConstruction,),
+            expected_types=_WINDOW_CONSTRUCTION_TYPES,
             garden_root=garden_root,
         )
         if interior_construction is not None
@@ -1436,7 +1916,7 @@ def create_aperture_construction_set(
         _construction_from_input(
             skylight_construction,
             field_name="skylight_construction",
-            expected_types=(WindowConstruction,),
+            expected_types=_WINDOW_CONSTRUCTION_TYPES,
             garden_root=garden_root,
         )
         if skylight_construction is not None
@@ -1444,7 +1924,7 @@ def create_aperture_construction_set(
         _construction_from_input(
             operable_construction,
             field_name="operable_construction",
-            expected_types=(WindowConstruction,),
+            expected_types=_WINDOW_CONSTRUCTION_TYPES,
             garden_root=garden_root,
         )
         if operable_construction is not None
@@ -1483,7 +1963,7 @@ def create_door_construction_set(
         _construction_from_input(
             exterior_glass_construction,
             field_name="exterior_glass_construction",
-            expected_types=(WindowConstruction,),
+            expected_types=_WINDOW_CONSTRUCTION_TYPES,
             garden_root=garden_root,
         )
         if exterior_glass_construction is not None
@@ -1491,7 +1971,7 @@ def create_door_construction_set(
         _construction_from_input(
             interior_glass_construction,
             field_name="interior_glass_construction",
-            expected_types=(WindowConstruction,),
+            expected_types=_WINDOW_CONSTRUCTION_TYPES,
             garden_root=garden_root,
         )
         if interior_glass_construction is not None
@@ -1512,11 +1992,11 @@ def create_construction_set(
     *,
     identifier: str,
     base_construction_set: dict[str, Any] | str | None = None,
-    wall_set: dict[str, Any] | None = None,
-    floor_set: dict[str, Any] | None = None,
-    roof_ceiling_set: dict[str, Any] | None = None,
+    wall_set: dict[str, Any] | str | None = None,
+    floor_set: dict[str, Any] | str | None = None,
+    roof_ceiling_set: dict[str, Any] | str | None = None,
     aperture_set: dict[str, Any] | str | None = None,
-    door_set: dict[str, Any] | None = None,
+    door_set: dict[str, Any] | str | None = None,
     shade_construction: dict[str, Any] | str | None = None,
     air_boundary_construction: dict[str, Any] | str | None = None,
     return_detail: str = "summary",
@@ -1536,34 +2016,32 @@ def create_construction_set(
             WallConstructionSet,
             field_name="wall_set",
             garden_root=garden_root,
-        )
-        if wall_set is not None
-        else (base.wall_set.duplicate() if base else None),
+            base_subset=base.wall_set if base else None,
+        ),
         floor_set=_opaque_subset_from_input(
             floor_set,
             FloorConstructionSet,
             field_name="floor_set",
             garden_root=garden_root,
-        )
-        if floor_set is not None
-        else (base.floor_set.duplicate() if base else None),
+            base_subset=base.floor_set if base else None,
+        ),
         roof_ceiling_set=_opaque_subset_from_input(
             roof_ceiling_set,
             RoofCeilingConstructionSet,
             field_name="roof_ceiling_set",
             garden_root=garden_root,
-        )
-        if roof_ceiling_set is not None
-        else (base.roof_ceiling_set.duplicate() if base else None),
+            base_subset=base.roof_ceiling_set if base else None,
+        ),
         aperture_set=_aperture_set_from_input(
             aperture_set,
             garden_root=garden_root,
-        )
-        if aperture_set is not None
-        else (base.aperture_set.duplicate() if base else None),
-        door_set=_subset_from_input(door_set, DoorConstructionSet, field_name="door_set")
-        if door_set is not None
-        else (base.door_set.duplicate() if base else None),
+            base_subset=base.aperture_set if base else None,
+        ),
+        door_set=_door_set_from_input(
+            door_set,
+            garden_root=garden_root,
+            base_subset=base.door_set if base else None,
+        ),
         shade_construction=_construction_from_input(
             shade_construction,
             field_name="shade_construction",
@@ -1591,4 +2069,242 @@ def create_construction_set(
         object_family="construction_set",
         ready_for="edit_honeybee_room.construction_set",
         return_object_dict=return_object_dict,
+    )
+
+
+_MATERIAL_CREATORS = {
+    "opaque": create_opaque_material,
+    "opaque_no_mass": create_opaque_no_mass_material,
+    "vegetation": create_vegetation_material,
+    "simple_glazing": create_simple_glazing_material,
+    "window_glazing": create_window_glazing_material,
+    "window_gas": create_window_gas_material,
+    "window_gas_mixture": create_window_gas_mixture_material,
+    "window_gas_custom": create_custom_window_gas_material,
+    "window_shade": create_window_shade_material,
+    "window_blind": create_window_blind_material,
+    "window_frame": create_window_frame_material,
+}
+
+
+def create_material(
+    *,
+    material_type: str,
+    identifier: str,
+    params: dict[str, Any] | None = None,
+    return_detail: str = "summary",
+    garden_root: str | None = None,
+    return_object_dict: bool = True,
+) -> dict[str, Any]:
+    """Create any Honeybee Energy material layer dispatched by material_type."""
+    normalized = str(material_type or "").strip().lower().replace("-", "_")
+    creator = _MATERIAL_CREATORS.get(normalized)
+    if creator is None:
+        allowed = ", ".join(sorted(_MATERIAL_CREATORS))
+        raise ValueError(f"material_type must be one of: {allowed}.")
+    if params is None:
+        params_dict: dict[str, Any] = {}
+    elif isinstance(params, dict):
+        params_dict = dict(params)
+    else:
+        raise ValueError("params must be a dictionary.")
+
+    excluded = {"identifier", "return_detail", "garden_root", "return_object_dict"}
+    signature = inspect.signature(creator)
+    accepted = set(signature.parameters) - excluded
+    unknown = sorted(set(params_dict) - accepted)
+    if unknown:
+        allowed_params = ", ".join(sorted(accepted))
+        raise ValueError(
+            f"Unsupported params for material_type={normalized!r}: {', '.join(unknown)}. "
+            f"Accepted params: {allowed_params}."
+        )
+    missing = [
+        name
+        for name, param in signature.parameters.items()
+        if name not in excluded
+        and param.default is inspect.Parameter.empty
+        and name not in params_dict
+    ]
+    if missing:
+        raise ValueError(
+            f"material_type={normalized!r} requires params: {', '.join(missing)}."
+        )
+    return creator(
+        identifier=identifier,
+        return_detail=return_detail,
+        garden_root=garden_root,
+        return_object_dict=return_object_dict,
+        **params_dict,
+    )
+
+
+def create_construction(
+    *,
+    construction_type: str,
+    identifier: str,
+    materials: list[dict[str, Any] | str] | None = None,
+    u_factor: float | None = None,
+    shgc: float | None = None,
+    vt: float = 0.6,
+    frame: dict[str, Any] | str | None = None,
+    params: dict[str, Any] | None = None,
+    return_detail: str = "summary",
+    garden_root: str | None = None,
+    return_object_dict: bool = True,
+) -> dict[str, Any]:
+    """Create any Honeybee Energy construction dispatched by construction_type."""
+    normalized = str(construction_type or "").strip().lower().replace("-", "_")
+    if params is None:
+        params_dict: dict[str, Any] = {}
+    elif isinstance(params, dict):
+        params_dict = dict(params)
+    else:
+        raise ValueError("params must be a dictionary.")
+
+    if normalized == "opaque":
+        if u_factor is not None or shgc is not None or frame is not None:
+            raise ValueError(
+                "u_factor, shgc, and frame apply only to construction_type='window'."
+            )
+        unknown = sorted(set(params_dict) - {"materials"})
+        if unknown:
+            raise ValueError(
+                f"Unsupported params for construction_type='opaque': {', '.join(unknown)}."
+            )
+        resolved_materials = materials if materials is not None else params_dict.get("materials")
+        if resolved_materials is None:
+            raise ValueError("construction_type='opaque' requires materials.")
+        return create_opaque_construction(
+            identifier=identifier,
+            materials=resolved_materials,
+            return_detail=return_detail,
+            garden_root=garden_root,
+            return_object_dict=return_object_dict,
+        )
+
+    if normalized == "window":
+        unknown = sorted(set(params_dict) - {"materials", "u_factor", "shgc", "vt", "frame"})
+        if unknown:
+            raise ValueError(
+                f"Unsupported params for construction_type='window': {', '.join(unknown)}."
+            )
+        resolved_materials = materials if materials is not None else params_dict.get("materials")
+        resolved_u_factor = u_factor if u_factor is not None else params_dict.get("u_factor")
+        resolved_shgc = shgc if shgc is not None else params_dict.get("shgc")
+        resolved_vt = params_dict["vt"] if "vt" in params_dict else vt
+        resolved_frame = frame if frame is not None else params_dict.get("frame")
+        return create_window_construction(
+            identifier=identifier,
+            materials=resolved_materials,
+            u_factor=resolved_u_factor,
+            shgc=resolved_shgc,
+            vt=resolved_vt,
+            frame=resolved_frame,
+            return_detail=return_detail,
+            garden_root=garden_root,
+            return_object_dict=return_object_dict,
+        )
+
+    if normalized == "window_shade":
+        if materials is not None or u_factor is not None or shgc is not None or frame is not None:
+            raise ValueError(
+                "For construction_type='window_shade', pass window_construction and shade_material "
+                "inside params rather than top-level materials, u_factor, shgc, or frame."
+            )
+        allowed = {
+            "window_construction",
+            "shade_material",
+            "shade_location",
+            "control_type",
+            "setpoint",
+            "schedule",
+        }
+        unknown = sorted(set(params_dict) - allowed)
+        if unknown:
+            raise ValueError(
+                f"Unsupported params for construction_type='window_shade': {', '.join(unknown)}. "
+                f"Accepted params: {', '.join(sorted(allowed))}."
+            )
+        if params_dict.get("window_construction") is None or params_dict.get("shade_material") is None:
+            raise ValueError(
+                "construction_type='window_shade' requires params['window_construction'] and "
+                "params['shade_material']."
+            )
+        return create_window_shade_construction(
+            identifier=identifier,
+            return_detail=return_detail,
+            garden_root=garden_root,
+            return_object_dict=return_object_dict,
+            **params_dict,
+        )
+
+    if normalized == "window_dynamic":
+        if materials is not None or u_factor is not None or shgc is not None or frame is not None:
+            raise ValueError(
+                "For construction_type='window_dynamic', pass constructions and schedule "
+                "inside params rather than top-level materials, u_factor, shgc, or frame."
+            )
+        allowed = {"constructions", "schedule"}
+        unknown = sorted(set(params_dict) - allowed)
+        if unknown:
+            raise ValueError(
+                f"Unsupported params for construction_type='window_dynamic': {', '.join(unknown)}. "
+                f"Accepted params: {', '.join(sorted(allowed))}."
+            )
+        if params_dict.get("constructions") is None or params_dict.get("schedule") is None:
+            raise ValueError(
+                "construction_type='window_dynamic' requires params['constructions'] and "
+                "params['schedule']."
+            )
+        return create_window_dynamic_construction(
+            identifier=identifier,
+            return_detail=return_detail,
+            garden_root=garden_root,
+            return_object_dict=return_object_dict,
+            **params_dict,
+        )
+
+    if normalized == "shade":
+        if materials is not None or u_factor is not None or shgc is not None or frame is not None:
+            raise ValueError(
+                "materials, u_factor, shgc, and frame are not supported for construction_type='shade'."
+            )
+        allowed = {"solar_reflectance", "visible_reflectance", "is_specular"}
+        unknown = sorted(set(params_dict) - allowed)
+        if unknown:
+            raise ValueError(
+                f"Unsupported params for construction_type='shade': {', '.join(unknown)}. "
+                f"Accepted params: {', '.join(sorted(allowed))}."
+            )
+        return create_shade_construction(
+            identifier=identifier,
+            return_detail=return_detail,
+            garden_root=garden_root,
+            return_object_dict=return_object_dict,
+            **params_dict,
+        )
+
+    if normalized == "air_boundary":
+        if materials is not None or u_factor is not None or shgc is not None or frame is not None:
+            raise ValueError(
+                "materials, u_factor, shgc, and frame are not supported for construction_type='air_boundary'."
+            )
+        allowed = {"air_mixing_per_area", "air_mixing_schedule"}
+        unknown = sorted(set(params_dict) - allowed)
+        if unknown:
+            raise ValueError(
+                f"Unsupported params for construction_type='air_boundary': {', '.join(unknown)}. "
+                f"Accepted params: {', '.join(sorted(allowed))}."
+            )
+        return create_air_boundary_construction(
+            identifier=identifier,
+            return_detail=return_detail,
+            garden_root=garden_root,
+            return_object_dict=return_object_dict,
+            **params_dict,
+        )
+
+    raise ValueError(
+        "construction_type must be one of: opaque, window, window_shade, window_dynamic, shade, air_boundary."
     )

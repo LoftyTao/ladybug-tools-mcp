@@ -238,7 +238,8 @@ def _visualization_target(
 def read_daylight_compliance(
     *,
     garden_root: str,
-    run_target: dict[str, Any],
+    run_target: dict[str, Any] | None = None,
+    run_id: str | None = None,
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict[str, Any]:
@@ -250,18 +251,21 @@ def read_daylight_compliance(
 
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
-    if not isinstance(run_target, dict):
-        raise ValueError("run_target must be a radiance_run target.")
-    if run_target.get("garden_id") != manifest.garden_id:
-        raise ValueError("run_target belongs to a different Garden.")
-    record = _run_record(garden_root_path, run_target=run_target, run_id=None)
+    if run_target is not None:
+        if not isinstance(run_target, dict):
+            raise ValueError("run_target must be a radiance_run target.")
+        if run_target.get("garden_id") != manifest.garden_id:
+            raise ValueError("run_target belongs to a different Garden.")
+    elif not run_id:
+        raise ValueError("Provide run_target or run_id.")
+    record = _run_record(garden_root_path, run_target=run_target, run_id=run_id)
     _validate_run_target_garden(record, manifest)
     _require_completed(record)
     recipe = str(record.get("recipe") or "")
     if recipe not in COMPLIANCE_RECIPES:
         allowed = ", ".join(sorted(COMPLIANCE_RECIPES))
         raise ValueError(
-            f"RAD_Read_Daylight_Compliance only supports completed compliance recipes: {allowed}."
+            f"RAD_Read_Results (result_kind='compliance') only supports completed compliance recipes: {allowed}."
         )
 
     warnings: list[str] = []

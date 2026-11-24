@@ -7,536 +7,29 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+PostprocessStrategy = Literal[
+    "none",
+    "suggest_validate",
+    "auto_validate",
+    "auto_relate_existing_geometry",
+    "auto_relate_intersect_clone_single",
+]
+
 
 def register(mcp: FastMCP) -> None:
-    """Register honeybee_core tools."""
-
-    @mcp.tool(
-        name="HB_Apply_Room_Energy_Properties",
-        description=(
-            'Apply one shared set of Honeybee Energy properties atomically to multiple Room '
-            'targets in one Garden Honeybee Model. Provide exactly one of room_targets (typed '
-            'targets from HB_Search_Model_Objects) or room_identifiers, plus energy_properties '
-            'containing only program_type, construction_set, template hvac, ventilation, '
-            'setpoint, or zone_ventilation_fans. The tool resolves and validates every Room and '
-            'property reference before one Garden save; any missing Room, cross-model target, '
-            'invalid reference, or revision conflict leaves the model unchanged. Returns '
-            'updated_room_count, a limited Room identifier sample, model_target, '
-            'persistence_receipt, and report. Identical values return no_change without another '
-            'model revision.'
-        ),
-        tags={
-            "apply",
-            "batch",
-            "construction-set",
-            "energy",
-            "honeybee",
-            "hvac-template",
-            "program-type",
-            "room",
-            "setpoint",
-            "ventilation",
-        },
-        timeout=30,
-    )
-    def apply_room_energy_properties(
-        garden_root: Annotated[
-            str,
-            Field(
-                description=(
-                    "Required Garden root path containing garden.json, usually "
-                    "GD_Create['garden_root']."
-                )
-            ),
-        ],
-        energy_properties: Annotated[
-            dict[str, Any],
-            Field(
-                description=(
-                    "Required shared property changes. Supported keys are only "
-                    "program_type, construction_set, hvac, ventilation, setpoint, "
-                    "and zone_ventilation_fans; values may be SDK dictionaries, "
-                    "Garden property targets, or supported standard identifiers."
-                )
-            ),
-        ],
-        room_targets: Annotated[
-            list[dict[str, Any]] | None,
-            Field(
-                description=(
-                    'Optional non-empty list of Honeybee Room typed targets from '
-                    'HB_Search_Model_Objects.matches[i].target. Mutually exclusive with '
-                    'room_identifiers.'
-                )
-            ),
-        ] = None,
-        room_identifiers: Annotated[
-            list[str] | None,
-            Field(
-                description=(
-                    'Optional non-empty list of exact Room identifiers in the selected Honeybee '
-                    'Model. Mutually exclusive with room_targets.'
-                )
-            ),
-        ] = None,
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Honeybee Model target, usually HB_Create_Model['target']; "
-                    "defaults to the Garden base Honeybee Model. Every typed Room "
-                    "target must belong to this same model and Garden."
-                )
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Apply shared Honeybee Room Energy properties."""
-        from garden.honeybee_core.room_energy import (
-            apply_room_energy_properties as service,
-        )
-
-        return service(
-            garden_root=garden_root,
-            energy_properties=energy_properties,
-            room_targets=room_targets,
-            room_identifiers=room_identifiers,
-            model_target=model_target,
-        )
-
-    @mcp.tool(
-        name="HB_Create_Aperture",
-        description=(
-            'Create a Honeybee Aperture, commonly a window/opening sub-face, on a host Honeybee '
-            'Face typed target from explicit Face3D geometry. Use '
-            'HB_Create_Apertures_By_Parameters for parametric or ratio-based windows. Requires '
-            'garden_root, identifier, geometry, and host_target from HB_Search_Model_Objects '
-            'matches[i].target or HB_Create_Face. Returns target, object_target, model_target, '
-            'aperture_target, summary_view, persistence_receipt, and report.'
-        ),
-        tags={
-            "aperture",
-            "author",
-            "geometry",
-            "honeybee",
-            "window",
-        },
-        timeout=20,
-    )
-    def create_honeybee_aperture(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        identifier: Annotated[
-            str, Field(description="Required Honeybee aperture identifier.")
-        ],
-        geometry: Annotated[
-            dict[str, Any],
-            Field(
-                description=(
-                    'Required Ladybug Geometry Face3D dict fully inside the host face; for '
-                    "example {'type':'Face3D','boundary':[[x,y,z],...]}. Boundary points may also "
-                    "be {'x':0,'y':0,'z':0} Point3D dicts. Keep sub-face edges inset from the "
-                    'host face boundary by at least model tolerance, and omit plane unless '
-                    'providing Ladybug Plane keys n, o, and x.'
-                )
-            ),
-        ],
-        host_target: Annotated[
-            dict[str, Any],
-            Field(
-                description=(
-                    'Required Honeybee face typed target dict from HB_Search_Model_Objects '
-                    'matches[i].target or HB_Create_Face.'
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-        is_operable: Annotated[
-            bool, Field(description="Whether the aperture is operable.")
-        ] = False,
-    ) -> dict[str, Any]:
-        """Create a Honeybee Aperture."""
-        from garden.honeybee_core.creation import create_honeybee_aperture as service
-
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            geometry=geometry,
-            host_target=host_target,
-            model_target=model_target,
-            is_operable=is_operable,
-        )
-
-    @mcp.tool(
-        name="HB_Create_Apertures_By_Guide_Surface",
-        description=(
-            "Create Honeybee Apertures on a host Face typed target from one or "
-            "more Ladybug Geometry Face3D guide surfaces. Guide surfaces must "
-            "be coplanar with and fully inside the host Face within tolerance; "
-            "non-coplanar, outside, overlapping, invalid, and unprojectable "
-            "guides are skipped with reasons. Existing equivalent Apertures "
-            "are reused without duplication. Requires garden_root, "
-            "host_target, and guide_surfaces. Returns target, targets, "
-            "created_targets, reused_targets, summary_view, "
-            "persistence_receipt, and report."
-        ),
-        tags={
-            "aperture",
-            "author",
-            "face",
-            "geometry",
-            "guide-surface",
-            "honeybee",
-            "window",
-        },
-        timeout=20,
-    )
-    def create_honeybee_apertures_by_guide_surface(
-        garden_root: Annotated[
-            str,
-            Field(
-                description=(
-                    "Required Garden root path containing garden.json, usually "
-                    "GD_Create['garden_root']."
-                )
-            ),
-        ],
-        host_target: Annotated[
-            dict[str, Any],
-            Field(
-                description=(
-                    "Required Honeybee Face typed target from "
-                    "HB_Search_Model_Objects matches[i].target."
-                )
-            ),
-        ],
-        guide_surfaces: Annotated[
-            list[dict[str, Any]],
-            Field(
-                description=(
-                    "Required list of Ladybug Geometry Face3D dictionaries used "
-                    "as aperture guide surfaces."
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Honeybee model target dict; defaults to the Garden "
-                    "base Honeybee Model."
-                )
-            ),
-        ] = None,
-        tolerance: Annotated[
-            float,
-            Field(description="Geometry tolerance for coplanarity and containment."),
-        ] = 0.01,
-        identifier_prefix: Annotated[
-            str | None,
-            Field(description="Optional prefix for generated aperture identifiers."),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Create Honeybee Apertures from guide surfaces."""
-        from garden.honeybee_core.guide_openings import (
-            create_honeybee_apertures_by_guide_surface as service,
-        )
-
-        return service(
-            garden_root=garden_root,
-            host_target=host_target,
-            guide_surfaces=guide_surfaces,
-            model_target=model_target,
-            tolerance=tolerance,
-            identifier_prefix=identifier_prefix,
-        )
-
-    @mcp.tool(
-        name="HB_Create_Apertures_By_Parameters",
-        description='Create Honeybee Apertures, windows, rectangular windows, glazed openings, glazing ratio, window-to-wall ratio, or WWR openings on a host exterior wall Face typed target by ratio or by width and height. This is the preferred tool for requests like add windows by WWR, set window-to-wall ratio to 0.3, add rectangular windows, or apply glazing percentage; use HB_Create_Aperture only for explicit Face3D geometry. Prefer a face match where face_type is Wall and boundary_condition is Outdoors. If the host already has apertures, it returns existing aperture targets with created_count=0 instead of duplicating windows. Requires garden_root, host_target, and mode-specific parameters. Returns target, aperture_target, targets, summary_view, persistence_receipt, and report.',
-        tags={
-            "aperture",
-            "author",
-            "face",
-            "geometry",
-            "honeybee",
-            "window",
-            "wwr",
-        },
-        timeout=20,
-    )
-    def create_honeybee_apertures_by_parameters(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        host_target: Annotated[
-            dict[str, Any],
-            Field(
-                description="Required Honeybee face typed target dict from HB_Search_Model_Objects matches[i].target or a prior create result; choose a Wall/Outdoors face for exterior windows."
-            ),
-        ],
-        generation_mode: Annotated[
-            str | None,
-            Field(
-                description="Generation mode: by_ratio or by_width_height. by_ratio requires ratio; by_width_height requires aperture_width and aperture_height."
-            ),
-        ] = "by_ratio",
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-        ratio: Annotated[
-            float | None,
-            Field(
-                description="Required for by_ratio mode: aperture-to-face area ratio between 0 and 1, for example 0.3."
-            ),
-        ] = None,
-        aperture_width: Annotated[
-            float | None,
-            Field(
-                description="Required for by_width_height mode: single aperture width in model units."
-            ),
-        ] = None,
-        aperture_height: Annotated[
-            float | None,
-            Field(
-                description="Required for by_width_height mode: single aperture height in model units."
-            ),
-        ] = None,
-        sill_height: Annotated[
-            float,
-            Field(description="Sill height for by_width_height mode in model units."),
-        ] = 1.0,
-        aperture_identifier: Annotated[
-            str | None,
-            Field(
-                description="Optional aperture identifier for by_width_height mode. Defaults to SDK naming."
-            ),
-        ] = None,
-        identifier_prefix: Annotated[
-            str | None,
-            Field(
-                description='Optional prefix for created aperture identifiers.'
-            ),
-        ] = None,
-        tolerance: Annotated[
-            float, Field(description="Geometry tolerance used by by_ratio mode.")
-        ] = 0.01,
-        rect_split: Annotated[
-            bool,
-            Field(
-                description="Whether by_ratio should split apertures into rectangles when needed."
-            ),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Create Honeybee Apertures on a host Face by ratio or width/height parameters."""
-        from garden.honeybee_core.creation import (
-            create_honeybee_apertures_by_parameters as service,
-        )
-
-        return service(
-            garden_root=garden_root,
-            host_target=host_target,
-            generation_mode=generation_mode,
-            model_target=model_target,
-            ratio=ratio,
-            aperture_width=aperture_width,
-            aperture_height=aperture_height,
-            sill_height=sill_height,
-            aperture_identifier=aperture_identifier,
-            identifier_prefix=identifier_prefix,
-            tolerance=tolerance,
-            rect_split=rect_split,
-        )
-
-    @mcp.tool(
-        name="HB_Create_Door",
-        description=(
-            'Create a Honeybee Door on a host Honeybee Face typed target. For an ordinary '
-            'rectangular door, omit geometry and pass door_width, door_height, and sill_height; '
-            'the service places it inside the host wall and avoids existing apertures or doors '
-            'when possible. For a shared interior Surface boundary wall between adjacent rooms, '
-            'this creates the paired adjacent Door automatically and preserves Honeybee Surface '
-            'adjacency. Pass geometry only for explicit custom Face3D geometry. Returns target, '
-            'object_target, model_target, door_target, and for paired interior doors also '
-            'targets, adjacent_target, and summary_view.is_interior_pair.'
-        ),
-        tags={
-            "author",
-            "door",
-            "geometry",
-            "honeybee",
-            "hosted",
-            "surface",
-        },
-        timeout=20,
-    )
-    def create_honeybee_door(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        identifier: Annotated[
-            str, Field(description="Required Honeybee door identifier.")
-        ],
-        host_target: Annotated[
-            dict[str, Any],
-            Field(
-                description=(
-                    'Required Honeybee face typed target dict from HB_Search_Model_Objects '
-                    'matches[i].target or HB_Create_Face. Use a Surface boundary wall face to '
-                    'create a paired interior door between adjacent rooms.'
-                )
-            ),
-        ],
-        geometry: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    'Required Ladybug Geometry Face3D dict fully inside the host face; for '
-                    "example {'type':'Face3D','boundary':[[x,y,z],...]}. Boundary points may also "
-                    "be {'x':0,'y':0,'z':0} Point3D dicts. Keep door edges inset from the host "
-                    'face boundary by at least model tolerance (for a floor-touching door, use a '
-                    'small positive sill such as z=0.01). Omit plane unless providing Ladybug '
-                    'Plane keys n, o, and x.'
-                )
-            ),
-        ] = None,
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-        door_width: Annotated[
-            float | None,
-            Field(
-                description="Optional width for an ordinary rectangular door when geometry is omitted. Defaults to 0.9 meters and avoids existing apertures/doors when possible."
-            ),
-        ] = None,
-        door_height: Annotated[
-            float,
-            Field(
-                description="Optional height for an ordinary rectangular door when geometry is omitted. Defaults to 2.1 meters."
-            ),
-        ] = 2.1,
-        sill_height: Annotated[
-            float,
-            Field(
-                description="Optional bottom offset above the host wall base for an ordinary rectangular door when geometry is omitted. A user-style 0.0 floor sill is accepted; the service applies the minimum Honeybee-safe inset needed to keep the generated door inside the parent face."
-            ),
-        ] = 0.05,
-        placement: Annotated[
-            str,
-            Field(
-                description="Optional placement preference for generated rectangular doors: auto, left, right, or center. auto chooses the first free span that does not overlap existing apertures or doors."
-            ),
-        ] = "auto",
-        is_glass: Annotated[
-            bool, Field(description="Whether the door is glass.")
-        ] = False,
-    ) -> dict[str, Any]:
-        """Create a Honeybee Door."""
-        from garden.honeybee_core.creation import create_honeybee_door as service
-
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            geometry=geometry,
-            host_target=host_target,
-            model_target=model_target,
-            is_glass=is_glass,
-            door_width=door_width,
-            door_height=door_height,
-            sill_height=sill_height,
-            placement=placement,
-        )
-
-    @mcp.tool(
-        name="HB_Create_Face",
-        description=(
-            'Create an orphaned Honeybee Face from a Ladybug Geometry Face3D dictionary and '
-            'persist it in the Garden Honeybee Model. The Honeybee SDK infers default face type '
-            'and boundary condition. Requires garden_root, identifier, and geometry. Downstream '
-            'tools use the returned nested target dict. Returns target, object_target, '
-            'model_target, face_target, summary_view, persistence_receipt, and report.'
-        ),
-        tags={
-            "author",
-            "face",
-            "geometry",
-            "honeybee",
-        },
-        timeout=20,
-    )
-    def create_honeybee_face(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        identifier: Annotated[
-            str, Field(description="Required Honeybee face identifier.")
-        ],
-        geometry: Annotated[
-            dict[str, Any],
-            Field(
-                description=(
-                    'Required Ladybug Geometry Face3D dict, for example '
-                    "{'type':'Face3D','boundary':[[x,y,z],...]}."
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Create an orphaned Honeybee Face."""
-        from garden.honeybee_core.creation import create_honeybee_face as service
-
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            geometry=geometry,
-            model_target=model_target,
-        )
+    """Register the 13 consolidated honeybee_core tools."""
 
     @mcp.tool(
         name="HB_Create_Model",
         description=(
-            'Create an empty Honeybee Model in a Garden and optionally set it as the base '
-            'Honeybee model with set_base. A Honeybee Model is the upstream container for Rooms, '
-            'Faces, Apertures, Doors, and Shades. Returns compact target/model_target fields for '
-            'downstream calls; object_dict is a compact target when saved and a full model body '
-            'only when save_back=false and include_body=true. Typically followed by '
-            'HB_Create_Room for rooms (use add_objects when supplying complete Honeybee object '
-            'dictionaries). Requires garden_root and identifier.'
+            "Create a new empty Honeybee Model or import a Garden-local model file "
+            "(.hbjson, .osm, .idf, .gbxml, .inp, .hbpkl, .stl when import_file_path is provided) "
+            "and register it in the Garden. Typically followed by HB_Create_Objects for "
+            "rooms/faces/doors. Returns target, model_target, summary_view, persistence_receipt, "
+            "and report."
         ),
-        tags={
-            "author",
-            "honeybee",
-            "model",
-        },
-        timeout=20,
+        tags={"author", "garden", "hbjson", "honeybee", "import", "model"},
+        timeout=60,
     )
     def create_honeybee_model(
         garden_root: Annotated[
@@ -546,11 +39,17 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         identifier: Annotated[
-            str,
+            str | None,
             Field(
-                description="Required Honeybee model identifier used for the stable Garden HBJSON file name."
+                description="Honeybee model identifier (required when creating a new model; optional override when importing from import_file_path)."
             ),
-        ],
+        ] = None,
+        import_file_path: Annotated[
+            str | None,
+            Field(
+                description="Optional Garden-relative .hbjson, .osm, .idf, .gbxml, .inp, .hbpkl, or .stl file path to import instead of creating an empty model."
+            ),
+        ] = None,
         units: Annotated[
             str, Field(description="Honeybee model units string, for example Meters.")
         ] = "Meters",
@@ -566,38 +65,52 @@ def register(mcp: FastMCP) -> None:
         angle_tolerance: Annotated[
             float, Field(description="Model angle tolerance.")
         ] = 1.0,
+        geometry_to_faces: Annotated[
+            bool,
+            Field(
+                description="For .stl imports: import geometry as Honeybee Faces instead of ShadeMeshes (default false)."
+            ),
+        ] = False,
+        reset_properties: Annotated[
+            bool,
+            Field(
+                description="For .osm/.idf/.gbxml imports: reset energy properties to defaults instead of importing OpenStudio assignments (default false)."
+            ),
+        ] = False,
         save_back: Annotated[
             bool,
             Field(
-                description="Whether to persist the Honeybee Model to the Garden and return Garden targets/receipt fields."
+                description="Whether to persist a newly created Honeybee Model to the Garden."
             ),
         ] = True,
         set_base: Annotated[
             bool,
-            Field(
-                description='Whether to set as the Garden base Honeybee model.'
-            ),
+            Field(description="Whether to set as the Garden base Honeybee model."),
         ] = True,
         include_body: Annotated[
             bool,
             Field(
-                description="Whether to return the full Honeybee Model body when save_back is false; saved models return compact targets."
+                description="Whether to return the full Honeybee Model body when save_back is false."
             ),
         ] = False,
         add_objects: Annotated[
             list[dict[str, Any]] | None,
             Field(
                 description=(
-                    'Optional complete Honeybee Room, Face, Aperture, Door, or Shade object '
-                    'dictionaries to include at creation (for typical modeling, omit and call '
-                    'HB_Create_Room next).'
+                    "Optional complete Honeybee Room, Face, Aperture, Door, or Shade object "
+                    "dictionaries to include at creation (for typical modeling, omit and call "
+                    "HB_Create_Objects next)."
                 )
             ),
         ] = None,
+        postprocess_strategy: Annotated[
+            PostprocessStrategy | None,
+            Field(
+                description="Optional postprocess strategy override (none, suggest_validate, auto_validate, auto_relate_existing_geometry, auto_relate_intersect_clone_single)."
+            ),
+        ] = None,
     ) -> dict[str, Any]:
-        """Create a Honeybee Model."""
-        from garden.honeybee_core.creation import create_honeybee_model as service
-
+        """Create or import a Honeybee Model."""
         if unit_system is not None:
             normalized_unit_system = unit_system.strip().lower()
             if normalized_unit_system in {"metric", "si"}:
@@ -606,6 +119,90 @@ def register(mcp: FastMCP) -> None:
                 units = "Feet"
             else:
                 units = unit_system
+
+        if import_file_path is not None:
+            from pathlib import Path
+
+            if (
+                Path(import_file_path).suffix.lower() == ".hbjson"
+                and not geometry_to_faces
+                and not reset_properties
+            ):
+                from garden.honeybee_core.creation import (
+                    import_honeybee_model_with_postprocess as import_service,
+                )
+
+                return import_service(
+                    garden_root=garden_root,
+                    file_path=import_file_path,
+                    identifier=identifier,
+                    set_base=set_base,
+                    postprocess_strategy=postprocess_strategy,
+                )
+            from garden.honeybee_core.model_io import (
+                import_honeybee_model_file,
+                load_honeybee_model,
+                resolve_model_target,
+                save_honeybee_model,
+            )
+            from garden.honeybee_core.postprocess import (
+                apply_honeybee_postprocess,
+                attach_postprocess_result,
+            )
+
+            imported = import_honeybee_model_file(
+                garden_root=garden_root,
+                file_path=import_file_path,
+                identifier=identifier,
+                set_base=set_base,
+                geometry_to_faces=geometry_to_faces,
+                units=units,
+                tolerance=tolerance,
+                angle_tolerance=angle_tolerance,
+                reset_properties=reset_properties,
+            )
+            if postprocess_strategy is None or postprocess_strategy == "none":
+                return imported
+            garden_root_path = Path(garden_root).expanduser().resolve()
+            manifest, resolved_target = resolve_model_target(
+                garden_root_path,
+                imported["model_target"],
+            )
+            loaded = load_honeybee_model(garden_root_path, resolved_target)
+            loaded, postprocess = apply_honeybee_postprocess(
+                model=loaded,
+                garden_id=manifest.garden_id,
+                model_identifier=str(resolved_target["model_identifier"]),
+                operation="import_honeybee_model_file",
+                target=resolved_target,
+                object_type="model",
+                strategy=postprocess_strategy,
+            )
+            if postprocess_strategy in {
+                "auto_relate_existing_geometry",
+                "auto_relate_intersect_clone_single",
+            }:
+                updated_target, persisted_path = save_honeybee_model(
+                    garden_root_path,
+                    manifest,
+                    loaded,
+                    name=str(resolved_target["model_identifier"]),
+                    set_base=set_base,
+                    set_default_base=False,
+                )
+                imported["target"] = updated_target
+                imported["model_target"] = updated_target
+                imported["persistence_receipt"]["model_target"] = updated_target
+                imported["persistence_receipt"]["persisted_path"] = persisted_path
+            return attach_postprocess_result(imported, postprocess)
+
+        if not identifier or not identifier.strip():
+            raise ValueError(
+                "identifier is required when creating a new Honeybee Model without import_file_path."
+            )
+
+        from garden.honeybee_core.creation import create_honeybee_model as service
+
         return service(
             garden_root=garden_root,
             identifier=identifier,
@@ -616,706 +213,573 @@ def register(mcp: FastMCP) -> None:
             set_base=set_base,
             include_body=include_body,
             add_objects=add_objects,
+            postprocess_strategy=postprocess_strategy,
         )
 
     @mcp.tool(
-        name="HB_Create_Room",
+        name="HB_Create_Objects",
         description=(
-            'Create a Honeybee Room, meaning a room/space envelope in a Garden Honeybee Model, '
-            'from either a Honeybee Face list, a Ladybug Geometry Polyface3D envelope, or custom '
-            'box dimensions. For simple boxes, pass x_dim, y_dim, height, and optional origin; '
-            'the room attaches automatically as a top-level object on the selected model. '
-            'Requires garden_root, identifier, and one geometry mode. Returns target, '
-            'object_target, model_target, and room_target.'
+            "Create one or a batch of Honeybee Rooms, orphaned Faces, or Doors in a single "
+            "Garden save. Set object_type to 'room', 'face', or 'door'. Pass single-object "
+            "kwargs (with identifier) or a batch list in items=[{...}, ...] to build multiple "
+            "objects with deferred postprocess_strategy (pass postprocess_strategy='none' on "
+            "intermediate batch steps and run HB_Relate_Model once when done)."
         ),
-        tags={
-            "author",
-            "geometry",
-            "honeybee",
-            "room",
-        },
-        timeout=20,
+        tags={"author", "batch", "door", "face", "geometry", "honeybee", "room"},
+        timeout=30,
     )
-    def create_honeybee_room(
+    def create_honeybee_objects(
         garden_root: Annotated[
             str,
             Field(
                 description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
             ),
         ],
-        identifier: Annotated[
-            str, Field(description="Required Honeybee room identifier.")
+        object_type: Annotated[
+            Literal["room", "face", "door"],
+            Field(description="Required object type to create: room, face, or door."),
         ],
-        faces: Annotated[
+        items: Annotated[
             list[dict[str, Any]] | None,
             Field(
                 description=(
-                    'Optional list of complete Honeybee Face dictionaries for the room. Must '
-                    'provide one geometry mode.'
+                    "Optional batch list of item specification dicts (each with identifier and "
+                    "type-specific fields such as x_dim/y_dim/height/origin/faces/room_geometry "
+                    "for room, geometry for face, or host_target/geometry/door_width/door_height "
+                    "for door). Mutually exclusive with single-object identifier."
                 )
+            ),
+        ] = None,
+        identifier: Annotated[
+            str | None,
+            Field(
+                description="Required object identifier for single-object mode (omit when using items)."
+            ),
+        ] = None,
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model."
+            ),
+        ] = None,
+        faces: Annotated[
+            list[dict[str, Any]] | None,
+            Field(
+                description="For object_type='room': optional list of complete Honeybee Face dicts."
             ),
         ] = None,
         room_geometry: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Ladybug Geometry Polyface3D dictionary for the room envelope, for example Polyface3D.from_box(...).to_dict() with vertices and face_indices. Must provide exactly one geometry mode."
+                description="For object_type='room': optional Ladybug Geometry Polyface3D envelope dict."
             ),
         ] = None,
         x_dim: Annotated[
             float | None,
-            Field(
-                description="Optional custom box width. Use with y_dim and height as one geometry mode."
-            ),
+            Field(description="For object_type='room': box width (with y_dim and height)."),
         ] = None,
         y_dim: Annotated[
             float | None,
-            Field(
-                description="Optional custom box depth. Use with x_dim and height as one geometry mode."
-            ),
+            Field(description="For object_type='room': box depth (with x_dim and height)."),
         ] = None,
         height: Annotated[
             float | None,
-            Field(
-                description="Optional custom box height. Use with x_dim and y_dim as one geometry mode."
-            ),
+            Field(description="For object_type='room': box height (with x_dim and y_dim)."),
         ] = None,
         origin: Annotated[
             list[float] | dict[str, Any] | None,
             Field(
-                description="Optional box origin as [x, y, z] or {x, y, z}. Defaults to [0, 0, 0]."
+                description="For object_type='room': optional box origin as [x, y, z] or {x, y, z}."
             ),
         ] = None,
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    'Optional Honeybee model target dict from HB_Create_Model; defaults to the '
-                    'Garden base Honeybee Model.'
-                )
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Create a Honeybee Room."""
-        from garden.honeybee_core.creation import create_honeybee_room as service
-
-        origin_value = origin
-        if isinstance(origin_value, dict):
-            origin_value = [
-                float(origin_value.get("x", 0)),
-                float(origin_value.get("y", 0)),
-                float(origin_value.get("z", 0)),
-            ]
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            faces=faces,
-            room_geometry=room_geometry,
-            x_dim=x_dim,
-            y_dim=y_dim,
-            height=height,
-            origin=origin_value,
-            model_target=model_target,
-        )
-
-    @mcp.tool(
-        name="HB_Create_Shade",
-        description=(
-            'Create an orphaned Honeybee Shade or attach it to a Room, Face, Aperture, or Door '
-            'typed target from explicit Face3D geometry. This is the low-level explicit-geometry '
-            'route for context shades, hosted shades, custom sunshades, or overhangs that already '
-            'have Face3D geometry. For parametric louvers or aperture extruded borders, use '
-            'HB_Create_Shades_By_Parameters instead. Requires garden_root, unique identifier, and '
-            'geometry; hosted shades also need host_target from HB_Search_Model_Objects '
-            'matches[i].target or a prior result target. Returns target, object_target, '
-            'model_target, shade_target, summary_view, persistence_receipt, and report.'
-        ),
-        tags={
-            "author",
-            "geometry",
-            "honeybee",
-            "hosted",
-            "shade",
-        },
-        timeout=20,
-    )
-    def create_honeybee_shade(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        identifier: Annotated[
-            str,
-            Field(
-                description='Required unique Honeybee shade identifier. If it already exists, use HB_Search_Model_Objects to reuse/remove it or choose a new identifier.'
-            ),
-        ],
         geometry: Annotated[
-            dict[str, Any],
-            Field(
-                description=(
-                    'Required Ladybug Geometry Face3D dict, for example '
-                    "{'type':'Face3D','boundary':[[x,y,z],...]}; boundary points may also be "
-                    "{'x':0,'y':0,'z':0} Point3D dicts. Omit plane unless providing Ladybug Plane "
-                    'keys n, o, and x.'
-                )
-            ),
-        ],
-        model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
+                description="For object_type='face' (required) or 'door' (optional explicit Face3D dict)."
             ),
         ] = None,
         host_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description=(
-                    'Optional Honeybee room, face, aperture, or door typed target dict from '
-                    'HB_Search_Model_Objects matches[i].target or a prior create result; omit for '
-                    'an orphaned shade.'
-                )
+                description="For object_type='door': Honeybee Face typed target dict from HB_Search_Model_Objects."
             ),
         ] = None,
-        attach_side: Annotated[
-            str,
+        door_width: Annotated[
+            float | None,
             Field(
-                description="Attach side for hosted shades: outdoor or indoor. Natural exterior words like top, exterior, or outside normalize to outdoor."
+                description="For object_type='door': optional rectangular door width when geometry is omitted (defaults to 0.9)."
             ),
-        ] = "outdoor",
-        is_detached: Annotated[
-            bool, Field(description="Whether the shade is detached.")
+        ] = None,
+        door_height: Annotated[
+            float,
+            Field(
+                description="For object_type='door': optional rectangular door height when geometry is omitted."
+            ),
+        ] = 2.1,
+        sill_height: Annotated[
+            float,
+            Field(
+                description="For object_type='door': optional sill offset above host wall base."
+            ),
+        ] = 0.05,
+        placement: Annotated[
+            Literal["auto", "left", "right", "center"],
+            Field(
+                description="For object_type='door': placement preference for generated rectangular doors."
+            ),
+        ] = "auto",
+        is_glass: Annotated[
+            bool, Field(description="For object_type='door': whether the door is glass.")
         ] = False,
+        postprocess_strategy: Annotated[
+            PostprocessStrategy | None,
+            Field(
+                description="Optional postprocess strategy override; defaults to auto_relate_intersect_clone_single for room/face/door."
+            ),
+        ] = None,
     ) -> dict[str, Any]:
-        """Create a Honeybee Shade."""
-        from garden.honeybee_core.creation import create_honeybee_shade as service
+        """Create one or more Honeybee Rooms, Faces, or Doors."""
+        if items is not None:
+            if identifier is not None:
+                raise ValueError("Provide either identifier (single) or items (batch), not both.")
+            from garden.honeybee_core.creation import create_honeybee_objects_batch
 
-        return service(
+            return create_honeybee_objects_batch(
+                garden_root=garden_root,
+                object_type=object_type,
+                items=items,
+                model_target=model_target,
+                default_host_target=host_target,
+                postprocess_strategy=postprocess_strategy,
+            )
+
+        if not identifier or not identifier.strip():
+            raise ValueError(
+                "identifier is required when creating a single object without items."
+            )
+
+        if object_type == "room":
+            from garden.honeybee_core.creation import create_honeybee_room
+
+            return create_honeybee_room(
+                garden_root=garden_root,
+                identifier=identifier,
+                faces=faces,
+                room_geometry=room_geometry,
+                x_dim=x_dim,
+                y_dim=y_dim,
+                height=height,
+                origin=origin,
+                model_target=model_target,
+                postprocess_strategy=postprocess_strategy,
+            )
+        if object_type == "face":
+            if geometry is None:
+                raise ValueError("geometry is required when object_type is 'face'.")
+            from garden.honeybee_core.creation import create_honeybee_face
+
+            return create_honeybee_face(
+                garden_root=garden_root,
+                identifier=identifier,
+                geometry=geometry,
+                model_target=model_target,
+                postprocess_strategy=postprocess_strategy,
+            )
+        if host_target is None:
+            raise ValueError("host_target is required when object_type is 'door'.")
+        from garden.honeybee_core.creation import create_honeybee_door
+
+        return create_honeybee_door(
             garden_root=garden_root,
             identifier=identifier,
+            host_target=host_target,
             geometry=geometry,
             model_target=model_target,
-            host_target=host_target,
-            attach_side=attach_side,
-            is_detached=is_detached,
+            is_glass=is_glass,
+            door_width=door_width,
+            door_height=door_height,
+            sill_height=sill_height,
+            placement=placement,
+            postprocess_strategy=postprocess_strategy,
         )
 
     @mcp.tool(
-        name="HB_Create_Shades_By_Parameters",
+        name="HB_Create_Apertures",
         description=(
-            'Create Honeybee Shade louvers, horizontal louver arrays, or aperture extruded '
-            'borders on a Face or Aperture typed target. This is the parametric shade path for '
-            'louver_by_count, louver_by_distance_between, and aperture-only extruded_border; it '
-            'does not expose a parametric overhang mode. Use HB_Create_Shade only when the user '
-            'provides explicit Face3D geometry. Prefer HB_Search_Model_Objects matches[i].target '
-            'or a prior result target as host_target. Requires garden_root, host_target, '
-            'generation_mode, and parameters. Returns target, shade_target, targets, '
-            'summary_view, persistence_receipt, and report.'
+            "Create Honeybee Apertures (windows or skylights) on one or more host Face targets. "
+            "Supports mode='parameters' (WWR ratio or width/height), mode='skylight_ratio' "
+            "(RoofCeiling/Floor skylights by ratio), mode='guide_surface' (Face3D guide surfaces), "
+            "and mode='geometry' (explicit Face3D aperture). Pass host_target for a single face, "
+            "or host_targets / items to batch across multiple faces in one load/postprocess/save."
         ),
         tags={
             "aperture",
             "author",
-            "extruded-border",
-            "face",
+            "batch",
             "geometry",
+            "guide-surface",
             "honeybee",
-            "hosted",
-            "louver",
-            "shade",
+            "skylight",
+            "window",
+            "wwr",
         },
-        timeout=20,
+        timeout=30,
     )
-    def create_honeybee_shades_by_parameters(
+    def create_honeybee_apertures(
         garden_root: Annotated[
             str,
             Field(
                 description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
             ),
         ],
-        host_target: Annotated[
-            dict[str, Any],
+        mode: Annotated[
+            Literal["geometry", "parameters", "guide_surface", "skylight_ratio"],
             Field(
-                description="Required Honeybee face or aperture typed target dict from HB_Search_Model_Objects matches[i].target or a prior create result."
+                description="Aperture creation mode: parameters (default), skylight_ratio, guide_surface, or geometry."
             ),
-        ],
+        ] = "parameters",
+        host_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="Single host Honeybee Face typed target from HB_Search_Model_Objects."
+            ),
+        ] = None,
+        host_targets: Annotated[
+            list[dict[str, Any]] | None,
+            Field(
+                description="Batch list of host Honeybee Face typed targets sharing top-level parameters."
+            ),
+        ] = None,
+        items: Annotated[
+            list[dict[str, Any]] | None,
+            Field(
+                description="Batch list of per-host/per-aperture specification dicts (each overriding host_target and mode fields)."
+            ),
+        ] = None,
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model."
+            ),
+        ] = None,
+        identifier: Annotated[
+            str | None,
+            Field(description="For mode='geometry': required Honeybee aperture identifier."),
+        ] = None,
+        geometry: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="For mode='geometry': required Ladybug Geometry Face3D dict inside the host face."
+            ),
+        ] = None,
+        is_operable: Annotated[
+            bool, Field(description="For mode='geometry': whether the aperture is operable.")
+        ] = False,
         generation_mode: Annotated[
+            Literal["by_ratio", "by_width_height"],
+            Field(
+                description="For mode='parameters': by_ratio (requires ratio) or by_width_height (requires aperture_width and aperture_height)."
+            ),
+        ] = "by_ratio",
+        ratio: Annotated[
+            float | None,
+            Field(
+                description="Aperture-to-face area ratio between 0 and 1 (for mode='parameters' with by_ratio, or mode='skylight_ratio')."
+            ),
+        ] = None,
+        aperture_width: Annotated[
+            float | None,
+            Field(description="For mode='parameters' + by_width_height: aperture width in model units."),
+        ] = None,
+        aperture_height: Annotated[
+            float | None,
+            Field(description="For mode='parameters' + by_width_height: aperture height in model units."),
+        ] = None,
+        sill_height: Annotated[
+            float,
+            Field(description="For mode='parameters' + by_width_height: sill height in model units."),
+        ] = 1.0,
+        aperture_identifier: Annotated[
+            str | None,
+            Field(description="Optional aperture identifier for by_width_height mode."),
+        ] = None,
+        identifier_prefix: Annotated[
             str | None,
             Field(
-                description="Required generation mode: louver_by_count, louver_by_distance_between, or extruded_border. extruded_border only accepts an aperture target."
+                description="Optional prefix for generated aperture identifiers in parameters, skylight_ratio, or guide_surface mode."
+            ),
+        ] = None,
+        tolerance: Annotated[
+            float,
+            Field(description="Geometry and ratio matching tolerance."),
+        ] = 0.01,
+        rect_split: Annotated[
+            bool,
+            Field(description="Whether by_ratio should split apertures into rectangles when needed."),
+        ] = True,
+        guide_surfaces: Annotated[
+            list[dict[str, Any]] | None,
+            Field(description="For mode='guide_surface': list of Ladybug Geometry Face3D guide surface dicts."),
+        ] = None,
+        postprocess_strategy: Annotated[
+            PostprocessStrategy | None,
+            Field(
+                description="Optional postprocess strategy override; defaults to auto_relate_intersect_clone_single for apertures."
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Create Honeybee Apertures on one or more host Faces."""
+        if host_targets is not None or items is not None:
+            from garden.honeybee_core.creation import create_honeybee_apertures_batch
+
+            return create_honeybee_apertures_batch(
+                garden_root=garden_root,
+                mode=mode,
+                host_target=host_target,
+                host_targets=host_targets,
+                items=items,
+                model_target=model_target,
+                generation_mode=generation_mode,
+                ratio=ratio,
+                aperture_width=aperture_width,
+                aperture_height=aperture_height,
+                sill_height=sill_height,
+                aperture_identifier=aperture_identifier,
+                identifier_prefix=identifier_prefix,
+                tolerance=tolerance,
+                rect_split=rect_split,
+                guide_surfaces=guide_surfaces,
+                is_operable=is_operable,
+                postprocess_strategy=postprocess_strategy,
+            )
+
+        if host_target is None:
+            raise ValueError(
+                "host_target is required for single-host aperture creation (or pass host_targets/items)."
+            )
+
+        if mode == "geometry":
+            if not identifier or not identifier.strip():
+                raise ValueError("identifier is required when mode is 'geometry'.")
+            if geometry is None:
+                raise ValueError("geometry is required when mode is 'geometry'.")
+            from garden.honeybee_core.creation import create_honeybee_aperture
+
+            return create_honeybee_aperture(
+                garden_root=garden_root,
+                identifier=identifier,
+                geometry=geometry,
+                host_target=host_target,
+                model_target=model_target,
+                is_operable=is_operable,
+                postprocess_strategy=postprocess_strategy,
+            )
+        if mode == "parameters":
+            from garden.honeybee_core.creation import (
+                create_honeybee_apertures_by_parameters,
+            )
+
+            return create_honeybee_apertures_by_parameters(
+                garden_root=garden_root,
+                host_target=host_target,
+                generation_mode=generation_mode,
+                model_target=model_target,
+                ratio=ratio,
+                aperture_width=aperture_width,
+                aperture_height=aperture_height,
+                sill_height=sill_height,
+                aperture_identifier=aperture_identifier,
+                identifier_prefix=identifier_prefix,
+                tolerance=tolerance,
+                rect_split=rect_split,
+                postprocess_strategy=postprocess_strategy,
+            )
+        if mode == "skylight_ratio":
+            if ratio is None:
+                raise ValueError("ratio is required when mode is 'skylight_ratio'.")
+            from garden.honeybee_core.creation import create_honeybee_skylights_by_ratio
+
+            return create_honeybee_skylights_by_ratio(
+                garden_root=garden_root,
+                host_target=host_target,
+                ratio=ratio,
+                model_target=model_target,
+                tolerance=tolerance,
+                identifier_prefix=identifier_prefix,
+                postprocess_strategy=postprocess_strategy,
+            )
+        if not guide_surfaces:
+            raise ValueError("guide_surfaces is required when mode is 'guide_surface'.")
+        from garden.honeybee_core.guide_openings import (
+            create_honeybee_apertures_by_guide_surface,
+        )
+
+        return create_honeybee_apertures_by_guide_surface(
+            garden_root=garden_root,
+            host_target=host_target,
+            guide_surfaces=guide_surfaces,
+            model_target=model_target,
+            tolerance=tolerance,
+            identifier_prefix=identifier_prefix,
+            postprocess_strategy=postprocess_strategy,
+        )
+
+    @mcp.tool(
+        name="HB_Create_Shades",
+        description=(
+            "Create orphaned or hosted Honeybee Shades by explicit Face3D geometry "
+            "(mode='geometry') or parametric louvers / aperture extruded borders "
+            "(mode='parameters' with louver_by_count, louver_by_distance_between, or "
+            "extruded_border). Supports single host_target or batch host_targets / items "
+            "in one save with optional postprocess_strategy."
+        ),
+        tags={
+            "aperture",
+            "author",
+            "batch",
+            "extruded-border",
+            "geometry",
+            "honeybee",
+            "louver",
+            "shade",
+        },
+        timeout=30,
+    )
+    def create_honeybee_shades(
+        garden_root: Annotated[
+            str,
+            Field(
+                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
+            ),
+        ],
+        mode: Annotated[
+            Literal["geometry", "parameters"],
+            Field(description="Shade creation mode: geometry (default) or parameters."),
+        ] = "geometry",
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model."
+            ),
+        ] = None,
+        host_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="Optional host Room/Face/Aperture/Door typed target (required for mode='parameters'; omit for orphaned geometry shades)."
+            ),
+        ] = None,
+        host_targets: Annotated[
+            list[dict[str, Any]] | None,
+            Field(
+                description="Batch list of Face/Aperture typed targets for mode='parameters'."
+            ),
+        ] = None,
+        items: Annotated[
+            list[dict[str, Any]] | None,
+            Field(
+                description="Batch list of shade specification dicts (identifier + geometry for geometry mode, or host_target + generation_mode + parameters for parameters mode)."
+            ),
+        ] = None,
+        identifier: Annotated[
+            str | None,
+            Field(description="For single mode='geometry': required unique Honeybee shade identifier."),
+        ] = None,
+        geometry: Annotated[
+            dict[str, Any] | None,
+            Field(description="For single mode='geometry': required Ladybug Geometry Face3D dict."),
+        ] = None,
+        attach_side: Annotated[
+            str,
+            Field(
+                description="For mode='geometry' hosted shades: outdoor or indoor."
+            ),
+        ] = "outdoor",
+        is_detached: Annotated[
+            bool, Field(description="For mode='geometry': whether the shade is detached.")
+        ] = False,
+        generation_mode: Annotated[
+            Literal["louver_by_count", "louver_by_distance_between", "extruded_border"]
+            | None,
+            Field(
+                description="For mode='parameters': louver_by_count, louver_by_distance_between, or extruded_border."
             ),
         ] = None,
         parameters: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Required small mode parameter object: louver_by_count uses {'depth':0.35,'louver_count':2}; louver_by_distance_between uses {'depth':0.35,'distance':0.5}; extruded_border uses {'depth':0.2}. Optional base_name may guide generated Shade identifiers."
+                description="For mode='parameters': parameter object such as {'depth':0.35,'louver_count':2} or {'depth':0.2}."
             ),
         ] = None,
-        model_target: Annotated[
-            dict[str, Any] | None,
+        postprocess_strategy: Annotated[
+            PostprocessStrategy | None,
             Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
+                description="Optional postprocess strategy override; defaults to suggest_validate for shades."
             ),
         ] = None,
     ) -> dict[str, Any]:
-        """Create Honeybee Shades on a Face or Aperture with SDK parameter methods."""
-        from garden.honeybee_core.creation import (
-            create_honeybee_shades_by_parameters as service,
-        )
+        """Create one or more Honeybee Shades."""
+        if host_targets is not None or items is not None:
+            from garden.honeybee_core.creation import create_honeybee_shades_batch
 
-        return service(
+            return create_honeybee_shades_batch(
+                garden_root=garden_root,
+                mode=mode,
+                host_target=host_target,
+                host_targets=host_targets,
+                items=items,
+                model_target=model_target,
+                attach_side=attach_side,
+                is_detached=is_detached,
+                generation_mode=generation_mode,
+                parameters=parameters,
+                postprocess_strategy=postprocess_strategy,
+            )
+
+        if mode == "geometry":
+            if not identifier or not identifier.strip():
+                raise ValueError("identifier is required when mode is 'geometry'.")
+            if geometry is None:
+                raise ValueError("geometry is required when mode is 'geometry'.")
+            from garden.honeybee_core.creation import create_honeybee_shade
+
+            return create_honeybee_shade(
+                garden_root=garden_root,
+                identifier=identifier,
+                geometry=geometry,
+                model_target=model_target,
+                host_target=host_target,
+                attach_side=attach_side,
+                is_detached=is_detached,
+                postprocess_strategy=postprocess_strategy,
+            )
+
+        if host_target is None:
+            raise ValueError("host_target is required when mode is 'parameters'.")
+        if not generation_mode:
+            raise ValueError("generation_mode is required when mode is 'parameters'.")
+        if parameters is None:
+            raise ValueError("parameters is required when mode is 'parameters'.")
+        from garden.honeybee_core.creation import create_honeybee_shades_by_parameters
+
+        return create_honeybee_shades_by_parameters(
             garden_root=garden_root,
             host_target=host_target,
             generation_mode=generation_mode,
             parameters=parameters,
             model_target=model_target,
-        )
-
-    @mcp.tool(
-        name="HB_Create_Skylights_By_Ratio",
-        description=(
-            "Create or reuse Honeybee skylight Apertures on a RoofCeiling or "
-            "Floor Face typed target by an aperture-to-face area ratio. The Face "
-            "must have an Outdoors boundary condition. Existing compatible "
-            "Apertures are returned without a new write; existing Doors or a "
-            "different aperture ratio are rejected because the Honeybee SDK ratio "
-            "generator replaces sub-faces. Use HB_Create_Aperture for explicit "
-            "Face3D geometry. Returns target, aperture_target, targets, "
-            "summary_view, persistence_receipt, and report."
-        ),
-        tags={
-            "aperture",
-            "author",
-            "face",
-            "floor",
-            "honeybee",
-            "ratio",
-            "roof",
-            "skylight",
-        },
-        timeout=20,
-    )
-    def create_honeybee_skylights_by_ratio(
-        garden_root: Annotated[
-            str,
-            Field(
-                description=(
-                    "Required Garden root path containing garden.json, usually "
-                    "GD_Create['garden_root']."
-                )
-            ),
-        ],
-        host_target: Annotated[
-            dict[str, Any],
-            Field(
-                description=(
-                    "Required Honeybee Face typed target from "
-                    "HB_Search_Model_Objects; it must identify a RoofCeiling or "
-                    "Floor Face with an Outdoors boundary condition."
-                )
-            ),
-        ],
-        ratio: Annotated[
-            float,
-            Field(
-                description=(
-                    "Required aperture-to-face area ratio between 0 and 1, for "
-                    "example 0.2."
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Honeybee model target dict; defaults to the Garden "
-                    "base Honeybee Model."
-                )
-            ),
-        ] = None,
-        tolerance: Annotated[
-            float,
-            Field(description="Positive geometry and ratio matching tolerance."),
-        ] = 0.01,
-        identifier_prefix: Annotated[
-            str | None,
-            Field(
-                description="Optional prefix for generated skylight identifiers."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Create or reuse ratio-based skylights on a Honeybee Face."""
-        from garden.honeybee_core.creation import (
-            create_honeybee_skylights_by_ratio as service,
-        )
-
-        return service(
-            garden_root=garden_root,
-            host_target=host_target,
-            ratio=ratio,
-            model_target=model_target,
-            tolerance=tolerance,
-            identifier_prefix=identifier_prefix,
-        )
-
-    @mcp.tool(
-        name="HB_Edit_Aperture",
-        description=(
-            'Edit a Honeybee Aperture/window typed target for display name, user data, supported '
-            'Face3D geometry, operable flag, Honeybee Energy window construction or '
-            'VentilationOpening, and Honeybee Radiance modifier/dynamic states. Surface-adjacent '
-            'interior Apertures do not support single-side geometry or operability edits. '
-            'Requires garden_root and a typed aperture target. Returns target, '
-            'summary_view.updated_fields, persistence_receipt, and report for re-search, '
-            'validation, or downstream Energy/Radiance translation.'
-        ),
-        tags={
-            "aperture",
-            "edit",
-            "energy",
-            "geometry",
-            "honeybee",
-            "modifier",
-            "operable-window",
-            "radiance",
-            "surface",
-            "ventilation-opening",
-            "window",
-        },
-        timeout=20,
-    )
-    def edit_honeybee_aperture(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        target: Annotated[
-            dict[str, Any],
-            Field(
-                description='Required Honeybee aperture typed target from HB_Search_Model_Objects.'
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-        display_name: Annotated[
-            str | None, Field(description="Optional updated display name.")
-        ] = None,
-        user_data: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional replacement user_data dictionary."),
-        ] = None,
-        geometry: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    'Optional Ladybug Geometry Face3D dict, for example '
-                    "{'type':'Face3D','boundary':[[x,y,z],...]}."
-                )
-            ),
-        ] = None,
-        is_operable: Annotated[
-            bool | None, Field(description="Optional updated is_operable flag for supported Apertures; Surface-adjacent interior Apertures cannot be edited one side at a time.")
-        ] = None,
-        construction: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee Energy window construction dictionary or Garden Properties Library construction target to attach or replace."
-            ),
-        ] = None,
-        vent_opening: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee Energy VentilationOpening dictionary to attach or replace."
-            ),
-        ] = None,
-        modifier: Annotated[
-            dict[str, Any] | str | None,
-            Field(
-                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_Search_Library_Objects.'
-            ),
-        ] = None,
-        modifier_blk: Annotated[
-            dict[str, Any] | str | None,
-            Field(
-                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_Search_Library_Objects.'
-            ),
-        ] = None,
-        dynamic_group_identifier: Annotated[
-            str | None,
-            Field(description="Optional Honeybee Radiance dynamic group identifier."),
-        ] = None,
-        states: Annotated[
-            dict[str, Any] | list[dict[str, Any]] | None,
-            Field(
-                description="Optional Honeybee Radiance state update. Accepts a state list for replace_all, or a dict with operation=replace_all|add|clear and states=[...]."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Edit a Honeybee Aperture."""
-        from garden.honeybee_core.edit import edit_honeybee_aperture as service
-
-        return service(
-            garden_root=garden_root,
-            target=target,
-            model_target=model_target,
-            display_name=display_name,
-            user_data=user_data,
-            geometry=geometry,
-            is_operable=is_operable,
-            construction=construction,
-            vent_opening=vent_opening,
-            modifier=modifier,
-            modifier_blk=modifier_blk,
-            dynamic_group_identifier=dynamic_group_identifier,
-            states=states,
-        )
-
-    @mcp.tool(
-        name="HB_Edit_Door",
-        description='Edit a Honeybee Door typed target for display name, user data, supported Face3D geometry, glass flag, Honeybee Energy door construction or VentilationOpening, and Honeybee Radiance modifier/dynamic states. Surface-adjacent interior Door geometry updates are paired automatically on the adjacent Door, but single-side is_glass changes are rejected when paired state would diverge. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
-        tags={
-            "door",
-            "edit",
-            "energy",
-            "geometry",
-            "glass-door",
-            "hosted",
-            "honeybee",
-            "interior-door",
-            "radiance",
-            "surface",
-            "ventilation-opening",
-        },
-        timeout=20,
-    )
-    def edit_honeybee_door(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        target: Annotated[
-            dict[str, Any],
-            Field(
-                description=(
-                    'Required Honeybee door typed target from HB_Search_Model_Objects. For '
-                    'Surface-adjacent interior doors, pass either side of the pair and geometry '
-                    'edits update the paired adjacent Door automatically.'
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-        display_name: Annotated[
-            str | None, Field(description="Optional updated display name.")
-        ] = None,
-        user_data: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional replacement user_data dictionary."),
-        ] = None,
-        geometry: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    'Optional Ladybug Geometry Face3D dict, for example '
-                    "{'type':'Face3D','boundary':[[x,y,z],...]}."
-                )
-            ),
-        ] = None,
-        is_glass: Annotated[
-            bool | None, Field(description="Optional updated is_glass flag; Surface-adjacent interior door pairs cannot be changed to divergent glass states.")
-        ] = None,
-        construction: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee Energy door construction dictionary or Garden Properties Library construction target to attach or replace."
-            ),
-        ] = None,
-        vent_opening: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee Energy VentilationOpening dictionary to attach or replace."
-            ),
-        ] = None,
-        modifier: Annotated[
-            dict[str, Any] | str | None,
-            Field(
-                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_Search_Library_Objects.'
-            ),
-        ] = None,
-        modifier_blk: Annotated[
-            dict[str, Any] | str | None,
-            Field(
-                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_Search_Library_Objects.'
-            ),
-        ] = None,
-        dynamic_group_identifier: Annotated[
-            str | None,
-            Field(description="Optional Honeybee Radiance dynamic group identifier."),
-        ] = None,
-        states: Annotated[
-            dict[str, Any] | list[dict[str, Any]] | None,
-            Field(
-                description="Optional Honeybee Radiance state update. Accepts a state list for replace_all, or a dict with operation=replace_all|add|clear and states=[...]."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Edit a Honeybee Door."""
-        from garden.honeybee_core.edit import edit_honeybee_door as service
-
-        return service(
-            garden_root=garden_root,
-            target=target,
-            model_target=model_target,
-            display_name=display_name,
-            user_data=user_data,
-            geometry=geometry,
-            is_glass=is_glass,
-            construction=construction,
-            vent_opening=vent_opening,
-            modifier=modifier,
-            modifier_blk=modifier_blk,
-            dynamic_group_identifier=dynamic_group_identifier,
-            states=states,
-        )
-
-    @mcp.tool(
-        name="HB_Edit_Face",
-        description=(
-            'Edit a Honeybee Face typed target for display name, user data, Face3D geometry, face '
-            'type, non-Surface boundary condition, Honeybee Energy construction/AFNCrack, and '
-            'Honeybee Radiance modifier or black modifier. Geometry edits are for supported Face '
-            'targets and must respect hosted sub-face and shade constraints. Returns target, '
-            'summary_view.updated_fields, persistence_receipt, and report for re-search, '
-            'validation, or downstream Energy/Radiance translation.'
-        ),
-        tags={
-            "boundary-condition",
-            "construction",
-            "edit",
-            "energy",
-            "face",
-            "geometry",
-            "honeybee",
-            "modifier",
-            "radiance",
-            "wall",
-        },
-        timeout=20,
-    )
-    def edit_honeybee_face(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        target: Annotated[
-            dict[str, Any],
-            Field(
-                description='Required Honeybee face typed target from HB_Search_Model_Objects.'
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-        display_name: Annotated[
-            str | None, Field(description="Optional updated display name.")
-        ] = None,
-        user_data: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional replacement user_data dictionary."),
-        ] = None,
-        geometry: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    'Optional Ladybug Geometry Face3D dict, for example '
-                    "{'type':'Face3D','boundary':[[x,y,z],...]}."
-                )
-            ),
-        ] = None,
-        type: Annotated[
-            str | dict[str, Any] | None,
-            Field(description="Optional updated Honeybee Face type name or dict."),
-        ] = None,
-        boundary_condition: Annotated[
-            str | dict[str, Any] | None,
-            Field(
-                description=(
-                    'Optional updated Honeybee boundary condition name or dict. Use '
-                    'HB_Relate_Model for Surface adjacency solving.'
-                )
-            ),
-        ] = None,
-        construction: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee Energy opaque construction dictionary or Garden Properties Library construction target to attach or replace."
-            ),
-        ] = None,
-        vent_crack: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee Energy AFNCrack dictionary to attach or replace."
-            ),
-        ] = None,
-        modifier: Annotated[
-            dict[str, Any] | str | None,
-            Field(
-                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_Search_Library_Objects.'
-            ),
-        ] = None,
-        modifier_blk: Annotated[
-            dict[str, Any] | str | None,
-            Field(
-                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_Search_Library_Objects.'
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Edit a Honeybee Face."""
-        from garden.honeybee_core.edit import edit_honeybee_face as service
-
-        return service(
-            garden_root=garden_root,
-            target=target,
-            model_target=model_target,
-            display_name=display_name,
-            user_data=user_data,
-            geometry=geometry,
-            type=type,
-            boundary_condition=boundary_condition,
-            construction=construction,
-            vent_crack=vent_crack,
-            modifier=modifier,
-            modifier_blk=modifier_blk,
+            postprocess_strategy=postprocess_strategy,
         )
 
     @mcp.tool(
         name="HB_Edit_Model",
         description=(
-            'Edit a Honeybee Model display name, user data, units, tolerances, model-level Energy '
-            'electric load center, complete object-dict additions/removals, and existing Radiance '
-            'SensorGrid/View attachments while preserving its Garden persistence path. Requires '
-            'garden_root and a Honeybee model target; pass complete Honeybee object dictionaries '
-            'to add_objects (rooms from HB_Create_Room are already attached). Returns target, '
-            'model_target, summary_view, persistence_receipt, report, and optional radiance '
-            'attachment summaries for downstream search, validation, visualization, Radiance, or '
-            'EnergyPlus calls.'
+            "Edit a Honeybee Model display name, user data, units, tolerances, model-level Energy "
+            "electric load center, complete object-dict additions/removals, and existing Radiance "
+            "SensorGrid/View attachments while preserving its Garden persistence path. Requires "
+            "garden_root and a Honeybee model target; pass complete Honeybee object dictionaries "
+            "to add_objects (rooms from HB_Create_Objects are already attached). Returns target, "
+            "model_target, summary_view, persistence_receipt, report, and optional radiance "
+            "attachment summaries."
         ),
         tags={
             "edit",
@@ -1327,7 +791,7 @@ def register(mcp: FastMCP) -> None:
             "sensor-grid",
             "view",
         },
-        timeout=20,
+        timeout=30,
     )
     def edit_honeybee_model(
         garden_root: Annotated[
@@ -1340,8 +804,8 @@ def register(mcp: FastMCP) -> None:
             dict[str, Any],
             Field(
                 description=(
-                    'Required Honeybee model target dict from HB_Create_Model, '
-                    'GD_Get_Base_Honeybee_Model, or GD_List_Models.'
+                    "Required Honeybee model target dict from HB_Create_Model, "
+                    "GD_Manage_Base_Model, or GD_List_Models."
                 )
             ),
         ],
@@ -1355,6 +819,12 @@ def register(mcp: FastMCP) -> None:
         units: Annotated[
             str | None, Field(description="Optional updated Honeybee model units.")
         ] = None,
+        convert_geometry: Annotated[
+            bool,
+            Field(
+                description="When units is provided, scale model geometry and tolerance using Model.convert_to_units (default true)."
+            ),
+        ] = True,
         tolerance: Annotated[
             float | None, Field(description="Optional updated model tolerance.")
         ] = None,
@@ -1364,46 +834,54 @@ def register(mcp: FastMCP) -> None:
         electric_load_center: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Optional Honeybee Energy ElectricLoadCenter dict or Garden Properties Library electric_load_center target from EP_Create_Electric_Load_Center, used for PV inverter/load-center settings.'
+                description="Optional Honeybee Energy ElectricLoadCenter dict or Garden Properties Library electric_load_center target from EP_Create_PV_Or_Load_Center."
             ),
         ] = None,
         add_objects: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description=(
-                    'Optional complete Honeybee Room, Face, Aperture, Door, or Shade object '
-                    'dictionaries to append to the model.'
-                )
+                description="Optional complete Honeybee Room, Face, Aperture, Door, or Shade object dictionaries to append to the model."
             ),
         ] = None,
         add_sensor_grids: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description='Optional list of existing radiance_sensor_grid target dicts to attach to Honeybee Model Radiance properties. Prefer RAD_Create_Sensor_Grid attach_to_model=true when creating new grids.'
+                description="Optional list of existing radiance_sensor_grid target dicts to attach to Honeybee Model Radiance properties."
             ),
         ] = None,
         radiance_sensor_grid_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional single radiance_sensor_grid target dict; converted into add_sensor_grids=[target]."),
+            Field(
+                description="Optional single radiance_sensor_grid target dict; converted into add_sensor_grids=[target]."
+            ),
         ] = None,
         add_radiance_views: Annotated[
             list[dict[str, Any]] | None,
-            Field(description='Optional list of existing radiance_view target dicts to attach to Honeybee Model Radiance properties. Prefer RAD_Create_View attach_to_model=true when creating new views.'),
+            Field(
+                description="Optional list of existing radiance_view target dicts to attach to Honeybee Model Radiance properties."
+            ),
         ] = None,
         radiance_view_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional single radiance_view target dict; converted into add_radiance_views=[target]."),
+            Field(
+                description="Optional single radiance_view target dict; converted into add_radiance_views=[target]."
+            ),
         ] = None,
         remove_targets: Annotated[
             list[dict[str, Any]] | None,
             Field(
-                description='Optional Honeybee typed targets from HB_Search_Model_Objects to remove from the model. Only top-level Room and orphaned Face, Aperture, Door, and Shade targets are supported.'
+                description="Optional Honeybee typed targets from HB_Search_Model_Objects to remove from the model (top-level Room and orphaned objects)."
+            ),
+        ] = None,
+        postprocess_strategy: Annotated[
+            PostprocessStrategy | None,
+            Field(
+                description="Optional postprocess strategy override; defaults to auto_validate for model edits."
             ),
         ] = None,
     ) -> dict[str, Any]:
         """Edit a Honeybee Model."""
         from garden.honeybee_core.edit import edit_honeybee_model as service
-
         from garden.radiance.assets import (
             attach_radiance_sensor_grids_to_model,
             attach_radiance_views_to_model,
@@ -1426,6 +904,11 @@ def register(mcp: FastMCP) -> None:
                 remove_targets,
             )
         )
+        if not has_core_edits and not add_sensor_grids and not add_radiance_views:
+            raise ValueError(
+                "HB_Edit_Model requires at least one model edit, add_sensor_grids, or add_radiance_views input."
+            )
+
         result: dict[str, Any]
         if has_core_edits:
             result = service(
@@ -1434,11 +917,13 @@ def register(mcp: FastMCP) -> None:
                 display_name=display_name,
                 user_data=user_data,
                 units=units,
+                convert_geometry=convert_geometry,
                 tolerance=tolerance,
                 angle_tolerance=angle_tolerance,
                 electric_load_center=electric_load_center,
                 add_objects=add_objects,
                 remove_targets=remove_targets,
+                postprocess_strategy=postprocess_strategy,
             )
             target = result.get("target") or result.get("model_target") or target
         else:
@@ -1474,171 +959,35 @@ def register(mcp: FastMCP) -> None:
         return result
 
     @mcp.tool(
-        name="HB_Edit_Room",
+        name="HB_Edit_Objects",
         description=(
-            'Edit a Honeybee Room display name, story, zone, multiplier, floor-area flag, '
-            'Honeybee Energy ProgramType/ConstructionSet/HVAC-template/ventilation/setpoint '
-            'properties, and Honeybee Radiance ModifierSet in a Garden model. Use target from '
-            'HB_Search_Model_Objects matches[i].target or HB_Create_Room.target; an exact '
-            'same-model room identifier string is accepted only with the intended model_target. '
-            'Returns target, summary_view.updated_fields, persistence_receipt, and report for '
-            'later search, validation, EnergyPlus translation, or Radiance workflows.'
+            "Edit one or multiple Honeybee Room, Face, Aperture, Door, or Shade objects in one "
+            "atomic Garden save. Pass a single target (typed target or room identifier string "
+            "with model_target), batch targets=[...], or batch room_identifiers=[...]. Supports "
+            "metadata (display_name, user_data), geometry, Room properties (story, zone, "
+            "multiplier, exclude_floor_area, energy_properties, program_type, construction_set, "
+            "hvac, ventilation, zone_ventilation_fans, setpoint, modifier_set), Face properties "
+            "(face_type, boundary_condition, construction, vent_crack), Aperture/Door properties "
+            "(is_operable, is_glass, construction, vent_opening), Shade properties (is_detached, "
+            "construction, transmittance_schedule, pv_properties), and Radiance modifiers/states."
         ),
         tags={
+            "aperture",
+            "batch",
             "construction-set",
+            "door",
             "edit",
             "energy",
+            "face",
             "honeybee",
-            "hvac-template",
-            "modifier-set",
             "program-type",
             "radiance",
             "room",
-            "setpoint",
-            "ventilation",
-        },
-        timeout=20,
-    )
-    def edit_honeybee_room(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        target: Annotated[
-            dict[str, Any] | str,
-            Field(
-                description=(
-                    "Required Honeybee room typed target dict from "
-                    'HB_Search_Model_Objects matches[i].target or '
-                    'HB_Create_Room.target. Also accepts an exact '
-                    "same-model room identifier string when model_target "
-                    "selects the intended Honeybee Model."
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-        display_name: Annotated[
-            str | None, Field(description="Optional updated display name.")
-        ] = None,
-        user_data: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional replacement user_data dictionary."),
-        ] = None,
-        multiplier: Annotated[
-            int | None,
-            Field(description="Optional updated room multiplier. Must be >= 1."),
-        ] = None,
-        zone: Annotated[
-            str | None, Field(description='Optional updated Honeybee Room zone name.')
-        ] = None,
-        story: Annotated[
-            str | None, Field(description="Optional updated story name.")
-        ] = None,
-        exclude_floor_area: Annotated[
-            bool | None, Field(description="Optional updated exclude_floor_area flag.")
-        ] = None,
-        program_type: Annotated[
-            dict[str, Any] | str | None,
-            Field(
-                description=(
-                    'Optional Honeybee Energy ProgramType dict, Garden target, or exact standards '
-                    'library identifier from EP_Search_Energy_Library_Objects '
-                    'matches[i].identifier, for example Generic Office Program.'
-                )
-            ),
-        ] = None,
-        construction_set: Annotated[
-            dict[str, Any] | str | None,
-            Field(
-                description='Optional Honeybee Energy ConstructionSet dict, Garden target, or exact standards library identifier to attach or replace. Prefer EP_Create_Construction_Set.target for custom sets.'
-            ),
-        ] = None,
-        hvac: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    'Optional Honeybee Energy HVAC dict or Garden Properties Library hvac target '
-                    'from EP_Create_Ideal_Air_System or EP_Search_HVAC_Templates.'
-                )
-            ),
-        ] = None,
-        ventilation: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee Energy Ventilation dict or Garden Properties Library load target."
-            ),
-        ] = None,
-        zone_ventilation_fans: Annotated[
-            dict[str, Any] | list[dict[str, Any]] | None,
-            Field(
-                description='Optional zone ventilation fan collection update for Room.properties.energy.fans. Accepts a Garden Properties Library zone_ventilation_fan target, a list of fan dicts/targets for replace_all, or {operation: replace_all|add|clear, fans:[...]} from EP_Create_Zone_Ventilation_Fan. This is fan-assisted/mechanical zone ventilation, not operable-window natural ventilation.'
-            ),
-        ] = None,
-        setpoint: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    'Optional Honeybee Energy Setpoint dict (lightweight schedule identifiers '
-                    'supported) or Garden Properties Library target from '
-                    'EP_Create_Setpoint.target.'
-                )
-            ),
-        ] = None,
-        modifier_set: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee Radiance ModifierSet dictionary or Garden Properties Library modifier_set target to attach or replace."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Edit a Honeybee Room."""
-        from garden.honeybee_core.edit import edit_honeybee_room as service
-
-        return service(
-            garden_root=garden_root,
-            target=target,
-            model_target=model_target,
-            display_name=display_name,
-            user_data=user_data,
-            multiplier=multiplier,
-            zone=zone,
-            story=story,
-            exclude_floor_area=exclude_floor_area,
-            program_type=program_type,
-            construction_set=construction_set,
-            hvac=hvac,
-            ventilation=ventilation,
-            zone_ventilation_fans=zone_ventilation_fans,
-            setpoint=setpoint,
-            modifier_set=modifier_set,
-        )
-
-    @mcp.tool(
-        name="HB_Edit_Shade",
-        description='Edit a Honeybee Shade typed target for display name, user data, supported Face3D geometry, detached flag on orphaned shades, Honeybee Energy ShadeConstruction/transmittance schedule/PVProperties, and Honeybee Radiance modifier/dynamic states. Hosted shades keep their parent relationship and cannot be made detached by setting is_detached=true. Returns target, summary_view.updated_fields, persistence_receipt, and report for re-search, validation, or downstream Energy/Radiance translation.',
-        tags={
-            "detached-shade",
-            "edit",
-            "energy",
-            "geometry",
-            "hosted",
-            "honeybee",
-            "pv",
-            "radiance",
             "shade",
-            "shading",
-            "transmittance-schedule",
         },
-        timeout=20,
+        timeout=30,
     )
-    def edit_honeybee_shade(
+    def edit_honeybee_objects(
         garden_root: Annotated[
             str,
             Field(
@@ -1646,15 +995,27 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         target: Annotated[
-            dict[str, Any],
+            dict[str, Any] | str | None,
             Field(
-                description='Required Honeybee shade typed target from HB_Search_Model_Objects.'
+                description="Single Honeybee typed target from HB_Search_Model_Objects (or exact room identifier string with model_target). Mutually exclusive with targets and room_identifiers."
             ),
-        ],
+        ] = None,
+        targets: Annotated[
+            list[dict[str, Any]] | None,
+            Field(
+                description="Batch list of Honeybee object typed targets to update atomically in one save."
+            ),
+        ] = None,
+        room_identifiers: Annotated[
+            list[str] | None,
+            Field(
+                description="Batch list of exact Room identifiers in the selected Honeybee Model."
+            ),
+        ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
+                description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         display_name: Annotated[
@@ -1667,194 +1028,409 @@ def register(mcp: FastMCP) -> None:
         geometry: Annotated[
             dict[str, Any] | None,
             Field(
+                description="Optional Ladybug Geometry Face3D dict for supported Face/Aperture/Door/Shade edits."
+            ),
+        ] = None,
+        multiplier: Annotated[
+            int | None,
+            Field(description="For Rooms: optional multiplier >= 1."),
+        ] = None,
+        zone: Annotated[
+            str | None, Field(description="For Rooms: optional Honeybee Room zone name.")
+        ] = None,
+        story: Annotated[
+            str | None, Field(description="For Rooms: optional story name.")
+        ] = None,
+        exclude_floor_area: Annotated[
+            bool | None,
+            Field(description="For Rooms: optional exclude_floor_area flag."),
+        ] = None,
+        energy_properties: Annotated[
+            dict[str, Any] | None,
+            Field(
                 description=(
-                    'Optional Ladybug Geometry Face3D dict, for example '
-                    "{'type':'Face3D','boundary':[[x,y,z],...]}."
+                    "For Rooms: optional shared Room Energy properties dict supporting "
+                    "program_type, construction_set, hvac, people, lighting, electric_equipment, "
+                    "gas_equipment, service_hot_water, infiltration, ventilation, exhaust, "
+                    "setpoint, zone_ventilation_fans, process_loads, internal_masses, shw, "
+                    "window_vent_control, daylighting_control, make_plenum, make_ground, and reset_fields."
                 )
             ),
         ] = None,
-        is_detached: Annotated[
-            bool | None,
-            Field(description="Optional updated detached flag for orphaned shades only; hosted shades cannot be detached in place."),
+        program_type: Annotated[
+            dict[str, Any] | str | None,
+            Field(
+                description="For Rooms: optional ProgramType dict, Garden target, or standards identifier."
+            ),
         ] = None,
-        construction: Annotated[
+        construction_set: Annotated[
+            dict[str, Any] | str | None,
+            Field(
+                description="For Rooms: optional ConstructionSet dict, Garden target, or standards identifier."
+            ),
+        ] = None,
+        hvac: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee Energy ShadeConstruction dictionary or Garden Properties Library construction target to attach or replace."
+                description="For Rooms: optional Honeybee Energy HVAC dict or Garden target."
+            ),
+        ] = None,
+        people: Annotated[
+            dict[str, Any] | None,
+            Field(description="For Rooms: optional People load dict, shorthand, or Garden load target."),
+        ] = None,
+        lighting: Annotated[
+            dict[str, Any] | None,
+            Field(description="For Rooms: optional Lighting load dict, shorthand, or Garden load target."),
+        ] = None,
+        electric_equipment: Annotated[
+            dict[str, Any] | None,
+            Field(description="For Rooms: optional ElectricEquipment load dict, shorthand, or Garden load target."),
+        ] = None,
+        gas_equipment: Annotated[
+            dict[str, Any] | None,
+            Field(description="For Rooms: optional GasEquipment load dict, shorthand, or Garden load target."),
+        ] = None,
+        service_hot_water: Annotated[
+            dict[str, Any] | None,
+            Field(description="For Rooms: optional ServiceHotWater load dict, shorthand, or Garden load target."),
+        ] = None,
+        infiltration: Annotated[
+            dict[str, Any] | None,
+            Field(description="For Rooms: optional Infiltration load dict, shorthand, or Garden load target."),
+        ] = None,
+        ventilation: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="For Rooms: optional Honeybee Energy Ventilation dict or Garden load target."
+            ),
+        ] = None,
+        exhaust: Annotated[
+            dict[str, Any] | None,
+            Field(description="For Rooms: optional ExhaustAir dict or Garden target (requires honeybee-energy>=1.125)."),
+        ] = None,
+        zone_ventilation_fans: Annotated[
+            dict[str, Any] | list[dict[str, Any]] | None,
+            Field(
+                description="For Rooms: optional fan target, list, or {operation: replace_all|add|clear, fans:[...]}."
+            ),
+        ] = None,
+        process_loads: Annotated[
+            dict[str, Any] | list[dict[str, Any]] | None,
+            Field(
+                description="For Rooms: optional Process load dict/target, list, or {operation: replace_all|add|clear, process_loads:[...]}."
+            ),
+        ] = None,
+        internal_masses: Annotated[
+            dict[str, Any] | list[dict[str, Any]] | None,
+            Field(
+                description="For Rooms: optional InternalMass dict/target, list, or {operation: replace_all|add|clear, internal_masses:[...]}."
+            ),
+        ] = None,
+        shw: Annotated[
+            dict[str, Any] | None,
+            Field(description="For Rooms: optional SHWSystem dict, shorthand, or Garden shw_system target."),
+        ] = None,
+        window_vent_control: Annotated[
+            dict[str, Any] | None,
+            Field(description="For Rooms: optional VentilationControl dict or shorthand for room natural ventilation."),
+        ] = None,
+        daylighting_control: Annotated[
+            dict[str, Any] | None,
+            Field(description="For Rooms: optional DaylightingControl dict or shorthand with sensor_position."),
+        ] = None,
+        make_plenum: Annotated[
+            bool | dict[str, Any] | None,
+            Field(description="For Rooms: true or {conditioned, remove_infiltration, include_floor_area} to convert room into a plenum."),
+        ] = None,
+        make_ground: Annotated[
+            dict[str, Any] | str | None,
+            Field(description="For Rooms: soil OpaqueConstruction (dict/target/identifier) or {soil_construction, include_floor_area} to convert room into ground."),
+        ] = None,
+        reset_fields: Annotated[
+            list[str] | None,
+            Field(description="List of field names to clear back to None / program defaults (e.g. ['lighting', 'loads', 'hvac'])."),
+        ] = None,
+        setpoint: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="For Rooms: optional Honeybee Energy Setpoint dict or Garden target."
+            ),
+        ] = None,
+        modifier_set: Annotated[
+            dict[str, Any] | str | None,
+            Field(
+                description="For Rooms: optional Honeybee Radiance ModifierSet dict, Garden target, or standards identifier."
+            ),
+        ] = None,
+        face_type: Annotated[
+            str | dict[str, Any] | None,
+            Field(description="For Faces: optional updated Honeybee Face type name or dict."),
+        ] = None,
+        boundary_condition: Annotated[
+            str | dict[str, Any] | None,
+            Field(
+                description="For Faces: optional updated non-Surface boundary condition name or dict. Use HB_Relate_Model for Surface adjacency."
+            ),
+        ] = None,
+        vent_crack: Annotated[
+            dict[str, Any] | None,
+            Field(description="For Faces: optional Honeybee Energy AFNCrack dict."),
+        ] = None,
+        is_operable: Annotated[
+            bool | None,
+            Field(description="For Apertures: optional is_operable flag."),
+        ] = None,
+        is_glass: Annotated[
+            bool | None,
+            Field(description="For Doors: optional is_glass flag."),
+        ] = None,
+        is_detached: Annotated[
+            bool | None,
+            Field(description="For orphaned Shades: optional is_detached flag."),
+        ] = None,
+        construction: Annotated[
+            dict[str, Any] | str | None,
+            Field(
+                description="For Faces/Apertures/Doors/Shades: optional Honeybee Energy construction dict, Garden target, or standards identifier."
+            ),
+        ] = None,
+        vent_opening: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="For Apertures/Doors: optional Honeybee Energy VentilationOpening dict."
             ),
         ] = None,
         transmittance_schedule: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee Energy schedule dictionary or Garden Properties Library schedule target for shade transmittance."
+                description="For Shades: optional Honeybee Energy schedule dict or Garden target."
             ),
         ] = None,
         pv_properties: Annotated[
             dict[str, Any] | None,
             Field(
-                description='Optional Honeybee Energy PVProperties dictionary or Garden Properties Library pv_properties target from EP_Create_PV_Properties to attach or replace.'
+                description="For Shades: optional Honeybee Energy PVProperties dict or Garden target."
             ),
         ] = None,
         modifier: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Radiance modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_Search_Library_Objects.'
+                description="For Faces/Apertures/Doors/Shades: optional Radiance modifier dict, Garden target, or identifier."
             ),
         ] = None,
         modifier_blk: Annotated[
             dict[str, Any] | str | None,
             Field(
-                description='Optional Honeybee Radiance black modifier dictionary, Garden Properties Library modifier target, or standards-library modifier identifier from RAD_Search_Library_Objects.'
+                description="For Faces/Apertures/Doors/Shades: optional Radiance black modifier dict, Garden target, or identifier."
             ),
         ] = None,
         dynamic_group_identifier: Annotated[
             str | None,
-            Field(description="Optional Honeybee Radiance dynamic group identifier."),
+            Field(
+                description="For Apertures/Doors/Shades: optional Radiance dynamic group identifier."
+            ),
         ] = None,
         states: Annotated[
             dict[str, Any] | list[dict[str, Any]] | None,
             Field(
-                description="Optional Honeybee Radiance state update. Accepts a state list for replace_all, or a dict with operation=replace_all|add|clear and states=[...]."
+                description="For Apertures/Doors/Shades: optional Radiance state update list or {operation, states}."
+            ),
+        ] = None,
+        postprocess_strategy: Annotated[
+            PostprocessStrategy | None,
+            Field(
+                description="Optional postprocess strategy override (none, suggest_validate, auto_validate, auto_relate_existing_geometry, auto_relate_intersect_clone_single)."
             ),
         ] = None,
     ) -> dict[str, Any]:
-        """Edit a Honeybee Shade."""
-        from garden.honeybee_core.edit import edit_honeybee_shade as service
+        """Edit one or multiple Honeybee objects in one atomic save."""
+        from garden.honeybee_core.edit import edit_honeybee_objects as service
 
         return service(
             garden_root=garden_root,
             target=target,
+            targets=targets,
+            room_identifiers=room_identifiers,
             model_target=model_target,
             display_name=display_name,
             user_data=user_data,
             geometry=geometry,
+            multiplier=multiplier,
+            zone=zone,
+            story=story,
+            exclude_floor_area=exclude_floor_area,
+            energy_properties=energy_properties,
+            program_type=program_type,
+            construction_set=construction_set,
+            hvac=hvac,
+            people=people,
+            lighting=lighting,
+            electric_equipment=electric_equipment,
+            gas_equipment=gas_equipment,
+            service_hot_water=service_hot_water,
+            infiltration=infiltration,
+            ventilation=ventilation,
+            exhaust=exhaust,
+            zone_ventilation_fans=zone_ventilation_fans,
+            process_loads=process_loads,
+            internal_masses=internal_masses,
+            shw=shw,
+            window_vent_control=window_vent_control,
+            daylighting_control=daylighting_control,
+            make_plenum=make_plenum,
+            make_ground=make_ground,
+            reset_fields=reset_fields,
+            setpoint=setpoint,
+            modifier_set=modifier_set,
+            face_type=face_type,
+            boundary_condition=boundary_condition,
+            vent_crack=vent_crack,
+            is_operable=is_operable,
+            is_glass=is_glass,
             is_detached=is_detached,
             construction=construction,
+            vent_opening=vent_opening,
             transmittance_schedule=transmittance_schedule,
             pv_properties=pv_properties,
             modifier=modifier,
             modifier_blk=modifier_blk,
             dynamic_group_identifier=dynamic_group_identifier,
             states=states,
+            postprocess_strategy=postprocess_strategy,
         )
 
     @mcp.tool(
-        name="HB_Import_Model_File",
+        name="HB_Transform_Objects",
         description=(
-            "Import a Garden-local Honeybee HBJSON file and save it as a Honeybee "
-            "model target. The file path must be relative to the Garden; the full "
-            "model body is not returned."
-        ),
-        tags={"author", "honeybee", "model", "hbjson", "import", "garden"},
-        timeout=60,
-    )
-    def import_honeybee_model_file(
-        garden_root: Annotated[
-            str, Field(description="Required Garden root path containing garden.json.")
-        ],
-        file_path: Annotated[
-            str, Field(description="Garden-relative .hbjson file path to import.")
-        ],
-        identifier: Annotated[
-            str | None, Field(description="Optional identifier for the stored model.")
-        ] = None,
-        set_base: Annotated[
-            bool,
-            Field(description="Whether to set the imported model as the base Honeybee model."),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Import a Honeybee HBJSON model file."""
-        from garden.honeybee_core.model_io import import_honeybee_model_file as service
-
-        return service(
-            garden_root=garden_root,
-            file_path=file_path,
-            identifier=identifier,
-            set_base=set_base,
-        )
-
-    @mcp.tool(
-        name="HB_Mirror_Object",
-        description=(
-            'Mirror, or reflect, a Honeybee Model, Room, Face, Aperture, Door, or Shade target '
-            'across a Ladybug Geometry Plane. This transform does not automatically repair '
-            'adjacency, host containment, or dynamic state geometry. Requires a typed target and '
-            'plane dict. Returns the original target, summary_view, persistence_receipt with '
-            'updated model_target, and report; for whole-model transforms summary_view.target is '
-            'the updated model target. Run HB_Search_Model_Objects, HB_Relate_Model, or '
-            'HB_Validate_Model after partial-object transforms when relationships matter.'
+            "Transform one or a batch of Honeybee Model, Room, Face, Aperture, Door, or Shade "
+            "targets using operation='move', 'rotate', 'scale', or 'mirror' in a single load, "
+            "postprocess, and save. Pass target for a single object or targets=[...] for batch. "
+            "Run HB_Search_Model_Objects, HB_Relate_Model, or HB_Validate_Model after partial "
+            "object transforms when relationships matter."
         ),
         tags={
+            "batch",
             "edit",
             "geometry",
             "honeybee",
             "mirror",
             "model",
-            "target",
+            "move",
+            "rotate",
+            "scale",
             "transform",
         },
-        timeout=20,
+        timeout=30,
     )
-    def mirror_object(
+    def transform_objects(
         garden_root: Annotated[
             str,
             Field(
                 description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
             ),
         ],
+        operation: Annotated[
+            Literal["move", "rotate", "scale", "mirror"],
+            Field(description="Required geometric transform operation: move, rotate, scale, or mirror."),
+        ],
         target: Annotated[
-            dict[str, Any],
+            dict[str, Any] | None,
             Field(
-                description='Required Honeybee model target or object typed target from HB_Search_Model_Objects or a prior tool result.'
+                description="Single Honeybee model target or object typed target. Mutually exclusive with targets."
             ),
-        ],
-        plane: Annotated[
-            dict[str, Any],
+        ] = None,
+        targets: Annotated[
+            list[dict[str, Any]] | None,
             Field(
-                description="Required Ladybug Geometry Plane dict with origin o and normal n, for example {'o':[0,0,0],'n':[1,0,0]}."
+                description="Batch list of Honeybee model or object typed targets to transform in one save."
             ),
-        ],
+        ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model unless target is a model target."
+                description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model unless target is a model target."
+            ),
+        ] = None,
+        vector: Annotated[
+            dict[str, Any] | list[float] | None,
+            Field(
+                description="Required for operation='move': Ladybug Vector3D dict ({'x':dx,'y':dy,'z':dz}) or [dx, dy, dz]."
+            ),
+        ] = None,
+        axis: Annotated[
+            dict[str, Any] | list[float] | None,
+            Field(
+                description="Required for operation='rotate': Ladybug Vector3D axis dict or [x, y, z]."
+            ),
+        ] = None,
+        angle_degrees: Annotated[
+            float | None,
+            Field(description="Required for operation='rotate': rotation angle in degrees."),
+        ] = None,
+        origin: Annotated[
+            dict[str, Any] | list[float] | None,
+            Field(
+                description="Point3D dict or [x, y, z] origin (required for rotate, optional for scale)."
+            ),
+        ] = None,
+        factor: Annotated[
+            float | None,
+            Field(description="Required for operation='scale': positive scale factor."),
+        ] = None,
+        plane: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="Required for operation='mirror': Ladybug Plane dict with origin 'o' and normal 'n'."
+            ),
+        ] = None,
+        postprocess_strategy: Annotated[
+            PostprocessStrategy | None,
+            Field(
+                description="Optional postprocess strategy override (none, suggest_validate, auto_validate, auto_relate_existing_geometry, auto_relate_intersect_clone_single)."
             ),
         ] = None,
     ) -> dict[str, Any]:
-        """Reflect a Honeybee target across a Plane."""
-        from garden.honeybee_core.transform import mirror_object as service
+        """Move, rotate, scale, or mirror Honeybee targets."""
+        from garden.honeybee_core.transform import transform_objects as service
 
         return service(
             garden_root=garden_root,
+            operation=operation,
             target=target,
-            plane=plane,
+            targets=targets,
             model_target=model_target,
+            vector=vector,
+            axis=axis,
+            angle_degrees=angle_degrees,
+            origin=origin,
+            factor=factor,
+            plane=plane,
+            postprocess_strategy=postprocess_strategy,
         )
 
     @mcp.tool(
-        name="HB_Move_Object",
+        name="HB_Remove_Objects",
         description=(
-            'Move a Honeybee Model, Room, Face, Aperture, Door, or Shade target along a Ladybug '
-            'Geometry Vector3D. This transform does not automatically repair adjacency, host '
-            'containment, or dynamic state geometry. Requires garden_root, a typed target from '
-            'search or a prior result, and vector. Returns the original target, summary_view, '
-            'persistence_receipt with updated model_target, and report; for whole-model '
-            'transforms summary_view.target is the updated model target. Run '
-            'HB_Search_Model_Objects, HB_Relate_Model, or HB_Validate_Model after partial-object '
-            'transforms when relationships matter.'
+            "Remove one or a batch of Honeybee Room, orphaned Face, Aperture, Door, or Shade "
+            "objects from a Garden model in one atomic save. Pass target for a single object or "
+            "targets=[...] for batch removal. Paired Surface interior sub-faces and stale room "
+            "Surface references are cleaned up automatically; room-hosted faces are rejected."
         ),
         tags={
+            "aperture",
+            "batch",
+            "door",
             "edit",
-            "geometry",
+            "face",
             "honeybee",
-            "model",
-            "move",
-            "target",
-            "transform",
+            "remove",
+            "room",
+            "shade",
         },
-        timeout=20,
+        timeout=30,
     )
-    def move_object(
+    def remove_honeybee_objects(
         garden_root: Annotated[
             str,
             Field(
@@ -1862,35 +1438,39 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         target: Annotated[
-            dict[str, Any],
+            dict[str, Any] | None,
             Field(
-                description=(
-                    'Required Honeybee model target or object typed target from '
-                    'HB_Search_Model_Objects or a prior tool result.'
-                )
+                description="Single Honeybee object typed target from HB_Search_Model_Objects. Mutually exclusive with targets."
             ),
-        ],
-        vector: Annotated[
-            dict[str, Any],
+        ] = None,
+        targets: Annotated[
+            list[dict[str, Any]] | None,
             Field(
-                description="Required Ladybug Geometry Vector3D dict, for example {'type':'Vector3D','x':0.5,'y':0,'z':0} or {'x':0.5,'y':0,'z':0}."
+                description="Batch list of Honeybee object typed targets to remove in one save."
             ),
-        ],
+        ] = None,
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model unless target is a model target."
+                description="Optional Honeybee model target dict; defaults to the Garden base Honeybee Model."
+            ),
+        ] = None,
+        postprocess_strategy: Annotated[
+            PostprocessStrategy | None,
+            Field(
+                description="Optional postprocess strategy override (none, suggest_validate, auto_validate, auto_relate_existing_geometry, auto_relate_intersect_clone_single)."
             ),
         ] = None,
     ) -> dict[str, Any]:
-        """Move a Honeybee target along a Vector3D."""
-        from garden.honeybee_core.transform import move_object as service
+        """Remove one or more Honeybee objects by typed target."""
+        from garden.honeybee_core.removal import remove_honeybee_objects as service
 
         return service(
             garden_root=garden_root,
             target=target,
-            vector=vector,
+            targets=targets,
             model_target=model_target,
+            postprocess_strategy=postprocess_strategy,
         )
 
     @mcp.tool(
@@ -2017,386 +1597,15 @@ def register(mcp: FastMCP) -> None:
         )
 
     @mcp.tool(
-        name="HB_Remove_Aperture",
-        description='Remove one Honeybee Aperture/window from a Garden model using an aperture typed target from HB_Search_Model_Objects and persist the updated model. Hosted Apertures are supported; when the target is one side of a Surface-adjacent interior pair, the paired Aperture can be removed too and reported as paired_removed_identifier with removed_count=2. Returns summary_view.model_target, persistence_receipt.model_target, and report so the updated model can be searched or validated again.',
-        tags={
-            "aperture",
-            "edit",
-            "hosted",
-            "honeybee",
-            "interior-window",
-            "paired-window",
-            "remove",
-            "surface",
-            "target",
-            "window",
-        },
-        timeout=20,
-    )
-    def remove_honeybee_aperture(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        target: Annotated[
-            dict[str, Any],
-            Field(
-                description='Required Honeybee aperture typed target from HB_Search_Model_Objects.'
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Remove a Honeybee Aperture by typed target."""
-        from garden.honeybee_core.removal import remove_honeybee_aperture as service
-
-        return service(
-            garden_root=garden_root, target=target, model_target=model_target
-        )
-
-    @mcp.tool(
-        name="HB_Remove_Door",
-        description='Remove one Honeybee Door from a Garden model using a door typed target from HB_Search_Model_Objects and persist the updated model. Hosted Doors are supported; when the target is one side of a Surface-adjacent interior pair, the paired Door can be removed too and reported as paired_removed_identifier with removed_count=2. Returns summary_view.model_target, persistence_receipt.model_target, and report so the updated model can be searched or validated again.',
-        tags={
-            "door",
-            "edit",
-            "hosted",
-            "honeybee",
-            "interior-door",
-            "paired-door",
-            "remove",
-            "surface",
-            "target",
-        },
-        timeout=20,
-    )
-    def remove_honeybee_door(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        target: Annotated[
-            dict[str, Any],
-            Field(
-                description='Required Honeybee door typed target from HB_Search_Model_Objects.'
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Remove a Honeybee Door by typed target."""
-        from garden.honeybee_core.removal import remove_honeybee_door as service
-
-        return service(
-            garden_root=garden_root, target=target, model_target=model_target
-        )
-
-    @mcp.tool(
-        name="HB_Remove_Face",
-        description=(
-            'Remove one orphaned Honeybee Face from a Garden model using a face typed target from '
-            'HB_Search_Model_Objects and persist the updated model. Room-hosted Faces are '
-            'rejected because deleting one would break the Room closed solid. Requires '
-            'garden_root and a typed target. Returns summary_view.model_target, '
-            'persistence_receipt.model_target, and report so the updated model can be searched or '
-            'validated again.'
-        ),
-        tags={
-            "edit",
-            "face",
-            "geometry",
-            "honeybee",
-            "orphaned-face",
-            "remove",
-            "target",
-        },
-        timeout=20,
-    )
-    def remove_honeybee_face(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        target: Annotated[
-            dict[str, Any],
-            Field(
-                description=(
-                    'Required Honeybee face typed target from HB_Search_Model_Objects. '
-                    'Room-hosted faces cannot be removed by this tool.'
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Remove a Honeybee Face by typed target."""
-        from garden.honeybee_core.removal import remove_honeybee_face as service
-
-        return service(
-            garden_root=garden_root, target=target, model_target=model_target
-        )
-
-    @mcp.tool(
-        name="HB_Remove_Room",
-        description=(
-            'Remove one Honeybee Room from a Garden model using a room typed target from '
-            'HB_Search_Model_Objects and persist the updated model. This also clears Surface '
-            'boundary relationships in remaining rooms that pointed to the removed room and '
-            'reports adjacency_cleanup. Requires garden_root and a typed target. Returns '
-            'summary_view.model_target, persistence_receipt.model_target, and report so the '
-            'updated model can be searched or validated again.'
-        ),
-        tags={
-            "adjacency",
-            "boundary",
-            "cleanup",
-            "edit",
-            "honeybee",
-            "remove",
-            "room",
-            "target",
-        },
-        timeout=20,
-    )
-    def remove_honeybee_room(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        target: Annotated[
-            dict[str, Any],
-            Field(
-                description='Required Honeybee room typed target from HB_Search_Model_Objects.'
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Remove a Honeybee Room by typed target."""
-        from garden.honeybee_core.removal import remove_honeybee_room as service
-
-        return service(
-            garden_root=garden_root, target=target, model_target=model_target
-        )
-
-    @mcp.tool(
-        name="HB_Remove_Shade",
-        description=(
-            'Remove one Honeybee Shade from a Garden model using a shade typed target from '
-            'HB_Search_Model_Objects and persist the updated model. Orphaned and hosted shades '
-            'are supported, including Room, Face, Aperture, and Door child shade contexts; the '
-            'service removes the child from its parent list where needed. Requires garden_root '
-            'and a typed target. Returns summary_view.model_target, '
-            'persistence_receipt.model_target, and report so the updated model can be searched or '
-            'validated again.'
-        ),
-        tags={
-            "edit",
-            "hosted",
-            "hosted-shade",
-            "honeybee",
-            "remove",
-            "shade",
-            "shading",
-            "target",
-        },
-        timeout=20,
-    )
-    def remove_honeybee_shade(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        target: Annotated[
-            dict[str, Any],
-            Field(
-                description='Required Honeybee shade typed target from HB_Search_Model_Objects.'
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Remove a Honeybee Shade by typed target."""
-        from garden.honeybee_core.removal import remove_honeybee_shade as service
-
-        return service(
-            garden_root=garden_root, target=target, model_target=model_target
-        )
-
-    @mcp.tool(
-        name="HB_Rotate_Object",
-        description=(
-            'Rotate a Honeybee Model, Room, Face, Aperture, Door, or Shade target around a '
-            'Ladybug Geometry Vector3D axis and Point3D origin, with angle_degrees in degrees. '
-            'This transform does not automatically repair adjacency, host containment, or dynamic '
-            'state geometry. Requires a typed target plus axis and origin dicts. Returns the '
-            'original target, summary_view, persistence_receipt with updated model_target, and '
-            'report; for whole-model transforms summary_view.target is the updated model target. '
-            'Run HB_Search_Model_Objects, HB_Relate_Model, or HB_Validate_Model after '
-            'partial-object transforms when relationships matter.'
-        ),
-        tags={
-            "edit",
-            "geometry",
-            "honeybee",
-            "model",
-            "rotate",
-            "target",
-            "transform",
-        },
-        timeout=20,
-    )
-    def rotate_object(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        target: Annotated[
-            dict[str, Any],
-            Field(
-                description='Required Honeybee model target or object typed target from HB_Search_Model_Objects or a prior tool result.'
-            ),
-        ],
-        axis: Annotated[
-            dict[str, Any],
-            Field(
-                description="Required Ladybug Geometry Vector3D axis dict, for example {'x':0,'y':0,'z':1}."
-            ),
-        ],
-        angle_degrees: Annotated[
-            float, Field(description="Required rotation angle in degrees.")
-        ],
-        origin: Annotated[
-            dict[str, Any],
-            Field(
-                description="Required Ladybug Geometry Point3D origin dict, for example {'x':0,'y':0,'z':0}."
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model unless target is a model target."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Rotate a Honeybee target around an axis and origin."""
-        from garden.honeybee_core.transform import rotate_object as service
-
-        return service(
-            garden_root=garden_root,
-            target=target,
-            axis=axis,
-            angle_degrees=angle_degrees,
-            origin=origin,
-            model_target=model_target,
-        )
-
-    @mcp.tool(
-        name="HB_Scale_Object",
-        description=(
-            'Scale a Honeybee Model, Room, Face, Aperture, Door, or Shade target by a positive '
-            'factor from an optional Ladybug Geometry Point3D origin. This transform does not '
-            'automatically repair adjacency, host containment, or dynamic state geometry. '
-            'Requires a typed target and positive factor. Returns the original target, '
-            'summary_view, persistence_receipt with updated model_target, and report; for '
-            'whole-model transforms summary_view.target is the updated model target. Run '
-            'HB_Search_Model_Objects, HB_Relate_Model, or HB_Validate_Model after partial-object '
-            'transforms when relationships matter.'
-        ),
-        tags={
-            "edit",
-            "geometry",
-            "honeybee",
-            "model",
-            "scale",
-            "target",
-            "transform",
-        },
-        timeout=20,
-    )
-    def scale_object(
-        garden_root: Annotated[
-            str,
-            Field(
-                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
-            ),
-        ],
-        target: Annotated[
-            dict[str, Any],
-            Field(
-                description='Required Honeybee model target or object typed target from HB_Search_Model_Objects or a prior tool result.'
-            ),
-        ],
-        factor: Annotated[
-            float, Field(description="Required positive scale factor, for example 1.2.")
-        ],
-        origin: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Ladybug Geometry Point3D origin dict, for example {'x':0,'y':0,'z':0}. Defaults to world origin."
-            ),
-        ] = None,
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model unless target is a model target."
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Scale a Honeybee target from an optional origin."""
-        from garden.honeybee_core.transform import scale_object as service
-
-        return service(
-            garden_root=garden_root,
-            target=target,
-            factor=factor,
-            origin=origin,
-            model_target=model_target,
-        )
-
-    @mcp.tool(
         name="HB_Search_Model_Objects",
         description=(
-            'Search Honeybee Room, Face, Aperture/window, Door, and Shade objects in the Garden '
-            'base model or an explicit model_target. Use object_type plus identifier, query, '
-            'room_identifier, face_identifier, face_type, boundary_condition, or children_scope '
-            'to narrow results; for exterior wall/window workflows search faces with '
-            'face_type=Wall and boundary_condition=Outdoors, then search children under the face. '
-            'Returns matches with nested target dicts, compact child_counts, geometry summaries, '
-            'limited room/shade energy_properties, summary_view, and a top-level target only when '
-            'there is one match. Pass matches[i].target to create/edit/remove tools.'
+            "Search Honeybee Room, Face, Aperture/window, Door, and Shade objects in the Garden "
+            "base model or an explicit model_target. Narrow results with object_type, identifier, "
+            "query, room_identifier, face_identifier, face_type, boundary_condition, "
+            "children_scope, orientation (N/NE/E/SE/S/SW/W/NW/horizontal_up/horizontal_down), "
+            "story, zone, min_area, or max_area. Pass matches[i].target to HB_Create_Objects / "
+            "HB_Create_Apertures / HB_Create_Shades / HB_Edit_Objects / HB_Transform_Objects / "
+            "HB_Remove_Objects."
         ),
         tags={
             "aperture",
@@ -2405,6 +1614,7 @@ def register(mcp: FastMCP) -> None:
             "face",
             "honeybee",
             "model",
+            "orientation",
             "room",
             "search",
             "shade",
@@ -2425,62 +1635,90 @@ def register(mcp: FastMCP) -> None:
         model_target: Annotated[
             dict[str, Any] | None,
             Field(
-                description=(
-                    "Optional Honeybee model target dict, usually HB_Create_Model['target']; "
-                    'defaults to the Garden base Honeybee Model.'
-                )
+                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
             ),
         ] = None,
         object_type: Annotated[
-            str,
+            Literal["all", "room", "face", "aperture", "door", "shade"],
             Field(
-                description="Object type to return: all, room, face, aperture, door, or shade. Use room for rooms, face for walls, aperture for windows, door for doors, and shade for shades."
+                description="Object type to return: all, room, face, aperture, door, or shade."
             ),
         ] = "all",
         identifier: Annotated[
             str | None,
             Field(
-                description="Optional exact Honeybee object identifier or display name filter, such as office_west or office_west_Front."
+                description="Optional exact Honeybee object identifier or display name filter."
             ),
         ] = None,
         room_identifier: Annotated[
             str | None,
             Field(
-                description="Optional parent room identifier filter for faces, apertures, doors, or shades, such as office_west."
+                description="Optional parent room identifier filter for faces, apertures, doors, or shades."
             ),
         ] = None,
         face_identifier: Annotated[
             str | None,
             Field(
-                description="Optional parent face identifier filter for apertures, doors, or shades, such as office_west_Front. For object_type=face, it filters the face identifier itself."
+                description="Optional parent face identifier filter for apertures, doors, or shades (or face identifier when object_type=face)."
             ),
         ] = None,
         query: Annotated[
             str | None,
             Field(
-                description="Optional identifier/display-name substring query, such as Tiny_House_Office or Front exterior wall."
+                description="Optional identifier/display-name/metadata substring query."
             ),
         ] = None,
         face_type: Annotated[
             str | None,
             Field(
-                description="Optional face type filter for face searches, for example Wall, Floor, RoofCeiling, or AirBoundary."
+                description="Optional face type filter, for example Wall, Floor, RoofCeiling, or AirBoundary."
             ),
         ] = None,
         boundary_condition: Annotated[
             str | dict[str, Any] | None,
             Field(
-                description="Optional boundary condition filter for face/aperture/door searches, for example Outdoors or {type: Outdoors}."
+                description="Optional boundary condition filter, for example Outdoors or {type: Outdoors}."
             ),
         ] = None,
         children_scope: Annotated[
             dict[str, Any] | None,
             Field(
-                description=(
-                    'Optional typed Honeybee parent target dict (room, face, aperture, or door) '
-                    'to filter returned child objects.'
-                )
+                description="Optional typed Honeybee parent target dict (room, face, aperture, or door) to filter returned child objects."
             ),
+        ] = None,
+        orientation: Annotated[
+            Literal[
+                "N",
+                "NE",
+                "E",
+                "SE",
+                "S",
+                "SW",
+                "W",
+                "NW",
+                "horizontal_up",
+                "horizontal_down",
+            ]
+            | None,
+            Field(
+                description="Optional orientation filter derived from surface normal (N=(0,1,0), E=(1,0,0), S=(0,-1,0), W=(-1,0,0), z>=0.7 horizontal_up, z<=-0.7 horizontal_down)."
+            ),
+        ] = None,
+        story: Annotated[
+            str | None,
+            Field(description="Optional Room story filter (also matches children of rooms on that story)."),
+        ] = None,
+        zone: Annotated[
+            str | None,
+            Field(description="Optional Room zone filter (also matches children of rooms in that zone)."),
+        ] = None,
+        min_area: Annotated[
+            float | None,
+            Field(description="Optional minimum area filter in model area units (floor_area for Rooms, face area for Faces/sub-faces/Shades)."),
+        ] = None,
+        max_area: Annotated[
+            float | None,
+            Field(description="Optional maximum area filter in model area units."),
         ] = None,
         limit: Annotated[
             int | None,
@@ -2492,7 +1730,6 @@ def register(mcp: FastMCP) -> None:
             search_honeybee_model_objects as service,
         )
 
-        object_type = object_type.strip().lower().replace("-", "_").replace(" ", "_")
         return service(
             garden_root=garden_root,
             model_target=model_target,
@@ -2504,14 +1741,53 @@ def register(mcp: FastMCP) -> None:
             face_type=face_type,
             boundary_condition=boundary_condition,
             children_scope=children_scope,
+            orientation=orientation,
+            story=story,
+            zone=zone,
+            min_area=min_area,
+            max_area=max_area,
             limit=limit,
         )
 
     @mcp.tool(
+        name="HB_Get_Model_Summary",
+        description=(
+            "Return a compact read-only summary of a Honeybee Model: object counts (rooms, faces, "
+            "apertures, doors, shades, orphaned_faces), total floor area, volume, exterior wall area, "
+            "exterior aperture area, overall WWR and per-orientation (N/E/S/W/Other) WWR, stories, "
+            "zones, Energy coverage (program_types, construction_sets, hvacs, setpoints, "
+            "conditioned_room_count), and Radiance coverage (modifier_sets, sensor_grids, views)."
+        ),
+        tags={"energy", "honeybee", "model", "radiance", "summary", "wwr"},
+        annotations={"readOnlyHint": True},
+        timeout=20,
+    )
+    def get_honeybee_model_summary(
+        garden_root: Annotated[
+            str,
+            Field(
+                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
+            ),
+        ],
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Summarize Honeybee model geometry, WWR, and Energy/Radiance coverage."""
+        from garden.honeybee_core.search import (
+            get_honeybee_model_summary as service,
+        )
+
+        return service(garden_root=garden_root, model_target=model_target)
+
+    @mcp.tool(
         name="HB_Validate_Model",
         description=(
-            'Validate an existing Honeybee model in a Garden using Honeybee Model.check_all '
-            '(read-only). Returns is_valid/valid, issues, summary_view, and report.'
+            "Validate an existing Honeybee model in a Garden using Honeybee Model.check_all "
+            "(read-only). Returns is_valid/valid, issues, summary_view, and report."
         ),
         tags={
             "check",
@@ -2537,7 +1813,7 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Optional Honeybee model target dict, usually HB_Create_Model['target']; "
-                    'defaults to the Garden base Honeybee Model.'
+                    "defaults to the Garden base Honeybee Model."
                 )
             ),
         ] = None,
@@ -2548,3 +1824,139 @@ def register(mcp: FastMCP) -> None:
         )
 
         return service(garden_root=garden_root, model_target=model_target)
+
+    @mcp.tool(
+        name="HB_Repair_Model",
+        description=(
+            "Repair, clean, merge, or compare Honeybee models in a Garden. Supported actions: "
+            "remove_degenerate_geometry, triangulate_non_planar_quads, clean_irrational_geometry, "
+            "split_rooms_through_holes, rooms_to_extrusions, reset_coordinate_system, "
+            "clean_envelope, fix_invalid_sub_faces, missing_adjacencies_to_adiabatic, "
+            "assign_stories_by_floor_height, add_model (merge other_model_target), and "
+            "comparison_report (read-only diff against other_model_target)."
+        ),
+        tags={
+            "cleanup",
+            "compare",
+            "geometry",
+            "honeybee",
+            "merge",
+            "model",
+            "repair",
+            "story",
+        },
+        timeout=60,
+    )
+    def repair_honeybee_model(
+        garden_root: Annotated[
+            str,
+            Field(
+                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
+            ),
+        ],
+        action: Annotated[
+            Literal[
+                "remove_degenerate_geometry",
+                "triangulate_non_planar_quads",
+                "clean_irrational_geometry",
+                "split_rooms_through_holes",
+                "rooms_to_extrusions",
+                "reset_coordinate_system",
+                "clean_envelope",
+                "fix_invalid_sub_faces",
+                "missing_adjacencies_to_adiabatic",
+                "assign_stories_by_floor_height",
+                "add_model",
+                "comparison_report",
+            ],
+            Field(description="Repair, cleanup, merge, or comparison action to execute."),
+        ],
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="Optional Honeybee model target dict, usually HB_Create_Model['target']; defaults to the Garden base Honeybee Model."
+            ),
+        ] = None,
+        other_model_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="Required for action='add_model' or 'comparison_report': second Honeybee model target dict."
+            ),
+        ] = None,
+        other_model_prefix: Annotated[
+            str | None,
+            Field(
+                description="Optional identifier prefix applied to other_model_target before merging in action='add_model'."
+            ),
+        ] = None,
+        tolerance: Annotated[
+            float | None,
+            Field(description="Optional geometric tolerance override (defaults to model tolerance)."),
+        ] = None,
+        angle_tolerance: Annotated[
+            float | None,
+            Field(description="Optional angle tolerance override in degrees (defaults to model angle_tolerance)."),
+        ] = None,
+        new_origin: Annotated[
+            dict[str, Any] | list[float] | None,
+            Field(description="For action='reset_coordinate_system': optional Point3D dict or [x, y, z] origin."),
+        ] = None,
+        trim_with_parent: Annotated[
+            bool,
+            Field(description="For action='fix_invalid_sub_faces': trim sub-faces extending past parent face."),
+        ] = True,
+        union_overlaps: Annotated[
+            bool,
+            Field(description="For action='fix_invalid_sub_faces': union overlapping or touching sub-faces."),
+        ] = True,
+        offset_distance: Annotated[
+            float,
+            Field(description="For action='fix_invalid_sub_faces': inward edge offset distance after trimming."),
+        ] = 0.05,
+        include_surface_faces: Annotated[
+            bool,
+            Field(description="For action='fix_invalid_sub_faces': also process Surface-adjacent faces (default false)."),
+        ] = False,
+        min_difference: Annotated[
+            float,
+            Field(description="For action='assign_stories_by_floor_height': minimum elevation difference between distinct stories."),
+        ] = 2.0,
+        overwrite: Annotated[
+            bool,
+            Field(description="For action='assign_stories_by_floor_height': overwrite existing room story assignments."),
+        ] = False,
+        ignore_deleted: Annotated[
+            bool,
+            Field(description="For action='comparison_report': omit deleted_objects from the report."),
+        ] = False,
+        ignore_added: Annotated[
+            bool,
+            Field(description="For action='comparison_report': omit added_objects from the report."),
+        ] = False,
+        postprocess_strategy: Annotated[
+            PostprocessStrategy | None,
+            Field(description="Optional postprocess strategy override for mutating repair actions."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Run Honeybee Model repair, cleanup, merge, or comparison diagnostics."""
+        from garden.honeybee_core.repair import repair_honeybee_model as service
+
+        return service(
+            garden_root=garden_root,
+            action=action,
+            model_target=model_target,
+            other_model_target=other_model_target,
+            other_model_prefix=other_model_prefix,
+            tolerance=tolerance,
+            angle_tolerance=angle_tolerance,
+            new_origin=new_origin,
+            trim_with_parent=trim_with_parent,
+            union_overlaps=union_overlaps,
+            offset_distance=offset_distance,
+            include_surface_faces=include_surface_faces,
+            min_difference=min_difference,
+            overwrite=overwrite,
+            ignore_deleted=ignore_deleted,
+            ignore_added=ignore_added,
+            postprocess_strategy=postprocess_strategy,
+        )

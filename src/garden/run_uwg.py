@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import traceback
 from typing import Any
 from uuid import uuid4
@@ -22,6 +22,8 @@ from dragonfly_uwg.writer import model_to_uwg as sdk_model_to_uwg
 from honeybee.config import folders as hb_folders
 from ladybug.dt import Date
 from ladybug.epw import EPW
+
+from garden.background import submit_worker_process
 
 from garden.dragonfly_core.model_io import load_dragonfly_model, resolve_model_target
 from garden.manifest import GardenManifest, utc_now_iso
@@ -69,6 +71,7 @@ _UWG_RUNS = RunManager(
         "started_at",
         "completed_at",
         "run_folder",
+        "worker_pid",
         "model_target",
         "weather_target",
         "simulation_parameter_target",
@@ -77,9 +80,14 @@ _UWG_RUNS = RunManager(
         "error",
     ),
     include_missing_public=True,
-    ledger=RunLedger(lock="thread", empty_is_empty=True, ensure_ascii=True),
+    ledger=RunLedger(
+        lock="file",
+        atomic=True,
+        recover_trailing_json=True,
+        empty_is_empty=True,
+        ensure_ascii=True,
+    ),
 )
-_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="uwg")
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +222,10 @@ def load_uwg_simulation_parameter(
     return None, None, None
 
 
+def _coerce_uwg_param(cls: type, value: dict[str, Any]) -> Any:
+    return cls.from_dict(value) if "type" in value else cls(**value)
+
+
 def _build_parameter(
     *,
     climate_zone: str | None,
@@ -229,12 +241,16 @@ def _build_parameter(
     if run_period is not None:
         kwargs["run_period"] = _run_period_from_input(run_period)
     if vegetation_parameter is not None:
-        kwargs["vegetation_parameter"] = VegetationParameter.from_dict(vegetation_parameter)
+        kwargs["vegetation_parameter"] = _coerce_uwg_param(
+            VegetationParameter, vegetation_parameter
+        )
     if reference_epw_site is not None:
-        kwargs["reference_epw_site"] = ReferenceEPWSite.from_dict(reference_epw_site)
+        kwargs["reference_epw_site"] = _coerce_uwg_param(
+            ReferenceEPWSite, reference_epw_site
+        )
     if boundary_layer_parameter is not None:
-        kwargs["boundary_layer_parameter"] = BoundaryLayerParameter.from_dict(
-            boundary_layer_parameter
+        kwargs["boundary_layer_parameter"] = _coerce_uwg_param(
+            BoundaryLayerParameter, boundary_layer_parameter
         )
     return UWGSimulationParameter(**kwargs)
 
@@ -390,6 +406,90 @@ def make_uwg_json_artifact_target(
 # ---------------------------------------------------------------------------
 
 
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def _worker_environment(garden_root: Path, run_dir: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    temp_dir = (garden_root / "tmp" / run_dir.name).resolve()
+    temp_dir.relative_to(garden_root)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    env["TEMP"] = str(temp_dir)
+    env["TMP"] = str(temp_dir)
+    return env
+
+
+def _record_worker_pid(garden_root: Path, run_id: str, proc: Any) -> None:
+    worker_pid = getattr(proc, "pid", None)
+    if worker_pid is None:
+        return
+    current = _UWG_RUNS.get(garden_root, run_id)
+    if current is not None and current.get("worker_pid") is None:
+        current["worker_pid"] = worker_pid
+        _UWG_RUNS.upsert(garden_root, current)
+
+
+def _run_uwg_worker(**kwargs: Any) -> None:
+    garden_root_path = require_garden_root(kwargs["garden_root"])
+    run_id = str(kwargs["run_id"])
+    current = _UWG_RUNS.get(garden_root_path, run_id)
+    if current is not None and current.get("worker_pid") is None:
+        current["worker_pid"] = os.getpid()
+        _UWG_RUNS.upsert(garden_root_path, current)
+    run_uwg(**kwargs)
+    latest = _UWG_RUNS.get(garden_root_path, run_id)
+    if latest is not None and latest.get("worker_pid") is None:
+        latest["worker_pid"] = os.getpid()
+        _UWG_RUNS.upsert(garden_root_path, latest)
+
+
+def _compute_uhi_summary(rural_epw_path: Path, urban_epw_path: Path) -> dict[str, Any] | None:
+    try:
+        rural = EPW(str(rural_epw_path))
+        urban = EPW(str(urban_epw_path))
+        rural_temps = [float(t) for t in rural.dry_bulb_temperature.values]
+        urban_temps = [float(t) for t in urban.dry_bulb_temperature.values]
+        if not rural_temps or len(rural_temps) != len(urban_temps):
+            return None
+        deltas = [u - r for u, r in zip(urban_temps, rural_temps, strict=True)]
+        rural_hdd = sum(max(18.3 - t, 0.0) for t in rural_temps) / 24.0
+        urban_hdd = sum(max(18.3 - t, 0.0) for t in urban_temps) / 24.0
+        rural_cdd_10 = sum(max(t - 10.0, 0.0) for t in rural_temps) / 24.0
+        urban_cdd_10 = sum(max(t - 10.0, 0.0) for t in urban_temps) / 24.0
+        rural_cdd_18 = sum(max(t - 18.3, 0.0) for t in rural_temps) / 24.0
+        urban_cdd_18 = sum(max(t - 18.3, 0.0) for t in urban_temps) / 24.0
+        mean_rural = sum(rural_temps) / len(rural_temps)
+        mean_urban = sum(urban_temps) / len(urban_temps)
+        return {
+            "hour_count": len(rural_temps),
+            "mean_rural_dry_bulb_c": round(mean_rural, 3),
+            "mean_urban_dry_bulb_c": round(mean_urban, 3),
+            "mean_uhi_delta_c": round(sum(deltas) / len(deltas), 3),
+            "max_uhi_delta_c": round(max(deltas), 3),
+            "min_uhi_delta_c": round(min(deltas), 3),
+            "rural_hdd_18_3c": round(rural_hdd, 2),
+            "urban_hdd_18_3c": round(urban_hdd, 2),
+            "hdd_18_3c_delta": round(urban_hdd - rural_hdd, 2),
+            "rural_cdd_10c": round(rural_cdd_10, 2),
+            "urban_cdd_10c": round(urban_cdd_10, 2),
+            "cdd_10c_delta": round(urban_cdd_10 - rural_cdd_10, 2),
+            "rural_cdd_18_3c": round(rural_cdd_18, 2),
+            "urban_cdd_18_3c": round(urban_cdd_18, 2),
+            "cdd_18_3c_delta": round(urban_cdd_18 - rural_cdd_18, 2),
+        }
+    except Exception:
+        return None
+
+
 def run_uwg(
     *,
     garden_root: str,
@@ -463,6 +563,16 @@ def run_uwg(
             epw_path=morphed_epw_path,
             source_weather_target=weather_target,
         )
+        uhi_summary = _compute_uhi_summary(resolved_epw, morphed_epw_path)
+        latest_existing = _UWG_RUNS.get(garden_root_path, normalized_run_id)
+        outputs_payload: dict[str, Any] = {
+            "uwg_json": _output("uwg_json", garden_root_path, uwg_json_path),
+            "morphed_epw": _output("morphed_epw", garden_root_path, morphed_epw_path),
+            "weather_target": weather,
+            "stdio_log": _output("stdio_log", garden_root_path, stdio_log),
+        }
+        if uhi_summary is not None:
+            outputs_payload["uhi_summary"] = uhi_summary
         record = _record(
             garden_root=garden_root_path,
             run_id=normalized_run_id,
@@ -475,18 +585,15 @@ def run_uwg(
             started_at=started_at,
             completed_at=utc_now_iso(),
             preflight=preflight,
-            outputs={
-                "uwg_json": _output("uwg_json", garden_root_path, uwg_json_path),
-                "morphed_epw": _output("morphed_epw", garden_root_path, morphed_epw_path),
-                "weather_target": weather,
-                "stdio_log": _output("stdio_log", garden_root_path, stdio_log),
-            },
+            worker_pid=(latest_existing or {}).get("worker_pid"),
+            outputs=outputs_payload,
         )
     except Exception as exc:
         traceback_text = traceback.format_exc()
         stdio_log.parent.mkdir(parents=True, exist_ok=True)
         with stdio_log.open("a", encoding="utf-8") as handle:
             handle.write(traceback_text)
+        latest_existing = _UWG_RUNS.get(garden_root_path, normalized_run_id)
         record = _record(
             garden_root=garden_root_path,
             run_id=normalized_run_id,
@@ -500,6 +607,7 @@ def run_uwg(
             completed_at=utc_now_iso(),
             preflight={"status": "failed", "issues": [str(exc)]},
             error=str(exc),
+            worker_pid=(latest_existing or {}).get("worker_pid"),
             outputs={"stdio_log": _output("stdio_log", garden_root_path, stdio_log)},
         )
     _UWG_RUNS.upsert(garden_root_path, record)
@@ -521,6 +629,8 @@ def start_uwg_run(
     reload_old: bool = False,
     silent: bool = True,
     validate_weather: bool = True,
+    wait_seconds: float | None = None,
+    poll_interval: float = 2.0,
 ) -> dict[str, Any]:
     """Start UWG in the background and return a run target."""
     garden_root_path = require_garden_root(garden_root)
@@ -588,23 +698,60 @@ def start_uwg_run(
         outputs={},
     )
     _UWG_RUNS.upsert(garden_root_path, record)
-    _BACKGROUND_EXECUTOR.submit(
-        run_uwg,
+    try:
+        proc = submit_worker_process(
+            garden_root=garden_root_path,
+            run_dir=run_dir,
+            worker_module="garden.run_uwg:_run_uwg_worker",
+            request=_json_safe(
+                {
+                    "garden_root": str(garden_root_path),
+                    "model_target": resolved_model_target,
+                    "weather_target": weather_target,
+                    "simulation_parameter_target": simulation_parameter_target,
+                    "simulation_parameter": simulation_parameter,
+                    "run_id": normalized_run_id,
+                    "reload_old": False,
+                    "silent": silent,
+                    "validate_weather": False,
+                }
+            ),
+            cwd=garden_root_path,
+            environment=_worker_environment(garden_root_path, run_dir),
+        )
+        _record_worker_pid(garden_root_path, normalized_run_id, proc)
+    except Exception as exc:
+        record.update(_UWG_RUNS.failure_fields(str(exc), traceback.format_exc()))
+        _UWG_RUNS.upsert(garden_root_path, record)
+        return _result_from_record(
+            record,
+            f"UWG run failed to start: {normalized_run_id}",
+            garden_root=str(garden_root_path),
+        )
+
+    latest = _UWG_RUNS.get(garden_root_path, normalized_run_id) or record
+    requested_wait = max(float(wait_seconds or 0), 0.0)
+    if not requested_wait:
+        return _result_from_record(
+            latest,
+            f"UWG run started: {normalized_run_id}",
+            garden_root=str(garden_root_path),
+        )
+    applied_wait = min(requested_wait, 3500.0)
+    interval = max(float(poll_interval or 2.0), 0.2)
+    deadline = time.monotonic() + applied_wait
+    while latest.get("status") in {"queued", "running"} and time.monotonic() < deadline:
+        time.sleep(min(interval, max(deadline - time.monotonic(), 0.0)))
+        latest = _UWG_RUNS.get(garden_root_path, normalized_run_id) or latest
+    result = _result_from_record(
+        latest,
+        f"UWG run {latest['status']}: {normalized_run_id}",
         garden_root=str(garden_root_path),
-        model_target=resolved_model_target,
-        weather_target=weather_target,
-        simulation_parameter_target=simulation_parameter_target,
-        simulation_parameter=simulation_parameter,
-        run_id=normalized_run_id,
-        reload_old=False,
-        silent=silent,
-        validate_weather=False,
     )
-    return _result_from_record(
-        record,
-        f"UWG run started: {normalized_run_id}",
-        garden_root=str(garden_root_path),
-    )
+    summary_view = result.setdefault("summary_view", {})
+    summary_view["wait_seconds_requested"] = wait_seconds
+    summary_view["wait_seconds_applied"] = applied_wait
+    return result
 
 
 def get_uwg_run(
@@ -762,6 +909,7 @@ def _record(
     completed_at: str | None = None,
     preflight: dict[str, Any] | None = None,
     error: str | None = None,
+    worker_pid: int | None = None,
     outputs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     record: dict[str, Any] = {
@@ -778,6 +926,8 @@ def _record(
         "preflight": preflight or {"status": "skipped", "issues": []},
         "outputs": outputs or {},
     }
+    if worker_pid is not None:
+        record["worker_pid"] = worker_pid
     if completed_at is not None:
         record["completed_at"] = completed_at
     if error:
@@ -798,24 +948,35 @@ def _result_from_record(
     garden_root: str | None = None,
 ) -> dict[str, Any]:
     target = record["target"]
-    return {
+    poll_next = {
+        "tool": "GD_Poll_Run",
+        "arguments": {"garden_root": garden_root, "run_target": target},
+    }
+    outputs = record.get("outputs") or {}
+    summary_view: dict[str, Any] = {
+        "status": record["status"],
+        "run": _public_run(record),
+        "outputs": outputs,
+        "poll_next": poll_next,
+    }
+    if isinstance(outputs.get("uhi_summary"), dict):
+        summary_view["uhi_summary"] = outputs["uhi_summary"]
+    result: dict[str, Any] = {
         "target": target,
         "uwg_run_target": target,
         "run_target": target,
-        "summary_view": {
-            "status": record["status"],
-            "run": _public_run(record),
-            "outputs": record.get("outputs") or {},
-            "poll_next": {
-                "tool": "DF_UWG_Poll_Simulation",
-                "arguments": {"garden_root": garden_root, "run_target": target},
-            },
-        },
+        "runtime_status": record["status"],
+        "poll_next": poll_next,
+        "summary_view": summary_view,
         "report": make_report(
             status="failed" if record.get("status") == "failed" else "ok",
             message=message,
         ),
     }
+    if record.get("worker_pid") is not None:
+        summary_view["worker_pid"] = record["worker_pid"]
+        result["worker_pid"] = record["worker_pid"]
+    return result
 
 
 def _preflight_epw(path: Path) -> dict[str, Any]:

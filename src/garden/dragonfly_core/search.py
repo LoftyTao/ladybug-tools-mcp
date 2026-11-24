@@ -131,24 +131,59 @@ def _selection(
     }
 
 
+_STRING_CHILDREN_SCOPES = {"none", "direct", "all"}
+
+
 def _scope_filter(
-    children_scope: dict[str, Any] | None,
-) -> tuple[str, str] | None:
+    children_scope: str | dict[str, Any] | None,
+) -> tuple[str, str, str | None] | None:
     if children_scope is None:
         return None
+    if isinstance(children_scope, str):
+        normalized = children_scope.strip().lower()
+        if normalized not in _STRING_CHILDREN_SCOPES:
+            raise ValueError(
+                "children_scope must be 'none', 'direct', 'all', or a Dragonfly "
+                "object target dict."
+            )
+        return ("mode", normalized, None)
     target = normalize_dragonfly_object_target(children_scope)
-    return target["object_type"], target["object_identifier"]
+    return ("target", target["object_type"], target["object_identifier"])
 
 
-def _scope_matches(parent: dict[str, str], scope: tuple[str, str] | None) -> bool:
+def _scope_matches(
+    parent: dict[str, str],
+    scope: tuple[str, str, str | None] | None,
+    *,
+    current_object_type: str,
+    requested_object_type: str,
+    building_identifier: str | None,
+    story_identifier: str | None,
+) -> bool:
     if scope is None:
         return True
-    scope_type, identifier = scope
-    if scope_type == "building":
-        return parent.get("building_identifier") == identifier
-    if scope_type == "story":
-        return parent.get("story_identifier") == identifier
-    return False
+    kind, first, second = scope
+    if kind == "target":
+        if first == "building":
+            return parent.get("building_identifier") == second
+        if first == "story":
+            return parent.get("story_identifier") == second
+        return False
+    if requested_object_type != "all":
+        return True
+    if first == "all":
+        return True
+    if first == "none":
+        if story_identifier is not None:
+            return current_object_type == "story"
+        if building_identifier is not None:
+            return current_object_type == "building"
+        return current_object_type in {"building", "context_shade"}
+    if first == "direct":
+        if story_identifier is not None:
+            return current_object_type in {"story", "room2d"}
+        return current_object_type != "room2d"
+    return True
 
 
 def _iter_dragonfly_objects(
@@ -265,7 +300,7 @@ def search_dragonfly_model_objects(
     query: str | None = None,
     building_identifier: str | None = None,
     story_identifier: str | None = None,
-    children_scope: dict[str, Any] | None = None,
+    children_scope: str | dict[str, Any] | None = None,
     include_counts: bool = False,
     include_geometry: bool = False,
     include_properties: bool = False,
@@ -321,7 +356,14 @@ def search_dragonfly_model_objects(
         elif story_identifier is not None:
             if parent.get("story_identifier") != story_identifier:
                 continue
-        if not _scope_matches(parent, scope):
+        if not _scope_matches(
+            parent,
+            scope,
+            current_object_type=target["object_type"],
+            requested_object_type=object_type,
+            building_identifier=building_identifier,
+            story_identifier=story_identifier,
+        ):
             continue
         display_name = _display_name(obj)
         if (

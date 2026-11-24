@@ -193,6 +193,203 @@ def _install_backport_hooks(target_version: str) -> None:
     hb_simulate.run_osw = wrapped_run_osw
 
 
+def _run_with_measures_or_mode(
+    cli_args: list[str],
+    *,
+    measures_spec_json: str | None,
+    measures_only: bool,
+) -> int:
+    """Execute EnergyPlus/OpenStudio simulation when ordered measures or measures_only are used."""
+    import argparse
+
+    from honeybee.config import folders as hb_folders
+    from honeybee.model import Model
+    from honeybee_energy import run as hb_run
+    from honeybee_energy.measure import Measure
+    from honeybee_energy.result.err import Err
+    from honeybee_energy.simulation.parameter import SimulationParameter
+    from ladybug.epw import EPW
+    from ladybug.futil import preparedir
+    from ladybug.stat import STAT
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("model_file")
+    parser.add_argument("epw_file")
+    parser.add_argument("--sim-par-json", "-sp", default=None)
+    parser.add_argument("--measures", "-m", default=None)
+    parser.add_argument("--additional-string", "-as", default=None)
+    parser.add_argument("--additional-idf", "-ai", default=None)
+    parser.add_argument("--report-units", "-r", default="none")
+    parser.add_argument("--viz-variable", "-v", action="append", default=[])
+    parser.add_argument("--folder", "-f", default=None)
+    parser.add_argument("--enforce-rooms", action="store_true", default=True)
+    parser.add_argument("--skip-no-rooms", "-sr", action="store_true", default=False)
+    parser.add_argument("--log-file", "-log", default="-")
+    parsed, unknown = parser.parse_known_args(cli_args)
+    if unknown:
+        raise ValueError(f"Unsupported simulate_runner arguments: {' '.join(unknown)}")
+
+    model_file = str(Path(parsed.model_file).resolve())
+    epw_file = str(Path(parsed.epw_file).resolve())
+    epw_path = Path(epw_file)
+    ddy_file = epw_path.with_suffix(".ddy")
+    stat_file = epw_path.with_suffix(".stat")
+
+    first_char = Path(model_file).read_text(encoding="utf-8", errors="replace")[:1]
+    if first_char == "{":
+        file_type = "hbjson"
+    else:
+        lines = Path(model_file).read_text(encoding="utf-8", errors="replace").splitlines()
+        second_line = lines[1] if len(lines) > 1 else ""
+        file_type = "osm" if "OS:Version," in second_line else "idf"
+
+    folder = parsed.folder
+    if not folder:
+        proj_name = Path(model_file).stem.lower()
+        base = Path(hb_folders.default_simulation_folder) / proj_name
+        folder = str(base / ("energyplus/run" if file_type == "idf" else "openstudio"))
+    elif file_type == "idf":
+        folder = str(Path(folder) / "run")
+    preparedir(folder, remove_content=False)
+
+    sim_par: SimulationParameter | None = None
+    if file_type == "hbjson":
+        if not parsed.sim_par_json or not Path(parsed.sim_par_json).is_file():
+            sim_par = SimulationParameter()
+            sim_par.output.add_zone_energy_use()
+            sim_par.output.add_hvac_energy_use()
+            sim_par.output.add_electricity_generation()
+            sim_par.output.reporting_frequency = "Monthly"
+        else:
+            sim_par = SimulationParameter.from_dict(
+                json.loads(Path(parsed.sim_par_json).read_text(encoding="utf-8"))
+            )
+        if not sim_par.sizing_parameter.design_days:
+            if ddy_file.is_file():
+                try:
+                    sim_par.sizing_parameter.add_from_ddy_996_004(str(ddy_file))
+                except AssertionError:
+                    epw_obj = EPW(epw_file)
+                    sim_par.sizing_parameter.design_days = [
+                        epw_obj.approximate_design_day("WinterDesignDay"),
+                        epw_obj.approximate_design_day("SummerDesignDay"),
+                    ]
+            else:
+                epw_obj = EPW(epw_file)
+                sim_par.sizing_parameter.design_days = [
+                    epw_obj.approximate_design_day("WinterDesignDay"),
+                    epw_obj.approximate_design_day("SummerDesignDay"),
+                ]
+        if sim_par.sizing_parameter.climate_zone is None and stat_file.is_file():
+            sim_par.sizing_parameter.climate_zone = STAT(str(stat_file)).ashrae_climate_zone
+
+    base_osw: str | None = None
+    if parsed.measures and Path(parsed.measures).is_dir():
+        measures_dir = Path(parsed.measures)
+        for child in sorted(measures_dir.iterdir()):
+            if child.is_file() and child.suffix.lower() == ".osw":
+                base_osw = str(child)
+                osw_dict = json.loads(child.read_text(encoding="utf-8"))
+                osw_dict["measure_paths"] = [str(measures_dir.resolve())]
+                child.write_text(json.dumps(osw_dict), encoding="utf-8")
+                break
+
+    additional_measures: list[Measure] | None = None
+    if measures_spec_json:
+        raw_specs = json.loads(Path(measures_spec_json).read_text(encoding="utf-8"))
+        additional_measures = []
+        for spec in raw_specs:
+            measure = Measure(str(spec["folder"]))
+            args_by_id = {arg.identifier: arg for arg in measure.arguments}
+            for key, value in dict(spec.get("arguments") or {}).items():
+                if key not in args_by_id:
+                    raise ValueError(f"Unknown measure argument {key!r} for {measure.identifier}.")
+                args_by_id[key].value = value
+            measure.validate(raise_exception=True)
+            additional_measures.append(measure)
+
+    strings_to_inject = parsed.additional_string or ""
+    if parsed.additional_idf and Path(parsed.additional_idf).is_file():
+        strings_to_inject = (
+            strings_to_inject + "\n" + Path(parsed.additional_idf).read_text(encoding="utf-8")
+        )
+
+    if file_type not in ("hbjson", "osm"):
+        if additional_measures or measures_only:
+            raise ValueError("OpenStudio measures and measures_only require HBJSON or OSM input.")
+
+    skip_no_rooms = bool(parsed.skip_no_rooms)
+    model_input: Any = model_file
+    if file_type == "hbjson":
+        model_input = Model.from_hbjson(model_file)
+        if skip_no_rooms and not model_input.rooms:
+            return 0
+
+    report_units = None if measures_only else parsed.report_units
+    viz_vars = parsed.viz_variable or None
+    osm, osw, idf = hb_run.to_openstudio_sim_folder(
+        model_input,
+        folder,
+        epw_file=epw_file,
+        sim_par=sim_par,
+        enforce_rooms=True,
+        additional_measures=additional_measures,
+        base_osw=base_osw,
+        strings_to_inject=strings_to_inject,
+        report_units=report_units,
+        viz_variables=viz_vars,
+        print_progress=True,
+    )
+
+    gen_files: list[str | None] = []
+    if osw is not None:
+        gen_files.append(osw)
+        out_osm, out_idf = hb_run.run_osw(osw, measures_only=measures_only, silent=True)
+        if measures_only:
+            if out_osm and Path(out_osm).is_file():
+                gen_files.append(out_osm)
+            out_osw = Path(folder) / "out.osw"
+            if out_osw.is_file():
+                from honeybee_energy.result.osw import OSW
+
+                osw_res = OSW(str(out_osw))
+                if osw_res.errors:
+                    raise RuntimeError("Failed to run OpenStudio measures:\n" + "\n".join(osw_res.errors))
+        else:
+            if out_idf and Path(out_idf).is_file():
+                gen_files.extend([out_osm, out_idf])
+            else:
+                hb_run._parse_os_cli_failure(folder)
+            sql, zsz, rdd, html, err = hb_run.output_energyplus_files(str(Path(out_idf).parent))
+            if err and Path(err).is_file():
+                gen_files.extend([sql, zsz, rdd, html, err])
+                err_obj = Err(err)
+                for error in err_obj.fatal_errors:
+                    raise RuntimeError(error)
+            else:
+                raise RuntimeError("Running EnergyPlus failed.")
+    elif measures_only:
+        if osm:
+            gen_files.append(osm)
+    elif idf is not None:
+        gen_files.extend([osm, idf] if osm else [idf])
+        sql, zsz, rdd, html, err = hb_run.run_idf(idf, epw_file)
+        if err and Path(err).is_file():
+            gen_files.extend([sql, zsz, rdd, html, err])
+            err_obj = Err(err)
+            for error in err_obj.fatal_errors:
+                raise RuntimeError(error)
+        else:
+            raise RuntimeError("Running EnergyPlus failed.")
+
+    payload = json.dumps(gen_files, indent=4)
+    if parsed.log_file and parsed.log_file != "-":
+        Path(parsed.log_file).write_text(payload, encoding="utf-8")
+    else:
+        print(payload)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run ``honeybee_energy.cli.simulate.simulate_model_cli`` with OSM backporting."""
     from honeybee_energy.cli.simulate import simulate_model_cli
@@ -201,7 +398,37 @@ def main(argv: list[str] | None = None) -> int:
     if target is not None:
         _install_backport_hooks(target)
 
-    cli_args = list(sys.argv[1:] if argv is None else argv)
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    measures_spec_json: str | None = None
+    measures_only = False
+    cli_args: list[str] = []
+    index = 0
+    while index < len(raw_args):
+        token = raw_args[index]
+        if token == "--measures-spec-json":
+            if index + 1 >= len(raw_args):
+                raise ValueError("--measures-spec-json requires a file path.")
+            measures_spec_json = raw_args[index + 1]
+            index += 2
+            continue
+        if token.startswith("--measures-spec-json="):
+            measures_spec_json = token.split("=", 1)[1]
+            index += 1
+            continue
+        if token == "--measures-only":
+            measures_only = True
+            index += 1
+            continue
+        cli_args.append(token)
+        index += 1
+
+    if measures_spec_json is not None or measures_only:
+        return _run_with_measures_or_mode(
+            cli_args,
+            measures_spec_json=measures_spec_json,
+            measures_only=measures_only,
+        )
+
     simulate_model_cli.main(args=cli_args, standalone_mode=True)
     return 0
 

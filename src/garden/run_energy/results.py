@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import html
 from pathlib import Path
+import sqlite3
 from statistics import mean
 from typing import Any
 
+from honeybee.model import Model
+from honeybee_energy.result.match import match_faces_to_data, match_rooms_to_data
+from honeybee_energy.result.osw import OSW
+from honeybee_energy.result.rdd import RDD
+from honeybee_energy.result.zsz import ZSZ
 import ladybug_vtk._extend_visualization_set  # noqa: F401
 from ladybug.hourlyplot import HourlyPlot
 from ladybug.monthlychart import MonthlyChart
@@ -16,10 +22,12 @@ from ladybug_display.extension.monthlychart import monthly_chart_to_vis_set
 
 from ladybug_tools_mcp.contracts import make_artifact_receipt, make_report
 from garden.data_collection import save_data_collection
+from garden.honeybee_core.model_io import load_honeybee_model, resolve_model_target
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
 from garden.run_energy.annual import (
     _absolute_output_path,
+    _outputs_map,
     _run_id_from_target_or_value,
     _run_record_by_id,
 )
@@ -315,7 +323,7 @@ def _data_collections(
 def _available_output_name_message(sql: Any, *, limit: int = 12) -> str:
     names = [str(name) for name in (getattr(sql, "available_outputs", []) or []) if name]
     if not names:
-        return "Call read_energy_result_data without output_name to inspect available SQL outputs."
+        return "Call EP_Read_Result_Data without output_name to inspect available SQL outputs."
     preview = "; ".join(names[:limit])
     suffix = "" if len(names) <= limit else f"; ... ({len(names)} total)"
     return f"Available output names include: {preview}{suffix}."
@@ -419,6 +427,11 @@ def read_energy_result_data(
     max_collections: int = 10,
     max_outputs: int = 25,
     save_data_collections: bool = False,
+    match_to: str = "none",
+    model_target: dict[str, Any] | None = None,
+    invert_multiplier: bool = False,
+    space_based: bool = False,
+    zone_correct_mult: bool = True,
 ) -> dict[str, Any]:
     """Read EnergyPlus SQL output into compact Ladybug DataCollection summaries."""
     if max_values < 0:
@@ -427,6 +440,9 @@ def read_energy_result_data(
         raise ValueError("max_collections must be positive.")
     if max_outputs <= 0:
         raise ValueError("max_outputs must be positive.")
+    match_mode = str(match_to or "none").strip().lower().replace("-", "_")
+    if match_mode not in {"none", "rooms", "faces", "auto"}:
+        raise ValueError("match_to must be one of: none, rooms, faces, auto.")
     if output_name is not None and output_names is not None:
         raise ValueError("Provide only one of output_name or output_names.")
     exact_output_names = (
@@ -519,8 +535,10 @@ def read_energy_result_data(
     data_collection_receipts: list[dict[str, Any]] = []
     total_collection_count = 0
     collections_by_output: list[dict[str, Any]] = []
+    all_collections_by_output: dict[str, list[Any]] = {}
     for current_output_name in requested_output_names:
         collections = _data_collections(sql, current_output_name, run_period_index)
+        all_collections_by_output[current_output_name] = collections
         visible_collections = collections[:max_collections]
         total_collection_count += len(collections)
         collections_by_output.append(
@@ -590,7 +608,8 @@ def read_energy_result_data(
                 data_collection_targets.append(saved["target"])
                 data_collection_receipts.append(saved["persistence_receipt"])
             summaries.append(summary)
-    return {
+
+    response: dict[str, Any] = {
         "data_collections": summaries,
         "data_collection_targets": data_collection_targets,
         "data_collection_persistence_receipts": data_collection_receipts,
@@ -624,6 +643,34 @@ def read_energy_result_data(
             ),
         ),
     }
+    if match_mode != "none":
+        matched_payload = _attach_geometry_matches(
+            garden_root_path=garden_root_path,
+            record=record,
+            run_id=resolved_run_id,
+            sql_path=sql_path,
+            collections_by_output=all_collections_by_output,
+            match_mode=match_mode,
+            model_target=model_target,
+            invert_multiplier=invert_multiplier,
+            space_based=space_based,
+            zone_correct_mult=zone_correct_mult,
+            include_values=include_values,
+            max_values=max_values,
+            max_collections=max_collections,
+            save_data_collections=save_data_collections,
+        )
+        response["geometry_matches"] = matched_payload
+        response["summary_view"]["geometry_matches"] = {
+            "match_mode": matched_payload["match_mode"],
+            "model_identifier": matched_payload.get("model_identifier"),
+            "matched_room_count": matched_payload["matched_room_count"],
+            "matched_face_count": matched_payload["matched_face_count"],
+            "matched_data_collection_targets": matched_payload[
+                "matched_data_collection_targets"
+            ],
+        }
+    return response
 
 
 def _inject_html_legend(
@@ -968,7 +1015,7 @@ def _sizing_blocker(run_id: str, reason: str) -> dict[str, Any]:
         "summary_view": {"run_id": run_id, "sizing_count": 0},
         "energy_blocker": {
             "reason": reason,
-            "recommended_next_tools": ["EP_Poll_Simulation", "EP_List_Run_Outputs"],
+            "recommended_next_tools": ["GD_Poll_Run"],
         },
         "report": make_report(status="blocked", message=reason),
     }
@@ -1043,4 +1090,680 @@ def read_energy_sizing(
         "component_sizing": components[:max_results],
         "results_truncated": total > max_results,
         "report": make_report(status="ok", message=f"Read EnergyPlus sizing for run {resolved_run_id}."),
+    }
+
+
+def _resolve_run_output_file(
+    garden_root: Path,
+    record: dict[str, Any],
+    output_name: str,
+    fallback_rel_paths: tuple[str, ...] = (),
+) -> Path:
+    try:
+        return _absolute_output_path(garden_root, record, output_name)
+    except ValueError:
+        pass
+    if output_name == "osw" and record.get("workflow_path"):
+        candidate = (garden_root / str(record["workflow_path"])).resolve()
+        try:
+            candidate.relative_to(garden_root)
+            if candidate.is_file():
+                return candidate
+        except ValueError:
+            pass
+    run_folder = record.get("run_folder")
+    if isinstance(run_folder, str) and run_folder:
+        run_dir = (garden_root / run_folder).resolve()
+        for rel in fallback_rel_paths:
+            candidate = (run_dir / rel).resolve()
+            try:
+                candidate.relative_to(garden_root)
+            except ValueError:
+                continue
+            if candidate.is_file():
+                return candidate
+    raise ValueError(f"Energy run has no {output_name} output.")
+
+
+def _resolve_honeybee_model_for_run(
+    garden_root: Path,
+    record: dict[str, Any],
+    model_target: dict[str, Any] | None = None,
+) -> Model:
+    if model_target is not None:
+        _manifest, resolved = resolve_model_target(garden_root, model_target)
+        return load_honeybee_model(garden_root, resolved)
+    rec_target = record.get("model_target")
+    if isinstance(rec_target, dict) and rec_target.get("path"):
+        candidate = (garden_root / str(rec_target["path"])).resolve()
+        try:
+            candidate.relative_to(garden_root)
+            if candidate.is_file():
+                return Model.from_hbjson(str(candidate), cleanup_irrational=False)
+        except ValueError:
+            pass
+    rec_path = record.get("model_path")
+    if isinstance(rec_path, str) and rec_path:
+        candidate = (garden_root / rec_path).resolve()
+        try:
+            candidate.relative_to(garden_root)
+            if candidate.is_file():
+                return Model.from_hbjson(str(candidate), cleanup_irrational=False)
+        except ValueError:
+            pass
+    _manifest, resolved = resolve_model_target(garden_root, None)
+    return load_honeybee_model(garden_root, resolved)
+
+
+def _attach_geometry_matches(
+    *,
+    garden_root_path: Path,
+    record: dict[str, Any],
+    run_id: str,
+    sql_path: Path,
+    collections_by_output: dict[str, list[Any]],
+    match_mode: str,
+    model_target: dict[str, Any] | None,
+    invert_multiplier: bool,
+    space_based: bool,
+    zone_correct_mult: bool,
+    include_values: bool,
+    max_values: int,
+    max_collections: int,
+    save_data_collections: bool,
+) -> dict[str, Any]:
+    model = _resolve_honeybee_model_for_run(garden_root_path, record, model_target)
+    matched_rooms: list[dict[str, Any]] = []
+    matched_faces: list[dict[str, Any]] = []
+    saved_targets: list[dict[str, Any]] = []
+    sql_rel = to_posix_relative(sql_path, garden_root_path)
+
+    for output_name, collections in collections_by_output.items():
+        if not collections:
+            continue
+        first_meta = dict(getattr(getattr(collections[0], "header", None), "metadata", {}) or {})
+        effective_mode = match_mode
+        if effective_mode == "auto":
+            if "Surface" in first_meta:
+                effective_mode = "faces"
+            else:
+                effective_mode = "rooms"
+
+        if effective_mode == "rooms":
+            room_tuples = match_rooms_to_data(
+                collections,
+                model.rooms,
+                invert_multiplier=invert_multiplier,
+                space_based=space_based,
+                zone_correct_mult=zone_correct_mult,
+            )
+            for idx, (room, coll, multiplier) in enumerate(room_tuples[:max_collections]):
+                values = [
+                    float(v)
+                    for v in (getattr(coll, "values", []) or [])
+                    if isinstance(v, (int, float)) and not isinstance(v, bool)
+                ]
+                header = getattr(coll, "header", None)
+                entry: dict[str, Any] = {
+                    "room_identifier": room.identifier,
+                    "room_display_name": room.display_name,
+                    "zone": room.zone,
+                    "story": room.story,
+                    "floor_area": room.floor_area,
+                    "room_multiplier": room.multiplier,
+                    "effective_multiplier": multiplier,
+                    "output_name": output_name,
+                    "unit": _header_value(header, "unit") if header else None,
+                    "value_count": len(values),
+                    "minimum": min(values) if values else None,
+                    "maximum": max(values) if values else None,
+                    "mean": mean(values) if values else None,
+                    "total": sum(values) if values else None,
+                }
+                if include_values:
+                    raw = list(getattr(coll, "values", []) or [])
+                    entry["values"] = raw[:max_values]
+                    entry["values_truncated"] = len(raw) > len(entry["values"])
+                if save_data_collections:
+                    saved = save_data_collection(
+                        garden_root=garden_root_path,
+                        data_collection=coll,
+                        identifier=f"{run_id}_{output_name}_room_{room.identifier}_{idx}",
+                        source={
+                            "producer": "match_rooms_to_data",
+                            "run_id": run_id,
+                            "sql_path": sql_rel,
+                            "output_name": output_name,
+                            "room_identifier": room.identifier,
+                            "effective_multiplier": multiplier,
+                        },
+                    )
+                    entry["data_collection_target"] = saved["target"]
+                    saved_targets.append(saved["target"])
+                matched_rooms.append(entry)
+        elif effective_mode == "faces":
+            top_faces = [*model.faces, *model.orphaned_apertures, *model.orphaned_doors]
+            face_tuples = match_faces_to_data(collections, top_faces)
+            for idx, (face_obj, coll) in enumerate(face_tuples[:max_collections]):
+                values = [
+                    float(v)
+                    for v in (getattr(coll, "values", []) or [])
+                    if isinstance(v, (int, float)) and not isinstance(v, bool)
+                ]
+                header = getattr(coll, "header", None)
+                parent = getattr(face_obj, "parent", None)
+                entry = {
+                    "face_identifier": face_obj.identifier,
+                    "face_display_name": face_obj.display_name,
+                    "object_type": type(face_obj).__name__,
+                    "face_type": getattr(getattr(face_obj, "type", None), "name", None),
+                    "boundary_condition": getattr(
+                        getattr(face_obj, "boundary_condition", None), "name", None
+                    ),
+                    "area": getattr(face_obj, "area", None),
+                    "parent_identifier": getattr(parent, "identifier", None),
+                    "output_name": output_name,
+                    "unit": _header_value(header, "unit") if header else None,
+                    "value_count": len(values),
+                    "minimum": min(values) if values else None,
+                    "maximum": max(values) if values else None,
+                    "mean": mean(values) if values else None,
+                    "total": sum(values) if values else None,
+                }
+                if include_values:
+                    raw = list(getattr(coll, "values", []) or [])
+                    entry["values"] = raw[:max_values]
+                    entry["values_truncated"] = len(raw) > len(entry["values"])
+                if save_data_collections:
+                    saved = save_data_collection(
+                        garden_root=garden_root_path,
+                        data_collection=coll,
+                        identifier=f"{run_id}_{output_name}_face_{face_obj.identifier}_{idx}",
+                        source={
+                            "producer": "match_faces_to_data",
+                            "run_id": run_id,
+                            "sql_path": sql_rel,
+                            "output_name": output_name,
+                            "face_identifier": face_obj.identifier,
+                        },
+                    )
+                    entry["data_collection_target"] = saved["target"]
+                    saved_targets.append(saved["target"])
+                matched_faces.append(entry)
+
+    return {
+        "match_mode": match_mode,
+        "model_identifier": model.identifier,
+        "matched_room_count": len(matched_rooms),
+        "matched_face_count": len(matched_faces),
+        "matched_rooms": matched_rooms,
+        "matched_faces": matched_faces,
+        "matched_data_collection_targets": saved_targets,
+    }
+
+
+def match_energy_results_to_rooms(
+    *,
+    garden_root: str,
+    output_name: str,
+    run_target: dict[str, Any] | None = None,
+    run_id: str | None = None,
+    model_target: dict[str, Any] | None = None,
+    run_period_index: int | None = None,
+    invert_multiplier: bool = False,
+    space_based: bool = False,
+    zone_correct_mult: bool = True,
+    include_values: bool = False,
+    max_values: int = 24,
+    max_collections: int = 50,
+    save_data_collections: bool = False,
+) -> dict[str, Any]:
+    """Match EnergyPlus zone/system SQL DataCollections to Honeybee Model Rooms."""
+    return read_energy_result_data(
+        garden_root=garden_root,
+        run_target=run_target,
+        run_id=run_id,
+        output_name=output_name,
+        run_period_index=run_period_index,
+        include_values=include_values,
+        max_values=max_values,
+        max_collections=max_collections,
+        save_data_collections=save_data_collections,
+        match_to="rooms",
+        model_target=model_target,
+        invert_multiplier=invert_multiplier,
+        space_based=space_based,
+        zone_correct_mult=zone_correct_mult,
+    )
+
+
+def match_energy_results_to_faces(
+    *,
+    garden_root: str,
+    output_name: str,
+    run_target: dict[str, Any] | None = None,
+    run_id: str | None = None,
+    model_target: dict[str, Any] | None = None,
+    run_period_index: int | None = None,
+    include_values: bool = False,
+    max_values: int = 24,
+    max_collections: int = 50,
+    save_data_collections: bool = False,
+) -> dict[str, Any]:
+    """Match EnergyPlus surface SQL DataCollections to Honeybee Model Faces/Apertures/Doors."""
+    return read_energy_result_data(
+        garden_root=garden_root,
+        run_target=run_target,
+        run_id=run_id,
+        output_name=output_name,
+        run_period_index=run_period_index,
+        include_values=include_values,
+        max_values=max_values,
+        max_collections=max_collections,
+        save_data_collections=save_data_collections,
+        match_to="faces",
+        model_target=model_target,
+    )
+
+
+def _list_sql_tabular_tables(sql_path: Path) -> list[dict[str, str]]:
+    conn = sqlite3.connect(str(sql_path))
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT DISTINCT ReportName, TableName "
+            "FROM TabularDataWithStrings "
+            "ORDER BY ReportName, TableName"
+        )
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+    return [
+        {"report_name": str(rep or ""), "table_name": str(tbl or "")}
+        for rep, tbl in rows
+        if tbl
+    ]
+
+
+def read_energy_tabular_data(
+    *,
+    garden_root: str,
+    run_target: dict[str, Any] | None = None,
+    run_id: str | None = None,
+    table_name: str | None = None,
+    report_name: str | None = None,
+    table_query: str | None = None,
+    j_to_kwh: bool = True,
+    max_results: int = 50,
+) -> dict[str, Any]:
+    """List SQL tabular summary tables or read one table via SQLiteResult.tabular_data_by_name."""
+    if max_results <= 0:
+        raise ValueError("max_results must be positive.")
+    root = _garden_root(garden_root)
+    manifest = GardenManifest.read(root)
+    resolved_run_id, sql_path, sql, record = _sql_result(
+        garden_root=root,
+        run_target=run_target,
+        run_id=run_id,
+    )
+    sql_rel = to_posix_relative(sql_path, root)
+    all_tables = _list_sql_tabular_tables(sql_path)
+
+    if not table_name:
+        filtered = all_tables
+        if report_name:
+            rep_q = report_name.strip().lower()
+            filtered = [item for item in filtered if rep_q in item["report_name"].lower()]
+        if table_query:
+            tbl_q = table_query.strip().lower()
+            filtered = [
+                item
+                for item in filtered
+                if tbl_q in item["table_name"].lower() or tbl_q in item["report_name"].lower()
+            ]
+        visible = filtered[:max_results]
+        return {
+            "run_target": record.get("target") or run_target,
+            "run_id": resolved_run_id,
+            "tables": visible,
+            "total_table_count": len(all_tables),
+            "matching_table_count": len(filtered),
+            "returned_table_count": len(visible),
+            "truncated": len(filtered) > len(visible),
+            "summary_view": {
+                "garden_target": manifest.target(),
+                "run_id": resolved_run_id,
+                "sql_path": sql_rel,
+                "total_table_count": len(all_tables),
+                "matching_table_count": len(filtered),
+                "returned_table_count": len(visible),
+                "tables": visible,
+            },
+            "report": make_report(
+                status="ok",
+                message=f"Listed {len(visible)} SQL tabular table(s) for run {resolved_run_id}.",
+            ),
+        }
+
+    resolved_table = table_name.strip()
+    resolved_report = report_name.strip() if report_name else None
+    exact_matches = [
+        item for item in all_tables if item["table_name"].lower() == resolved_table.lower()
+    ]
+    if exact_matches:
+        resolved_table = exact_matches[0]["table_name"]
+        if resolved_report is not None:
+            rep_matches = [
+                item for item in exact_matches if item["report_name"].lower() == resolved_report.lower()
+            ]
+            if rep_matches:
+                resolved_report = rep_matches[0]["report_name"]
+
+    table_dict = sql.tabular_data_by_name(
+        resolved_table,
+        j_to_kwh=j_to_kwh,
+        report_name=resolved_report,
+    )
+    columns = list(sql.tabular_column_names(resolved_table, report_name=resolved_report))
+    items = list(table_dict.items())
+    visible_items = items[:max_results]
+    rows = {str(key): list(vals) for key, vals in visible_items}
+    records = [
+        {
+            "row_name": str(key),
+            "values": list(vals),
+            "by_column": (
+                {columns[idx]: vals[idx] for idx in range(min(len(columns), len(vals)))}
+                if columns
+                else {}
+            ),
+        }
+        for key, vals in visible_items
+    ]
+    return {
+        "run_target": record.get("target") or run_target,
+        "run_id": resolved_run_id,
+        "table_name": resolved_table,
+        "report_name": resolved_report,
+        "j_to_kwh": bool(j_to_kwh),
+        "columns": columns,
+        "rows": rows,
+        "records": records,
+        "row_count": len(items),
+        "returned_row_count": len(visible_items),
+        "truncated": len(items) > len(visible_items),
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "run_id": resolved_run_id,
+            "sql_path": sql_rel,
+            "table_name": resolved_table,
+            "report_name": resolved_report,
+            "columns": columns,
+            "row_count": len(items),
+            "returned_row_count": len(visible_items),
+            "truncated": len(items) > len(visible_items),
+            "rows": rows,
+        },
+        "report": make_report(
+            status="ok",
+            message=(
+                f"Read SQL table {resolved_table!r} ({len(visible_items)} of {len(items)} row(s))."
+            ),
+        ),
+    }
+
+
+def read_energy_zsz(
+    *,
+    garden_root: str,
+    run_target: dict[str, Any] | None = None,
+    run_id: str | None = None,
+    zone: str | None = None,
+    include_values: bool = False,
+    max_values: int = 24,
+    max_results: int = 50,
+) -> dict[str, Any]:
+    """Parse EnergyPlus epluszsz.csv sizing profiles via honeybee_energy.result.zsz.ZSZ."""
+    if max_values < 0:
+        raise ValueError("max_values must be zero or greater.")
+    if max_results <= 0:
+        raise ValueError("max_results must be positive.")
+    root = _garden_root(garden_root)
+    manifest = GardenManifest.read(root)
+    resolved_run_id = _run_id_from_target_or_value(run_target=run_target, run_id=run_id)
+    record = _run_record_by_id(root, resolved_run_id)
+    zsz_path = _resolve_run_output_file(
+        root,
+        record,
+        "zsz",
+        ("openstudio/run/epluszsz.csv", "epluszsz.csv"),
+    )
+    zsz = ZSZ(str(zsz_path))
+    zsz_rel = to_posix_relative(zsz_path, root)
+
+    def _summarize_group(collections: list[Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        filtered = [
+            coll
+            for coll in collections
+            if _sizing_matches(str(coll.header.metadata.get("Zone", "")), zone)
+        ]
+        items: list[dict[str, Any]] = []
+        for coll in filtered[:max_results]:
+            vals = [float(v) for v in coll.values]
+            entry: dict[str, Any] = {
+                "zone_name": coll.header.metadata.get("Zone"),
+                "type": coll.header.metadata.get("type"),
+                "unit": coll.header.unit,
+                "value_count": len(vals),
+                "peak": max(vals) if vals else None,
+                "minimum": min(vals) if vals else None,
+                "mean": mean(vals) if vals else None,
+            }
+            if include_values:
+                entry["values"] = vals[:max_values]
+                entry["values_truncated"] = len(vals) > len(entry["values"])
+            items.append(entry)
+
+        coincident_peak = None
+        peak_step_index = None
+        non_coincident_sum = None
+        if filtered:
+            step_count = min(len(coll.values) for coll in filtered)
+            if step_count > 0:
+                totals = [
+                    sum(float(coll.values[i]) for coll in filtered)
+                    for i in range(step_count)
+                ]
+                coincident_peak = max(totals)
+                peak_step_index = totals.index(coincident_peak)
+            non_coincident_sum = sum(max(float(v) for v in coll.values) for coll in filtered if coll.values)
+        return items, {
+            "zone_count": len(filtered),
+            "unit": filtered[0].header.unit if filtered else None,
+            "coincident_peak": coincident_peak,
+            "peak_step_index": peak_step_index,
+            "non_coincident_sum": non_coincident_sum,
+            "max_zone_peak": max((item["peak"] for item in items if item["peak"] is not None), default=None),
+        }
+
+    cool_loads, cool_load_stats = _summarize_group(list(zsz.cooling_load_data))
+    heat_loads, heat_load_stats = _summarize_group(list(zsz.heating_load_data))
+    cool_flows, cool_flow_stats = _summarize_group(list(zsz.cooling_flow_data))
+    heat_flows, heat_flow_stats = _summarize_group(list(zsz.heating_flow_data))
+
+    return {
+        "run_target": record.get("target") or run_target,
+        "run_id": resolved_run_id,
+        "zsz_path": zsz_rel,
+        "timestep": zsz.timestep,
+        "coincident_peaks": {
+            "cooling_load": cool_load_stats,
+            "heating_load": heat_load_stats,
+            "cooling_flow": cool_flow_stats,
+            "heating_flow": heat_flow_stats,
+        },
+        "cooling_loads": cool_loads,
+        "heating_loads": heat_loads,
+        "cooling_flows": cool_flows,
+        "heating_flows": heat_flows,
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "run_id": resolved_run_id,
+            "zsz_path": zsz_rel,
+            "timestep": zsz.timestep,
+            "coincident_peaks": {
+                "cooling_load": cool_load_stats,
+                "heating_load": heat_load_stats,
+            },
+            "cooling_zone_count": cool_load_stats["zone_count"],
+            "heating_zone_count": heat_load_stats["zone_count"],
+        },
+        "report": make_report(
+            status="ok",
+            message=f"Read EnergyPlus ZSZ sizing profiles for run {resolved_run_id}.",
+        ),
+    }
+
+
+def read_energy_rdd(
+    *,
+    garden_root: str,
+    run_target: dict[str, Any] | None = None,
+    run_id: str | None = None,
+    query: str | None = None,
+    keywords: list[str] | None = None,
+    max_results: int = 50,
+) -> dict[str, Any]:
+    """Discover available EnergyPlus output variable names from eplusout.rdd via RDD."""
+    if max_results <= 0:
+        raise ValueError("max_results must be positive.")
+    root = _garden_root(garden_root)
+    manifest = GardenManifest.read(root)
+    resolved_run_id = _run_id_from_target_or_value(run_target=run_target, run_id=run_id)
+    record = _run_record_by_id(root, resolved_run_id)
+    rdd_path = _resolve_run_output_file(
+        root,
+        record,
+        "rdd",
+        ("openstudio/run/eplusout.rdd", "eplusout.rdd"),
+    )
+    rdd = RDD(str(rdd_path))
+    all_names = list(rdd.output_names)
+    if keywords:
+        matched = list(rdd.filter_outputs_by_keywords([str(k) for k in keywords if str(k).strip()]))
+    elif query and query.strip():
+        tokens = [token.lower() for token in query.strip().split() if token]
+        matched = [
+            name for name in all_names if all(token in name.lower() for token in tokens)
+        ]
+    else:
+        matched = all_names
+    visible = matched[:max_results]
+    rdd_rel = to_posix_relative(rdd_path, root)
+    return {
+        "run_target": record.get("target") or run_target,
+        "run_id": resolved_run_id,
+        "rdd_path": rdd_rel,
+        "total_output_count": len(all_names),
+        "matching_output_count": len(matched),
+        "returned_output_count": len(visible),
+        "output_names": visible,
+        "truncated": len(matched) > len(visible),
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "run_id": resolved_run_id,
+            "rdd_path": rdd_rel,
+            "query": query,
+            "keywords": keywords,
+            "total_output_count": len(all_names),
+            "matching_output_count": len(matched),
+            "returned_output_count": len(visible),
+            "output_names": visible,
+            "truncated": len(matched) > len(visible),
+        },
+        "report": make_report(
+            status="ok",
+            message=(
+                f"Read {len(visible)} of {len(matched)} matching RDD output name(s) "
+                f"for run {resolved_run_id}."
+            ),
+        ),
+    }
+
+
+def read_energy_osw(
+    *,
+    garden_root: str,
+    run_target: dict[str, Any] | None = None,
+    run_id: str | None = None,
+    max_stdout_chars: int = 2000,
+) -> dict[str, Any]:
+    """Parse OpenStudio Workflow (.osw) execution logs and measure step outcomes via OSW."""
+    root = _garden_root(garden_root)
+    manifest = GardenManifest.read(root)
+    resolved_run_id = _run_id_from_target_or_value(run_target=run_target, run_id=run_id)
+    record = _run_record_by_id(root, resolved_run_id)
+    osw_path = _resolve_run_output_file(
+        root,
+        record,
+        "osw",
+        ("openstudio/out.osw", "out.osw", "openstudio/workflow.osw", "workflow.osw"),
+    )
+    osw = OSW(str(osw_path))
+    data = dict(osw.file_dict or {})
+    steps_summary: list[dict[str, Any]] = []
+    for index, step in enumerate(list(data.get("steps") or [])):
+        if not isinstance(step, dict):
+            continue
+        res = step.get("result") if isinstance(step.get("result"), dict) else {}
+        stdout_raw = str(res.get("stdout") or "")
+        steps_summary.append(
+            {
+                "step_index": index,
+                "measure_dir_name": step.get("measure_dir_name"),
+                "arguments": step.get("arguments") or {},
+                "completed_at": res.get("completed_at"),
+                "started_at": res.get("started_at"),
+                "step_result": res.get("step_result"),
+                "warning_count": len(res.get("step_warnings") or []),
+                "error_count": len(res.get("step_errors") or []),
+                "step_warnings": list(res.get("step_warnings") or []),
+                "step_errors": list(res.get("step_errors") or []),
+                "stdout_preview": stdout_raw[:max_stdout_chars],
+                "stdout_truncated": len(stdout_raw) > max_stdout_chars,
+            }
+        )
+    osw_rel = to_posix_relative(osw_path, root)
+    return {
+        "run_target": record.get("target") or run_target,
+        "run_id": resolved_run_id,
+        "osw_path": osw_rel,
+        "completed_status": data.get("completed_status"),
+        "started_at": data.get("started_at"),
+        "completed_at": data.get("completed_at"),
+        "seed_file": data.get("seed_file"),
+        "weather_file": data.get("weather_file"),
+        "measure_paths": list(data.get("measure_paths") or []),
+        "step_count": len(steps_summary),
+        "steps": steps_summary,
+        "warnings": list(osw.warnings),
+        "errors": list(osw.errors),
+        "error_tracebacks": list(osw.error_tracebacks),
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "run_id": resolved_run_id,
+            "osw_path": osw_rel,
+            "completed_status": data.get("completed_status"),
+            "step_count": len(steps_summary),
+            "warning_count": len(osw.warnings),
+            "error_count": len(osw.errors),
+            "steps": steps_summary,
+            "errors": list(osw.errors),
+            "warnings": list(osw.warnings),
+        },
+        "report": make_report(
+            status="ok",
+            message=f"Read OpenStudio OSW workflow for run {resolved_run_id}.",
+            warnings=list(osw.warnings),
+        ),
     }

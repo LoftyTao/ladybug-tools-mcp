@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from fnmatch import fnmatch
 from honeybee_radiance.luminaire import (
     CustomLamp,
     Luminaire,
@@ -21,7 +22,9 @@ from garden.honeybee_core.model_io import (
 from garden.libraries.properties import (
     get_garden_properties_library_object,
     save_garden_properties_library_object,
+    search_garden_properties_library_objects,
 )
+from garden.paths import to_posix_relative
 from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 
 
@@ -54,13 +57,23 @@ def _point3d_from_input(data: Any, *, field_name: str) -> Point3D:
     raise ValueError(f"{field_name} must be a Point3D dict or [x, y, z].")
 
 
-def _custom_lamp_from_input(data: dict[str, Any] | None) -> CustomLamp | None:
+def _custom_lamp_from_input(data: dict[str, Any] | str | None) -> CustomLamp | None:
     if data is None:
         return None
+    if isinstance(data, str):
+        return CustomLamp.from_lamp_name(data)
     if not isinstance(data, dict):
-        raise ValueError("custom_lamp must be a CustomLamp dictionary or simple lamp settings.")
+        raise ValueError("custom_lamp must be a CustomLamp dictionary, lamp name, or simple lamp settings.")
 
     mode = str(data.get("mode", data.get("lamp_mode", ""))).strip().lower()
+    if mode == "" and isinstance(data.get("lamp_name"), str):
+        lamp = CustomLamp.from_lamp_name(data["lamp_name"])
+        if data.get("depreciation_factor") is not None:
+            lamp.depreciation_factor = _unit_interval(
+                data["depreciation_factor"],
+                "custom_lamp.depreciation_factor",
+            )
+        return lamp
     if mode == "" and {"rgb", "white_xy"} & set(data):
         return CustomLamp.from_dict(data)
 
@@ -69,6 +82,14 @@ def _custom_lamp_from_input(data: dict[str, Any] | None) -> CustomLamp | None:
         data.get("depreciation_factor", 1.0),
         "custom_lamp.depreciation_factor",
     )
+    if mode in {"lamp_name", "name", "preset"}:
+        lamp_name = data.get("lamp_name") or data.get("name")
+        if not isinstance(lamp_name, str) or not lamp_name.strip():
+            raise ValueError("custom_lamp.lamp_name is required for lamp_name mode.")
+        lamp = CustomLamp.from_lamp_name(lamp_name)
+        if data.get("depreciation_factor") is not None:
+            lamp.depreciation_factor = depreciation_factor
+        return lamp
     if mode in {"", "default_white", "default", "white"}:
         return CustomLamp.from_default_white(name, depreciation_factor=depreciation_factor)
     if mode in {"color_temperature", "cct"}:
@@ -91,7 +112,7 @@ def _custom_lamp_from_input(data: dict[str, Any] | None) -> CustomLamp | None:
             color_space=int(data.get("color_space", 0)),
         )
     raise ValueError(
-        "custom_lamp.mode must be default_white, color_temperature, rgb, or xy."
+        "custom_lamp.mode must be default_white, color_temperature, rgb, xy, or lamp_name."
     )
 
 
@@ -324,5 +345,148 @@ def add_radiance_luminaire_to_model(
         "report": make_report(
             status="ok",
             message="Radiance luminaires attached to Honeybee model.",
+        ),
+    }
+
+
+def list_radiance_luminaires(
+    *,
+    garden_root: str | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """List luminaires attached to the Garden Honeybee model and stored in the Garden library."""
+    if not garden_root:
+        raise ValueError("garden_root is required to list Radiance luminaires.")
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    model_items: list[dict[str, Any]] = []
+    resolved_target: dict[str, Any] | None = None
+    try:
+        _, resolved_target = resolve_model_target(garden_root_path, model_target)
+    except Exception:
+        if model_target is not None:
+            raise
+    if resolved_target is not None:
+        model = load_honeybee_model(garden_root_path, resolved_target)
+        model_items = [
+            _summary(lum, input_kind="model")
+            for lum in model.properties.radiance.luminaires
+        ]
+    library_res = search_garden_properties_library_objects(
+        garden_root=str(garden_root_path),
+        domain="honeybee_radiance",
+        object_family="luminaire",
+        limit=100,
+    )
+    library_objects = library_res.get("matches") or []
+    return {
+        "model_target": resolved_target,
+        "model_luminaires": model_items,
+        "library_luminaires": library_objects,
+        "summary_view": {
+            "garden_root": str(garden_root_path),
+            "model_luminaire_count": len(model_items),
+            "model_luminaire_identifiers": [item["identifier"] for item in model_items],
+            "library_luminaire_count": len(library_objects),
+            "library_luminaire_identifiers": [
+                item.get("identifier") for item in library_objects
+            ],
+        },
+        "report": make_report(
+            status="ok",
+            message=(
+                f"Found {len(model_items)} model luminaire(s) and "
+                f"{len(library_objects)} library luminaire(s)."
+            ),
+        ),
+    }
+
+
+def remove_radiance_luminaire_from_model(
+    *,
+    garden_root: str,
+    luminaire_identifiers: list[str] | str | None = None,
+    model_target: dict[str, Any] | None = None,
+    remove_all: bool = False,
+    remove_from_library: bool = False,
+) -> dict[str, Any]:
+    """Remove Radiance luminaires from a Honeybee model (and optionally Garden library)."""
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest, resolved_target = resolve_model_target(garden_root_path, model_target)
+    model = load_honeybee_model(garden_root_path, resolved_target)
+    patterns: list[str] = []
+    if isinstance(luminaire_identifiers, str):
+        patterns = [luminaire_identifiers]
+    elif isinstance(luminaire_identifiers, list):
+        patterns = [str(item) for item in luminaire_identifiers]
+    if not remove_all and not patterns:
+        raise ValueError(
+            "Provide luminaire_identifiers (or remove_all=true) when action='remove'."
+        )
+
+    existing = list(model.properties.radiance.luminaires)
+    kept: list[Luminaire] = []
+    removed_identifiers: list[str] = []
+    for luminaire in existing:
+        matched = remove_all or any(fnmatch(luminaire.identifier, pat) for pat in patterns)
+        if matched:
+            removed_identifiers.append(luminaire.identifier)
+        else:
+            kept.append(luminaire)
+
+    if not removed_identifiers and not remove_from_library:
+        raise ValueError(
+            "No luminaires matched the requested identifier(s) on the model: "
+            + ", ".join(patterns)
+        )
+
+    model.properties.radiance._luminaires = kept
+    updated_model_target, persisted_path = save_honeybee_model(
+        garden_root_path,
+        manifest,
+        model,
+        name=str(resolved_target["model_identifier"]),
+    )
+
+    removed_library_paths: list[str] = []
+    if remove_from_library:
+        lib_dir = garden_root_path / "libraries" / "honeybee_radiance" / "luminaires"
+        if lib_dir.is_dir():
+            for json_file in sorted(lib_dir.glob("*.json")):
+                stem = json_file.stem
+                matched = remove_all or any(fnmatch(stem, pat) for pat in patterns)
+                if matched:
+                    json_file.unlink()
+                    removed_library_paths.append(to_posix_relative(json_file, garden_root_path))
+
+    final_identifiers = _model_luminaire_identifiers(model)
+    summary = {
+        "garden_target": manifest.target(),
+        "model_target": updated_model_target,
+        "removed_identifiers": removed_identifiers,
+        "removed_library_paths": removed_library_paths,
+        "luminaire_count": len(final_identifiers),
+        "luminaire_identifiers": final_identifiers,
+    }
+    return {
+        "target": updated_model_target,
+        "model_target": updated_model_target,
+        "updated_model_target": updated_model_target,
+        "summary_view": summary,
+        "persistence_receipt": make_persistence_receipt(
+            status="persisted",
+            garden_id=manifest.garden_id,
+            base_honeybee_model_changed=bool(removed_identifiers),
+            model_target=updated_model_target,
+            persisted_path=persisted_path,
+            change_summary={
+                "operation": "remove_radiance_luminaire_from_model",
+                "removed_identifiers": removed_identifiers,
+                "removed_library_paths": removed_library_paths,
+                "luminaire_count": len(final_identifiers),
+            },
+        ),
+        "report": make_report(
+            status="ok",
+            message=f"Removed {len(removed_identifiers)} Radiance luminaire(s) from Honeybee model.",
         ),
     }

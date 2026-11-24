@@ -20,11 +20,7 @@ def package_available(module_name: str) -> bool:
 
 def fairyfly_tools_enabled() -> bool:
     """Return True when Fairyfly MCP tools should be registered."""
-    return (
-        is_windows_platform()
-        and package_available("fairyfly")
-        and package_available("fairyfly_therm")
-    )
+    return package_available("fairyfly") and package_available("fairyfly_therm")
 
 
 def therm_engine_config() -> dict[str, Any]:

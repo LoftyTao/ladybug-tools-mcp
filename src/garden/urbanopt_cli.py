@@ -153,6 +153,8 @@ def run_urbanopt_reopt_with_cli_bundle(
     urdb_label: str,
     developer_key: str | None = None,
     use_localhost: bool = False,
+    reopt_parameter: REoptParameter | dict[str, Any] | None = None,
+    financial_parameter: Any = None,
 ) -> tuple[Path, Path]:
     """Run REopt scenario post-processing with the CLI bundle Gemfile."""
     project_dir = _check_project_files(feature_geojson, scenario_csv)
@@ -160,6 +162,8 @@ def run_urbanopt_reopt_with_cli_bundle(
         project_dir=project_dir,
         runtime=runtime,
         urdb_label=urdb_label,
+        reopt_parameter=reopt_parameter,
+        financial_parameter=financial_parameter,
     )
     env_extra = {"GEM_DEVELOPER_KEY": developer_key} if developer_key and not use_localhost else None
     _run_bundle_command(
@@ -445,7 +449,87 @@ def _update_rnm_inputs(*, feature_geojson: Path, underground_ratio: float, lv_on
     feature_geojson.write_text(json.dumps(geo_dict, indent=4), encoding="utf-8", newline="\n")
 
 
-def _write_reopt_assumptions_file(*, project_dir: Path, runtime: dict[str, Any] | None, urdb_label: str) -> Path:
+def _coerce_reopt_parameters(
+    reopt_parameter: REoptParameter | dict[str, Any] | None,
+    financial_parameter: Any,
+) -> tuple[REoptParameter, bool]:
+    from dragonfly_energy.reopt import (
+        FinancialParameter,
+        GeneratorParameter,
+        PVParameter,
+        StorageParameter,
+        WindParameter,
+    )
+
+    has_custom = reopt_parameter is not None or financial_parameter is not None
+    if isinstance(reopt_parameter, REoptParameter):
+        params = reopt_parameter.duplicate()
+    elif isinstance(reopt_parameter, dict):
+        fp_data = reopt_parameter.get("financial_parameter")
+        fp = (
+            fp_data
+            if isinstance(fp_data, FinancialParameter)
+            else (FinancialParameter(**fp_data) if isinstance(fp_data, dict) else None)
+        )
+        pv_data = reopt_parameter.get("pv_parameter")
+        pv = (
+            pv_data
+            if isinstance(pv_data, PVParameter)
+            else (PVParameter(**pv_data) if isinstance(pv_data, dict) else None)
+        )
+        st_data = reopt_parameter.get("storage_parameter")
+        st = (
+            st_data
+            if isinstance(st_data, StorageParameter)
+            else (StorageParameter(**st_data) if isinstance(st_data, dict) else None)
+        )
+        wn_data = reopt_parameter.get("wind_parameter")
+        wn = (
+            wn_data
+            if isinstance(wn_data, WindParameter)
+            else (WindParameter(**wn_data) if isinstance(wn_data, dict) else None)
+        )
+        gn_data = reopt_parameter.get("generator_parameter")
+        gn = (
+            gn_data
+            if isinstance(gn_data, GeneratorParameter)
+            else (GeneratorParameter(**gn_data) if isinstance(gn_data, dict) else None)
+        )
+        params = REoptParameter(
+            financial_parameter=fp,
+            wind_parameter=wn,
+            pv_parameter=pv,
+            storage_parameter=st,
+            generator_parameter=gn,
+        )
+    else:
+        params = REoptParameter()
+        params.pv_parameter.max_kw = 1000000000
+        params.storage_parameter.max_kw = 1000000
+        params.generator_parameter.max_kw = 1000000000
+
+    if isinstance(financial_parameter, FinancialParameter):
+        params.financial_parameter = financial_parameter.duplicate()
+    elif isinstance(financial_parameter, dict):
+        clean_fp = {
+            k: financial_parameter[k]
+            for k in ("analysis_years", "escalation_rate", "tax_rate", "discount_rate")
+            if k in financial_parameter and financial_parameter[k] is not None
+        }
+        if clean_fp:
+            params.financial_parameter = FinancialParameter(**clean_fp)
+    return params, has_custom
+
+
+def _write_reopt_assumptions_file(
+    *,
+    project_dir: Path,
+    runtime: dict[str, Any] | None,
+    urdb_label: str,
+    reopt_parameter: REoptParameter | dict[str, Any] | None = None,
+    financial_parameter: Any = None,
+) -> Path:
+    parameters, has_custom = _coerce_reopt_parameters(reopt_parameter, financial_parameter)
     template = _find_bundle_example_file(
         runtime,
         "urbanopt-cli-*/example_files/reopt/multiPV_assumptions.json",
@@ -457,10 +541,6 @@ def _write_reopt_assumptions_file(*, project_dir: Path, runtime: dict[str, Any] 
         assumptions_path = getattr(dragonfly_energy_folders, "reopt_assumptions_path", None)
         if not assumptions_path:
             raise RuntimeError("No REopt assumptions template is configured in dragonfly_energy.")
-        parameters = REoptParameter()
-        parameters.pv_parameter.max_kw = 1000000000
-        parameters.storage_parameter.max_kw = 1000000
-        parameters.generator_parameter.max_kw = 1000000000
         assumptions = parameters.to_assumptions_dict(assumptions_path, urdb_label)
 
     if isinstance(assumptions.get("Scenario"), dict) and isinstance(assumptions["Scenario"].get("Site"), dict):
@@ -476,20 +556,38 @@ def _write_reopt_assumptions_file(*, project_dir: Path, runtime: dict[str, Any] 
     tariff = assumptions.setdefault("ElectricTariff", {})
     if isinstance(tariff, dict):
         tariff["urdb_label"] = urdb_label
+
+    financial_dict = assumptions.setdefault("Financial", {})
+    if isinstance(financial_dict, dict):
+        parameters.financial_parameter.apply_to_dict(financial_dict)
+
     pv = assumptions.get("PV")
     if isinstance(pv, list):
-        for system in pv:
-            if isinstance(system, dict):
-                system["max_kw"] = 1000000000
+        if len(pv) >= 2 and isinstance(pv[0], dict) and isinstance(pv[1], dict):
+            parameters.pv_parameter.apply_to_dict(pv)
+        else:
+            for system in pv:
+                if isinstance(system, dict):
+                    parameters.pv_parameter.apply_to_dict(system)
     elif isinstance(pv, dict):
-        pv["max_kw"] = 1000000000
+        parameters.pv_parameter.apply_to_dict(pv)
+    else:
+        assumptions["PV"] = {}
+        parameters.pv_parameter.apply_to_dict(assumptions["PV"])
+
     storage = assumptions.setdefault("ElectricStorage", {})
     if isinstance(storage, dict):
-        storage["max_kw"] = 1000000
-        storage.setdefault("max_kwh", 1000000)
+        parameters.storage_parameter.apply_to_dict(storage)
+        if not has_custom:
+            storage.setdefault("max_kwh", 1000000)
+
+    wind = assumptions.setdefault("Wind", {})
+    if isinstance(wind, dict):
+        parameters.wind_parameter.apply_to_dict(wind)
+
     generator = assumptions.setdefault("Generator", {})
     if isinstance(generator, dict):
-        generator["max_kw"] = 1000000000
+        parameters.generator_parameter.apply_to_dict(generator)
 
     reopt_folder = project_dir / "reopt"
     reopt_folder.mkdir(exist_ok=True)

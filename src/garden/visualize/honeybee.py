@@ -25,12 +25,15 @@ from garden.honeybee_core.model_io import (
     load_honeybee_model,
     resolve_model_target,
 )
-from garden.visualize.artifacts import load_visualization_set, save_visualization_set
-from garden.visualize.legend import legend_parameter_from_dict
+from garden.visualize.artifacts import (
+    coerce_legend_parameter,
+    load_visualization_set,
+    save_visualization_set,
+)
 
 MODEL_COLOR_BY = {"type", "boundary_condition", "none"}
 OBJECT_COLOR_BY = {"type", "boundary_condition", "none"}
-COMPOSE_CONFLICT_STRATEGIES = {"error", "rename"}
+COMPOSE_CONFLICT_STRATEGIES = {"error", "rename", "overwrite", "skip"}
 FACE_TYPE_MAP = {
     "wall": Wall,
     "roofceiling": RoofCeiling,
@@ -120,7 +123,7 @@ def _build_room_attributes(
             attrs=_attribute_paths(spec),
             color=bool(spec.get("color", True)),
             text=bool(spec.get("text", False)),
-            legend_par=legend_parameter_from_dict(spec.get("legend_parameter")),
+            legend_par=coerce_legend_parameter(spec.get("legend_parameter")),
         )
         for spec in attribute_specs
     ]
@@ -137,7 +140,7 @@ def _build_face_attributes(
             attrs=_attribute_paths(spec),
             color=bool(spec.get("color", True)),
             text=bool(spec.get("text", False)),
-            legend_par=legend_parameter_from_dict(spec.get("legend_parameter")),
+            legend_par=coerce_legend_parameter(spec.get("legend_parameter")),
             face_types=_map_face_types(spec.get("face_types")),
             boundary_conditions=_map_boundary_conditions(spec.get("boundary_conditions")),
         )
@@ -523,19 +526,27 @@ def compose_visualization_sets(
 
     combined = VisualizationSet(name or "composed_visualization_set", [], resolved_units)
     renamed_geometry_ids: list[dict[str, str]] = []
-    seen: set[str] = set()
+    skipped_geometry_ids: list[str] = []
+    overwritten_geometry_ids: list[str] = []
+    kept_geometries: list[Any] = []
+    seen: dict[str, int] = {}
     for set_index, vis_set in enumerate(vis_sets, start=1):
         if units is not None and vis_set.units and vis_set.units != units:
             vis_set.convert_to_units(units)
         if check_duplicate_geometry_ids:
-            _handle_geometry_identifier_conflicts(
+            _merge_geometry_with_conflicts(
                 vis_set,
                 set_index=set_index,
                 seen=seen,
+                kept_geometries=kept_geometries,
                 strategy=strategy,
                 renamed_geometry_ids=renamed_geometry_ids,
+                skipped_geometry_ids=skipped_geometry_ids,
+                overwritten_geometry_ids=overwritten_geometry_ids,
             )
-        combined.add_vis_set(vis_set)
+        else:
+            kept_geometries.extend(vis_set.geometry)
+    combined.geometry = kept_geometries
 
     if check_duplicate_geometry_ids:
         combined.check_duplicate_identifiers(raise_exception=True)
@@ -549,6 +560,8 @@ def compose_visualization_sets(
             "check_duplicate_geometry_ids": check_duplicate_geometry_ids,
             "conflict_strategy": strategy,
             "renamed_geometry_ids": renamed_geometry_ids,
+            "skipped_geometry_ids": skipped_geometry_ids,
+            "overwritten_geometry_ids": overwritten_geometry_ids,
         }
     )
     result: dict[str, Any] = {
@@ -654,23 +667,35 @@ def compose_model_analysis_visualization_set(
     return result
 
 
-def _handle_geometry_identifier_conflicts(
+def _merge_geometry_with_conflicts(
     vis_set: VisualizationSet,
     *,
     set_index: int,
-    seen: set[str],
+    seen: dict[str, int],
+    kept_geometries: list[Any],
     strategy: str,
     renamed_geometry_ids: list[dict[str, str]],
+    skipped_geometry_ids: list[str],
+    overwritten_geometry_ids: list[str],
 ) -> None:
     for geo_index, geometry in enumerate(vis_set.geometry, start=1):
         identifier = getattr(geometry, "identifier", None)
         if not identifier:
+            kept_geometries.append(geometry)
             continue
         if identifier not in seen:
-            seen.add(identifier)
+            seen[identifier] = len(kept_geometries)
+            kept_geometries.append(geometry)
             continue
         if strategy == "error":
             raise ValueError(f"Duplicate VisualizationSet geometry identifier: {identifier}")
+        if strategy == "skip":
+            skipped_geometry_ids.append(identifier)
+            continue
+        if strategy == "overwrite":
+            kept_geometries[seen[identifier]] = geometry
+            overwritten_geometry_ids.append(identifier)
+            continue
         new_identifier = _unique_geometry_identifier(
             identifier,
             set_index=set_index,
@@ -681,7 +706,8 @@ def _handle_geometry_identifier_conflicts(
         renamed_geometry_ids.append(
             {"original_identifier": identifier, "new_identifier": new_identifier}
         )
-        seen.add(new_identifier)
+        seen[new_identifier] = len(kept_geometries)
+        kept_geometries.append(geometry)
 
 
 def _unique_geometry_identifier(
@@ -689,7 +715,7 @@ def _unique_geometry_identifier(
     *,
     set_index: int,
     geo_index: int,
-    seen: set[str],
+    seen: dict[str, int] | set[str],
 ) -> str:
     stem = f"set_{set_index}_{identifier}"[:90].rstrip("_")
     candidate = stem

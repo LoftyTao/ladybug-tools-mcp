@@ -11,6 +11,8 @@ import subprocess
 import sys
 from typing import Any
 
+from honeybee_energy.config import folders as energy_folders
+from honeybee_energy.measure import Measure
 from ladybug.ddy import DDY
 from ladybug.epw import EPW
 
@@ -48,8 +50,19 @@ ENERGY_RUN_RECIPES = {
 }
 ENERGY_RUNS_DIR = Path("runs") / "energy"
 ENERGY_RUN_INDEX = ENERGY_RUNS_DIR / "index.json"
-OUTPUT_NAMES = ("err", "eui", "html", "result-report", "sql", "visual-report", "zsz")
-GARDEN_VERSION_NEXT_TOOL = "GD_Create_Version"
+OUTPUT_NAMES = (
+    "eio",
+    "err",
+    "eui",
+    "html",
+    "osw",
+    "rdd",
+    "result-report",
+    "sql",
+    "visual-report",
+    "zsz",
+)
+GARDEN_VERSION_NEXT_TOOL = "GD_Manage_Versions"
 
 
 def _recipe_cli_path(path_value: str | None = None) -> str:
@@ -151,11 +164,14 @@ ENERGY_RUN_PUBLIC_FIELDS = (
     "additional_idf_path",
     "additional_idf_source",
     "measures_path",
+    "measures",
+    "measures_only",
     "input_file_path",
     "workflow_path",
     "source_file_path",
     "run_input_path",
     "expand_objects",
+    "worker_pid",
 )
 
 _ENERGY_RUNS = RunManager(
@@ -277,8 +293,8 @@ def _weather_paths_from_inputs(
         raise ValueError(
             "Provide epw_path and ddy_path, or provide a complete weather_target "
             "with both epw_path and ddy_path. If you only have an identifier/path "
-                "for a registered Garden weather file, call EP_Search_Weather_Files with "
-            "require_ddy=true and pass matches[i].target."
+            "for a registered Garden weather file, call LB_Manage_Weather with "
+            "action='search' and require_ddy=true and pass matches[i].target."
         )
     epw = Path(epw_path).expanduser()
     ddy = Path(ddy_path).expanduser()
@@ -640,27 +656,27 @@ def _energy_run_result_evidence(
         completed_with_diagnostics and not severe_count and not fatal_count
     )
     if status in {"queued", "running"}:
-        recommended_next_tools = ["EP_Poll_Simulation"]
+        recommended_next_tools = ["GD_Poll_Run"]
         final_answer_guidance = (
-            "Energy simulation is currently queued or running; poll this run_target with EP_Poll_Simulation."
+            "Energy simulation is currently queued or running; poll this run_target with GD_Poll_Run."
         )
     elif final_answer_ready:
-        recommended_next_tools = ["EP_Read_EUI", GARDEN_VERSION_NEXT_TOOL]
+        recommended_next_tools = ["EP_Summarize_Results", GARDEN_VERSION_NEXT_TOOL]
         final_answer_guidance = (
-            "Energy simulation completed with EUI, SQL, and clean ERR outputs available via EP_Read_EUI."
+            "Energy simulation completed with EUI, SQL, and clean ERR outputs available via EP_Summarize_Results."
         )
     elif completed_with_diagnostics:
-        recommended_next_tools = ["EP_Read_EUI", "EP_Read_Errors"]
+        recommended_next_tools = ["EP_Summarize_Results", "EP_Read_Errors"]
         final_answer_guidance = (
             "Energy simulation completed with EUI and SQL outputs, and ERR diagnostics contain severe or fatal entries."
         )
     elif status == "completed":
-        recommended_next_tools = ["EP_List_Run_Outputs", "EP_Read_Errors"]
+        recommended_next_tools = ["GD_Poll_Run", "EP_Read_Errors"]
         final_answer_guidance = (
             "Energy simulation completed, though some EUI, SQL, or ERR outputs are absent; inspect outputs and diagnostics."
         )
     else:
-        recommended_next_tools = ["EP_List_Run_Outputs", "EP_Read_Errors"]
+        recommended_next_tools = ["GD_Poll_Run", "EP_Read_Errors"]
         final_answer_guidance = (
             "Energy simulation did not complete successfully; inspect outputs and ERR diagnostics."
         )
@@ -717,7 +733,7 @@ def _completed_reload_response(
                 record=record,
             ),
             "poll_next": {
-                "tool": "EP_Poll_Simulation",
+                "tool": "GD_Poll_Run",
                 "arguments": poll_arguments,
             },
         },
@@ -768,7 +784,7 @@ def _existing_run_response(
             "design_day_resolution": record.get("design_day_resolution"),
             "result_evidence": evidence,
             "poll_next": {
-                "tool": "EP_Poll_Simulation",
+                "tool": "GD_Poll_Run",
                 "arguments": poll_arguments,
             },
         },
@@ -782,6 +798,245 @@ def _existing_run_response(
     }
 
 
+def _resolve_measure_path(
+    garden_root: Path,
+    folder: str,
+    *,
+    require_measure_files: bool = True,
+) -> Path:
+    raw = str(folder or "").strip()
+    if not raw:
+        raise ValueError("Measure folder path cannot be empty.")
+    candidate = Path(raw).expanduser()
+    resolved = candidate.resolve() if candidate.is_absolute() else (garden_root / candidate).resolve()
+    in_garden = False
+    try:
+        resolved.relative_to(garden_root)
+        in_garden = True
+    except ValueError:
+        in_garden = False
+
+    lbt_measures_root = (
+        Path(energy_folders.lbt_measures_path).resolve()
+        if getattr(energy_folders, "lbt_measures_path", None)
+        else None
+    )
+    if not in_garden:
+        if lbt_measures_root is not None and not candidate.is_absolute() and not resolved.exists():
+            builtin = (lbt_measures_root / candidate).resolve()
+            if builtin.exists():
+                resolved = builtin
+        in_lbt = False
+        if lbt_measures_root is not None:
+            try:
+                resolved.relative_to(lbt_measures_root)
+                in_lbt = True
+            except ValueError:
+                in_lbt = False
+        if not in_lbt:
+            raise ValueError(
+                f"Measure folder must stay inside the Garden or LBT measures folder: {folder}"
+            )
+    if not resolved.is_dir():
+        raise ValueError(f"Measure folder was not found: {folder}")
+    if require_measure_files:
+        if not (resolved / "measure.xml").is_file() or not (resolved / "measure.rb").is_file():
+            raise ValueError(
+                f"Measure folder must contain measure.xml and measure.rb: {folder}"
+            )
+    return resolved
+
+
+def _measure_metadata(measure: Measure, *, include_validation: bool = False) -> dict[str, Any]:
+    args_info: list[dict[str, Any]] = []
+    missing_required: list[str] = []
+    for arg in measure.arguments:
+        is_valid = arg.validate(raise_exception=False)
+        if not is_valid:
+            missing_required.append(arg.identifier)
+        args_info.append(
+            {
+                "identifier": arg.identifier,
+                "display_name": arg.display_name,
+                "type": arg.type_text,
+                "required": bool(arg.required),
+                "default_value": arg.default_value,
+                "value": arg.value,
+                "valid_choices": list(arg.valid_choices) if arg.valid_choices is not None else None,
+                "description": arg.description,
+                "model_dependent": bool(arg.model_dependent),
+            }
+        )
+    payload: dict[str, Any] = {
+        "identifier": measure.identifier,
+        "display_name": measure.display_name,
+        "description": measure.description,
+        "type": measure.type,
+        "folder": measure.folder,
+        "arguments": args_info,
+    }
+    if include_validation:
+        payload["valid"] = len(missing_required) == 0
+        payload["missing_required_arguments"] = missing_required
+    return payload
+
+
+def load_and_configure_measures(
+    garden_root: Path,
+    measures: list[dict[str, Any] | str] | tuple[dict[str, Any] | str, ...] | None,
+    *,
+    validate_required: bool = True,
+) -> tuple[list[Measure], list[dict[str, Any]]]:
+    """Load, configure, and validate ordered OpenStudio Measure definitions."""
+    if measures is None:
+        return [], []
+    if not isinstance(measures, (list, tuple)):
+        raise ValueError("measures must be a list of {folder, arguments} objects or folder strings.")
+    allowed_keys = {"folder", "arguments", "path", "measure_dir_name"}
+    loaded: list[Measure] = []
+    specs: list[dict[str, Any]] = []
+    for index, item in enumerate(measures):
+        if isinstance(item, str):
+            folder_value = item
+            arguments: dict[str, Any] = {}
+        elif isinstance(item, dict):
+            unknown_keys = sorted(set(item) - allowed_keys)
+            if unknown_keys:
+                raise ValueError(
+                    f"measures[{index}] contains unsupported field(s): {', '.join(unknown_keys)}."
+                )
+            folder_value = str(
+                item.get("folder") or item.get("path") or item.get("measure_dir_name") or ""
+            ).strip()
+            if not folder_value:
+                raise ValueError(f"measures[{index}] requires 'folder'.")
+            raw_args = item.get("arguments")
+            if raw_args is None:
+                arguments = {}
+            elif isinstance(raw_args, dict):
+                arguments = dict(raw_args)
+            else:
+                raise ValueError(f"measures[{index}].arguments must be a dictionary.")
+        else:
+            raise ValueError(
+                f"measures[{index}] must be a {{folder, arguments}} object or folder string."
+            )
+
+        resolved_folder = _resolve_measure_path(
+            garden_root, folder_value, require_measure_files=True
+        )
+        try:
+            measure = Measure(str(resolved_folder))
+        except Exception as exc:
+            raise ValueError(f"Failed to load OpenStudio measure {folder_value!r}: {exc}") from exc
+
+        args_by_id = {arg.identifier: arg for arg in measure.arguments}
+        unknown_args = sorted(set(arguments) - set(args_by_id))
+        if unknown_args:
+            allowed_args = ", ".join(sorted(args_by_id)) or "(none)"
+            raise ValueError(
+                f"Measure {measure.identifier!r} does not define argument(s): "
+                f"{', '.join(unknown_args)}. Allowed: {allowed_args}."
+            )
+        for arg_name, arg_value in arguments.items():
+            try:
+                args_by_id[arg_name].value = arg_value
+            except (TypeError, ValueError, AssertionError) as exc:
+                raise ValueError(
+                    f"Invalid value for measure {measure.identifier!r} argument {arg_name!r}: {exc}"
+                ) from exc
+        if validate_required:
+            try:
+                measure.validate(raise_exception=True)
+            except Exception as exc:
+                raise ValueError(
+                    f"Measure {measure.identifier!r} failed validation: {exc}"
+                ) from exc
+        loaded.append(measure)
+        specs.append(
+            {
+                "folder": str(resolved_folder),
+                "identifier": measure.identifier,
+                "display_name": measure.display_name,
+                "type": measure.type,
+                "arguments": {
+                    arg.identifier: arg.value
+                    for arg in measure.arguments
+                    if arg.value is not None
+                },
+            }
+        )
+    return loaded, specs
+
+
+def inspect_openstudio_measures(
+    *,
+    garden_root: str,
+    measure_folder: str | None = None,
+    measures_path: str | None = None,
+    measures: list[dict[str, Any] | str] | None = None,
+) -> dict[str, Any]:
+    """Inspect OpenStudio measure metadata and typed arguments using honeybee_energy.measure.Measure."""
+    root = _garden_root(garden_root)
+    manifest = GardenManifest.read(root)
+    inspected: list[dict[str, Any]] = []
+    scanned_roots: list[str] = []
+
+    if measures is not None:
+        loaded, _ = load_and_configure_measures(root, measures, validate_required=False)
+        for measure in loaded:
+            inspected.append(_measure_metadata(measure, include_validation=True))
+    else:
+        target_raw = measure_folder or measures_path
+        if target_raw is not None:
+            target_dir = _resolve_measure_path(root, target_raw, require_measure_files=False)
+            scanned_roots.append(str(target_dir))
+            if (target_dir / "measure.xml").is_file() and (target_dir / "measure.rb").is_file():
+                inspected.append(_measure_metadata(Measure(str(target_dir)), include_validation=True))
+            else:
+                for child in sorted(target_dir.iterdir()):
+                    if child.is_dir() and (child / "measure.xml").is_file() and (child / "measure.rb").is_file():
+                        inspected.append(_measure_metadata(Measure(str(child)), include_validation=True))
+        else:
+            candidates: list[Path] = []
+            garden_measures = root / "measures"
+            if garden_measures.is_dir():
+                candidates.append(garden_measures)
+            lbt_root = getattr(energy_folders, "lbt_measures_path", None)
+            if lbt_root and Path(lbt_root).is_dir():
+                candidates.append(Path(lbt_root))
+            for base_dir in candidates:
+                scanned_roots.append(str(base_dir))
+                for child in sorted(base_dir.iterdir()):
+                    if child.is_dir() and (child / "measure.xml").is_file() and (child / "measure.rb").is_file():
+                        inspected.append(_measure_metadata(Measure(str(child)), include_validation=True))
+
+    return {
+        "measures": inspected,
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "measure_count": len(inspected),
+            "scanned_roots": scanned_roots,
+            "measures": [
+                {
+                    "identifier": item["identifier"],
+                    "display_name": item["display_name"],
+                    "type": item["type"],
+                    "folder": item["folder"],
+                    "argument_count": len(item["arguments"]),
+                    "valid": item.get("valid", True),
+                    "missing_required_arguments": item.get("missing_required_arguments", []),
+                }
+                for item in inspected
+            ],
+        },
+        "report": make_report(
+            status="ok",
+            message=f"Inspected {len(inspected)} OpenStudio measure(s).",
+        ),
+    }
+
+
 def _recipe_outputs(
     *,
     garden_root_path: Path,
@@ -790,10 +1045,16 @@ def _recipe_outputs(
 ) -> list[dict[str, Any]]:
     outputs = []
     recipe_dir = run_dir / "openstudio"
+    osw_path = recipe_dir / "out.osw"
+    if not osw_path.is_file():
+        osw_path = recipe_dir / "workflow.osw"
     direct_outputs = {
+        "eio": recipe_dir / "run" / "eplusout.eio",
         "err": recipe_dir / "run" / "eplusout.err",
         "eui": recipe_dir / "eui.json",
         "html": recipe_dir / "run" / "eplustbl.htm",
+        "osw": osw_path,
+        "rdd": recipe_dir / "run" / "eplusout.rdd",
         "result-report": recipe_dir / "reports" / "openstudio_results_report.html",
         "sql": recipe_dir / "run" / "eplusout.sql",
         "visual-report": recipe_dir / "reports" / "view_data_report.html",
@@ -813,6 +1074,8 @@ def _run_honeybee_energy_cli(
     sim_par_path: str | None,
     additional_idf_file: Path | None,
     measures_folder: Path | None,
+    measures_spec_path: Path | None,
+    measures_only: bool,
     units: str,
     silent: bool,
 ) -> tuple[int, int]:
@@ -833,6 +1096,10 @@ def _run_honeybee_energy_cli(
         command.extend(["--sim-par-json", sim_par_path])
     if measures_folder is not None:
         command.extend(["--measures", str(measures_folder)])
+    if measures_spec_path is not None:
+        command.extend(["--measures-spec-json", str(measures_spec_path)])
+    if measures_only:
+        command.append("--measures-only")
     if additional_idf_file is not None:
         command.extend(["--additional-idf", str(additional_idf_file)])
     if silent:
@@ -857,6 +1124,8 @@ def _run_honeybee_energy_cli(
             env=env,
             check=False,
         )
+        if measures_only:
+            return int(simulate.returncode), 0
         eui_status = 1
         sql_path = recipe_dir / "run" / "eplusout.sql"
         if sql_path.is_file():
@@ -907,30 +1176,36 @@ def _energy_response(
         str(record["run_id"]),
         recipe=str(record.get("recipe") or ENERGY_RUN_RECIPE),
     )
-    return {
+    summary_view: dict[str, Any] = {
+        "garden_target": manifest.target(),
+        "target": target,
+        "run_id": record.get("run_id"),
+        "status": status,
+        "recipe": record.get("recipe", ENERGY_RUN_RECIPE),
+        "run_folder": record.get("run_folder"),
+        "outputs": _outputs_map(record),
+        "preflight": record.get("preflight"),
+        "simulation_parameter_target": record.get("simulation_parameter_target"),
+        "design_day_resolution": record.get("design_day_resolution"),
+    }
+    if record.get("worker_pid") is not None:
+        summary_view["worker_pid"] = record["worker_pid"]
+    result: dict[str, Any] = {
         "target": target,
         "energy_run_target": target,
         "run_target": target,
         "status": status,
         "run_id": record.get("run_id"),
-        "summary_view": {
-            "garden_target": manifest.target(),
-            "target": target,
-            "run_id": record.get("run_id"),
-            "status": status,
-            "recipe": record.get("recipe", ENERGY_RUN_RECIPE),
-            "run_folder": record.get("run_folder"),
-            "outputs": _outputs_map(record),
-            "preflight": record.get("preflight"),
-            "simulation_parameter_target": record.get("simulation_parameter_target"),
-            "design_day_resolution": record.get("design_day_resolution"),
-        },
+        "summary_view": summary_view,
         "report": make_report(
             status=report_status or ("ok" if status in {"running", "completed"} else "error"),
             message=message,
             warnings=warnings or list(record.get("warnings") or []),
         ),
     }
+    if record.get("worker_pid") is not None:
+        result["worker_pid"] = record["worker_pid"]
+    return result
 
 
 def _mark_energy_failed(
@@ -976,6 +1251,8 @@ def _prepare_annual_energy_run(
     additional_idf_path: str | None = None,
     additional_idf_text: str | None = None,
     measures_path: str | None = None,
+    measures: list[dict[str, Any] | str] | None = None,
+    measures_only: bool = False,
     run_id: str | None = None,
     units: str = "si",
     workers: int | None = None,
@@ -1053,6 +1330,11 @@ def _prepare_annual_energy_run(
         field_name="measures_path",
         kind="directory",
     )
+    loaded_measures, normalized_measures = load_and_configure_measures(
+        garden_root_path,
+        measures,
+        validate_required=True,
+    )
     units = units.lower().strip()
     if units not in {"si", "ip"}:
         raise ValueError("units must be either 'si' or 'ip'.")
@@ -1075,6 +1357,7 @@ def _prepare_annual_energy_run(
         ("model_path", model_path), ("epw_path", Path(epw_path)),
         ("ddy_path", Path(ddy_path)), ("measures_path", measures_folder),
         ("additional_idf_path", additional_source),
+        *((f"measures[{idx}].folder", Path(m.folder)) for idx, m in enumerate(loaded_measures)),
     ):
         if source is not None and source.resolve().is_relative_to(native_dir):
             raise ValueError(
@@ -1090,6 +1373,21 @@ def _prepare_annual_energy_run(
     run_dir.mkdir(parents=True, exist_ok=True)
     _clear_native_recipe_dir(garden_root_path, native_dir)
     sim_par_path = _write_json_input(run_dir, "simulation_parameter.json", sim_par)
+    measures_spec_path: str | None = None
+    if normalized_measures:
+        input_dir = run_dir / "inputs"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        spec_file = input_dir / "measures_spec.json"
+        spec_file.write_text(
+            json.dumps(
+                [{"folder": item["folder"], "arguments": item["arguments"]} for item in normalized_measures],
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        measures_spec_path = str(spec_file)
     additional_idf_file, additional_idf_source = _resolve_additional_idf_input(
         garden_root=garden_root_path,
         run_dir=run_dir,
@@ -1139,6 +1437,7 @@ def _prepare_annual_energy_run(
         "workers": workers,
         "reload_old": reload_old,
         "silent": silent,
+        "measures_only": bool(measures_only),
         "warnings": warnings,
         "preflight": preflight,
         "design_day_resolution": design_day_resolution,
@@ -1152,6 +1451,11 @@ def _prepare_annual_energy_run(
         record["additional_idf_source"] = additional_idf_source
     if measures_folder is not None:
         record["measures_path"] = to_posix_relative(measures_folder, garden_root_path)
+    if normalized_measures:
+        record["measures"] = normalized_measures
+        record["measures_spec_path"] = to_posix_relative(
+            Path(measures_spec_path), garden_root_path
+        )
     if sim_par_path is not None:
         record["sim_par_path"] = to_posix_relative(
             Path(sim_par_path), garden_root_path
@@ -1204,6 +1508,16 @@ def _execute_annual_energy_run(
         if record.get("measures_path")
         else None
     )
+    measures_spec_path = (
+        _record_path(
+            garden_root,
+            record["measures_spec_path"],
+            field_name="measures_spec_path",
+        )
+        if record.get("measures_spec_path")
+        else None
+    )
+    measures_only = bool(record.get("measures_only", False))
     if _requires_external_ironbug_console(model_path):
         ib_dir = resolve_ironbug_dir()
         if resolve_ironbug_console_exe(ib_dir) is None:
@@ -1245,6 +1559,8 @@ def _execute_annual_energy_run(
             sim_par_path=str(sim_par_path) if sim_par_path is not None else None,
             additional_idf_file=additional_idf_file,
             measures_folder=measures_folder,
+            measures_spec_path=measures_spec_path,
+            measures_only=measures_only,
             units=str(record.get("units") or "si"),
             silent=bool(record.get("silent", True)),
         )
@@ -1257,7 +1573,7 @@ def _execute_annual_energy_run(
             warnings.append(
                 f"Honeybee Energy simulation command failed with exit code {simulate_status}."
             )
-        elif eui_status != 0:
+        elif not measures_only and eui_status != 0:
             status = "failed"
             warnings.append(
                 f"Honeybee Energy EUI command failed with exit code {eui_status}."
@@ -1268,9 +1584,14 @@ def _execute_annual_energy_run(
         run_dir=run_dir,
         warnings=warnings,
     )
-    if status == "completed" and not _outputs_map({"outputs": outputs}).get(
-        "eui", {}
-    ).get("exists"):
+    osw_output = _outputs_map({"outputs": outputs}).get("osw", {})
+    if osw_output.get("exists") and osw_output.get("path"):
+        record["workflow_path"] = osw_output["path"]
+    if (
+        status == "completed"
+        and not measures_only
+        and not _outputs_map({"outputs": outputs}).get("eui", {}).get("exists")
+    ):
         status = "failed"
         warnings.append("Recipe finished without an EUI output; marking run as failed.")
     record.update(
@@ -1286,7 +1607,9 @@ def _execute_annual_energy_run(
         manifest=manifest,
         record=record,
         message=(
-            "Annual energy-use simulation completed."
+            "OpenStudio measures-only run completed."
+            if (status == "completed" and measures_only)
+            else "Annual energy-use simulation completed."
             if status == "completed"
             else "Annual energy-use simulation failed; run record was saved."
         ),
@@ -1307,6 +1630,8 @@ def run_energy(
     additional_idf_path: str | None = None,
     additional_idf_text: str | None = None,
     measures_path: str | None = None,
+    measures: list[dict[str, Any] | str] | None = None,
+    measures_only: bool = False,
     run_id: str | None = None,
     units: str = "si",
     workers: int | None = None,
@@ -1327,6 +1652,8 @@ def run_energy(
         additional_idf_path=additional_idf_path,
         additional_idf_text=additional_idf_text,
         measures_path=measures_path,
+        measures=measures,
+        measures_only=measures_only,
         run_id=run_id,
         units=units,
         workers=workers,
@@ -1379,6 +1706,7 @@ def run_energy_worker(
             manifest=manifest,
             record=record,
         )
+    record.setdefault("worker_pid", os.getpid())
     try:
         return _execute_annual_energy_run(
             garden_root=garden_root_path,
@@ -1406,6 +1734,8 @@ def start_energy_run(
     additional_idf_path: str | None = None,
     additional_idf_text: str | None = None,
     measures_path: str | None = None,
+    measures: list[dict[str, Any] | str] | None = None,
+    measures_only: bool = False,
     run_id: str | None = None,
     units: str = "si",
     workers: int | None = None,
@@ -1426,6 +1756,8 @@ def start_energy_run(
         additional_idf_path=additional_idf_path,
         additional_idf_text=additional_idf_text,
         measures_path=measures_path,
+        measures=measures,
+        measures_only=measures_only,
         run_id=run_id,
         units=units,
         workers=workers,
@@ -1456,7 +1788,7 @@ def start_energy_run(
             warnings=list(record.get("warnings") or []),
         )
     try:
-        _submit_energy_background(
+        proc = _submit_energy_background(
             garden_root=str(garden_root_path),
             run_id=str(record["run_id"]),
         )
@@ -1471,18 +1803,26 @@ def start_energy_run(
             record=failed,
             message="Annual energy-use simulation could not be started; run record was saved.",
         )
+    worker_pid = getattr(proc, "pid", None)
+    if worker_pid is not None:
+        latest = _ENERGY_RUNS.get(garden_root_path, str(record["run_id"]))
+        record = latest or record
+        record["worker_pid"] = int(worker_pid)
+        _upsert_record(garden_root_path, record)
     result = _energy_response(
         manifest=manifest,
         record=record,
         message="Annual energy-use simulation started; poll the energy_run target for status.",
     )
-    result["summary_view"]["poll_next"] = {
-        "tool": "EP_Poll_Simulation",
+    poll_next = {
+        "tool": "GD_Poll_Run",
         "arguments": {
             "garden_root": str(garden_root_path),
             "run_target": record["target"],
         },
     }
+    result["poll_next"] = poll_next
+    result["summary_view"]["poll_next"] = poll_next
     return result
 
 
@@ -1614,7 +1954,7 @@ def read_energy_eui(
             "missing_path": missing_path,
             "available_output_names": existing_output_names,
             "recommended_next_tools": [
-                "EP_List_Run_Outputs",
+                "GD_Poll_Run",
                 "EP_Read_Errors",
             ],
         }
@@ -1664,7 +2004,7 @@ def read_energy_eui(
         completed_with_diagnostics and not severe_count and not fatal_count
     )
     recommended_next_tools = [GARDEN_VERSION_NEXT_TOOL] if final_answer_ready else [
-        "EP_List_Run_Outputs",
+        "GD_Poll_Run",
         "EP_Read_Errors",
     ]
     if final_answer_ready:
@@ -1769,7 +2109,7 @@ def read_energy_errors(
             "run_id": resolved_run_id,
             "run_status": record.get("status"),
             "available_output_names": output_names,
-            "recommended_next_tools": ["EP_Poll_Simulation", "EP_List_Run_Outputs"],
+            "recommended_next_tools": ["GD_Poll_Run", "GD_Read_Run_Logs"],
         }
         return {
             "text": "",
@@ -1796,7 +2136,7 @@ def read_energy_errors(
                 "fatal_errors": [],
                 "available_output_names": output_names,
                 "energy_blocker": energy_blocker,
-                "recommended_next_tools": ["EP_Poll_Simulation", "EP_List_Run_Outputs"],
+                "recommended_next_tools": ["GD_Poll_Run", "GD_Read_Run_Logs"],
             },
             "report": make_report(
                 status="blocked",

@@ -2,6 +2,7 @@ include requirements.in requirements.txt
 recursive-include src/ironbug_bridge *.cs *.csproj
 recursive-include src/grasshopper_components/user_objects *.ghuser *.json
 recursive-include src/grasshopper_components *.py
+recursive-include src/web_view/vendor *.js
 prune docs
 prune tests
 prune src/ironbug_bridge/bin

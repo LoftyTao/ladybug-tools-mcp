@@ -71,7 +71,7 @@ def register_weather_resources(mcp) -> None:
             title="Ladybug Tools bundled weather catalog",
             description=(
                 "Bundled EPW, DDY, and STAT files sourced from Climate.OneBuilding.Org. "
-                "Import a station with EP_Import_Local_Weather using "
+                "Import a station with LB_Manage_Weather (action='import') using "
                 "weather://files/<station>."
             ),
             tags={"weather", "epw", "energy", "radiance", "urbanopt"},

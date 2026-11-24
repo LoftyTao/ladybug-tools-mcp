@@ -74,6 +74,13 @@ IronbugCategory = Literal[
 
 PlantLoopType = Literal["Cooling", "Heating", "Condenser", "Both"]
 
+IronbugTemplateName = Literal[
+    "vav_chiller_boiler",
+    "doas_fcu",
+    "vrf_doas",
+    "wshp",
+]
+
 ReportingFrequency = Literal[
     "Detailed",
     "Timestep",
@@ -111,6 +118,51 @@ class IronbugOutputVariableSpec(BaseModel):
         default="Hourly",
         description="EnergyPlus reporting frequency (default: 'Hourly').",
     )
+
+
+class IronbugEmsSensorSpec(BaseModel):
+    """Component-level EMS Sensor attachment (AddEMSSensors)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, description="Optional EMS sensor variable name.")
+    key_name: str | None = Field(default=None, description="EnergyPlus KeyName (e.g. '*', zone, or component key).")
+    output_variable: str | None = Field(default=None, description="EnergyPlus Output:Variable or meter name.")
+    output_variable_or_meter_name: str | None = Field(
+        default=None,
+        description="Alias for output_variable matching IB_EnergyManagementSystemSensor FieldSet.",
+    )
+    fields: dict[str, Any] | None = Field(default=None, description="Optional additional IB_EnergyManagementSystemSensor fields.")
+    tracking_id: str | None = Field(default=None, description="Optional TrackingID override.")
+
+
+class IronbugEmsInternalVariableSpec(BaseModel):
+    """Component-level EMS InternalVariable attachment (AddEMSInternalVariables)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, description="Optional EMS internal variable name.")
+    internal_data_type: str | None = Field(default=None, description="EnergyPlus internal variable data type.")
+    data_type: str | None = Field(default=None, description="Alias for internal_data_type.")
+    host_obj: str | None = Field(default=None, description="Optional host component ID.")
+    fields: dict[str, Any] | None = Field(default=None, description="Optional additional IB_EnergyManagementSystemInternalVariable fields.")
+    tracking_id: str | None = Field(default=None, description="Optional TrackingID override.")
+
+
+class IronbugEmsActuatorSpec(BaseModel):
+    """Component-level EMS Actuator attachment (AddEMSActuators)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, description="Optional EMS actuator variable name.")
+    actuated_component_type: str | None = Field(default=None, description="EnergyPlus actuated component type.")
+    component_type: str | None = Field(default=None, description="Alias for actuated_component_type.")
+    actuated_component_control_type: str | None = Field(default=None, description="EnergyPlus actuated control type.")
+    control_type: str | None = Field(default=None, description="Alias for actuated_component_control_type.")
+    actuated_obj: str | None = Field(default=None, description="Optional actuated component ID or object name.")
+    fields: dict[str, Any] | None = Field(default=None, description="Optional additional IB_EnergyManagementSystemActuator fields.")
+    tracking_id: str | None = Field(default=None, description="Optional TrackingID override.")
+
 
 class IronbugSystemSpecDict(BaseModel):
     """Official Ironbug IB_HVACSystem JSON specification dictionary."""
@@ -158,6 +210,26 @@ class IronbugComponentSpec(BaseModel):
         default=None,
         description="Optional EnergyPlus Output:Variable names or {variable_name, reporting_frequency} objects.",
     )
+    ems_sensors: list[str | IronbugEmsSensorSpec] | None = Field(
+        default=None,
+        description="Optional component-level EMS sensor IDs or inline specs (AddEMSSensors).",
+    )
+    ems_internal_variables: list[str | IronbugEmsInternalVariableSpec] | None = Field(
+        default=None,
+        description="Optional component-level EMS internal variable IDs or inline specs (AddEMSInternalVariables).",
+    )
+    ems_actuators: list[str | IronbugEmsActuatorSpec] | None = Field(
+        default=None,
+        description="Optional component-level EMS actuator IDs or inline specs (AddEMSActuators).",
+    )
+    children: list[str] | None = Field(
+        default=None,
+        description="Optional explicit ordered IB_Children component IDs (used when reverse-parsing complex imported specs).",
+    )
+    ib_properties: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional explicit IBProperties dictionary entries.",
+    )
     tracking_id: str | None = Field(
         default=None,
         description="Optional explicit TrackingID override (defaults to component ID when reused across loops).",
@@ -187,8 +259,43 @@ class ThermalZoneConfig(BaseModel):
         default=None,
         description="Allow connecting this thermal zone to multiple AirLoops.",
     )
+    is_air_terminal_before_zone_equipments: bool | None = Field(
+        default=None,
+        description="Order air terminal ahead of zone equipment in ZoneHVACEquipmentList.",
+    )
     supply_plenum: str | None = Field(default=None, description="Optional supply plenum zone/component ID.")
     return_plenum: str | None = Field(default=None, description="Optional return plenum zone/component ID.")
+    fields: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional IB_ThermalZone FieldSet properties (e.g. Multiplier, LoadDistributionScheme).",
+    )
+    wiring: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional IB_ThermalZone wiring method overrides.",
+    )
+    output_variables: list[str | IronbugOutputVariableSpec] | None = Field(
+        default=None,
+        description="Optional zone Output:Variable attachments.",
+    )
+    ems_sensors: list[str | IronbugEmsSensorSpec] | None = Field(
+        default=None,
+        description="Optional zone-level EMS sensors.",
+    )
+    ems_internal_variables: list[str | IronbugEmsInternalVariableSpec] | None = Field(
+        default=None,
+        description="Optional zone-level EMS internal variables.",
+    )
+    ems_actuators: list[str | IronbugEmsActuatorSpec] | None = Field(
+        default=None,
+        description="Optional zone-level EMS actuators.",
+    )
+    equipment_list_priorities: dict[str, int | dict[str, int]] | list[str | dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Optional cooling/heating priority mapping by component ID "
+            "(e.g. {'fcu': {'cooling_priority': 1, 'heating_priority': 2}}) or ordered component list."
+        ),
+    )
 
 class AirLoopConfig(BaseModel):
     """Configuration for a central OpenStudio AirLoopHVAC."""
@@ -197,9 +304,32 @@ class AirLoopConfig(BaseModel):
 
     name: str | None = Field(default=None, description="AirLoop display/object name.")
     sizing_system: str | None = Field(default=None, description="Optional IB_SizingSystem component ID.")
+    availability_managers: list[str | IronbugComponentSpec] | None = Field(
+        default=None,
+        description="Optional IB_AvailabilityManager component IDs or inline specs.",
+    )
+    fields: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional IB_AirLoopHVAC FieldSet properties (e.g. NightCycleControlType, DesignSupplyAirFlowRate).",
+    )
+    wiring: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional IB_AirLoopHVAC wiring method overrides.",
+    )
     supply: list[str] | None = Field(
         default=None,
         description="Ordered list of supply-side component IDs (e.g. OA system, coils, fan, setpoint manager).",
+    )
+    supply_branches: list[list[str]] | None = Field(
+        default=None,
+        description="Optional grouped supply component branch lists added sequentially to the air loop supply side.",
+    )
+    return_path: str | list[str] | dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Optional return-path configuration: return plenum room name, return-fan/component IDs, "
+            "or {return_plenum, return_fan, components, relief_stream_objs}."
+        ),
     )
     demand_zones: list[str] | None = Field(
         default=None,
@@ -208,6 +338,22 @@ class AirLoopConfig(BaseModel):
     demand_branches: list[list[str]] | None = Field(
         default=None,
         description="Explicit demand branches as nested lists of room names or thermal zone IDs.",
+    )
+    output_variables: list[str | IronbugOutputVariableSpec] | None = Field(
+        default=None,
+        description="Optional air loop Output:Variable attachments.",
+    )
+    ems_sensors: list[str | IronbugEmsSensorSpec] | None = Field(
+        default=None,
+        description="Optional air loop EMS sensors.",
+    )
+    ems_internal_variables: list[str | IronbugEmsInternalVariableSpec] | None = Field(
+        default=None,
+        description="Optional air loop EMS internal variables.",
+    )
+    ems_actuators: list[str | IronbugEmsActuatorSpec] | None = Field(
+        default=None,
+        description="Optional air loop EMS actuators.",
     )
 
 class PlantLoopConfig(BaseModel):
@@ -231,6 +377,18 @@ class PlantLoopConfig(BaseModel):
     )
     sizing_plant: str | None = Field(default=None, description="Optional explicit IB_SizingPlant component ID.")
     operation_scheme: str | None = Field(default=None, description="Optional PlantEquipmentOperation scheme component ID.")
+    availability_managers: list[str | IronbugComponentSpec] | None = Field(
+        default=None,
+        description="Optional IB_AvailabilityManager component IDs or inline specs.",
+    )
+    fields: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional IB_PlantLoop FieldSet properties (e.g. FluidType, CommonPipeSimulation, LoadDistributionScheme).",
+    )
+    wiring: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional IB_PlantLoop wiring method overrides.",
+    )
     supply: list[str | list[list[str]]] | None = Field(
         default=None,
         description="Ordered supply-side component IDs (e.g. pump before supply_branches, setpoint manager after).",
@@ -254,6 +412,29 @@ class PlantLoopConfig(BaseModel):
     demand_branches: list[list[str]] | None = Field(
         default=None,
         description="Parallel demand branches as nested lists, e.g. [['cool_coil']] or [['coil_1'], ['coil_2']].",
+    )
+    bypass_pipes: bool | str | list[str] | dict[str, bool | str] | None = Field(
+        default=None,
+        description=(
+            "Optional bypass pipe configuration (IB_PipeAdiabatic parallel branch): "
+            "true/'both'/'supply'/'demand', component ID(s), or {'supply': true|id, 'demand': true|id}."
+        ),
+    )
+    output_variables: list[str | IronbugOutputVariableSpec] | None = Field(
+        default=None,
+        description="Optional plant loop Output:Variable attachments.",
+    )
+    ems_sensors: list[str | IronbugEmsSensorSpec] | None = Field(
+        default=None,
+        description="Optional plant loop EMS sensors.",
+    )
+    ems_internal_variables: list[str | IronbugEmsInternalVariableSpec] | None = Field(
+        default=None,
+        description="Optional plant loop EMS internal variables.",
+    )
+    ems_actuators: list[str | IronbugEmsActuatorSpec] | None = Field(
+        default=None,
+        description="Optional plant loop EMS actuators.",
     )
 
 class VrfSystemConfig(BaseModel):
@@ -363,7 +544,7 @@ class DescribeComponentsResult(IronbugToolResult):
     not_found: list[str] = Field(default_factory=list)
 
 class OpenStudioSummary(BaseModel):
-    """Counts of translated OpenStudio HVAC objects produced by SaveHVAC."""
+    """Counts of translated OpenStudio HVAC, plant, control, and EMS objects produced by SaveHVAC."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -385,6 +566,74 @@ class OpenStudioSummary(BaseModel):
     fans_on_off: int = 0
     fans_constant_volume: int = 0
     fans_variable_volume: int = 0
+    air_terminals_cv_no_reheat: int = 0
+    air_terminals_vav_no_reheat: int = 0
+    air_terminals_piu_parallel: int = 0
+    air_terminals_piu_series: int = 0
+    air_terminals_chilled_beam: int = 0
+    air_terminals_four_pipe_beam: int = 0
+    outdoor_air_systems: int = 0
+    dedicated_outdoor_air_systems: int = 0
+    unitary_systems: int = 0
+    unitary_heat_pumps_air_to_air: int = 0
+    heat_exchangers_air_to_air: int = 0
+    humidifiers_steam_electric: int = 0
+    evaporative_coolers: int = 0
+    supply_plenums: int = 0
+    return_plenums: int = 0
+    fans_system_model: int = 0
+    fans_zone_exhaust: int = 0
+    coil_cooling_dx_single_speed: int = 0
+    coil_cooling_dx_two_speed: int = 0
+    coil_cooling_dx_variable_speed: int = 0
+    coil_cooling_dx_vrf: int = 0
+    coil_cooling_water_to_air_hp: int = 0
+    coil_heating_electric: int = 0
+    coil_heating_gas: int = 0
+    coil_heating_dx_single_speed: int = 0
+    coil_heating_dx_vrf: int = 0
+    coil_heating_water_to_air_hp: int = 0
+    zone_hvac_vrf_terminals: int = 0
+    zone_hvac_water_to_air_hps: int = 0
+    zone_hvac_unit_heaters: int = 0
+    zone_hvac_unit_ventilators: int = 0
+    zone_hvac_baseboards_water: int = 0
+    zone_hvac_baseboards_electric: int = 0
+    zone_hvac_low_temp_radiant_var_flow: int = 0
+    zone_hvac_low_temp_radiant_const_flow: int = 0
+    zone_hvac_ervs: int = 0
+    zone_hvac_equipment_lists: int = 0
+    chillers_absorption: int = 0
+    cooling_towers_single_speed: int = 0
+    cooling_towers_two_speed: int = 0
+    fluid_coolers: int = 0
+    district_cooling: int = 0
+    district_heating: int = 0
+    heat_pumps_water_to_water: int = 0
+    heat_pumps_plant_loop_eir: int = 0
+    ground_heat_exchangers: int = 0
+    heat_exchangers_fluid_to_fluid: int = 0
+    water_heaters: int = 0
+    pipes_adiabatic: int = 0
+    setpoint_managers: int = 0
+    availability_managers: int = 0
+    availability_manager_assignment_lists: int = 0
+    controllers_outdoor_air: int = 0
+    controllers_water_coil: int = 0
+    sizing_zones: int = 0
+    sizing_systems: int = 0
+    sizing_plants: int = 0
+    curves: int = 0
+    schedules: int = 0
+    ems_sensors: int = 0
+    ems_actuators: int = 0
+    ems_internal_variables: int = 0
+    ems_programs: int = 0
+    ems_program_calling_managers: int = 0
+    ems_output_variables: int = 0
+    electric_load_center_distributions: int = 0
+    generators: int = 0
+    output_variables: int = 0
 
 class IronbugSystemSummary(BaseModel):
     """High-level summary of a serialized IB_HVACSystem."""
@@ -447,6 +696,7 @@ class ValidateSystemResult(IronbugToolResult):
     openstudio_summary: OpenStudioSummary = Field(default_factory=OpenStudioSummary)
     system_summary: IronbugSystemSummary = Field(default_factory=IronbugSystemSummary)
     room_check: RoomPreconditionCheck | None = None
+    forward_translator: dict[str, Any] | None = None
     summary_view: dict[str, Any] = Field(default_factory=dict)
 
 class ApplyToModelResult(IronbugToolResult):
@@ -664,8 +914,11 @@ def register(mcp: FastMCP) -> None:
         name="IB_Create_System",
         description=(
             "Initialize a new Garden-managed official Ironbug IB_HVACSystem specification under "
-            "models/ironbug/<identifier>.json (or import an existing official IB_HVACSystem JSON). "
-            "Use the returned ironbug_model_target with IB_Upsert_Components and IB_Configure_Loops."
+            "models/ironbug/<identifier>.json, instantiate a starter HVAC template "
+            "('vav_chiller_boiler', 'doas_fcu', 'vrf_doas', 'wshp'), or import an existing "
+            "official IB_HVACSystem JSON (pass editable=true to reverse-parse it into an "
+            "editable draft). Use the returned ironbug_model_target with IB_Upsert_Components "
+            "and IB_Configure_Loops."
         ),
         tags={"ironbug", "detailed-hvac", "hvac", "author"},
         annotations={"read_only_hint": False, "destructive_hint": False},
@@ -688,6 +941,34 @@ def register(mcp: FastMCP) -> None:
             IronbugSystemSpecDict | str | None,
             Field(description="Optional existing official IB_HVACSystem JSON dict or string to import."),
         ] = None,
+        template: Annotated[
+            IronbugTemplateName | None,
+            Field(
+                description=(
+                    "Optional starter HVAC template preset producing an editable draft: "
+                    "'vav_chiller_boiler', 'doas_fcu', 'vrf_doas', or 'wshp'."
+                )
+            ),
+        ] = None,
+        editable: Annotated[
+            bool,
+            Field(
+                description=(
+                    "When importing an existing official specification, reverse-parse it via "
+                    "IB_HVACSystem.FromJson into an editable draft (default: false preserves "
+                    "imported-only overwrite protection)."
+                )
+            ),
+        ] = False,
+        room_names: Annotated[
+            list[str] | None,
+            Field(
+                description=(
+                    "Optional list of Honeybee Room / thermal zone identifiers used when "
+                    "instantiating a template preset (defaults to ['Zone1'])."
+                )
+            ),
+        ] = None,
         overwrite: Annotated[
             bool,
             Field(description="Replace an existing Ironbug system with the same identifier."),
@@ -708,6 +989,9 @@ def register(mcp: FastMCP) -> None:
                 identifier=identifier,
                 display_name=display_name,
                 specification=raw_specification,
+                template=template,
+                editable=editable,
+                room_names=room_names,
                 overwrite=overwrite,
             )
         )
@@ -896,8 +1180,10 @@ def register(mcp: FastMCP) -> None:
         name="IB_Validate_System",
         description=(
             "Compile and validate an Ironbug IB_HVACSystem in-memory via official C# "
-            "SaveHVAC against OpenStudio, checking Honeybee Room or Dragonfly Room2D "
-            "preconditions when a model target is provided. Run this before IB_Apply_To_Model."
+            "SaveHVAC against OpenStudio. When a Honeybee model_target is provided (or base "
+            "model exists), exports it to a temporary OSM via model_to_osm and runs SaveHVAC "
+            "plus an OpenStudio EnergyPlusForwardTranslator dry-run alongside room precondition checks. "
+            "Run this before IB_Apply_To_Model."
         ),
         tags={"ironbug", "detailed-hvac", "hvac", "validate"},
         annotations={"read_only_hint": True, "destructive_hint": False, "idempotent_hint": True},
@@ -918,7 +1204,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Optional Honeybee or Dragonfly model target to check room preconditions against."),
+            Field(description="Optional Honeybee or Dragonfly model target to validate OSM compilation and room preconditions against."),
         ] = None,
         model_family: Annotated[
             Literal["honeybee", "dragonfly"],
@@ -927,6 +1213,10 @@ def register(mcp: FastMCP) -> None:
         room_identifiers: Annotated[
             list[str] | None,
             Field(description="Optional explicit room identifiers to verify against the system's thermal zones."),
+        ] = None,
+        run_forward_translator: Annotated[
+            bool | None,
+            Field(description="Optional override to run OpenStudio EnergyPlusForwardTranslator dry-run (defaults to true when a Honeybee OSM is translated)."),
         ] = None,
     ) -> ValidateSystemResult:
         """Validate an Ironbug system against OpenStudio and model rooms."""
@@ -940,5 +1230,6 @@ def register(mcp: FastMCP) -> None:
                 model_target=dump_target(model_target),
                 model_family=model_family,
                 room_identifiers=room_identifiers,
+                run_forward_translator=run_forward_translator,
             )
         )

@@ -28,42 +28,50 @@ def default_postprocess_strategy(
     operation: str,
     target: dict[str, Any] | None = None,
     object_type: str | None = None,
+    object_types: list[str] | set[str] | tuple[str, ...] | None = None,
     updated_fields: list[str] | None = None,
 ) -> str:
     """Return the default post-processing strategy for a Honeybee action."""
     object_type = object_type or _object_type_from_target(target)
     updated_fields = updated_fields or []
+    types_set = {str(item) for item in (object_types or ()) if item}
+    if object_type:
+        types_set.add(str(object_type))
 
     if operation in {
         "move_object",
         "rotate_object",
         "scale_object",
         "mirror_object",
-    }:
-        if _is_model_target(target):
-            return "auto_validate"
-        if object_type in {"room", "face", "aperture", "door"}:
+        "transform_objects",
+    } or operation.startswith("transform_"):
+        if types_set & {"room", "face", "aperture", "door"}:
             return "auto_relate_intersect_clone_single"
+        if _is_model_target(target) or "model" in types_set:
+            return "auto_validate"
         return "suggest_validate"
 
     if operation.startswith("create_honeybee_"):
-        if object_type in {"room", "face", "aperture", "door"}:
+        if types_set & {"room", "face", "aperture", "door"}:
             return "auto_relate_intersect_clone_single"
-        if object_type == "shade" or operation == "create_honeybee_shades_by_parameters":
+        if "shade" in types_set or operation in {
+            "create_honeybee_shades_by_parameters",
+            "create_honeybee_shades",
+        }:
             return "suggest_validate"
         return "none"
 
     if operation.startswith("edit_honeybee_"):
         if operation == "edit_honeybee_model":
             return "auto_validate"
-        if object_type in {"face", "aperture", "door"} and _changes_geometry_or_relation(
+        if (types_set & {"face", "aperture", "door"}) and _changes_geometry_or_relation(
             updated_fields,
         ):
             return "auto_relate_intersect_clone_single"
         return "suggest_validate"
 
     if operation.startswith("remove_honeybee_"):
-        if object_type in {"room", "face", "aperture", "door"}:
+        if types_set & {"room", "face", "aperture", "door"}:
             return "auto_relate_intersect_clone_single"
         return "suggest_validate"
 
@@ -78,6 +86,7 @@ def apply_honeybee_postprocess(
     operation: str,
     target: dict[str, Any] | None = None,
     object_type: str | None = None,
+    object_types: list[str] | set[str] | tuple[str, ...] | None = None,
     updated_fields: list[str] | None = None,
     strategy: str | None = None,
 ) -> tuple[Model, dict[str, Any]]:
@@ -86,6 +95,7 @@ def apply_honeybee_postprocess(
         operation=operation,
         target=target,
         object_type=object_type,
+        object_types=object_types,
         updated_fields=updated_fields,
     )
     if selected not in POSTPROCESS_STRATEGIES:

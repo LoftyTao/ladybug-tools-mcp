@@ -9,6 +9,7 @@ from typing import Any
 from dragonfly.building import Building
 from dragonfly.context import ContextShade
 from dragonfly.model import Model
+from dragonfly.roof import RoofSpecification
 from dragonfly.room2d import Room2D
 from dragonfly.story import Story
 from honeybee.typing import clean_string
@@ -325,6 +326,8 @@ def create_dragonfly_room2d(
     origin: list[float] | None = None,
     height: float | None = None,
     story_number: int | None = None,
+    ceiling_plenum_depth: float | None = None,
+    floor_plenum_depth: float | None = None,
 ) -> dict[str, Any]:
     """Create a Dragonfly Room2D draft object inside a Garden."""
     garden_root_path, manifest, resolved_model_target, _model = _load_target_model(
@@ -360,6 +363,10 @@ def create_dragonfly_room2d(
         is_ground_contact=is_ground_contact,
         is_top_exposed=is_top_exposed,
     )
+    if ceiling_plenum_depth is not None:
+        room.ceiling_plenum_depth = float(ceiling_plenum_depth)
+    if floor_plenum_depth is not None:
+        room.floor_plenum_depth = float(floor_plenum_depth)
     if display_name:
         room.display_name = display_name
     object_dict = room.to_dict()
@@ -694,6 +701,67 @@ def create_dragonfly_story(
     )
 
 
+def _parse_face3d_input(raw_face: Any) -> Face3D:
+    if isinstance(raw_face, Face3D):
+        return raw_face
+    if isinstance(raw_face, dict):
+        if raw_face.get("type") == "Face3D":
+            return Face3D.from_dict(raw_face)
+        return _face3d_from_points(raw_face)
+    return _footprint_face_from_points(raw_face)
+
+
+def _apply_roof_and_basements(
+    building: Building,
+    *,
+    roof_geometry: Any = None,
+    basement_count: int = 0,
+    basement_remove_windows: bool = False,
+    tolerance: float = 0.01,
+) -> None:
+    if roof_geometry is not None:
+        if isinstance(roof_geometry, dict):
+            if "geometry" in roof_geometry:
+                faces = [_parse_face3d_input(item) for item in roof_geometry["geometry"]]
+                clerestory_raw = roof_geometry.get("clerestory_parameters")
+                if clerestory_raw and building.unique_stories:
+                    from dragonfly.clerestoryparameter import DetailedClerestory
+
+                    clerestory = [
+                        DetailedClerestory.from_dict(c) if isinstance(c, dict) else c
+                        for c in clerestory_raw
+                    ]
+                    building.unique_stories[-1].roof = RoofSpecification(
+                        faces,
+                        clerestory_parameters=clerestory,
+                    )
+                else:
+                    building.add_roof_geometry(faces, tolerance=tolerance)
+            else:
+                building.add_roof_geometry([_parse_face3d_input(roof_geometry)], tolerance=tolerance)
+        elif isinstance(roof_geometry, list):
+            if roof_geometry and isinstance(roof_geometry[0], dict) and "geometry" in roof_geometry[0]:
+                all_faces = [
+                    _parse_face3d_input(face)
+                    for spec_item in roof_geometry
+                    for face in spec_item["geometry"]
+                ]
+                building.add_roof_geometry(all_faces, tolerance=tolerance)
+            else:
+                faces = [_parse_face3d_input(item) for item in roof_geometry]
+                building.add_roof_geometry(faces, tolerance=tolerance)
+        else:
+            raise ValueError(
+                "roof_geometry must be a list of Face3D point loops/dicts or a RoofSpecification dict."
+            )
+    if basement_count and int(basement_count) > 0:
+        building.make_basement_stories(
+            int(basement_count),
+            remove_windows=bool(basement_remove_windows),
+            tolerance=tolerance,
+        )
+
+
 def create_dragonfly_building(
     *,
     garden_root: str,
@@ -702,6 +770,11 @@ def create_dragonfly_building(
     model_target: dict[str, Any] | None = None,
     sort_stories: bool = True,
     display_name: str | None = None,
+    separate_top_bottom_floors: bool = False,
+    roof_geometry: Any = None,
+    basement_count: int = 0,
+    basement_remove_windows: bool = False,
+    tolerance: float | None = None,
 ) -> dict[str, Any]:
     """Create a Dragonfly Building in a model from Story targets."""
     if not story_targets:
@@ -736,7 +809,15 @@ def create_dragonfly_building(
     )
     if display_name:
         building.display_name = display_name
-    separate_building_top_bottom_stories(building)
+    if separate_top_bottom_floors:
+        separate_building_top_bottom_stories(building)
+    _apply_roof_and_basements(
+        building,
+        roof_geometry=roof_geometry,
+        basement_count=basement_count,
+        basement_remove_windows=basement_remove_windows,
+        tolerance=0.01 if tolerance is None else float(tolerance),
+    )
     objects_to_add = [("building", building.identifier)]
     for story in building.unique_stories:
         objects_to_add.append(("story", story.identifier))
@@ -768,6 +849,8 @@ def create_dragonfly_building(
         base_dragonfly_model_changed=base_dragonfly_model_changed,
     )
     response["summary_view"]["story_count"] = len(building.unique_stories)
+    response["summary_view"]["separate_top_bottom_floors"] = separate_top_bottom_floors
+    response["summary_view"]["basement_count"] = int(basement_count)
     return response
 
 
@@ -793,6 +876,9 @@ def create_dragonfly_building_from_footprint(
     model_target: dict[str, Any] | None = None,
     display_name: str | None = None,
     tolerance: float | None = None,
+    roof_geometry: Any = None,
+    basement_count: int = 0,
+    basement_remove_windows: bool = False,
 ) -> dict[str, Any]:
     """Create a Dragonfly Building from explicit footprint point loops."""
     if not footprints:
@@ -807,6 +893,7 @@ def create_dragonfly_building_from_footprint(
     )
     resolved_identifier = _clean_dragonfly_identifier(identifier)
     footprint_faces = [_footprint_face_from_points(footprint) for footprint in footprints]
+    resolved_tol = 0.01 if tolerance is None else float(tolerance)
     building = Building.from_footprint(
         resolved_identifier,
         footprint_faces,
@@ -816,6 +903,13 @@ def create_dragonfly_building_from_footprint(
     )
     if display_name:
         building.display_name = display_name
+    _apply_roof_and_basements(
+        building,
+        roof_geometry=roof_geometry,
+        basement_count=basement_count,
+        basement_remove_windows=basement_remove_windows,
+        tolerance=resolved_tol,
+    )
     objects_to_add = [("building", building.identifier)]
     for story in building.unique_stories:
         objects_to_add.append(("story", story.identifier))
@@ -854,6 +948,99 @@ def create_dragonfly_building_from_footprint(
             "story_count": len(floor_to_floor_heights),
             "unique_story_count": len(building.unique_stories),
             "perimeter_offset": perimeter_offset,
+            "basement_count": int(basement_count),
+        }
+    )
+    return response
+
+
+def create_dragonfly_building_from_all_story_geometry(
+    *,
+    garden_root: str,
+    identifier: str,
+    all_story_geometry: list[list[Any]],
+    floor_to_floor_heights: list[float],
+    perimeter_offset: float | None = None,
+    model_target: dict[str, Any] | None = None,
+    display_name: str | None = None,
+    tolerance: float | None = None,
+    roof_geometry: Any = None,
+    basement_count: int = 0,
+    basement_remove_windows: bool = False,
+) -> dict[str, Any]:
+    """Create a Dragonfly Building from per-story room floor Face3D geometry."""
+    if not all_story_geometry:
+        raise ValueError(
+            "create_dragonfly_building_from_all_story_geometry requires all_story_geometry."
+        )
+    if not floor_to_floor_heights:
+        raise ValueError(
+            "create_dragonfly_building_from_all_story_geometry requires floor_to_floor_heights."
+        )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    resolved_identifier = _clean_dragonfly_identifier(identifier)
+    story_face_lists = [
+        [_parse_face3d_input(face) for face in story_faces]
+        for story_faces in all_story_geometry
+    ]
+    resolved_tol = 0.01 if tolerance is None else float(tolerance)
+    building = Building.from_all_story_geometry(
+        resolved_identifier,
+        story_face_lists,
+        [float(height) for height in floor_to_floor_heights],
+        perimeter_offset=0 if perimeter_offset is None else float(perimeter_offset),
+        tolerance=resolved_tol,
+    )
+    if display_name:
+        building.display_name = display_name
+    _apply_roof_and_basements(
+        building,
+        roof_geometry=roof_geometry,
+        basement_count=basement_count,
+        basement_remove_windows=basement_remove_windows,
+        tolerance=resolved_tol,
+    )
+    objects_to_add = [("building", building.identifier)]
+    for story in building.unique_stories:
+        objects_to_add.append(("story", story.identifier))
+        for room in story.room_2ds:
+            objects_to_add.append(("room2d", room.identifier))
+    _ensure_unique_model_objects(model, objects_to_add)
+    base_dragonfly_model_changed = manifest.base_dragonfly_model == resolved_model_target
+    model.add_building(building)
+    updated_model_target, persisted_path = _save_changed_model(
+        garden_root_path,
+        manifest,
+        resolved_model_target,
+        model,
+    )
+    target = make_dragonfly_object_target(
+        garden_id=manifest.garden_id,
+        model_identifier=str(updated_model_target["model_identifier"]),
+        object_type="building",
+        object_identifier=resolved_identifier,
+    )
+    response = _created_object_response(
+        object_dict=building.to_dict(),
+        target=target,
+        garden_id=manifest.garden_id,
+        model_target=updated_model_target,
+        persisted_path=persisted_path,
+        operation="create_dragonfly_building_from_all_story_geometry",
+        message=f"Created Dragonfly Building from all story geometry: {resolved_identifier}",
+        include_object_dict=False,
+        base_dragonfly_model_changed=base_dragonfly_model_changed,
+    )
+    response["summary_view"].update(
+        {
+            "source_geometry": "all_story_geometry",
+            "story_count": len(floor_to_floor_heights),
+            "unique_story_count": len(building.unique_stories),
+            "perimeter_offset": perimeter_offset,
+            "basement_count": int(basement_count),
         }
     )
     return response

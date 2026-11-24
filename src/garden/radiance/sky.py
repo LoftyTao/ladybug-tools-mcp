@@ -7,10 +7,13 @@ from calendar import month_abbr
 from pathlib import Path
 from typing import Any
 
+import honeybee_radiance.lightsource.sky as hbsky
 from honeybee_radiance_command.gendaylit import Gendaylit
 from honeybee_radiance_command.gensky import Gensky
 from honeybee_radiance_command.options.gendaylit import GendaylitOptions
 from honeybee_radiance_command.options.gensky import GenskyOptions
+from ladybug.dt import DateTime
+from ladybug.epw import EPW
 from ladybug.location import Location
 from ladybug.wea import Wea
 from ladybug_radiance.skymatrix import SkyMatrix
@@ -451,12 +454,22 @@ def _save_sky_file(
     summary: dict[str, Any],
     output_subdir: str,
     recipe_sky: str | None = None,
+    raw_text: str | None = None,
 ) -> dict[str, Any]:
     safe_identifier = slugify_name(identifier)
     output_dir = _resolve_output_dir(garden_root_path, output_subdir)
     sky_path = (output_dir / f"{safe_identifier}.sky").resolve()
     sky_path.relative_to(garden_root_path)
-    sky_path.write_text(f"!{command_text}\n", encoding="utf-8", newline="\n")
+    content = (
+        f"{raw_text.rstrip()}\n"
+        if raw_text is not None
+        else (
+            f"{command_text.rstrip()}\n"
+            if command_text.lstrip().startswith("!")
+            else f"!{command_text}\n"
+        )
+    )
+    sky_path.write_text(content, encoding="utf-8", newline="\n")
 
     artifact_path = to_posix_relative(sky_path, garden_root_path)
     artifact_source = dict(source)
@@ -518,7 +531,7 @@ def create_cie_standard_sky(
     month: int | None = None,
     day: int | None = None,
     time: str | float | None = None,
-    time_zone: str | None = None,
+    time_zone: str | int | float | None = None,
     solar_time: bool = False,
     solar_altitude: float | None = None,
     solar_azimuth: float | None = None,
@@ -538,6 +551,8 @@ def create_cie_standard_sky(
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest = GardenManifest.read(garden_root_path)
     options = GenskyOptions()
+    command_time_zone = _normalize_sky_time_zone(time_zone)
+    recipe_time_zone = _recipe_time_zone_int(time_zone)
     normalized_sky_type = sky_type.lower().replace("-", "_").replace(" ", "_")
     if normalized_sky_type == "clear":
         normalized_sky_type = "sunny"
@@ -582,7 +597,7 @@ def create_cie_standard_sky(
         month=month,
         day=day,
         time=time,
-        time_zone=time_zone,
+        time_zone=command_time_zone,
         solar_time=solar_time,
         solar_altitude=solar_altitude,
         solar_azimuth=solar_azimuth,
@@ -613,8 +628,8 @@ def create_cie_standard_sky(
         recipe_parts = ["cie", *_recipe_sky_datetime_parts(month=month, day=day, time=time)]
     _append_option(recipe_parts, "-lat", latitude)
     _append_option(recipe_parts, "-lon", longitude)
-    if isinstance(time_zone, int):
-        _append_option(recipe_parts, "-tz", time_zone)
+    if recipe_time_zone is not None:
+        _append_option(recipe_parts, "-tz", recipe_time_zone)
     _append_option(recipe_parts, "-type", sky_type_index)
     _append_option(recipe_parts, "-g", ground_reflectance)
     recipe_sky = " ".join(recipe_parts)
@@ -644,7 +659,7 @@ def create_climate_based_sky(
     month: int | None = None,
     day: int | None = None,
     time: str | float | None = None,
-    time_zone: str | None = None,
+    time_zone: str | int | float | None = None,
     solar_time: bool = False,
     solar_altitude: float | None = None,
     solar_azimuth: float | None = None,
@@ -664,6 +679,8 @@ def create_climate_based_sky(
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest = GardenManifest.read(garden_root_path)
     options = GendaylitOptions()
+    command_time_zone = _normalize_sky_time_zone(time_zone)
+    recipe_time_zone = _recipe_time_zone_int(time_zone)
     time = _normalize_time_input(time)
     has_irradiance = direct_normal_irradiance is not None or diffuse_horizontal_irradiance is not None
     has_illuminance = direct_normal_illuminance is not None or diffuse_horizontal_illuminance is not None
@@ -708,7 +725,7 @@ def create_climate_based_sky(
         month=month,
         day=day,
         time=time,
-        time_zone=time_zone,
+        time_zone=command_time_zone,
         solar_time=solar_time,
         solar_altitude=solar_altitude,
         solar_azimuth=solar_azimuth,
@@ -756,10 +773,15 @@ def create_climate_based_sky(
         ]
     _append_option(recipe_parts, "-lat", latitude)
     _append_option(recipe_parts, "-lon", longitude)
-    if isinstance(time_zone, int):
-        _append_option(recipe_parts, "-tz", time_zone)
-    _append_option(recipe_parts, "-dni", direct_normal_irradiance)
-    _append_option(recipe_parts, "-dhi", diffuse_horizontal_irradiance)
+    if recipe_time_zone is not None:
+        _append_option(recipe_parts, "-tz", recipe_time_zone)
+    if has_irradiance:
+        _append_option(recipe_parts, "-dni", direct_normal_irradiance)
+        _append_option(recipe_parts, "-dhi", diffuse_horizontal_irradiance)
+    elif has_illuminance:
+        dni_lum = _format_number(direct_normal_illuminance)
+        dhi_lum = _format_number(diffuse_horizontal_illuminance)
+        recipe_parts.extend(["-L", str(dni_lum), str(dhi_lum)])
     _append_option(recipe_parts, "-g", ground_reflectance)
     recipe_sky = " ".join(recipe_parts)
     summary = {
@@ -784,6 +806,406 @@ def create_climate_based_sky(
     )
 
 
+def create_certain_irradiance_sky(
+    *,
+    garden_root: str,
+    identifier: str,
+    irradiance: float | None = None,
+    illuminance: float | None = None,
+    ground_reflectance: float = 0.2,
+    uniform: bool = False,
+    cloudy: bool | None = None,
+    output_subdir: str = RADIANCE_SKY_OUTPUT_SUBDIR,
+) -> dict[str, Any]:
+    """Create a CertainIrradiance Radiance sky file (supports 0 lux dark sky for electric lighting)."""
+    if irradiance is not None and illuminance is not None:
+        raise ValueError("Provide either irradiance or illuminance, not both.")
+    effective_uniform = (not cloudy) if cloudy is not None else bool(uniform)
+    if illuminance is not None:
+        sky_obj = hbsky.CertainIrradiance.from_illuminance(
+            illuminance=float(illuminance),
+            ground_reflectance=float(ground_reflectance),
+            uniform=effective_uniform,
+        )
+    else:
+        val = 558.659 if irradiance is None else float(irradiance)
+        sky_obj = hbsky.CertainIrradiance(
+            irradiance=val,
+            ground_reflectance=float(ground_reflectance),
+            uniform=effective_uniform,
+        )
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(garden_root_path)
+    raw_text = sky_obj.to_radiance()
+    recipe_parts = ["irradiance", str(_format_number(sky_obj.irradiance))]
+    _append_option(recipe_parts, "-g", sky_obj.ground_reflectance)
+    if sky_obj.uniform:
+        recipe_parts.append("-u")
+    recipe_sky = " ".join(recipe_parts)
+    source = {
+        "source_type": "certain_irradiance",
+        "irradiance": float(sky_obj.irradiance),
+        "illuminance": float(sky_obj.illuminance),
+        "ground_reflectance": float(sky_obj.ground_reflectance),
+        "uniform": sky_obj.uniform,
+    }
+    summary = dict(source)
+    return _save_sky_file(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        identifier=identifier,
+        sky_family="certain_irradiance",
+        command_text=raw_text.splitlines()[0].lstrip("!"),
+        raw_text=raw_text,
+        source=source,
+        summary=summary,
+        output_subdir=output_subdir,
+        recipe_sky=recipe_sky,
+    )
+
+
+def create_epw_hoy_sky(
+    *,
+    garden_root: str,
+    identifier: str,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    month: int | None = None,
+    day: int | None = None,
+    time: str | float | None = None,
+    hoy: float | None = None,
+    north: float = 0.0,
+    ground_reflectance: float = 0.2,
+    is_colored: bool = False,
+    output_subdir: str = RADIANCE_SKY_OUTPUT_SUBDIR,
+) -> dict[str, Any]:
+    """Create a ClimateBased Radiance sky from an EPW file at a month/day/time or HOY."""
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(garden_root_path)
+    resolved_epw, source = _resolve_epw_path(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        weather_target=weather_target,
+        epw_path=epw_path,
+    )
+    epw_obj = EPW(str(resolved_epw))
+    if hoy is not None:
+        dt = DateTime.from_hoy(float(hoy))
+        m, d, h = dt.month, dt.day, dt.float_hour
+    else:
+        if month is None or day is None or time is None:
+            raise ValueError("Provide hoy, or month, day, and time for from_epw_hoy.")
+        normalized_time = _normalize_time_input(time)
+        if isinstance(normalized_time, str) and ":" in normalized_time:
+            hh, mm = normalized_time.split(":", 1)
+            h = float(hh) + float(mm) / 60.0
+        else:
+            h = float(normalized_time)
+        m, d = int(month), int(day)
+        dt = DateTime(m, d, int(h), int(round((h - int(h)) * 60)))
+    sky_obj = hbsky.ClimateBased.from_epw(
+        epw_obj,
+        m,
+        d,
+        h,
+        north_angle=float(north),
+        ground_reflectance=float(ground_reflectance),
+        is_colored=bool(is_colored),
+    )
+    raw_text = sky_obj.to_radiance()
+    time_str = f"{int(h):02d}:{int(round((h - int(h)) * 60)):02d}"
+    recipe_parts = ["climate-based", str(d), month_abbr[m], time_str]
+    _append_option(recipe_parts, "-lat", epw_obj.location.latitude)
+    _append_option(recipe_parts, "-lon", epw_obj.location.longitude)
+    _append_option(recipe_parts, "-tz", int(round(epw_obj.location.time_zone)))
+    _append_option(recipe_parts, "-dni", sky_obj.direct_normal_irradiance)
+    _append_option(recipe_parts, "-dhi", sky_obj.diffuse_horizontal_irradiance)
+    _append_option(recipe_parts, "-n", float(north))
+    _append_option(recipe_parts, "-g", sky_obj.ground_reflectance)
+    if is_colored:
+        recipe_parts.append("-c")
+    recipe_sky = " ".join(recipe_parts)
+    source = {
+        **source,
+        "source_type": "from_epw_hoy",
+        "hoy": float(dt.hoy),
+        "month": m,
+        "day": d,
+        "hour": h,
+        "north": float(north),
+        "ground_reflectance": float(ground_reflectance),
+        "is_colored": bool(is_colored),
+    }
+    summary = {
+        "source_type": "from_epw_hoy",
+        "hoy": float(dt.hoy),
+        "date_time": {"month": m, "day": d, "time": time_str},
+        "location": epw_obj.location.to_dict(),
+        "altitude": round(float(sky_obj.altitude), 4),
+        "azimuth": round(float(sky_obj.azimuth), 4),
+        "direct_normal_irradiance": float(sky_obj.direct_normal_irradiance),
+        "diffuse_horizontal_irradiance": float(sky_obj.diffuse_horizontal_irradiance),
+    }
+    return _save_sky_file(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        identifier=identifier,
+        sky_family="from_epw_hoy",
+        command_text=raw_text.splitlines()[0].lstrip("!"),
+        raw_text=raw_text,
+        source=source,
+        summary=summary,
+        output_subdir=output_subdir,
+        recipe_sky=recipe_sky,
+    )
+
+
+def create_skydome_sky(
+    *,
+    garden_root: str,
+    identifier: str,
+    sky_density: int = 1,
+    ground_emittance: float = 0.2,
+    uniform: bool = False,
+    output_subdir: str = RADIANCE_SKY_OUTPUT_SUBDIR,
+) -> dict[str, Any]:
+    """Create a SkyDome or UniformSky Radiance file."""
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(garden_root_path)
+    if uniform:
+        sky_obj = hbsky.UniformSky(ground_emittance=float(ground_emittance))
+        raw_text = sky_obj.to_radiance()
+        recipe_sky = f"uniform-sky -g {_format_number(ground_emittance)}"
+        sky_family = "uniform_sky"
+    else:
+        sky_obj = hbsky.SkyDome(
+            sky_density=int(sky_density),
+            ground_emittance=float(ground_emittance),
+        )
+        raw_text = sky_obj.to_radiance()
+        recipe_sky = f"skydome --sky-density {int(sky_density)}"
+        sky_family = "skydome"
+    source = {
+        "source_type": sky_family,
+        "sky_density": int(sky_density),
+        "ground_emittance": float(ground_emittance),
+        "uniform": bool(uniform),
+    }
+    return _save_sky_file(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        identifier=identifier,
+        sky_family=sky_family,
+        command_text=raw_text.splitlines()[0],
+        raw_text=raw_text,
+        source=source,
+        summary=dict(source),
+        output_subdir=output_subdir,
+        recipe_sky=recipe_sky,
+    )
+
+
+def _wea_from_sky_inputs(
+    *,
+    garden_root_path: Path,
+    manifest: GardenManifest,
+    wea_target: dict[str, Any] | None,
+    weather_target: dict[str, Any] | None,
+    epw_path: str | None,
+) -> tuple[Wea, dict[str, Any]]:
+    if wea_target is not None:
+        wea_file = _resolve_wea_path(
+            garden_root=garden_root_path,
+            manifest=manifest,
+            wea_target=wea_target,
+        )
+        return Wea.from_file(str(wea_file)), {
+            "source_type": "wea_file",
+            "wea_target": wea_target,
+            "wea_path": to_posix_relative(wea_file, garden_root_path),
+        }
+    resolved_epw, source = _resolve_epw_path(
+        garden_root=garden_root_path,
+        manifest=manifest,
+        weather_target=weather_target,
+        epw_path=epw_path,
+    )
+    return Wea.from_epw_file(str(resolved_epw)), source
+
+
+def create_leed_illuminance_skies(
+    *,
+    garden_root: str,
+    identifier: str,
+    wea_target: dict[str, Any] | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    north: float = 0.0,
+    ground_reflectance: float = 0.2,
+    output_subdir: str = RADIANCE_SKY_OUTPUT_SUBDIR,
+) -> dict[str, Any]:
+    """Generate the two LEED v4.1 Daylight Option 2 clear-sky equinox skies (9AM and 3PM)."""
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(garden_root_path)
+    wea_obj, source = _wea_from_sky_inputs(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        wea_target=wea_target,
+        weather_target=weather_target,
+        epw_path=epw_path,
+    )
+    if not wea_obj.is_annual or wea_obj.timestep != 1 or wea_obj.is_leap_year:
+        raise ValueError("LEED illuminance skies require an annual timestep=1 non-leap-year WEA/EPW.")
+    mar_9, sep_9 = DateTime(3, 21, 9).hoy, DateTime(9, 21, 9).hoy
+    mar_3, sep_3 = DateTime(3, 21, 15).hoy, DateTime(9, 21, 15).hoy
+    hoys_mar9 = list(range(int(mar_9 - (15 * 24)), int(mar_9 + (15 * 24)), 24))
+    hoys_sep9 = list(range(int(sep_9 - (15 * 24)), int(sep_9 + (15 * 24)), 24))
+    hoys_mar3 = list(range(int(mar_3 - (15 * 24)), int(mar_3 + (15 * 24)), 24))
+    hoys_sep3 = list(range(int(sep_3 - (15 * 24)), int(sep_3 + (15 * 24)), 24))
+
+    dni = wea_obj.direct_normal_irradiance
+    dhi = wea_obj.diffuse_horizontal_irradiance
+    irr_mar9 = [x for _, x in sorted(zip([dni[h] for h in hoys_mar9], hoys_mar9))]
+    irr_sep9 = [x for _, x in sorted(zip([dni[h] for h in hoys_sep9], hoys_sep9))]
+    irr_mar3 = [x for _, x in sorted(zip([dni[h] for h in hoys_mar3], hoys_mar3))]
+    irr_sep3 = [x for _, x in sorted(zip([dni[h] for h in hoys_sep3], hoys_sep3))]
+
+    dni_9 = (dni[irr_mar9[-1]] + dni[irr_sep9[-1]]) / 2.0
+    dhi_9 = (dhi[irr_mar9[-1]] + dhi[irr_sep9[-1]]) / 2.0
+    dni_3 = (dni[irr_mar3[-1]] + dni[irr_sep3[-1]]) / 2.0
+    dhi_3 = (dhi[irr_mar3[-1]] + dhi[irr_sep3[-1]]) / 2.0
+
+    sky_9 = hbsky.ClimateBased.from_location(
+        wea_obj.location, 3, 21, 9, dni_9, dhi_9, float(north), float(ground_reflectance)
+    )
+    sky_3 = hbsky.ClimateBased.from_location(
+        wea_obj.location, 3, 21, 15, dni_3, dhi_3, float(north), float(ground_reflectance)
+    )
+
+    loc = wea_obj.location
+    tz_int = int(round(loc.time_zone))
+    saved_entries: dict[str, dict[str, Any]] = {}
+    for suffix, hour_val, time_lbl, sky_obj, dni_val, dhi_val in (
+        ("9AM", 9, "09:00", sky_9, dni_9, dhi_9),
+        ("3PM", 15, "15:00", sky_3, dni_3, dhi_3),
+    ):
+        recipe_sky = (
+            f"climate-based 21 Mar {time_lbl} -lat {_format_number(loc.latitude)} "
+            f"-lon {_format_number(loc.longitude)} -tz {tz_int} "
+            f"-dni {_format_number(dni_val)} -dhi {_format_number(dhi_val)} "
+            f"-n {_format_number(north)} -g {_format_number(ground_reflectance)}"
+        )
+        raw_text = sky_obj.to_radiance()
+        saved = _save_sky_file(
+            garden_root_path=garden_root_path,
+            manifest=manifest,
+            identifier=f"{identifier}_{suffix}",
+            sky_family="leed_illuminance",
+            command_text=raw_text.splitlines()[0].lstrip("!"),
+            raw_text=raw_text,
+            source={**source, "source_type": "leed_illuminance", "hour": hour_val, "north": float(north)},
+            summary={"hour": hour_val, "dni": dni_val, "dhi": dhi_val},
+            output_subdir=output_subdir,
+            recipe_sky=recipe_sky,
+        )
+        saved_entries[suffix] = saved
+
+    primary = saved_entries["9AM"]
+    targets = {key: val["target"] for key, val in saved_entries.items()}
+    return {
+        "target": primary["target"],
+        "sky_file_target": primary["target"],
+        "sky_file_targets": targets,
+        "skies": saved_entries,
+        "summary_view": {
+            "sky_family": "leed_illuminance",
+            "location": loc.to_dict(),
+            "north": float(north),
+            "targets": targets,
+            "recipe_skies": {k: v["summary_view"].get("recipe_sky") for k, v in saved_entries.items()},
+        },
+        "report": make_report(
+            status="ok",
+            message=f"Created LEED v4.1 clear equinox skies (9AM and 3PM) for {identifier}.",
+        ),
+    }
+
+
+def create_abnt_nbr_15575_skies(
+    *,
+    garden_root: str,
+    identifier: str,
+    wea_target: dict[str, Any] | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    north: float = 0.0,
+    ground_reflectance: float = 0.2,
+    output_subdir: str = RADIANCE_SKY_OUTPUT_SUBDIR,
+) -> dict[str, Any]:
+    """Generate the four ABNT NBR 15575 CIE intermediate-no-sun skies (Apr 23 & Oct 23, 9:30 & 15:30)."""
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(garden_root_path)
+    wea_obj, source = _wea_from_sky_inputs(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        wea_target=wea_target,
+        weather_target=weather_target,
+        epw_path=epw_path,
+    )
+    loc = wea_obj.location
+    tz_int = int(round(loc.time_zone))
+    specs = (
+        ("4_930AM", 4, 23, 9.5, "09:30"),
+        ("4_330PM", 4, 23, 15.5, "15:30"),
+        ("10_930AM", 10, 23, 9.5, "09:30"),
+        ("10_330PM", 10, 23, 15.5, "15:30"),
+    )
+    saved_entries: dict[str, dict[str, Any]] = {}
+    for suffix, month_val, day_val, hour_val, time_lbl in specs:
+        sky_obj = hbsky.CIE.from_location(
+            loc, month_val, day_val, hour_val, sky_type=3, north_angle=float(north), ground_reflectance=float(ground_reflectance)
+        )
+        recipe_sky = (
+            f"cie {day_val} {month_abbr[month_val]} {time_lbl} -lat {_format_number(loc.latitude)} "
+            f"-lon {_format_number(loc.longitude)} -tz {tz_int} -type 3 "
+            f"-n {_format_number(north)} -g {_format_number(ground_reflectance)}"
+        )
+        raw_text = sky_obj.to_radiance()
+        saved = _save_sky_file(
+            garden_root_path=garden_root_path,
+            manifest=manifest,
+            identifier=f"{identifier}_{suffix}",
+            sky_family="abnt_nbr_15575",
+            command_text=raw_text.splitlines()[0].lstrip("!"),
+            raw_text=raw_text,
+            source={**source, "source_type": "abnt_nbr_15575", "month": month_val, "day": day_val, "hour": hour_val},
+            summary={"month": month_val, "day": day_val, "time": time_lbl, "sky_type": 3},
+            output_subdir=output_subdir,
+            recipe_sky=recipe_sky,
+        )
+        saved_entries[suffix] = saved
+
+    primary = saved_entries["4_930AM"]
+    targets = {key: val["target"] for key, val in saved_entries.items()}
+    return {
+        "target": primary["target"],
+        "sky_file_target": primary["target"],
+        "sky_file_targets": targets,
+        "skies": saved_entries,
+        "summary_view": {
+            "sky_family": "abnt_nbr_15575",
+            "location": loc.to_dict(),
+            "north": float(north),
+            "targets": targets,
+            "recipe_skies": {k: v["summary_view"].get("recipe_sky") for k, v in saved_entries.items()},
+        },
+        "report": make_report(
+            status="ok",
+            message=f"Created four ABNT NBR 15575 CIE skies for {identifier}.",
+        ),
+    }
+
+
 def create_sky_matrix(
     *,
     garden_root: str,
@@ -791,8 +1213,13 @@ def create_sky_matrix(
     wea_target: dict[str, Any] | None = None,
     weather_target: dict[str, Any] | None = None,
     epw_path: str | None = None,
+    stat_path: str | None = None,
     location: dict[str, Any] | None = None,
     sky_clearness: float = 1,
+    hoys: list[float] | None = None,
+    benefit_matrix: bool = False,
+    balance_temperature: float = 15.0,
+    balance_offset: float = 2.0,
     north: float = 0,
     high_density: bool = False,
     ground_reflectance: float = 0.2,
@@ -802,11 +1229,40 @@ def create_sky_matrix(
     """Create a Garden target describing a Ladybug Radiance SkyMatrix."""
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest = GardenManifest.read(garden_root_path)
-    sources = [wea_target is not None, weather_target is not None or epw_path is not None, location is not None]
+    sources = [
+        wea_target is not None,
+        weather_target is not None or epw_path is not None,
+        stat_path is not None,
+        location is not None,
+    ]
     if sum(1 for item in sources if item) != 1:
-        raise ValueError("Provide exactly one sky source: wea_target, weather_target/epw_path, or location.")
+        raise ValueError(
+            "Provide exactly one sky source: wea_target, weather_target/epw_path, stat_path, or location."
+        )
 
-    if wea_target is not None:
+    sky_matrix: SkyMatrix
+    if stat_path is not None:
+        if benefit_matrix:
+            raise ValueError("benefit_matrix requires an EPW via weather_target or epw_path.")
+        resolved_stat = _garden_relative_path(garden_root_path, str(stat_path), field_name="stat_path")
+        source_type = "stat_file"
+        source: dict[str, Any] = {
+            "source_type": source_type,
+            "stat_path": to_posix_relative(resolved_stat, garden_root_path),
+        }
+        wea = Wea.from_stat_file(str(resolved_stat))
+        if hoys is not None:
+            wea = wea.filter_by_hoys(hoys)
+            source["hoys"] = list(hoys)
+        sky_matrix = SkyMatrix(
+            wea,
+            north=north,
+            high_density=high_density,
+            ground_reflectance=ground_reflectance,
+        )
+    elif wea_target is not None:
+        if benefit_matrix:
+            raise ValueError("benefit_matrix requires an EPW via weather_target or epw_path.")
         source_type = "wea_file"
         wea_path = _resolve_wea_path(
             garden_root=garden_root_path,
@@ -819,6 +1275,15 @@ def create_sky_matrix(
             "wea_path": to_posix_relative(wea_path, garden_root_path),
         }
         wea = Wea.from_file(str(wea_path))
+        if hoys is not None:
+            wea = wea.filter_by_hoys(hoys)
+            source["hoys"] = list(hoys)
+        sky_matrix = SkyMatrix(
+            wea,
+            north=north,
+            high_density=high_density,
+            ground_reflectance=ground_reflectance,
+        )
     elif weather_target is not None or epw_path is not None:
         resolved_epw, source = _resolve_epw_path(
             garden_root=garden_root_path,
@@ -827,8 +1292,34 @@ def create_sky_matrix(
             epw_path=epw_path,
         )
         source_type = str(source["source_type"])
-        wea = Wea.from_epw_file(str(resolved_epw))
+        if benefit_matrix:
+            sky_matrix = SkyMatrix.from_epw_benefit(
+                str(resolved_epw),
+                balance_temperature=float(balance_temperature),
+                balance_offset=float(balance_offset),
+                hoys=hoys,
+                north=north,
+                high_density=high_density,
+                ground_reflectance=ground_reflectance,
+            )
+            source["benefit_matrix"] = True
+            source["balance_temperature"] = float(balance_temperature)
+            source["balance_offset"] = float(balance_offset)
+        else:
+            wea = Wea.from_epw_file(str(resolved_epw))
+            if hoys is not None:
+                wea = wea.filter_by_hoys(hoys)
+            sky_matrix = SkyMatrix(
+                wea,
+                north=north,
+                high_density=high_density,
+                ground_reflectance=ground_reflectance,
+            )
+        if hoys is not None:
+            source["hoys"] = list(hoys)
     else:
+        if benefit_matrix:
+            raise ValueError("benefit_matrix requires an EPW via weather_target or epw_path.")
         location_obj = _location_from_input(location or {})
         source_type = "ashrae_clear_sky"
         source = {
@@ -837,17 +1328,24 @@ def create_sky_matrix(
             "location": location_obj.to_dict(),
         }
         wea = Wea.from_ashrae_clear_sky(location_obj, sky_clearness=sky_clearness)
+        if hoys is not None:
+            wea = wea.filter_by_hoys(hoys)
+            source["hoys"] = list(hoys)
+        sky_matrix = SkyMatrix(
+            wea,
+            north=north,
+            high_density=high_density,
+            ground_reflectance=ground_reflectance,
+        )
 
-    sky_matrix = SkyMatrix(
-        wea,
-        north=north,
-        high_density=high_density,
-        ground_reflectance=ground_reflectance,
-    )
     parameters = {
         "north": north,
         "high_density": high_density,
         "ground_reflectance": ground_reflectance,
+        "hoys": list(hoys) if hoys is not None else None,
+        "benefit_matrix": benefit_matrix,
+        "balance_temperature": float(balance_temperature) if benefit_matrix else None,
+        "balance_offset": float(balance_offset) if benefit_matrix else None,
     }
     payload: dict[str, Any] = {
         "type": SKY_MATRIX_TARGET_TYPE,
@@ -855,6 +1353,8 @@ def create_sky_matrix(
         "source": source,
         "parameters": parameters,
     }
+    if benefit_matrix and sky_matrix.benefit_matrix is not None:
+        payload["benefit_matrix"] = list(sky_matrix.benefit_matrix)
     if compute:
         payload["metadata"] = [str(item) for item in sky_matrix.metadata]
         payload["direct_values"] = list(sky_matrix.direct_values)
@@ -887,20 +1387,26 @@ def create_sky_matrix(
         domain="ladybug_radiance",
         identifier=safe_identifier,
         path=artifact_path,
-        metadata={"computed": compute},
+        metadata={"computed": compute, "benefit_matrix": benefit_matrix},
     )
+    summary = _sky_matrix_summary(
+        identifier=safe_identifier,
+        target=target,
+        source_type=source_type,
+        parameters=parameters,
+        sky_matrix=sky_matrix,
+        computed=compute,
+    )
+    summary["has_benefit_matrix"] = sky_matrix.benefit_matrix is not None
+    if sky_matrix.benefit_matrix is not None:
+        summary["benefit_hour_count"] = len(sky_matrix.benefit_matrix)
+    if hoys is not None:
+        summary["hoys_count"] = len(hoys)
     return {
         "target": target,
         "sky_matrix_target": target,
         "artifact": artifact,
-        "summary_view": _sky_matrix_summary(
-            identifier=safe_identifier,
-            target=target,
-            source_type=source_type,
-            parameters=parameters,
-            sky_matrix=sky_matrix,
-            computed=compute,
-        ),
+        "summary_view": summary,
         "persistence_receipt": make_artifact_receipt(
             status="persisted",
             garden_id=manifest.garden_id,
@@ -914,3 +1420,362 @@ def create_sky_matrix(
             message=f"Created SkyMatrix target: {safe_identifier}",
         ),
     }
+
+
+_TIME_ZONE_OFFSET_NAMES = {
+    -9: "YST",
+    -8: "PST",
+    -7: "MST",
+    -6: "CST",
+    -5: "EST",
+    -4: "AST",
+    0: "GMT",
+    1: "CET",
+    2: "EET",
+    3: "AST",
+    4: "GST",
+    5.5: "IST",
+    9: "JST",
+    12: "NZST",
+}
+_TIME_ZONE_NAME_TO_OFFSET = {
+    "YST": -9,
+    "PST": -8,
+    "MST": -7,
+    "CST": -6,
+    "EST": -5,
+    "AST": -4,
+    "GMT": 0,
+    "UTC": 0,
+    "CET": 1,
+    "EET": 2,
+    "GST": 4,
+    "IST": 5,
+    "JST": 9,
+    "NZST": 12,
+}
+
+
+def _recipe_time_zone_int(time_zone: str | int | float | None) -> int | None:
+    if time_zone is None or isinstance(time_zone, bool):
+        return None
+    if isinstance(time_zone, (int, float)):
+        return int(round(float(time_zone)))
+    stripped = str(time_zone).strip()
+    if not stripped:
+        return None
+    upper = stripped.upper()
+    if upper in _TIME_ZONE_NAME_TO_OFFSET:
+        return int(_TIME_ZONE_NAME_TO_OFFSET[upper])
+    for prefix in ("UTC", "GMT"):
+        if upper.startswith(prefix) and len(upper) > len(prefix):
+            remainder = stripped[len(prefix) :].strip()
+            try:
+                return int(round(float(remainder)))
+            except ValueError:
+                pass
+    try:
+        return int(round(float(stripped)))
+    except ValueError:
+        return None
+
+
+def _normalize_sky_time_zone(time_zone: str | int | float | None) -> str | None:
+    if time_zone is None:
+        return None
+    if isinstance(time_zone, str):
+        stripped = time_zone.strip()
+        try:
+            numeric = float(stripped)
+        except ValueError:
+            return stripped
+    else:
+        numeric = float(time_zone)
+    key: int | float = int(numeric) if numeric.is_integer() else numeric
+    return _TIME_ZONE_OFFSET_NAMES.get(key, str(time_zone))
+
+
+def _build_location_dict(
+    *,
+    location: dict[str, Any] | None,
+    city: str | None,
+    region: str | None,
+    latitude: float | None,
+    longitude: float | None,
+    time_zone: str | int | float | None,
+    elevation: float | None,
+    default_city: str,
+) -> dict[str, Any]:
+    if location is not None:
+        return location
+    if latitude is None or longitude is None or time_zone is None:
+        raise ValueError(
+            "Provide location, or provide latitude, longitude, and time_zone."
+        )
+    try:
+        tz_value = float(time_zone)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "time_zone must be numeric when constructing a Location without location dict."
+        ) from exc
+    return {
+        "type": "Location",
+        "city": city or default_city,
+        "state": region,
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "time_zone": tz_value,
+        "elevation": 0 if elevation is None else float(elevation),
+    }
+
+
+def create_radiance_sky_asset(
+    *,
+    garden_root: str,
+    asset_type: str,
+    identifier: str | None = None,
+    month: int | None = None,
+    day: int | None = None,
+    time: str | float | None = None,
+    time_zone: str | int | float | None = None,
+    solar_time: bool = False,
+    solar_altitude: float | None = None,
+    solar_azimuth: float | None = None,
+    sky_type: str = "sunny",
+    latitude: float | None = None,
+    longitude: float | None = None,
+    standard_meridian: float | None = None,
+    ground_reflectance: float | None = None,
+    sky_turbidity: float | None = None,
+    solar_radiance: float | None = None,
+    direct_horizontal_irradiance: float | None = None,
+    zenith_brightness: float | None = None,
+    diffuse_horizontal_irradiance: float | None = None,
+    direct_normal_irradiance: float | None = None,
+    direct_normal_illuminance: float | None = None,
+    diffuse_horizontal_illuminance: float | None = None,
+    output_mode: int | None = None,
+    sky_part: str | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    stat_path: str | None = None,
+    wea_target: dict[str, Any] | None = None,
+    location: dict[str, Any] | None = None,
+    city: str | None = None,
+    region: str | None = None,
+    elevation: float | None = None,
+    sky_clearness: float = 1,
+    timestep: int = 1,
+    hoys: list[float] | None = None,
+    hoy: float | None = None,
+    is_leap_year: bool = False,
+    write_hours: bool = False,
+    north: float = 0,
+    high_density: bool = False,
+    compute: bool = False,
+    irradiance: float | None = None,
+    illuminance: float | None = None,
+    uniform: bool = False,
+    cloudy: bool | None = None,
+    sky_density: int = 1,
+    ground_emittance: float = 0.2,
+    is_colored: bool = False,
+    benefit_matrix: bool = False,
+    balance_temperature: float = 15.0,
+    balance_offset: float = 2.0,
+    output_subdir: str | None = None,
+    return_object_dict: bool = False,
+) -> dict[str, Any]:
+    """Create a Radiance sky file, WEA file, or SkyMatrix Garden target."""
+    normalized = asset_type.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized == "cie_sky":
+        return create_cie_standard_sky(
+            garden_root=garden_root,
+            identifier=identifier or "cie_standard_sky",
+            month=month,
+            day=day,
+            time=time,
+            time_zone=time_zone,
+            solar_time=solar_time,
+            solar_altitude=solar_altitude,
+            solar_azimuth=solar_azimuth,
+            sky_type=sky_type,
+            latitude=latitude,
+            longitude=longitude,
+            standard_meridian=standard_meridian,
+            ground_reflectance=ground_reflectance,
+            sky_turbidity=sky_turbidity,
+            solar_radiance=solar_radiance,
+            direct_horizontal_irradiance=direct_horizontal_irradiance,
+            zenith_brightness=zenith_brightness,
+            diffuse_horizontal_irradiance=diffuse_horizontal_irradiance,
+            output_subdir=output_subdir or RADIANCE_SKY_OUTPUT_SUBDIR,
+        )
+    if normalized == "climate_based_sky":
+        return create_climate_based_sky(
+            garden_root=garden_root,
+            identifier=identifier or "climate_based_sky",
+            month=month,
+            day=day,
+            time=time,
+            time_zone=time_zone,
+            solar_time=solar_time,
+            solar_altitude=solar_altitude,
+            solar_azimuth=solar_azimuth,
+            direct_normal_irradiance=direct_normal_irradiance,
+            diffuse_horizontal_irradiance=diffuse_horizontal_irradiance,
+            direct_normal_illuminance=direct_normal_illuminance,
+            diffuse_horizontal_illuminance=diffuse_horizontal_illuminance,
+            output_mode=output_mode,
+            sky_part=sky_part,
+            latitude=latitude,
+            longitude=longitude,
+            standard_meridian=standard_meridian,
+            ground_reflectance=ground_reflectance,
+            output_subdir=output_subdir or RADIANCE_SKY_OUTPUT_SUBDIR,
+        )
+    if normalized == "certain_irradiance":
+        return create_certain_irradiance_sky(
+            garden_root=garden_root,
+            identifier=identifier or "certain_irradiance",
+            irradiance=irradiance,
+            illuminance=illuminance,
+            ground_reflectance=0.2 if ground_reflectance is None else ground_reflectance,
+            uniform=uniform,
+            cloudy=cloudy,
+            output_subdir=output_subdir or RADIANCE_SKY_OUTPUT_SUBDIR,
+        )
+    if normalized == "from_epw_hoy":
+        return create_epw_hoy_sky(
+            garden_root=garden_root,
+            identifier=identifier or "epw_hoy_sky",
+            weather_target=weather_target,
+            epw_path=epw_path,
+            month=month,
+            day=day,
+            time=time,
+            hoy=hoy,
+            north=north,
+            ground_reflectance=0.2 if ground_reflectance is None else ground_reflectance,
+            is_colored=is_colored,
+            output_subdir=output_subdir or RADIANCE_SKY_OUTPUT_SUBDIR,
+        )
+    if normalized == "skydome":
+        return create_skydome_sky(
+            garden_root=garden_root,
+            identifier=identifier or "skydome",
+            sky_density=sky_density,
+            ground_emittance=ground_emittance,
+            uniform=uniform,
+            output_subdir=output_subdir or RADIANCE_SKY_OUTPUT_SUBDIR,
+        )
+    if normalized == "leed_illuminance":
+        return create_leed_illuminance_skies(
+            garden_root=garden_root,
+            identifier=identifier or "leed",
+            wea_target=wea_target,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            north=north,
+            ground_reflectance=0.2 if ground_reflectance is None else ground_reflectance,
+            output_subdir=output_subdir or RADIANCE_SKY_OUTPUT_SUBDIR,
+        )
+    if normalized == "abnt_nbr_15575":
+        return create_abnt_nbr_15575_skies(
+            garden_root=garden_root,
+            identifier=identifier or "abnt_15575",
+            wea_target=wea_target,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            north=north,
+            ground_reflectance=0.2 if ground_reflectance is None else ground_reflectance,
+            output_subdir=output_subdir or RADIANCE_SKY_OUTPUT_SUBDIR,
+        )
+    if normalized == "wea_from_epw":
+        resolved_id = identifier
+        if resolved_id is None:
+            if isinstance(weather_target, dict) and weather_target.get("identifier"):
+                resolved_id = str(weather_target["identifier"])
+            elif epw_path:
+                resolved_id = Path(epw_path).stem
+            else:
+                resolved_id = "weather_wea"
+        return create_wea_from_weather_file(
+            garden_root=garden_root,
+            identifier=resolved_id,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            timestep=timestep,
+            hoys=hoys,
+            write_hours=write_hours,
+            output_subdir=output_subdir or WEA_OUTPUT_SUBDIR,
+            return_object_dict=return_object_dict,
+        )
+    if normalized == "wea_clear_sky":
+        resolved_id = identifier or city or "ashrae_clear_sky_wea"
+        resolved_location = _build_location_dict(
+            location=location,
+            city=city,
+            region=region,
+            latitude=latitude,
+            longitude=longitude,
+            time_zone=time_zone,
+            elevation=elevation,
+            default_city=resolved_id,
+        )
+        return create_ashrae_clear_sky_wea(
+            garden_root=garden_root,
+            identifier=resolved_id,
+            location=resolved_location,
+            sky_clearness=sky_clearness,
+            timestep=timestep,
+            is_leap_year=is_leap_year,
+            output_subdir=output_subdir or WEA_OUTPUT_SUBDIR,
+            write_hours=write_hours,
+            return_object_dict=return_object_dict,
+        )
+    if normalized == "sky_matrix":
+        resolved_id = identifier or "sky_matrix"
+        resolved_location = location
+        if (
+            wea_target is None
+            and weather_target is None
+            and epw_path is None
+            and stat_path is None
+            and resolved_location is None
+            and latitude is not None
+        ):
+            resolved_location = _build_location_dict(
+                location=None,
+                city=city,
+                region=region,
+                latitude=latitude,
+                longitude=longitude,
+                time_zone=time_zone,
+                elevation=elevation,
+                default_city=resolved_id,
+            )
+        return create_sky_matrix(
+            garden_root=garden_root,
+            identifier=resolved_id,
+            wea_target=wea_target,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            stat_path=stat_path,
+            location=resolved_location,
+            sky_clearness=sky_clearness,
+            hoys=hoys,
+            benefit_matrix=benefit_matrix,
+            balance_temperature=balance_temperature,
+            balance_offset=balance_offset,
+            north=north,
+            high_density=high_density,
+            ground_reflectance=0.2 if ground_reflectance is None else ground_reflectance,
+            compute=compute,
+            output_subdir=output_subdir or SKY_MATRIX_OUTPUT_SUBDIR,
+        )
+    raise ValueError(
+        "asset_type must be one of: cie_sky, climate_based_sky, certain_irradiance, "
+        "from_epw_hoy, skydome, leed_illuminance, abnt_nbr_15575, wea_from_epw, "
+        "wea_clear_sky, sky_matrix."
+    )

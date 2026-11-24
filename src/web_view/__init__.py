@@ -8,11 +8,18 @@ import json
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+import zipfile
 
 from garden.manifest import GardenManifest, utc_now_iso
-from garden.paths import resolve_contained_path, slugify_name, to_posix_relative
+from garden.paths import (
+    resolve_contained_path,
+    slugify_name,
+    to_posix_relative,
+    windows_path_key,
+)
 from web_view.viewer import (
     POLL_INTERVAL_MS,
+    VENDOR_VTKJS_PATH,
     fallback_viewer_html,
     start_preview_url_fallback,
     stop_preview_url_fallback,
@@ -20,6 +27,8 @@ from web_view.viewer import (
 
 SESSION_RELATIVE_PATH = "tmp/web_view/session.json"
 VTKJS_ARTIFACT_TYPE = "visualization_vtkjs"
+HTML_ARTIFACT_TYPE = "visualization_html"
+SVG_ARTIFACT_TYPE = "visualization_svg"
 SUPPORTED_PREVIEW_KINDS = (
     "base_honeybee_model",
     "base_dragonfly_model",
@@ -67,6 +76,7 @@ def _default_data_sources() -> dict[str, str]:
         "geometry_policy": GEOMETRY_POLICY,
         "manifest": "garden.json",
         "session": SESSION_RELATIVE_PATH,
+        "vtkjs_vendor": "/vendor/vtk.js",
     }
 
 
@@ -110,6 +120,7 @@ def start_web_view_session(
             "ui": "Local sidebar viewer",
             "library": "vtk.js",
             "mode": "mcp_app_preview",
+            "vendor_url": "/vendor/vtk.js",
         },
         "preview_kinds": list(kinds),
         "data_sources": _default_data_sources(),
@@ -169,6 +180,47 @@ def _vtkjs_artifacts(garden_root: Path, manifest: GardenManifest) -> list[dict[s
         reverse=True,
     )
     return artifacts
+
+
+def _html_svg_artifacts(garden_root: Path, manifest: GardenManifest) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for artifact in manifest.artifacts:
+        relative_path = artifact.get("path")
+        if not isinstance(relative_path, str) or not relative_path.strip():
+            continue
+        normalized = relative_path.strip().replace("\\", "/")
+        suffix = Path(normalized).suffix.lower()
+        atype = artifact.get("artifact_type")
+        if atype not in {HTML_ARTIFACT_TYPE, SVG_ARTIFACT_TYPE} and suffix not in {".html", ".htm", ".svg"}:
+            continue
+        absolute_path = (garden_root / normalized).resolve()
+        try:
+            absolute_path.relative_to(garden_root)
+        except ValueError:
+            continue
+        if not absolute_path.is_file():
+            continue
+        kind = "svg" if suffix == ".svg" or atype == SVG_ARTIFACT_TYPE else "html"
+        items.append(
+            {
+                "name": artifact.get("name") or absolute_path.stem,
+                "path": normalized,
+                "artifact_type": atype or f"visualization_{kind}",
+                "format": kind,
+                "created_at": artifact.get("created_at"),
+                "revision": _hash_file(absolute_path),
+                "size_bytes": absolute_path.stat().st_size,
+            }
+        )
+    items.sort(
+        key=lambda item: (
+            str(item.get("created_at") or ""),
+            str(item.get("path") or ""),
+            str(item.get("name") or ""),
+        ),
+        reverse=True,
+    )
+    return items
 
 
 def _viewer_source(artifact: dict[str, Any]) -> dict[str, Any]:
@@ -248,7 +300,7 @@ def record_preview_step(
         if not artifacts:
             raise ValueError(
                 "No visualization_vtkjs artifact is registered in this Garden. "
-                "Export a VisualizationSet with LB_Set_To_VTKJS first."
+                "Export a VisualizationSet with LB_Export_Visualization_Set first."
             )
         artifact = artifacts[0]
     else:
@@ -375,6 +427,7 @@ def get_web_view_config(*, garden_root: str) -> dict[str, Any]:
         "steps": steps,
         "active_step": active_step,
         "latest_vtkjs_artifact": latest_artifact,
+        "html_svg_artifacts": _html_svg_artifacts(root, manifest),
     }
 
 
@@ -386,7 +439,12 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _resolve_artifact_file(*, garden_root: Path, artifact_path: str) -> Path:
+def _resolve_artifact_file(
+    *,
+    garden_root: Path,
+    artifact_path: str,
+    allowed_suffixes: tuple[str, ...] = (".vtkjs",),
+) -> Path:
     normalized = artifact_path.strip().replace("\\", "/")
     if not normalized:
         raise ValueError("Preview artifact path must be a non-empty Garden-relative path.")
@@ -395,8 +453,9 @@ def _resolve_artifact_file(*, garden_root: Path, artifact_path: str) -> Path:
         path.relative_to(garden_root)
     except ValueError as exc:
         raise ValueError("Preview artifacts must stay inside the Garden.") from exc
-    if path.suffix.lower() != ".vtkjs":
-        raise ValueError(f"Preview artifact must be a .vtkjs file; got {normalized!r}.")
+    if path.suffix.lower() not in allowed_suffixes:
+        allowed = ", ".join(allowed_suffixes)
+        raise ValueError(f"Preview artifact must end with ({allowed}); got {normalized!r}.")
     if not path.is_file():
         raise ValueError(f"Preview artifact file was not found: {normalized}.")
     return path
@@ -422,10 +481,62 @@ def _artifact_from_source(
     }
 
 
+def _extract_vtkjs_scene_metadata(path: Path) -> dict[str, Any] | None:
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            if "index.json" not in zf.namelist():
+                return None
+            index_data = json.loads(zf.read("index.json").decode("utf-8"))
+    except Exception:
+        return None
+    scene = index_data.get("scene") if isinstance(index_data, dict) else None
+    if not isinstance(scene, list):
+        return None
+    scene_items: list[dict[str, Any]] = []
+    legends: list[dict[str, Any]] = []
+    for entry in scene:
+        if not isinstance(entry, dict):
+            continue
+        prop = entry.get("property") if isinstance(entry.get("property"), dict) else {}
+        scene_items.append(
+            {
+                "name": entry.get("name") or "Layer",
+                "hidden": bool(entry.get("hidden", False)),
+                "diffuseColor": prop.get("diffuseColor"),
+            }
+        )
+        metadata_list = entry.get("metadata")
+        if isinstance(metadata_list, list):
+            for meta in metadata_list:
+                if not isinstance(meta, dict):
+                    continue
+                lpar = meta.get("legend_parameters")
+                if isinstance(lpar, dict):
+                    legends.append(
+                        {
+                            "layer": entry.get("name"),
+                            "unit": meta.get("unit"),
+                            "title": lpar.get("title") or meta.get("unit") or entry.get("name"),
+                            "min": lpar.get("min"),
+                            "max": lpar.get("max"),
+                            "decimal_count": lpar.get("decimal_count", 2),
+                            "segment_count": lpar.get("segment_count"),
+                            "colors": lpar.get("colors"),
+                            "continuous_legend": lpar.get("continuous_legend", False),
+                        }
+                    )
+    return {
+        "scene_items": scene_items,
+        "legends": legends,
+        "lookup_tables": index_data.get("lookupTables") or {},
+    }
+
+
 def read_preview_state(*, garden_root: str) -> dict[str, Any]:
-    """Return compact state for the local vtk.js preview viewer."""
+    """Return compact state for the local vtk.js preview workbench."""
     root = Path(garden_root).expanduser().resolve()
     config = get_web_view_config(garden_root=str(root))
+    steps = list(config.get("steps", []))
     active_step = config.get("active_step")
     artifact = (
         _artifact_from_source(garden_root=root, source=active_step.get("viewer_source"))
@@ -436,6 +547,19 @@ def read_preview_state(*, garden_root: str) -> dict[str, Any]:
         artifact = _artifact_from_source(
             garden_root=root, source=config["latest_vtkjs_artifact"]
         )
+    hydrated_steps: list[dict[str, Any]] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        item = dict(step)
+        vs = step.get("viewer_source")
+        if isinstance(vs, dict) and isinstance(vs.get("artifact_path"), str):
+            try:
+                item["artifact"] = _artifact_from_source(garden_root=root, source=vs)
+            except Exception:
+                item["artifact"] = None
+        hydrated_steps.append(item)
+
     return {
         "schema_version": "1",
         "active": bool(config.get("active", False)),
@@ -444,11 +568,15 @@ def read_preview_state(*, garden_root: str) -> dict[str, Any]:
             "ui": "Local sidebar viewer",
             "library": "vtk.js",
             "mode": "local_url_preview",
+            "vendor_url": "/vendor/vtk.js",
+            "offline_bundled": VENDOR_VTKJS_PATH.is_file(),
         },
         "poll_interval_ms": POLL_INTERVAL_MS,
         "preview_kinds": config.get("preview_kinds", []),
+        "steps": hydrated_steps,
         "active_step": active_step,
         "artifact": artifact,
+        "html_svg_artifacts": config.get("html_svg_artifacts", []),
         "report": {
             "status": "ready" if artifact else "waiting_for_vtkjs",
             "message": (
@@ -474,7 +602,7 @@ def read_preview_artifact(
         raise ValueError(
             "Preview artifact revision changed; refresh preview state before loading it."
         )
-    return {
+    payload: dict[str, Any] = {
         "schema_version": "1",
         "path": artifact_path.replace("\\", "/"),
         "revision": actual_revision,
@@ -482,6 +610,31 @@ def read_preview_artifact(
         "mime_type": "application/vnd.vtkjs",
         "encoding": "base64",
         "payload_base64": base64.b64encode(path.read_bytes()).decode("ascii"),
+    }
+    scene_meta = _extract_vtkjs_scene_metadata(path)
+    if scene_meta is not None:
+        payload["scene_metadata"] = scene_meta
+    return payload
+
+
+def read_preview_document(*, garden_root: str, artifact_path: str) -> dict[str, Any]:
+    """Read a Garden-local HTML or SVG visualization artifact for inline workbench preview."""
+    root = Path(garden_root).expanduser().resolve()
+    path = _resolve_artifact_file(
+        garden_root=root,
+        artifact_path=artifact_path,
+        allowed_suffixes=(".html", ".htm", ".svg"),
+    )
+    mime = (
+        "image/svg+xml; charset=utf-8"
+        if path.suffix.lower() == ".svg"
+        else "text/html; charset=utf-8"
+    )
+    return {
+        "schema_version": "1",
+        "path": artifact_path.replace("\\", "/"),
+        "mime_type": mime,
+        "body": path.read_bytes(),
     }
 
 
@@ -534,6 +687,27 @@ def _export_session_vtkjs(
     ).resolve()
     vtkjs_path.relative_to(root)
     return str(vtkjs_path)
+
+
+def preview_event_garden_root(*, arguments: Any, result: Any) -> str | None:
+    """Return a normalized Garden key when a tool call produced a preview-worthy result."""
+    visualization_result = isinstance(result, dict) and any(
+        isinstance(result.get(key), dict)
+        for key in ("visualization_set", "visualization_set_target")
+    )
+    receipt = result.get("artifact_receipt") if isinstance(result, dict) else None
+    vtkjs_receipt = (
+        receipt
+        if isinstance(receipt, dict) and receipt.get("artifact_type") == VTKJS_ARTIFACT_TYPE
+        else None
+    )
+    model_target = _persisted_model_target(result)
+    if not visualization_result and vtkjs_receipt is None and model_target is None:
+        return None
+    garden_root = _find_garden_root(arguments) or _find_garden_root(result)
+    if not garden_root:
+        return None
+    return windows_path_key(Path(garden_root).expanduser().resolve())
 
 
 def maybe_record_code_mode_preview(
@@ -669,10 +843,13 @@ def maybe_record_code_mode_preview(
 __all__ = [
     "POLL_INTERVAL_MS",
     "SUPPORTED_PREVIEW_KINDS",
+    "VENDOR_VTKJS_PATH",
     "fallback_viewer_html",
     "get_web_view_config",
     "maybe_record_code_mode_preview",
+    "preview_event_garden_root",
     "read_preview_artifact",
+    "read_preview_document",
     "read_preview_state",
     "read_web_view_session",
     "record_preview_failure",

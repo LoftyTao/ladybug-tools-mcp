@@ -200,7 +200,7 @@ Simulation tools remain available; prepare external engines only for the workflo
 
 Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.1` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NatLabRockies/OpenStudio/releases/tag/v3.11.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
+| `v1.2.1` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.10.0](https://github.com/NREL/OpenStudio/releases/tag/v3.10.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
 
 Use `LB_Get_Runtime_Config` to check installed engines and obtain setup guidance for any missing runtime.
 
@@ -233,14 +233,10 @@ Enable Web View Mode for this Garden, then create or edit the Honeybee model.
 Through MCP Code Mode, the agent calls:
 
 ```text
-GD_Web_View_Start_Mode(garden_root, name="...")
+GD_Web_View_Start_Mode(garden_root, name="...", port=None)
 ```
 
-Starting the mode creates a Garden-local session and returns its local `viewer.url`, for example:
-
-```text
-http://127.0.0.1:3127
-```
+Starting the mode creates a Garden-local session and serves a completely offline workbench (using locally bundled `vtk.js` at `/vendor/vtk.js` with no external CDN dependency) on `127.0.0.1`, returning `viewer.url` (for example `http://127.0.0.1:<port>/`). The workbench provides a `steps[]` timeline scrubber, layer/actor visibility toggles, standard view camera buttons (`Ax`, `Top`, `Front`, `Back`, `Left`, `Right`, `Fit`), a 2D colorbar/legend overlay, and an HTML/SVG artifact preview tab.
 
 Open the returned `viewer.url` to display the preview.
 
@@ -268,10 +264,9 @@ In Web View Mode, significant Honeybee, Dragonfly, Fairyfly, and VisualizationSe
 
 The viewer polls Garden session state and reloads the latest `.vtkjs` package without a manual refresh.
 These automatic previews are local session state, not formal user-requested Garden artifacts.
-If you need a durable reusable artifact, still ask the agent to export a VisualizationSet with `LB_Set_To_VTKJS`.
+If you need a durable reusable artifact, still ask the agent to export a VisualizationSet with `LB_Export_Visualization_Set` (`export_format="vtkjs"`).
 
-The fallback viewer intentionally uses an explicit local port.
-If the requested port is already occupied, startup fails clearly instead of silently choosing another port or leaving the browser pointed at an older Garden.
+When `port` is omitted (`None`), the local viewer binds an ephemeral `127.0.0.1` port (`0`) automatically; when an explicit `port` is provided and already occupied, startup fails clearly with a port conflict error instead of silently switching ports or pointing the browser at an older Garden.
 
 ## First Use
 

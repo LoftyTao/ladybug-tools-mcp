@@ -1,5 +1,7 @@
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Win32.SafeHandles;
 
 namespace IronbugBridge;
 
@@ -11,11 +13,62 @@ internal static class Program
         WriteIndented = false,
     };
 
+    [DllImport("ucrtbase.dll", EntryPoint = "_dup", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int WinDup(int fd);
+
+    [DllImport("ucrtbase.dll", EntryPoint = "_dup2", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int WinDup2(int fdSrc, int fdDst);
+
+    [DllImport("ucrtbase.dll", EntryPoint = "_get_osfhandle", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr WinGetOsfHandle(int fd);
+
+    [DllImport("libc", EntryPoint = "dup")]
+    private static extern int PosixDup(int fd);
+
+    [DllImport("libc", EntryPoint = "dup2")]
+    private static extern int PosixDup2(int fdSrc, int fdDst);
+
+    private static Stream OpenDedicatedProtocolStdout()
+    {
+        // Duplicate native fd 1 before redirecting fd 1 -> fd 2 (stderr) so native C++ logs
+        // from OpenStudio (std::cout / C stdout) never corrupt the JSON-Lines RPC stream.
+        try
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                int savedFd = WinDup(1);
+                if (savedFd >= 0)
+                {
+                    WinDup2(2, 1);
+                    IntPtr handle = WinGetOsfHandle(savedFd);
+                    if (handle != IntPtr.Zero && handle != new IntPtr(-1))
+                    {
+                        return new FileStream(new SafeFileHandle(handle, ownsHandle: false), FileAccess.Write);
+                    }
+                }
+            }
+            else
+            {
+                int savedFd = PosixDup(1);
+                if (savedFd >= 0)
+                {
+                    PosixDup2(2, 1);
+                    return new FileStream(new SafeFileHandle(new IntPtr(savedFd), ownsHandle: false), FileAccess.Write);
+                }
+            }
+        }
+        catch
+        {
+            // Fall back to managed Console redirection when native dup is unavailable.
+        }
+        return Console.OpenStandardOutput();
+    }
+
     public static int Main(string[] args)
     {
-        // Save real stdout for JSON Lines protocol and redirect Console.Out to stderr
+        // Save real stdout for JSON Lines protocol and redirect Console.Out + native stdout to stderr
         // so OpenStudio / Ironbug console prints never corrupt stdout RPC frames.
-        var originalOut = Console.OpenStandardOutput();
+        var originalOut = OpenDedicatedProtocolStdout();
         var protocolOut = new StreamWriter(originalOut, new UTF8Encoding(false)) { AutoFlush = true };
         Console.SetOut(Console.Error);
 
@@ -142,6 +195,8 @@ internal static class Program
                 "build" => builder.Build(paramsEl),
                 "validate" => HandleValidate(builder, paramsEl),
                 "inspect" => HandleInspect(builder, paramsEl),
+                "reverse_parse" => HandleReverseParse(builder, paramsEl),
+                "decompile" => HandleReverseParse(builder, paramsEl),
                 _ => throw new InvalidOperationException($"Unsupported bridge method: {method}"),
             };
 
@@ -201,11 +256,16 @@ internal static class Program
         return inspector.Describe(typeNames, includeAdvanced);
     }
 
-    private static object HandleValidate(SystemBuilder builder, JsonElement p)
+    private static string ExtractSpecJson(JsonElement p)
     {
-        var specJson = p.TryGetProperty("specification_json", out var sEl) && sEl.ValueKind == JsonValueKind.String
+        return p.TryGetProperty("specification_json", out var sEl) && sEl.ValueKind == JsonValueKind.String
             ? sEl.GetString()!
             : (p.TryGetProperty("specification", out var objEl) ? objEl.GetRawText() : throw new ArgumentException("specification_json is required."));
+    }
+
+    private static object HandleValidate(SystemBuilder builder, JsonElement p)
+    {
+        var specJson = ExtractSpecJson(p);
         var roomNames = new List<string>();
         if (p.TryGetProperty("room_names", out var rEl) && rEl.ValueKind == JsonValueKind.Array)
         {
@@ -217,15 +277,26 @@ internal static class Program
                 }
             }
         }
-        return builder.Validate(specJson, roomNames);
+        string? osmPath = p.TryGetProperty("osm_path", out var osmEl) && osmEl.ValueKind == JsonValueKind.String
+            ? osmEl.GetString()
+            : null;
+        bool? runForwardTranslator = null;
+        if (p.TryGetProperty("run_forward_translator", out var ftEl))
+        {
+            if (ftEl.ValueKind == JsonValueKind.True) runForwardTranslator = true;
+            else if (ftEl.ValueKind == JsonValueKind.False) runForwardTranslator = false;
+        }
+        return builder.Validate(specJson, roomNames, osmPath, runForwardTranslator);
     }
 
     private static object HandleInspect(SystemBuilder builder, JsonElement p)
     {
-        var specJson = p.TryGetProperty("specification_json", out var sEl) && sEl.ValueKind == JsonValueKind.String
-            ? sEl.GetString()!
-            : (p.TryGetProperty("specification", out var objEl) ? objEl.GetRawText() : throw new ArgumentException("specification_json is required."));
-        return builder.Inspect(specJson);
+        return builder.Inspect(ExtractSpecJson(p));
+    }
+
+    private static object HandleReverseParse(SystemBuilder builder, JsonElement p)
+    {
+        return builder.ReverseParse(ExtractSpecJson(p));
     }
 
     private static void WriteErrorResponse(TextWriter protocolOut, string reqId, string errorType, string message)

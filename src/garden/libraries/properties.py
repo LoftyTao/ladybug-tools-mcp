@@ -11,18 +11,27 @@ from honeybee_energy.construction.dictutil import dict_to_construction
 from honeybee_energy.constructionset import ConstructionSet
 from honeybee_energy.generator.loadcenter import ElectricLoadCenter
 from honeybee_energy.generator.pv import PVProperties
+from honeybee_energy.internalmass import InternalMass
 from honeybee_energy.load.dictutil import dict_to_load
+from honeybee_energy.load.hotwater import ServiceHotWater
+from honeybee_energy.load.process import Process
 from honeybee_energy.material.dictutil import dict_to_material
 from honeybee_energy.hvac import HVAC_TYPES_DICT
 from honeybee_energy.hvac._base import _HVACSystem
 from honeybee_energy.programtype import ProgramType
 from honeybee_energy.schedule.dictutil import dict_to_schedule
 from honeybee_energy.schedule.typelimit import ScheduleTypeLimit
+from honeybee_energy.shw import SHWSystem
 from honeybee_energy.ventcool.fan import VentilationFan
 from honeybee_radiance.dictutil import dict_to_object as dict_to_radiance_object
 from honeybee_radiance.luminaire import Luminaire
 from honeybee_radiance.modifier.modifierbase import Modifier
 from honeybee_radiance.modifierset import ModifierSet
+
+try:
+    from honeybee_energy.load.exhaust import ExhaustAir
+except ImportError:
+    ExhaustAir = None  # type: ignore[assignment]
 
 from ladybug_tools_mcp.contracts import (
     make_garden_properties_library_target,
@@ -59,6 +68,18 @@ def _validate_program_type(data: dict[str, Any]) -> Any:
 
 
 def _validate_load(data: dict[str, Any]) -> Any:
+    load_type = data.get("type") if isinstance(data, dict) else None
+    if load_type == "ServiceHotWater":
+        return ServiceHotWater.from_dict(data)
+    if load_type == "Process":
+        return Process.from_dict(data)
+    if load_type == "ExhaustAir":
+        if ExhaustAir is None:
+            raise ValueError(
+                "ExhaustAir requires honeybee-energy>=1.125 (not available in this environment); "
+                "use zone_ventilation_fan instead."
+            )
+        return ExhaustAir.from_dict(data)
     return dict_to_load(data)
 
 
@@ -90,6 +111,27 @@ def _validate_construction_set(data: dict[str, Any]) -> Any:
 
 def _validate_zone_ventilation_fan(data: dict[str, Any]) -> Any:
     return VentilationFan.from_dict(data)
+
+
+def _validate_process(data: dict[str, Any]) -> Any:
+    return Process.from_dict(data)
+
+
+def _validate_exhaust_air(data: dict[str, Any]) -> Any:
+    if ExhaustAir is None:
+        raise ValueError(
+            "ExhaustAir requires honeybee-energy>=1.125 (not available in this environment); "
+            "use zone_ventilation_fan instead."
+        )
+    return ExhaustAir.from_dict(data)
+
+
+def _validate_internal_mass(data: dict[str, Any]) -> Any:
+    return InternalMass.from_dict(data)
+
+
+def _validate_shw_system(data: dict[str, Any]) -> Any:
+    return SHWSystem.from_dict(data)
 
 
 def _validate_pv_properties(data: dict[str, Any]) -> Any:
@@ -160,6 +202,34 @@ _FAMILY_SPECS = (
         "zone_ventilation_fans",
         "ZoneVentilationFan",
         _validate_zone_ventilation_fan,
+    ),
+    _FamilySpec(
+        "honeybee_energy",
+        "process",
+        "processes",
+        "Process",
+        _validate_process,
+    ),
+    _FamilySpec(
+        "honeybee_energy",
+        "exhaust_air",
+        "exhaust_airs",
+        "ExhaustAir",
+        _validate_exhaust_air,
+    ),
+    _FamilySpec(
+        "honeybee_energy",
+        "internal_mass",
+        "internal_masses",
+        "InternalMass",
+        _validate_internal_mass,
+    ),
+    _FamilySpec(
+        "honeybee_energy",
+        "shw_system",
+        "shw_systems",
+        "SHWSystem",
+        _validate_shw_system,
     ),
     _FamilySpec(
         "honeybee_energy",

@@ -9,11 +9,13 @@ import math
 from pathlib import Path
 from typing import Any
 
+from dragonfly.building import Building
 from dragonfly.model import Model
 from dragonfly.room2d import Room2D
 from dragonfly.story import Story
 from ladybug_geometry.geometry2d.line import LineSegment2D
 from ladybug_geometry.geometry2d.pointvector import Point2D
+from ladybug_geometry.geometry3d.pointvector import Point3D, Vector3D
 
 from garden.dragonfly_core.model_io import (
     load_dragonfly_model,
@@ -370,6 +372,7 @@ def _batch_result(
     after_roofs: dict[tuple[str, str], str | None] | None = None,
     parameters: dict[str, Any],
     warnings: list[str] | None = None,
+    force_persist: bool = False,
 ) -> dict[str, Any]:
     changes = _batch_change_summary(
         before,
@@ -384,7 +387,8 @@ def _batch_result(
             f"({validation['issue_count']} issue(s))."
         )
     has_changes = bool(
-        changes["affected_counts"]["room2ds"]
+        force_persist
+        or changes["affected_counts"]["room2ds"]
         or changes["changed_roof_story_identifiers"]
     )
     if has_changes:
@@ -1016,4 +1020,924 @@ def join_small_dragonfly_room2ds(
             "join_into_large": join_into_large,
             "tolerance": resolved_tolerance,
         },
+    )
+
+
+def _building_by_identifier(model: Model, identifier: str) -> Building:
+    return _one_by_identifier(
+        model.buildings_by_identifier([identifier]),
+        identifier,
+        "Building",
+    )
+
+
+def _resolve_target_buildings(
+    model: Model,
+    *,
+    model_target: dict[str, Any],
+    building_identifier: str | None = None,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+) -> tuple[str, str, list[Building]]:
+    if building_identifier is not None:
+        return "building", building_identifier, [_building_by_identifier(model, building_identifier)]
+    if host_target is not None and (host_type == "building" or host_target.get("object_type") == "building"):
+        normalized = normalize_dragonfly_object_target(host_target, expected_type="building")
+        identifier = str(normalized["object_identifier"])
+        return "building", identifier, [_building_by_identifier(model, identifier)]
+    if not model.buildings:
+        raise ValueError("The Dragonfly Model contains no Buildings.")
+    return "model", model.identifier, list(model.buildings)
+
+
+def _vector3d(value: Any, *, field_name: str = "vector") -> Vector3D:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or len(value) not in {2, 3}:
+        raise ValueError(f"{field_name} must be a 2D or 3D numeric vector.")
+    coords = [float(item) for item in value]
+    return Vector3D(coords[0], coords[1], coords[2] if len(coords) == 3 else 0.0)
+
+
+def _point3d(value: Any, *, field_name: str = "origin") -> Point3D:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or len(value) not in {2, 3}:
+        raise ValueError(f"{field_name} must be a 2D or 3D numeric coordinate list.")
+    coords = [float(item) for item in value]
+    return Point3D(coords[0], coords[1], coords[2] if len(coords) == 3 else 0.0)
+
+
+def core_perimeter_dragonfly_room2ds(
+    *,
+    garden_root: str,
+    perimeter_offset: float,
+    air_boundary: bool = False,
+    tolerance: float = 0.01,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    story_target: dict[str, Any] | None = None,
+    story_identifier: str | None = None,
+    room2d_target: dict[str, Any] | None = None,
+    room_identifier: str | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Split Room2Ds into core and perimeter zones with Room2D.to_core_perimeter."""
+    resolved_offset = _finite_float(
+        perimeter_offset,
+        field_name="perimeter_offset",
+        minimum=0,
+        inclusive=False,
+    )
+    resolved_tolerance = _finite_float(
+        tolerance,
+        field_name="tolerance",
+        minimum=0,
+        inclusive=False,
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    target_room_ids: set[str] | None = None
+    if room2d_target is not None or room_identifier is not None:
+        if room2d_target is not None:
+            normalized_room = normalize_dragonfly_object_target(
+                room2d_target,
+                expected_type="room2d",
+            )
+            resolved_room_id = str(normalized_room["object_identifier"])
+        else:
+            resolved_room_id = str(room_identifier)
+        target_room_ids = {resolved_room_id}
+        owning_stories = [
+            story
+            for story in model.stories
+            if any(rm.identifier == resolved_room_id for rm in story.room_2ds)
+        ]
+        if not owning_stories:
+            raise ValueError(f"Dragonfly Room2D not found in Model: {resolved_room_id}.")
+        resolved_host_type = "story"
+        host_identifier = owning_stories[0].identifier
+        stories = owning_stories
+    elif story_target is not None or story_identifier is not None:
+        story = _resolve_story(
+            model,
+            story_target=story_target,
+            story_identifier=story_identifier,
+        )
+        resolved_host_type = "story"
+        host_identifier = story.identifier
+        stories = [story]
+    else:
+        resolved_host_type, host_identifier, stories = _resolve_host_stories(
+            model,
+            model_target=resolved_model_target,
+            host_type=host_type,
+            host_target=host_target,
+        )
+    if not stories or not any(story.room_2ds for story in stories):
+        raise ValueError("The selected Dragonfly host contains no Room2Ds.")
+    before = _room_snapshot(stories)
+    for story in stories:
+        new_rooms: list[Room2D] = []
+        changed = False
+        for room in story.room_2ds:
+            if target_room_ids is not None and room.identifier not in target_room_ids:
+                new_rooms.append(room)
+                continue
+            split_rooms = list(
+                room.to_core_perimeter(
+                    resolved_offset,
+                    air_boundary=air_boundary,
+                    tolerance=resolved_tolerance,
+                )
+            )
+            new_rooms.extend(split_rooms)
+            changed = True
+        if changed:
+            story.room_2ds = new_rooms
+            story.reset_adjacency()
+            story.solve_room_2d_adjacency(tolerance=resolved_tolerance)
+    after = _room_snapshot(stories)
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation="core_perimeter_dragonfly_room2ds",
+        message=f"Generated core/perimeter Room2Ds in {resolved_host_type} scope.",
+        host_type=resolved_host_type,
+        host_identifier=host_identifier,
+        before=before,
+        after=after,
+        parameters={
+            "perimeter_offset": resolved_offset,
+            "air_boundary": air_boundary,
+            "tolerance": resolved_tolerance,
+        },
+    )
+
+
+def pull_dragonfly_stories_to_story(
+    *,
+    garden_root: str,
+    base_story_id: str,
+    building_identifier: str | None = None,
+    pulled_story_ids: list[str] | None = None,
+    distance: float = 0.5,
+    coordinate_vertices: bool = True,
+    constrain_edges: bool = False,
+    tolerance: float = 0.01,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Pull Stories to align with a base Story using Building.pull_to_story."""
+    resolved_distance = _finite_float(distance, field_name="distance", minimum=0)
+    resolved_tolerance = _finite_float(
+        tolerance,
+        field_name="tolerance",
+        minimum=0,
+        inclusive=False,
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    resolved_host_type, host_identifier, buildings = _resolve_target_buildings(
+        model,
+        model_target=resolved_model_target,
+        building_identifier=building_identifier,
+        host_type=host_type,
+        host_target=host_target,
+    )
+    matching = [
+        bldg
+        for bldg in buildings
+        if any(st.identifier == base_story_id for st in bldg.unique_stories)
+    ]
+    if not matching:
+        raise ValueError(f"Base Story not found in selected Building(s): {base_story_id}.")
+    before = _room_snapshot(list(model.stories))
+    for bldg in matching:
+        bldg.pull_to_story(
+            resolved_distance,
+            base_story_id,
+            pulled_story_ids=pulled_story_ids,
+            coordinate_vertices=coordinate_vertices,
+            constrain_edges=constrain_edges,
+            tolerance=resolved_tolerance,
+        )
+    after = _room_snapshot(list(model.stories))
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation="pull_dragonfly_stories_to_story",
+        message=f"Pulled Stories toward base Story {base_story_id}.",
+        host_type=resolved_host_type,
+        host_identifier=host_identifier,
+        before=before,
+        after=after,
+        parameters={
+            "base_story_id": base_story_id,
+            "pulled_story_ids": pulled_story_ids,
+            "distance": resolved_distance,
+            "coordinate_vertices": coordinate_vertices,
+            "constrain_edges": constrain_edges,
+            "tolerance": resolved_tolerance,
+        },
+    )
+
+
+def fill_dragonfly_story_holes(
+    *,
+    garden_root: str,
+    base_name: str = "Room",
+    area_threshold: float = 0.0,
+    tolerance: float = 0.01,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    story_target: dict[str, Any] | None = None,
+    story_identifier: str | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Fill enclosed holes within Story footprints using Story.fill_holes."""
+    resolved_threshold = _finite_float(
+        area_threshold,
+        field_name="area_threshold",
+        minimum=0,
+    )
+    resolved_tolerance = _finite_float(
+        tolerance,
+        field_name="tolerance",
+        minimum=0,
+        inclusive=False,
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    if story_target is not None or story_identifier is not None:
+        story = _resolve_story(
+            model,
+            story_target=story_target,
+            story_identifier=story_identifier,
+        )
+        resolved_host_type = "story"
+        host_identifier = story.identifier
+        stories = [story]
+    else:
+        resolved_host_type, host_identifier, stories = _resolve_host_stories(
+            model,
+            model_target=resolved_model_target,
+            host_type=host_type,
+            host_target=host_target,
+        )
+    if not stories:
+        raise ValueError("The selected Dragonfly host contains no Stories.")
+    before = _room_snapshot(stories)
+    for story in stories:
+        story.fill_holes(
+            base_name=base_name,
+            area_threshold=resolved_threshold,
+            tolerance=resolved_tolerance,
+        )
+        story.reset_adjacency()
+        story.solve_room_2d_adjacency(tolerance=resolved_tolerance)
+    after = _room_snapshot(stories)
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation="fill_dragonfly_story_holes",
+        message=f"Filled Story footprint holes in {resolved_host_type} scope.",
+        host_type=resolved_host_type,
+        host_identifier=host_identifier,
+        before=before,
+        after=after,
+        parameters={
+            "base_name": base_name,
+            "area_threshold": resolved_threshold,
+            "tolerance": resolved_tolerance,
+        },
+    )
+
+
+def join_dragonfly_room2ds(
+    *,
+    garden_root: str,
+    room_identifiers: list[str],
+    tolerance: float = 0.01,
+    story_target: dict[str, Any] | None = None,
+    story_identifier: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Join specific adjacent Room2Ds on a Story using Story.join_room_2ds."""
+    if not room_identifiers or len(room_identifiers) < 2:
+        raise ValueError("join_room_2ds requires at least two room_identifiers.")
+    resolved_tolerance = _finite_float(
+        tolerance,
+        field_name="tolerance",
+        minimum=0,
+        inclusive=False,
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    if story_target is not None or story_identifier is not None:
+        story = _resolve_story(
+            model,
+            story_target=story_target,
+            story_identifier=story_identifier,
+        )
+    elif host_target is not None and host_target.get("object_type") == "story":
+        story = _resolve_story(
+            model,
+            story_target=host_target,
+            story_identifier=None,
+        )
+    else:
+        wanted = set(room_identifiers)
+        matches = [
+            st
+            for st in model.stories
+            if wanted.issubset({rm.identifier for rm in st.room_2ds})
+        ]
+        if not matches:
+            raise ValueError(
+                "Could not find a single Story containing all specified room_identifiers."
+            )
+        story = matches[0]
+    before = _room_snapshot([story])
+    story.join_room_2ds(list(room_identifiers), tolerance=resolved_tolerance)
+    story.reset_adjacency()
+    story.solve_room_2d_adjacency(tolerance=resolved_tolerance)
+    after = _room_snapshot([story])
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation="join_dragonfly_room2ds",
+        message=f"Joined {len(room_identifiers)} Room2D(s) in Story {story.identifier}.",
+        host_type="story",
+        host_identifier=story.identifier,
+        before=before,
+        after=after,
+        parameters={
+            "room_identifiers": list(room_identifiers),
+            "tolerance": resolved_tolerance,
+        },
+    )
+
+
+def split_dragonfly_story_with_above(
+    *,
+    garden_root: str,
+    tolerance: float = 0.01,
+    building_identifier: str | None = None,
+    story_target: dict[str, Any] | None = None,
+    story_identifier: str | None = None,
+    story_above_identifier: str | None = None,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Split lower Story Room2Ds along upper Story footprint edges."""
+    resolved_tolerance = _finite_float(
+        tolerance,
+        field_name="tolerance",
+        minimum=0,
+        inclusive=False,
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    before = _room_snapshot(list(model.stories))
+    if story_target is not None or story_identifier is not None:
+        story = _resolve_story(
+            model,
+            story_target=story_target,
+            story_identifier=story_identifier,
+        )
+        if story_above_identifier is not None:
+            story_above = _story_by_identifier(model, story_above_identifier)
+        else:
+            parent_bldg = getattr(story, "parent", None)
+            if parent_bldg is None:
+                raise ValueError("Provide story_above_identifier when Story has no parent Building.")
+            ordered = sorted(parent_bldg.unique_stories, key=lambda s: s.floor_height)
+            idx = ordered.index(story)
+            if idx + 1 >= len(ordered):
+                raise ValueError(f"Story {story.identifier} is the top Story; no Story above.")
+            story_above = ordered[idx + 1]
+        story.split_with_story_above(story_above, tolerance=resolved_tolerance)
+        resolved_host_type = "story"
+        host_identifier = story.identifier
+    else:
+        resolved_host_type, host_identifier, buildings = _resolve_target_buildings(
+            model,
+            model_target=resolved_model_target,
+            building_identifier=building_identifier,
+            host_type=host_type,
+            host_target=host_target,
+        )
+        for bldg in buildings:
+            ordered = sorted(bldg.unique_stories, key=lambda s: s.floor_height)
+            for idx in range(len(ordered) - 1):
+                ordered[idx].split_with_story_above(
+                    ordered[idx + 1],
+                    tolerance=resolved_tolerance,
+                )
+    after = _room_snapshot(list(model.stories))
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation="split_dragonfly_story_with_above",
+        message=f"Split Story footprints against Story above in {resolved_host_type} scope.",
+        host_type=resolved_host_type,
+        host_identifier=host_identifier,
+        before=before,
+        after=after,
+        parameters={
+            "story_above_identifier": story_above_identifier,
+            "tolerance": resolved_tolerance,
+        },
+    )
+
+
+def convert_dragonfly_multipliers(
+    *,
+    garden_root: str,
+    building_identifier: str | None = None,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Expand Story multipliers into explicit unique Story instances."""
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    resolved_host_type, host_identifier, buildings = _resolve_target_buildings(
+        model,
+        model_target=resolved_model_target,
+        building_identifier=building_identifier,
+        host_type=host_type,
+        host_target=host_target,
+    )
+    before = _room_snapshot(list(model.stories))
+    before_story_count = len(model.stories)
+    for bldg in buildings:
+        bldg.convert_multipliers_to_stories()
+    after = _room_snapshot(list(model.stories))
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation="convert_dragonfly_multipliers",
+        message=f"Converted Story multipliers to explicit Stories ({before_story_count} -> {len(model.stories)}).",
+        host_type=resolved_host_type,
+        host_identifier=host_identifier,
+        before=before,
+        after=after,
+        parameters={"story_count_before": before_story_count, "story_count_after": len(model.stories)},
+        force_persist=before_story_count != len(model.stories),
+    )
+
+
+def separate_dragonfly_plenums(
+    *,
+    garden_root: str,
+    building_identifier: str | None = None,
+    room_identifiers: list[str] | None = None,
+    target_floor_to_ceiling: float | None = None,
+    floor_plenum: bool = False,
+    tolerance: float = 0.01,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Convert Room2D plenum depths to Stories or carve plenums for selected rooms."""
+    resolved_tolerance = _finite_float(
+        tolerance,
+        field_name="tolerance",
+        minimum=0,
+        inclusive=False,
+    )
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    resolved_host_type, host_identifier, buildings = _resolve_target_buildings(
+        model,
+        model_target=resolved_model_target,
+        building_identifier=building_identifier,
+        host_type=host_type,
+        host_target=host_target,
+    )
+    before = _room_snapshot(list(model.stories))
+    before_story_count = len(model.stories)
+    for bldg in buildings:
+        if room_identifiers and target_floor_to_ceiling is not None:
+            bldg.separate_room_2d_plenums(
+                list(room_identifiers),
+                float(target_floor_to_ceiling),
+                floor_plenum=bool(floor_plenum),
+                tolerance=resolved_tolerance,
+            )
+        else:
+            bldg.convert_plenum_depths_to_room_2ds(tolerance=resolved_tolerance)
+    after = _room_snapshot(list(model.stories))
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation="separate_dragonfly_plenums",
+        message=f"Separated plenums into Story objects in {resolved_host_type} scope.",
+        host_type=resolved_host_type,
+        host_identifier=host_identifier,
+        before=before,
+        after=after,
+        parameters={
+            "room_identifiers": room_identifiers,
+            "target_floor_to_ceiling": target_floor_to_ceiling,
+            "floor_plenum": floor_plenum,
+            "tolerance": resolved_tolerance,
+        },
+        force_persist=before_story_count != len(model.stories),
+    )
+
+
+def transform_dragonfly_objects(
+    *,
+    garden_root: str,
+    transform_type: str,
+    vector: list[float] | None = None,
+    angle: float | None = None,
+    factor: float | None = None,
+    origin: list[float] | None = None,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    story_target: dict[str, Any] | None = None,
+    story_identifier: str | None = None,
+    room2d_target: dict[str, Any] | None = None,
+    room_identifier: str | None = None,
+    building_identifier: str | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Transform a Dragonfly Model, Building, Story, or Room2D via move/rotate_xy/scale."""
+    op_kind = transform_type.strip().lower().replace("-", "_")
+    if op_kind not in {"move", "rotate_xy", "scale"}:
+        raise ValueError("transform_type must be move, rotate_xy, or scale.")
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    resolved_host_type = "model"
+    host_identifier = model.identifier
+    targets_to_transform: list[Any] = [model]
+    if room2d_target is not None or room_identifier is not None:
+        if room2d_target is not None:
+            normalized = normalize_dragonfly_object_target(room2d_target, expected_type="room2d")
+            rid = str(normalized["object_identifier"])
+        else:
+            rid = str(room_identifier)
+        targets_to_transform = [_room_by_identifier(model, rid)]
+        resolved_host_type = "room2d"
+        host_identifier = rid
+    elif story_target is not None or story_identifier is not None:
+        story = _resolve_story(
+            model,
+            story_target=story_target,
+            story_identifier=story_identifier,
+        )
+        targets_to_transform = [story]
+        resolved_host_type = "story"
+        host_identifier = story.identifier
+    elif building_identifier is not None or (
+        host_target is not None and (host_type == "building" or host_target.get("object_type") == "building")
+    ):
+        resolved_host_type, host_identifier, bldgs = _resolve_target_buildings(
+            model,
+            model_target=resolved_model_target,
+            building_identifier=building_identifier,
+            host_type=host_type,
+            host_target=host_target,
+        )
+        targets_to_transform = list(bldgs)
+    elif host_type == "story" and host_target is not None:
+        story = _resolve_story(model, story_target=host_target, story_identifier=None)
+        targets_to_transform = [story]
+        resolved_host_type = "story"
+        host_identifier = story.identifier
+
+    before = _room_snapshot(list(model.stories))
+    if op_kind == "move":
+        if vector is None:
+            raise ValueError("vector is required for transform_type='move'.")
+        vec3 = _vector3d(vector, field_name="vector")
+        for obj in targets_to_transform:
+            obj.move(vec3)
+    elif op_kind == "rotate_xy":
+        if angle is None:
+            raise ValueError("angle is required for transform_type='rotate_xy'.")
+        rot_angle = float(angle)
+        ori3 = _point3d(origin if origin is not None else [0.0, 0.0, 0.0], field_name="origin")
+        for obj in targets_to_transform:
+            obj.rotate_xy(rot_angle, ori3)
+    else:
+        if factor is None:
+            raise ValueError("factor is required for transform_type='scale'.")
+        scale_factor = _finite_float(factor, field_name="factor", minimum=0, inclusive=False)
+        ori3 = _point3d(origin, field_name="origin") if origin is not None else None
+        for obj in targets_to_transform:
+            obj.scale(scale_factor, ori3)
+    after = _room_snapshot(list(model.stories))
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation=f"transform_dragonfly_{op_kind}",
+        message=f"Applied {op_kind} transform to Dragonfly {resolved_host_type} ({host_identifier}).",
+        host_type=resolved_host_type,
+        host_identifier=host_identifier,
+        before=before,
+        after=after,
+        parameters={
+            "transform_type": op_kind,
+            "vector": vector,
+            "angle": angle,
+            "factor": factor,
+            "origin": origin,
+        },
+        force_persist=True,
+    )
+
+
+def merge_dragonfly_model(
+    *,
+    garden_root: str,
+    incoming_model_target: dict[str, Any],
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Merge another Garden Dragonfly Model into the target Model via Model.add_model."""
+    garden_root_path, manifest, resolved_model_target, model = _load_target_model(
+        garden_root,
+        model_target,
+    )
+    resolved_incoming_target = normalize_dragonfly_model_target(incoming_model_target)
+    other_model = load_dragonfly_model(garden_root_path, resolved_incoming_target)
+    before = _room_snapshot(list(model.stories))
+    before_context_count = len(model.context_shades)
+    model.add_model(other_model.duplicate())
+    after = _room_snapshot(list(model.stories))
+    return _batch_result(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        resolved_model_target=resolved_model_target,
+        model=model,
+        operation="merge_dragonfly_model",
+        message=f"Merged Dragonfly Model {other_model.identifier} into {model.identifier}.",
+        host_type="model",
+        host_identifier=model.identifier,
+        before=before,
+        after=after,
+        parameters={"incoming_model_identifier": other_model.identifier},
+        force_persist=before_context_count != len(model.context_shades),
+    )
+
+
+def process_dragonfly_geometry(
+    *,
+    garden_root: str,
+    operation: str,
+    model_target: dict[str, Any] | None = None,
+    host_type: str | None = None,
+    host_target: dict[str, Any] | None = None,
+    story_target: dict[str, Any] | None = None,
+    story_identifier: str | None = None,
+    room2d_target: dict[str, Any] | None = None,
+    room_identifier: str | None = None,
+    building_identifier: str | None = None,
+    lines: Any = None,
+    distance: float = 0.5,
+    area_threshold: float = 10.0,
+    join_into_large: bool = False,
+    tolerance: float = 0.01,
+    intersect: bool = False,
+    resolve_window_conflicts: bool = True,
+    remove_duplicate_vertices: bool = True,
+    remove_colinear_vertices: bool = True,
+    remove_short_segments_distance: float | None = None,
+    preserve_wall_props: bool = True,
+    angle_tolerance: float = 1.0,
+    perimeter_offset: float | None = None,
+    air_boundary: bool = False,
+    base_story_id: str | None = None,
+    pulled_story_ids: list[str] | None = None,
+    coordinate_vertices: bool = True,
+    constrain_edges: bool = False,
+    base_name: str = "Room",
+    room_identifiers: list[str] | None = None,
+    story_above_identifier: str | None = None,
+    target_floor_to_ceiling: float | None = None,
+    floor_plenum: bool = False,
+    transform_type: str | None = None,
+    vector: list[float] | None = None,
+    angle: float | None = None,
+    factor: float | None = None,
+    origin: list[float] | None = None,
+    incoming_model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Dispatch Dragonfly geometry processing operations."""
+    op = operation.strip().lower().replace("-", "_")
+    if op == "align":
+        if lines is None:
+            raise ValueError("lines is required when operation='align'.")
+        return align_dragonfly_room2ds(
+            garden_root=garden_root,
+            lines=lines,
+            distance=distance,
+            tolerance=tolerance,
+            host_type=host_type,
+            host_target=host_target,
+            model_target=model_target,
+        )
+    if op == "clean":
+        return clean_dragonfly_room2d_geometry(
+            garden_root=garden_root,
+            room2d_target=room2d_target,
+            room_identifier=room_identifier,
+            model_target=model_target,
+            remove_duplicate_vertices=remove_duplicate_vertices,
+            remove_colinear_vertices=remove_colinear_vertices,
+            remove_short_segments_distance=remove_short_segments_distance,
+            tolerance=tolerance,
+            preserve_wall_props=preserve_wall_props,
+            angle_tolerance=angle_tolerance,
+        )
+    if op == "intersect":
+        return intersect_dragonfly_room2ds(
+            garden_root=garden_root,
+            tolerance=tolerance,
+            host_type=host_type,
+            host_target=host_target,
+            model_target=model_target,
+        )
+    if op == "join_small":
+        return join_small_dragonfly_room2ds(
+            garden_root=garden_root,
+            area_threshold=area_threshold,
+            join_into_large=join_into_large,
+            tolerance=tolerance,
+            host_type=host_type,
+            host_target=host_target,
+            model_target=model_target,
+        )
+    if op == "solve_adjacency":
+        return solve_dragonfly_story_adjacency(
+            garden_root=garden_root,
+            story_target=story_target,
+            story_identifier=story_identifier,
+            model_target=model_target,
+            tolerance=tolerance,
+            intersect=intersect,
+            resolve_window_conflicts=resolve_window_conflicts,
+        )
+    if op == "reset_adjacency":
+        return reset_dragonfly_story_adjacency(
+            garden_root=garden_root,
+            story_target=story_target,
+            story_identifier=story_identifier,
+            model_target=model_target,
+        )
+    if op == "core_perimeter":
+        if perimeter_offset is None:
+            raise ValueError("perimeter_offset is required when operation='core_perimeter'.")
+        return core_perimeter_dragonfly_room2ds(
+            garden_root=garden_root,
+            perimeter_offset=perimeter_offset,
+            air_boundary=air_boundary,
+            tolerance=tolerance,
+            host_type=host_type,
+            host_target=host_target,
+            story_target=story_target,
+            story_identifier=story_identifier,
+            room2d_target=room2d_target,
+            room_identifier=room_identifier,
+            model_target=model_target,
+        )
+    if op == "pull_to_story":
+        if not base_story_id:
+            raise ValueError("base_story_id is required when operation='pull_to_story'.")
+        return pull_dragonfly_stories_to_story(
+            garden_root=garden_root,
+            base_story_id=base_story_id,
+            building_identifier=building_identifier,
+            pulled_story_ids=pulled_story_ids,
+            distance=distance,
+            coordinate_vertices=coordinate_vertices,
+            constrain_edges=constrain_edges,
+            tolerance=tolerance,
+            host_type=host_type,
+            host_target=host_target,
+            model_target=model_target,
+        )
+    if op == "fill_holes":
+        return fill_dragonfly_story_holes(
+            garden_root=garden_root,
+            base_name=base_name,
+            area_threshold=area_threshold if area_threshold != 10.0 else 0.0,
+            tolerance=tolerance,
+            host_type=host_type,
+            host_target=host_target,
+            story_target=story_target,
+            story_identifier=story_identifier,
+            model_target=model_target,
+        )
+    if op == "join_room_2ds":
+        if not room_identifiers:
+            raise ValueError("room_identifiers is required when operation='join_room_2ds'.")
+        return join_dragonfly_room2ds(
+            garden_root=garden_root,
+            room_identifiers=room_identifiers,
+            tolerance=tolerance,
+            story_target=story_target,
+            story_identifier=story_identifier,
+            host_target=host_target,
+            model_target=model_target,
+        )
+    if op == "split_with_story_above":
+        return split_dragonfly_story_with_above(
+            garden_root=garden_root,
+            tolerance=tolerance,
+            building_identifier=building_identifier,
+            story_target=story_target,
+            story_identifier=story_identifier,
+            story_above_identifier=story_above_identifier,
+            host_type=host_type,
+            host_target=host_target,
+            model_target=model_target,
+        )
+    if op == "convert_multipliers":
+        return convert_dragonfly_multipliers(
+            garden_root=garden_root,
+            building_identifier=building_identifier,
+            host_type=host_type,
+            host_target=host_target,
+            model_target=model_target,
+        )
+    if op == "separate_plenums":
+        return separate_dragonfly_plenums(
+            garden_root=garden_root,
+            building_identifier=building_identifier,
+            room_identifiers=room_identifiers,
+            target_floor_to_ceiling=target_floor_to_ceiling,
+            floor_plenum=floor_plenum,
+            tolerance=tolerance,
+            host_type=host_type,
+            host_target=host_target,
+            model_target=model_target,
+        )
+    if op == "transform":
+        if not transform_type:
+            raise ValueError("transform_type is required when operation='transform'.")
+        return transform_dragonfly_objects(
+            garden_root=garden_root,
+            transform_type=transform_type,
+            vector=vector,
+            angle=angle,
+            factor=factor,
+            origin=origin,
+            host_type=host_type,
+            host_target=host_target,
+            story_target=story_target,
+            story_identifier=story_identifier,
+            room2d_target=room2d_target,
+            room_identifier=room_identifier,
+            building_identifier=building_identifier,
+            model_target=model_target,
+        )
+    if op == "merge_model":
+        if incoming_model_target is None:
+            raise ValueError("incoming_model_target is required when operation='merge_model'.")
+        return merge_dragonfly_model(
+            garden_root=garden_root,
+            incoming_model_target=incoming_model_target,
+            model_target=model_target,
+        )
+    raise ValueError(
+        "operation must be one of align, clean, intersect, join_small, "
+        "solve_adjacency, reset_adjacency, core_perimeter, pull_to_story, "
+        "fill_holes, join_room_2ds, split_with_story_above, "
+        "convert_multipliers, separate_plenums, transform, or merge_model."
     )

@@ -7,9 +7,11 @@ from functools import lru_cache
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
+import time
 from typing import Any
 
 import lbt_recipes
@@ -54,6 +56,14 @@ SUPPORTED_RECIPES = {
     "well-daylight",
     "breeam-daylight-4b",
     "imageless-annual-glare",
+    "pmv-comfort-map",
+    "utci-comfort-map",
+    "adaptive-comfort-map",
+}
+_COMFORT_MAP_RECIPES = {
+    "pmv-comfort-map",
+    "utci-comfort-map",
+    "adaptive-comfort-map",
 }
 GRID_CALCULATION_TYPES = {
     "point-in-time": ("point-in-time-grid", "rtrace"),
@@ -122,7 +132,10 @@ _capture_recipe_stdio = capture_recipe_stdio
 RADIANCE_RUN_PUBLIC_FIELDS = (
     "target",
     "run_id",
+    "simulation_id",
     "recipe",
+    "recipe_source",
+    "is_external_recipe",
     "calculation_family",
     "calculation_type",
     "command_name",
@@ -133,8 +146,10 @@ RADIANCE_RUN_PUBLIC_FIELDS = (
     "model_display_name",
     "model_path",
     "run_folder",
+    "debug_folder",
     "outputs",
     "workers",
+    "worker_pid",
     "warnings",
     "radiance_parameters_path",
 )
@@ -242,6 +257,25 @@ def _resolve_sky_string(
     return str(sky).strip()
 
 
+def _resolve_sky_input(
+    *,
+    garden_root: Path | None = None,
+    garden_root_path: Path | None = None,
+    manifest: GardenManifest,
+    sky_file_target: dict[str, Any] | None,
+    sky: str | None,
+) -> str:
+    root = garden_root_path or garden_root
+    if root is None:
+        raise ValueError("garden_root is required to resolve sky input.")
+    return _resolve_sky_string(
+        garden_root=root,
+        manifest=manifest,
+        sky_file_target=sky_file_target,
+        sky=sky,
+    )
+
+
 def _recipe_sky_from_manifest_artifact(
     *,
     manifest: GardenManifest,
@@ -289,16 +323,78 @@ def _append_option(parts: list[str], flag: str, value: Any | None) -> None:
         parts.extend([flag, str(value)])
 
 
+def _split_sky_command_tokens(
+    tokens: list[str],
+    *,
+    two_arg_flags: set[str],
+    one_arg_flags: set[str],
+) -> list[str]:
+    """Return positional date/time tokens even when flags appear before or after them."""
+    positionals: list[str] = []
+    idx = 0
+    while idx < len(tokens):
+        tok = tokens[idx]
+        if tok in two_arg_flags:
+            idx += 3
+            continue
+        if tok in one_arg_flags:
+            idx += 2
+            continue
+        if tok.startswith("-"):
+            idx += 1
+            continue
+        positionals.append(tok)
+        idx += 1
+    return positionals
+
+
+def _parse_sky_positional_date_time(
+    positionals: list[str],
+) -> tuple[list[str], int | None]:
+    from garden.radiance.sky import _recipe_time_zone_int
+
+    values: list[str] = []
+    tz_val: int | None = None
+    for token in positionals:
+        tz_maybe = _recipe_time_zone_int(token)
+        if len(values) == 3 and tz_maybe is not None and not token.isdigit():
+            tz_val = tz_maybe
+            continue
+        if len(values) == 2:
+            joined = re.match(r"^([0-9]+(?::[0-9]+|\.[0-9]+)?)([A-Za-z_+-]+)$", token)
+            if joined:
+                values.append(joined.group(1))
+                tz_maybe = _recipe_time_zone_int(joined.group(2))
+                if tz_maybe is not None:
+                    tz_val = tz_maybe
+                continue
+        values.append(token)
+    return values, tz_val
+
+
+def _meridian_to_tz(meridian: str | None) -> int | None:
+    if meridian is None:
+        return None
+    try:
+        return -int(round(float(meridian) / 15.0))
+    except ValueError:
+        return None
+
+
 def _recipe_sky_from_gensky_tokens(tokens: list[str]) -> str:
     sky_type = 0
-    values = []
+    filtered_tokens: list[str] = []
     for token in tokens:
         if token in _GENSKY_FLAG_TO_CIE_TYPE:
             sky_type = _GENSKY_FLAG_TO_CIE_TYPE[token]
             continue
-        if token.startswith("-"):
-            break
-        values.append(token)
+        filtered_tokens.append(token)
+    positionals = _split_sky_command_tokens(
+        filtered_tokens,
+        two_arg_flags={"-ang"},
+        one_arg_flags={"-a", "-o", "-m", "-g", "-tz", "-t", "-c", "-r", "-B", "-b", "-R", "-alt", "-az"},
+    )
+    values, tz_val = _parse_sky_positional_date_time(positionals)
     if len(values) >= 3:
         month_value = int(values[0])
         parts = ["cie", values[1], month_abbr[month_value], values[2]]
@@ -312,17 +408,24 @@ def _recipe_sky_from_gensky_tokens(tokens: list[str]) -> str:
         _append_option(parts, "-az", azimuth)
     _append_option(parts, "-lat", _extract_flag(tokens, "-a"))
     _append_option(parts, "-lon", _extract_flag(tokens, "-o"))
+    _append_option(
+        parts,
+        "-tz",
+        _extract_flag(tokens, "-tz")
+        or (tz_val if tz_val is not None else _meridian_to_tz(_extract_flag(tokens, "-m"))),
+    )
     _append_option(parts, "-type", sky_type)
     _append_option(parts, "-g", _extract_flag(tokens, "-g"))
     return " ".join(parts)
 
 
 def _recipe_sky_from_gendaylit_tokens(tokens: list[str]) -> str:
-    values = []
-    for token in tokens:
-        if token.startswith("-"):
-            break
-        values.append(token)
+    positionals = _split_sky_command_tokens(
+        tokens,
+        two_arg_flags={"-W", "-L", "-ang"},
+        one_arg_flags={"-a", "-o", "-m", "-g", "-tz", "-O", "-G", "-alt", "-az"},
+    )
+    values, tz_val = _parse_sky_positional_date_time(positionals)
     if len(values) >= 3:
         month_value = int(values[0])
         parts = ["climate-based", values[1], month_abbr[month_value], values[2]]
@@ -336,10 +439,52 @@ def _recipe_sky_from_gendaylit_tokens(tokens: list[str]) -> str:
         _append_option(parts, "-az", azimuth)
     _append_option(parts, "-lat", _extract_flag(tokens, "-a"))
     _append_option(parts, "-lon", _extract_flag(tokens, "-o"))
-    _append_option(parts, "-dni", _extract_flag(tokens, "-W"))
-    _append_option(parts, "-dhi", _extract_flag(tokens, "-W"))
+    _append_option(
+        parts,
+        "-tz",
+        _extract_flag(tokens, "-tz")
+        or (tz_val if tz_val is not None else _meridian_to_tz(_extract_flag(tokens, "-m"))),
+    )
+    w_dni: str | None = None
+    w_dhi: str | None = None
+    l_dni: str | None = None
+    l_dhi: str | None = None
+    for index, token in enumerate(tokens):
+        if token == "-W" and index + 2 < len(tokens):
+            w_dni = tokens[index + 1]
+            w_dhi = tokens[index + 2]
+            break
+        if token == "-L" and index + 2 < len(tokens):
+            l_dni = tokens[index + 1]
+            l_dhi = tokens[index + 2]
+            break
+    if w_dni is not None or w_dhi is not None:
+        _append_option(parts, "-dni", w_dni)
+        _append_option(parts, "-dhi", w_dhi)
+    elif l_dni is not None and l_dhi is not None:
+        parts.extend(["-L", l_dni, l_dhi])
     _append_option(parts, "-g", _extract_flag(tokens, "-g"))
     return " ".join(parts)
+
+
+def _sky_cli_compatible_string(sky_str: str) -> str:
+    """Convert -L illuminance flags inside climate-based sky strings for honeybee-radiance CLI."""
+    text = sky_str.strip()
+    if not text.lower().startswith("climate-based"):
+        return text
+    tokens = shlex.split(text)
+    if "-L" not in tokens:
+        return text
+    idx = tokens.index("-L")
+    if idx + 2 >= len(tokens):
+        return text
+    try:
+        dni_irr = float(tokens[idx + 1]) / 179.0
+        dhi_irr = float(tokens[idx + 2]) / 179.0
+    except ValueError:
+        return text
+    rebuilt = tokens[:idx] + ["-dni", f"{dni_irr:g}", "-dhi", f"{dhi_irr:g}"] + tokens[idx + 3 :]
+    return " ".join(rebuilt)
 
 
 def _resolve_wea_path(
@@ -348,9 +493,36 @@ def _resolve_wea_path(
     manifest: GardenManifest,
     wea_target: dict[str, Any] | None,
     wea_path: str | None,
+    weather_file_target: dict[str, Any] | None = None,
 ) -> str:
-    if (wea_target is None) == (wea_path is None):
+    provided = [
+        name
+        for name, val in (
+            ("wea_target", wea_target),
+            ("wea_path", wea_path),
+            ("weather_file_target", weather_file_target),
+        )
+        if val is not None
+    ]
+    if not provided:
         raise ValueError("Provide exactly one of wea_target or wea_path.")
+    if len(provided) > 1 and ("wea_target" in provided or "wea_path" in provided):
+        raise ValueError("Provide exactly one of wea_target, wea_path, or weather_file_target.")
+    if weather_file_target is not None:
+        epw, _ = _resolve_epw_path(
+            garden_root=garden_root,
+            manifest=manifest,
+            weather_target=weather_file_target,
+            epw_path=None,
+        )
+        from garden.radiance.sky import create_wea_from_weather_file
+
+        wea_res = create_wea_from_weather_file(
+            garden_root=str(garden_root),
+            identifier=f"{epw.stem}_wea",
+            weather_target=weather_file_target,
+        )
+        return str((garden_root / wea_res["target"]["path"]).resolve())
     if wea_target is not None:
         path = _garden_file_from_target(
             garden_root=garden_root,
@@ -379,6 +551,140 @@ def _radiance_parameters_from_input(value: str | dict[str, Any] | None) -> str |
     raise ValueError("radiance_parameters must be a string or create_radiance_parameters result.")
 
 
+def _normalize_grid_metrics(
+    grid_metrics: list[dict[str, Any]] | dict[str, Any] | str | None,
+) -> list[dict[str, Any]] | str | None:
+    """Normalize grid_metrics input to list[dict] | str | None for pollination-handlers."""
+    if grid_metrics is None:
+        return None
+    if isinstance(grid_metrics, str):
+        return grid_metrics
+    if isinstance(grid_metrics, dict):
+        return [grid_metrics]
+    if isinstance(grid_metrics, list):
+        if not all(isinstance(item, dict) for item in grid_metrics):
+            raise ValueError("grid_metrics list items must all be dictionaries.")
+        return list(grid_metrics)
+    raise ValueError("grid_metrics must be a list of dicts, a dict, or a file/JSON string.")
+
+
+def _materialize_schedule_values(
+    *,
+    garden_root_path: Path,
+    schedule: Any,
+) -> list[float] | None:
+    """Resolve hourly numeric schedule values from a Garden target, list, file, or inline CSV text."""
+    if schedule is None:
+        return None
+    if isinstance(schedule, (list, tuple)):
+        return [float(v) for v in schedule]
+    if isinstance(schedule, dict):
+        target_type = schedule.get("target_type")
+        if target_type == "garden_properties_library_object":
+            if schedule.get("domain") != "honeybee_energy" or schedule.get("object_family") != "schedule":
+                raise ValueError("Schedule target must reference honeybee_energy:schedule.")
+            from garden.libraries.properties import get_garden_properties_library_object
+
+            schedule = get_garden_properties_library_object(
+                garden_root=str(garden_root_path),
+                target=schedule,
+            )["object_dict"]
+        elif target_type == "data_collection":
+            rel_path = schedule.get("path")
+            if not isinstance(rel_path, str) or not rel_path:
+                raise ValueError("data_collection schedule target requires a path.")
+            from ladybug.datacollection import BaseCollection
+
+            dc_path = (garden_root_path / rel_path).resolve()
+            dc_path.relative_to(garden_root_path)
+            dc = BaseCollection.from_dict(json.loads(dc_path.read_text(encoding="utf-8")))
+            return [float(v) for v in dc.values]
+        elif isinstance(schedule.get("object_dict"), dict):
+            schedule = schedule["object_dict"]
+
+        if isinstance(schedule, dict):
+            if "values" in schedule and "type" not in schedule:
+                return [float(v) for v in schedule["values"]]
+            from honeybee_energy.schedule.dictutil import dict_to_schedule
+
+            sch_obj = dict_to_schedule(schedule)
+            vals = sch_obj.values() if callable(getattr(sch_obj, "values", None)) else sch_obj.values
+            return [float(v) for v in vals]
+
+    if isinstance(schedule, str):
+        text = schedule.strip()
+        if not text:
+            return None
+        candidate = Path(text).expanduser()
+        if not candidate.is_absolute():
+            candidate = (garden_root_path / candidate).resolve()
+        if "\n" not in text and "," not in text:
+            try:
+                candidate.relative_to(garden_root_path)
+            except ValueError:
+                candidate = Path(text).expanduser().resolve()
+            if candidate.is_file():
+                if candidate.suffix.lower() == ".json":
+                    return _materialize_schedule_values(
+                        garden_root_path=garden_root_path,
+                        schedule=json.loads(candidate.read_text(encoding="utf-8")),
+                    )
+                values: list[float] = []
+                for line in candidate.read_text(encoding="utf-8").splitlines():
+                    for tok in line.replace(",", " ").split():
+                        try:
+                            values.append(float(tok))
+                        except ValueError:
+                            pass
+                if values:
+                    return values
+            try:
+                from honeybee_energy.lib.schedules import schedule_by_identifier
+
+                sch_obj = schedule_by_identifier(text)
+                vals = sch_obj.values() if callable(getattr(sch_obj, "values", None)) else sch_obj.values
+                return [float(v) for v in vals]
+            except Exception:
+                pass
+        else:
+            parsed: list[float] = []
+            for raw_line in text.splitlines():
+                for tok in raw_line.replace(",", " ").split():
+                    if tok:
+                        parsed.append(float(tok))
+            if parsed:
+                return parsed
+    return None
+
+
+def _materialize_schedule_input(
+    *,
+    garden_root_path: Path,
+    manifest: GardenManifest,
+    run_dir: Path,
+    schedule: Any,
+) -> str | None:
+    """Materialize a Garden schedule target, list, or inline CSV text into a .csv file."""
+    if schedule is None:
+        return None
+    if isinstance(schedule, str) and "\n" not in schedule and "," not in schedule:
+        text = schedule.strip()
+        candidate = (garden_root_path / text).resolve()
+        try:
+            candidate.relative_to(garden_root_path)
+            if candidate.is_file() and candidate.suffix.lower() in {".csv", ".txt"}:
+                return str(candidate)
+        except ValueError:
+            pass
+    values = _materialize_schedule_values(garden_root_path=garden_root_path, schedule=schedule)
+    if values is not None:
+        csv_text = "\n".join(str(v) for v in values)
+        return _write_text_input(run_dir, "schedule.csv", csv_text)
+    if isinstance(schedule, str):
+        return schedule
+    raise ValueError("Unsupported schedule input; provide a CSV file, inline CSV text, or Garden schedule target.")
+
+
 def _normalize_grid_filter(value: str) -> str:
     stripped = value.strip()
     if stripped != "*" and stripped.startswith("*") and stripped.endswith("*"):
@@ -398,12 +704,47 @@ def _write_text_input(run_dir: Path, name: str, text: str | None) -> str | None:
     return str(path)
 
 
-def _recipe_status_path(run_dir: Path, recipe_name: str) -> Path:
-    return run_dir / recipe_name.replace("-", "_") / "__logs__" / "status.json"
+def _recipe_sim_folder(
+    run_dir: Path,
+    recipe_name: str,
+    *,
+    simulation_id: str | None = None,
+) -> Path:
+    if simulation_id:
+        candidate = run_dir / simulation_id
+        if candidate.exists():
+            return candidate
+        legacy = run_dir / recipe_name.replace("-", "_")
+        if legacy.exists():
+            return legacy
+        return candidate
+    return run_dir / recipe_name.replace("-", "_")
 
 
-def _clear_recipe_status_logs(run_dir: Path, recipe_name: str) -> None:
-    log_dir = _recipe_status_path(run_dir, recipe_name).parent
+def _recipe_status_path(
+    run_dir: Path,
+    recipe_name: str,
+    *,
+    simulation_id: str | None = None,
+) -> Path:
+    return (
+        _recipe_sim_folder(run_dir, recipe_name, simulation_id=simulation_id)
+        / "__logs__"
+        / "status.json"
+    )
+
+
+def _clear_recipe_status_logs(
+    run_dir: Path,
+    recipe_name: str,
+    *,
+    simulation_id: str | None = None,
+) -> None:
+    log_dir = _recipe_status_path(
+        run_dir,
+        recipe_name,
+        simulation_id=simulation_id,
+    ).parent
     for name in ("status.json", "logs.log"):
         (log_dir / name).unlink(missing_ok=True)
 
@@ -429,22 +770,29 @@ def _outputs_map(record: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 @lru_cache(maxsize=None)
-def _recipe_output_specs(recipe_name: str) -> tuple[dict[str, Any], ...]:
+def _recipe_output_specs(recipe_name_or_path: str) -> tuple[dict[str, Any], ...]:
     """Read native output paths without running Grasshopper value handlers."""
-    if recipe_name not in SUPPORTED_RECIPES:
-        raise ValueError(f"Unsupported Radiance recipe: {recipe_name}")
+    candidate = Path(recipe_name_or_path)
+    if candidate.is_dir() and (candidate / "package.json").is_file():
+        return tuple(json.loads((candidate / "package.json").read_text(encoding="utf-8"))["outputs"])
     package_path = (
         Path(lbt_recipes.__file__).parent
-        / recipe_name.replace("-", "_")
+        / recipe_name_or_path.replace("-", "_")
         / "package.json"
     )
+    if not package_path.is_file():
+        raise ValueError(f"Unsupported Radiance recipe: {recipe_name_or_path}")
     return tuple(json.loads(package_path.read_text(encoding="utf-8"))["outputs"])
 
 
-def _missing_outputs(recipe_name: str) -> list[dict[str, Any]]:
+def _missing_outputs(
+    recipe_name_or_path: str,
+    *,
+    simulation_id: str | None = None,
+) -> list[dict[str, Any]]:
     return [
         {"name": spec["name"], "path": None, "exists": False}
-        for spec in _recipe_output_specs(recipe_name)
+        for spec in _recipe_output_specs(recipe_name_or_path)
     ]
 
 
@@ -452,8 +800,13 @@ def _recipe_log_status(
     *,
     run_dir: Path,
     recipe_name: str,
+    simulation_id: str | None = None,
 ) -> tuple[str | None, str | None]:
-    status_path = _recipe_status_path(run_dir, recipe_name)
+    status_path = _recipe_status_path(
+        run_dir,
+        recipe_name,
+        simulation_id=simulation_id,
+    )
     if not status_path.is_file():
         return None, None
     try:
@@ -490,10 +843,16 @@ def _recipe_outputs(
     garden_root_path: Path,
     recipe_name: str,
     run_dir: Path,
+    simulation_id: str | None = None,
+    recipe_source: str | None = None,
 ) -> list[dict[str, Any]]:
     outputs = []
-    recipe_folder = run_dir / recipe_name.replace("-", "_")
-    for spec in _recipe_output_specs(recipe_name):
+    recipe_folder = _recipe_sim_folder(
+        run_dir,
+        recipe_name,
+        simulation_id=simulation_id,
+    )
+    for spec in _recipe_output_specs(recipe_source or recipe_name):
         output_path = recipe_folder / spec["from"]["path"]
         record = {
             "name": spec["name"],
@@ -550,7 +909,10 @@ def _reconcile_running_record(
     if record.get("status") != "running":
         return record
     recipe_name = str(record.get("recipe") or "")
-    if recipe_name not in SUPPORTED_RECIPES:
+    recipe_source = str(record.get("recipe_source") or recipe_name)
+    try:
+        _recipe_output_specs(recipe_source)
+    except ValueError:
         return record
     run_folder = record.get("run_folder")
     if not isinstance(run_folder, str) or not run_folder:
@@ -560,16 +922,20 @@ def _reconcile_running_record(
         run_dir.relative_to(garden_root_path)
     except ValueError:
         return record
+    simulation_id = record.get("simulation_id")
     warnings = list(record.get("warnings") or [])
     outputs = _recipe_outputs(
         garden_root_path=garden_root_path,
         recipe_name=recipe_name,
         run_dir=run_dir,
+        simulation_id=simulation_id,
+        recipe_source=recipe_source,
     )
     missing_outputs = _missing_required_outputs(outputs)
     logged_status, logged_message = _recipe_log_status(
         run_dir=run_dir,
         recipe_name=recipe_name,
+        simulation_id=simulation_id,
     )
     if logged_status == "failed":
         record.update(
@@ -638,6 +1004,8 @@ def _run_response(
         "radiance_run_target": target,
         "run_target": target,
         "run_id": run_id,
+        "simulation_id": public.get("simulation_id"),
+        "debug_folder": public.get("debug_folder"),
         "status": status,
         "recipe": recipe,
         "outputs": public.get("outputs", []),
@@ -645,6 +1013,8 @@ def _run_response(
             "garden_target": manifest.target(),
             "target": target,
             "run_id": run_id,
+            "simulation_id": public.get("simulation_id"),
+            "debug_folder": public.get("debug_folder"),
             "status": status,
             "recipe": recipe,
             "run": public,
@@ -656,13 +1026,18 @@ def _run_response(
         ),
     }
     if status == "running":
-        result["summary_view"]["poll_next"] = {
-            "tool": "RAD_Poll_Simulation",
+        poll_next = {
+            "tool": "GD_Poll_Run",
             "arguments": {
                 "garden_root": str(garden_root_path),
                 "run_target": target,
             },
         }
+        result["poll_next"] = poll_next
+        result["summary_view"]["poll_next"] = poll_next
+    if record.get("worker_pid") is not None:
+        result["worker_pid"] = record.get("worker_pid")
+        result["summary_view"]["worker_pid"] = record.get("worker_pid")
     return result
 
 
@@ -679,8 +1054,10 @@ def run_radiance_recipe(
     workers: int | None = None,
     reload_old: bool = False,
     silent: bool = True,
+    recipe_source: str | None = None,
+    debug_folder: str | None = None,
 ) -> dict[str, Any]:
-    """Run one Honeybee Radiance recipe and update the Garden run ledger."""
+    """Run one Honeybee Radiance or generic Queenbee recipe and update the Garden run ledger."""
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     record = _run_record_by_id(garden_root_path, run_id)
@@ -694,20 +1071,38 @@ def run_radiance_recipe(
     temp_dir.mkdir(parents=True, exist_ok=True)
     os.environ["TEMP"] = str(temp_dir)
     os.environ["TMP"] = str(temp_dir)
+    effective_source = recipe_source or record.get("recipe_source") or recipe_name
+    simulation_id = str(record.get("simulation_id") or run_id)
     warnings: list[str] = []
     status = "completed"
     try:
         with _capture_recipe_stdio(run_dir):
-            recipe = Recipe(recipe_name)
+            recipe = Recipe(effective_source)
+            recipe.simulation_id = simulation_id
             for name, value in inputs.items():
-                if value is not None:
-                    recipe.input_value_by_name(name, value)
-            settings = RecipeSettings(
-                folder=str(run_dir),
-                workers=workers,
-                reload_old=reload_old,
-                report_out=False,
-            )
+                if value is None:
+                    continue
+                if name == "sky" and isinstance(value, str):
+                    value = _sky_cli_compatible_string(value)
+                elif name == "grid-metrics":
+                    value = _normalize_grid_metrics(value)
+                elif name == "schedule":
+                    value = _materialize_schedule_input(
+                        garden_root_path=garden_root_path,
+                        manifest=manifest,
+                        run_dir=run_dir,
+                        schedule=value,
+                    )
+                recipe.input_value_by_name(name, value)
+            settings_kwargs: dict[str, Any] = {
+                "folder": str(run_dir),
+                "workers": workers,
+                "reload_old": reload_old,
+                "report_out": False,
+            }
+            if debug_folder:
+                settings_kwargs["debug_folder"] = debug_folder
+            settings = RecipeSettings(**settings_kwargs)
             recipe.run(
                 settings=settings,
                 radiance_check=True,
@@ -723,6 +1118,7 @@ def run_radiance_recipe(
     logged_status, logged_message = _recipe_log_status(
         run_dir=run_dir,
         recipe_name=recipe_name,
+        simulation_id=simulation_id,
     )
     if logged_status == "failed":
         status = "failed"
@@ -733,7 +1129,11 @@ def run_radiance_recipe(
         try:
             with _capture_recipe_stdio(run_dir):
                 _refresh_en17037_results(
-                    recipe_folder=run_dir / recipe_name.replace("-", "_"),
+                    recipe_folder=_recipe_sim_folder(
+                        run_dir,
+                        recipe_name,
+                        simulation_id=simulation_id,
+                    ),
                     grid_filter=str(inputs.get("grid-filter") or "*"),
                 )
         except Exception as exc:  # pragma: no cover - exercised by real engines
@@ -744,6 +1144,8 @@ def run_radiance_recipe(
         garden_root_path=garden_root_path,
         recipe_name=recipe_name,
         run_dir=run_dir,
+        simulation_id=simulation_id,
+        recipe_source=effective_source,
     )
     missing_outputs = _missing_required_outputs(outputs)
     if status == "completed" and missing_outputs:
@@ -758,6 +1160,7 @@ def run_radiance_recipe(
             "completed_at": utc_now_iso(),
             "outputs": outputs,
             "warnings": warnings,
+            "worker_pid": record.get("worker_pid") or os.getpid(),
         }
     )
     _upsert_record(garden_root_path, record)
@@ -766,6 +1169,7 @@ def run_radiance_recipe(
         "summary_view": {
             "garden_target": manifest.target(),
             "run_id": run_id,
+            "simulation_id": simulation_id,
             "status": status,
             "recipe": recipe_name,
             "calculation_family": calculation_family,
@@ -800,6 +1204,7 @@ def _start_radiance_run(
     workers: int | None,
     reload_old: bool,
     silent: bool,
+    debug_folder: str | None = None,
 ) -> dict[str, Any]:
     garden_root_path = _garden_root(garden_root)
     manifest, resolved_model_target = resolve_model_target(
@@ -833,7 +1238,7 @@ def _start_radiance_run(
     run_dir = (
         garden_root_path
         / RADIANCE_RUNS_DIR
-        / simulation_folder_name(model_display_name)
+        / simulation_folder_name(f"{model_display_name}_{run_id}")
     ).resolve()
     run_dir.relative_to(garden_root_path)
     run_folder = to_posix_relative(run_dir, garden_root_path)
@@ -845,15 +1250,32 @@ def _start_radiance_run(
         preserve_other_recipes=True,
     )
     run_dir.mkdir(parents=True, exist_ok=True)
-    _clear_recipe_status_logs(run_dir, recipe_name)
+    _clear_recipe_status_logs(run_dir, recipe_name, simulation_id=run_id)
     radiance_parameters_path = _write_text_input(
         run_dir,
         "radiance_parameters.txt",
         radiance_parameters,
     )
+    resolved_debug_folder: str | None = None
+    if debug_folder:
+        dbg = Path(debug_folder).expanduser()
+        dbg = (garden_root_path / dbg).resolve() if not dbg.is_absolute() else dbg.resolve()
+        dbg.relative_to(garden_root_path)
+        dbg.mkdir(parents=True, exist_ok=True)
+        resolved_debug_folder = str(dbg)
+
     target = _run_target(manifest.garden_id, run_id, recipe_name)
     recipe_inputs = dict(inputs)
     recipe_inputs["model"] = str(model_path)
+    if recipe_inputs.get("schedule") is not None:
+        recipe_inputs["schedule"] = _materialize_schedule_input(
+            garden_root_path=garden_root_path,
+            manifest=manifest,
+            run_dir=run_dir,
+            schedule=recipe_inputs["schedule"],
+        )
+    if recipe_inputs.get("grid-metrics") is not None:
+        recipe_inputs["grid-metrics"] = _normalize_grid_metrics(recipe_inputs["grid-metrics"])
     if radiance_parameters:
         recipe_inputs["radiance-parameters"] = radiance_parameters
     if workers is not None:
@@ -861,8 +1283,11 @@ def _start_radiance_run(
 
     record: dict[str, Any] = {
         "run_id": run_id,
+        "simulation_id": run_id,
         "target": target,
         "recipe": recipe_name,
+        "recipe_source": recipe_name,
+        "is_external_recipe": False,
         "calculation_family": calculation_family,
         "calculation_type": calculation_type,
         "command_name": command_name,
@@ -872,7 +1297,12 @@ def _start_radiance_run(
         "model_display_name": model_display_name,
         "model_path": to_posix_relative(model_path, garden_root_path),
         "run_folder": run_folder,
-        "outputs": _missing_outputs(recipe_name),
+        "debug_folder": (
+            to_posix_relative(Path(resolved_debug_folder), garden_root_path)
+            if resolved_debug_folder
+            else None
+        ),
+        "outputs": _missing_outputs(recipe_name, simulation_id=run_id),
         "workers": workers,
         "warnings": [],
     }
@@ -884,9 +1314,10 @@ def _start_radiance_run(
     _upsert_record(garden_root_path, record)
 
     try:
-        _submit_radiance_background(
+        proc = _submit_radiance_background(
             garden_root=str(garden_root_path),
             recipe_name=recipe_name,
+            recipe_source=recipe_name,
             inputs=recipe_inputs,
             run_id=run_id,
             model_target=resolved_model_target,
@@ -896,13 +1327,14 @@ def _start_radiance_run(
             workers=workers,
             reload_old=reload_old,
             silent=silent,
+            debug_folder=resolved_debug_folder,
         )
     except Exception as exc:
         record.update(
             {
                 "status": "failed",
                 "completed_at": utc_now_iso(),
-                "outputs": _missing_outputs(recipe_name),
+                "outputs": _missing_outputs(recipe_name, simulation_id=run_id),
                 "warnings": [f"Radiance recipe could not be started: {exc}"],
             }
         )
@@ -915,33 +1347,58 @@ def _start_radiance_run(
             report_status="error",
         )
 
+    worker_pid = getattr(proc, "pid", None)
+    if worker_pid is not None:
+        latest = _RADIANCE_RUNS.get(garden_root_path, run_id)
+        if latest is not None:
+            record = dict(latest)
+        record["worker_pid"] = worker_pid
+        _upsert_record(garden_root_path, record)
+
+    if record.get("status") != "running":
+        return _run_response(
+            garden_root_path=garden_root_path,
+            manifest=manifest,
+            record=record,
+            message=f"Radiance recipe finished with status {record.get('status')}.",
+            report_status="ok" if record.get("status") == "completed" else "error",
+        )
+
     poll_arguments = {"garden_root": str(garden_root_path), "run_target": target}
+    poll_next = {
+        "tool": "GD_Poll_Run",
+        "arguments": poll_arguments,
+    }
     return {
         "target": target,
         "radiance_run_target": target,
         "run_target": target,
         "run_id": run_id,
+        "simulation_id": run_id,
+        "debug_folder": record.get("debug_folder"),
         "status": "running",
         "recipe": recipe_name,
+        "worker_pid": record.get("worker_pid"),
+        "poll_next": poll_next,
         "summary_view": {
             "garden_target": manifest.target(),
             "target": target,
             "run_id": run_id,
+            "simulation_id": run_id,
+            "debug_folder": record.get("debug_folder"),
             "status": "running",
             "recipe": recipe_name,
             "calculation_family": calculation_family,
             "calculation_type": calculation_type,
             "command_name": command_name,
             "run_folder": run_folder,
+            "worker_pid": record.get("worker_pid"),
             "outputs": _outputs_map(record),
-            "poll_next": {
-                "tool": "RAD_Poll_Simulation",
-                "arguments": poll_arguments,
-            },
+            "poll_next": poll_next,
         },
         "report": make_report(
             status="ok",
-            message="Radiance recipe started; poll the radiance_run target for status.",
+            message="Radiance recipe started; poll the radiance_run target with GD_Poll_Run for status.",
         ),
     }
 
@@ -956,13 +1413,14 @@ def start_radiance_grid_run(
     grid_filter: str = "*",
     metric: str = "illuminance",
     min_sensor_count: int | None = 1,
-    grid_metrics: dict[str, Any] | None = None,
+    grid_metrics: list[dict[str, Any]] | dict[str, Any] | str | None = None,
     cloudy_sky: str = "uniform",
     radiance_parameters: str | dict[str, Any] | None = None,
     run_id: str | None = None,
     workers: int | None = None,
     reload_old: bool = False,
     silent: bool = True,
+    debug_folder: str | None = None,
 ) -> dict[str, Any]:
     """Start a grid-based Radiance recipe in the background."""
     normalized = calculation_type.strip().lower().replace(" ", "_")
@@ -982,8 +1440,10 @@ def start_radiance_grid_run(
             sky=sky,
         )
         inputs["metric"] = metric
-    elif grid_metrics is not None:
-        inputs["grid-metrics"] = grid_metrics
+    elif recipe_name == "daylight-factor":
+        normalized_gm = _normalize_grid_metrics(grid_metrics)
+        if normalized_gm is not None:
+            inputs["grid-metrics"] = normalized_gm
     elif recipe_name == "sky-view":
         if cloudy_sky not in {"uniform", "cloudy"}:
             raise ValueError("cloudy_sky must be uniform or cloudy.")
@@ -1001,6 +1461,7 @@ def start_radiance_grid_run(
         workers=workers,
         reload_old=reload_old,
         silent=silent,
+        debug_folder=debug_folder,
     )
 
 
@@ -1020,6 +1481,7 @@ def start_radiance_view_run(
     workers: int | None = None,
     reload_old: bool = False,
     silent: bool = True,
+    debug_folder: str | None = None,
 ) -> dict[str, Any]:
     """Start a view-based Radiance recipe in the background."""
     normalized = calculation_type.strip().lower().replace(" ", "_")
@@ -1055,6 +1517,7 @@ def start_radiance_view_run(
         workers=workers,
         reload_old=reload_old,
         silent=silent,
+        debug_folder=debug_folder,
     )
 
 
@@ -1066,20 +1529,22 @@ def start_radiance_matrix_run(
     enhanced: bool = True,
     wea_target: dict[str, Any] | None = None,
     wea_path: str | None = None,
+    weather_file_target: dict[str, Any] | None = None,
     grid_filter: str = "*",
     north: float | None = None,
     timestep: int | None = None,
-    schedule: str | None = None,
+    schedule: Any = None,
     thresholds: str | None = None,
     output_type: str | None = None,
     sky_density: int | None = None,
     min_sensor_count: int | None = 1,
-    grid_metrics: dict[str, Any] | None = None,
+    grid_metrics: list[dict[str, Any]] | dict[str, Any] | str | None = None,
     radiance_parameters: str | dict[str, Any] | None = None,
     run_id: str | None = None,
     workers: int | None = None,
     reload_old: bool = False,
     silent: bool = True,
+    debug_folder: str | None = None,
 ) -> dict[str, Any]:
     """Start an annual/matrix Radiance recipe in the background."""
     normalized = calculation_type.strip().lower().replace(" ", "_")
@@ -1098,6 +1563,7 @@ def start_radiance_matrix_run(
             manifest=manifest,
             wea_target=wea_target,
             wea_path=wea_path,
+            weather_file_target=weather_file_target,
         ),
         "grid-filter": grid_filter,
     }
@@ -1107,8 +1573,9 @@ def start_radiance_matrix_run(
         inputs["timestep"] = timestep
     if min_sensor_count is not None:
         inputs["min-sensor-count"] = min_sensor_count
-    if grid_metrics is not None and recipe_name in _ANNUAL_DAYLIGHT_RECIPES:
-        inputs["grid-metrics"] = grid_metrics
+    normalized_gm = _normalize_grid_metrics(grid_metrics)
+    if normalized_gm is not None and recipe_name in _ANNUAL_DAYLIGHT_RECIPES:
+        inputs["grid-metrics"] = normalized_gm
     if schedule is not None and recipe_name in _ANNUAL_DAYLIGHT_RECIPES:
         inputs["schedule"] = schedule
     if thresholds is not None and recipe_name in _ANNUAL_DAYLIGHT_RECIPES:
@@ -1130,6 +1597,7 @@ def start_radiance_matrix_run(
         workers=workers,
         reload_old=reload_old,
         silent=silent,
+        debug_folder=debug_folder,
     )
 
 
@@ -1139,10 +1607,11 @@ def start_radiance_imageless_annual_glare(
     model_target: dict[str, Any] | None = None,
     wea_target: dict[str, Any] | None = None,
     wea_path: str | None = None,
+    weather_file_target: dict[str, Any] | None = None,
     view_filter: str = "*",
     grid_filter: str = "*",
     north: float | None = None,
-    schedule: str | None = None,
+    schedule: Any = None,
     dgp_threshold: float = 0.4,
     luminance_factor: float = 2000.0,
     min_sensor_count: int = 1,
@@ -1151,8 +1620,9 @@ def start_radiance_imageless_annual_glare(
     workers: int | None = None,
     reload_old: bool = False,
     silent: bool = True,
+    debug_folder: str | None = None,
 ) -> dict[str, Any]:
-    """Start the native imageless annual glare recipe in the background."""
+    """Start the native imageless annual glare recipe in the background (uses SensorGrids, no Views needed)."""
     if not 0 <= dgp_threshold <= 1:
         raise ValueError("dgp_threshold must be between 0 and 1.")
     if luminance_factor <= 0:
@@ -1173,23 +1643,14 @@ def start_radiance_imageless_annual_glare(
         model_target,
     )
     model = load_honeybee_model(garden_root_path, resolved_model_target)
-    normalized_view_filter = _normalize_grid_filter(view_filter)
     normalized_grid_filter = _normalize_grid_filter(grid_filter)
-    views = _filter_by_pattern(
-        model.properties.radiance.views,
-        normalized_view_filter,
-    )
-    if not views:
-        raise ValueError(
-            "The model must have an attached Radiance View matching view_filter."
-        )
     sensor_grids = _filter_by_pattern(
         model.properties.radiance.sensor_grids,
         normalized_grid_filter,
     )
     if not sensor_grids:
         raise ValueError(
-            "The model must have attached SensorGrids matching grid_filter."
+            "The model must have attached SensorGrids (typically radial sensor grids) matching grid_filter."
         )
 
     inputs: dict[str, Any] = {
@@ -1198,6 +1659,7 @@ def start_radiance_imageless_annual_glare(
             manifest=manifest,
             wea_target=wea_target,
             wea_path=wea_path,
+            weather_file_target=weather_file_target,
         ),
         "grid-filter": normalized_grid_filter,
         "glare-threshold": dgp_threshold,
@@ -1221,11 +1683,10 @@ def start_radiance_imageless_annual_glare(
         workers=workers,
         reload_old=reload_old,
         silent=silent,
+        debug_folder=debug_folder,
     )
     result["summary_view"].update(
         {
-            "view_filter": normalized_view_filter,
-            "view_identifiers": [view.full_identifier for view in views],
             "grid_filter": normalized_grid_filter,
             "sensor_grid_identifiers": [
                 grid.full_identifier for grid in sensor_grids
@@ -1319,6 +1780,7 @@ def start_radiance_compliance_run(
     recipe_name: str,
     model_target: dict[str, Any] | None = None,
     wea_target: dict[str, Any] | None = None,
+    wea_path: str | None = None,
     weather_file_target: dict[str, Any] | None = None,
     grid_filter: str = "*",
     north: float | None = None,
@@ -1328,6 +1790,7 @@ def start_radiance_compliance_run(
     workers: int | None = None,
     reload_old: bool = False,
     silent: bool = True,
+    debug_folder: str | None = None,
     recipe_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve typed weather and model inputs before starting a compliance run."""
@@ -1368,7 +1831,7 @@ def start_radiance_compliance_run(
     if north is not None:
         inputs["north"] = north
     if recipe_name in {"annual-daylight-en17037", "well-daylight"}:
-        if weather_file_target is None or wea_target is not None:
+        if weather_file_target is None or wea_target is not None or wea_path is not None:
             raise ValueError("This recipe requires an EPW weather_file_target.")
         epw, _ = _resolve_epw_path(
             garden_root=root, manifest=manifest,
@@ -1376,10 +1839,10 @@ def start_radiance_compliance_run(
         )
         inputs["epw"] = str(epw)
     else:
-        if wea_target is None or weather_file_target is not None:
-            raise ValueError("This recipe requires a wea_target.")
+        if (wea_target is None and wea_path is None) or weather_file_target is not None:
+            raise ValueError("This recipe requires a wea_target or wea_path.")
         inputs["wea"] = _resolve_wea_path(
-            garden_root=root, manifest=manifest, wea_target=wea_target, wea_path=None,
+            garden_root=root, manifest=manifest, wea_target=wea_target, wea_path=wea_path,
         )
     result = _start_radiance_run(
         garden_root=garden_root,
@@ -1394,6 +1857,7 @@ def start_radiance_compliance_run(
         workers=workers,
         reload_old=reload_old,
         silent=silent,
+        debug_folder=debug_folder,
     )
     if recipe_name == "breeam-daylight-4b":
         from honeybee_radiance_postprocess.breeam.breeam import program_type_metrics
@@ -1406,4 +1870,268 @@ def start_radiance_compliance_run(
             result["report"]["warnings"].append(
                 "The BREEAM recipe treats unrecognized room program types as office occupied spaces."
             )
+    return result
+
+
+def start_radiance_simulation(
+    *,
+    garden_root: str,
+    recipe: str,
+    model_target: dict[str, Any] | None = None,
+    radiance_sky_file: dict[str, Any] | None = None,
+    sky_file_target: dict[str, Any] | None = None,
+    sky: str | None = None,
+    wea_target: dict[str, Any] | None = None,
+    wea_path: str | None = None,
+    weather_file_target: dict[str, Any] | None = None,
+    grid_filter: str = "*",
+    sensor_grid_target: dict[str, Any] | None = None,
+    view_filter: str = "*",
+    view_target: dict[str, Any] | None = None,
+    north: float | None = None,
+    min_sensor_count: int = 1,
+    radiance_parameters: str | dict[str, Any] | None = None,
+    run_id: str | None = None,
+    workers: int | None = None,
+    reload_old: bool = False,
+    silent: bool = True,
+    wait_seconds: float | None = None,
+    poll_interval: float = 1.0,
+    metric: str | None = None,
+    cloudy_sky: str | None = None,
+    resolution: int | None = None,
+    skip_overture: bool | None = None,
+    timestep: int | None = None,
+    schedule: Any = None,
+    thresholds: str | None = None,
+    output_type: str | None = None,
+    sky_density: int | None = None,
+    grid_metrics: list[dict[str, Any]] | dict[str, Any] | str | None = None,
+    dgp_threshold: float | None = None,
+    luminance_factor: float | None = None,
+    diffuse_transmission: float | None = None,
+    specular_transmission: float | None = None,
+    glare_control_devices: str | None = None,
+    debug_folder: str | None = None,
+    recipe_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Start any supported Radiance or comfort-map recipe and optionally wait for completion."""
+    normalized_recipe = recipe.strip().lower().replace("_", "-")
+    if normalized_recipe not in SUPPORTED_RECIPES:
+        allowed = ", ".join(sorted(SUPPORTED_RECIPES))
+        raise ValueError(f"Unsupported Radiance recipe '{recipe}'. Supported: {allowed}.")
+
+    opts: dict[str, Any] = {}
+    if recipe_options is not None:
+        if not isinstance(recipe_options, dict):
+            raise ValueError("recipe_options must be a dictionary.")
+        for key, value in recipe_options.items():
+            opts[str(key).strip().lower().replace("-", "_")] = value
+
+    def _opt(name: str, explicit: Any, default: Any = None) -> Any:
+        if explicit is not None:
+            return explicit
+        if name in opts and opts[name] is not None:
+            return opts[name]
+        return default
+
+    resolved_sky_file = radiance_sky_file if radiance_sky_file is not None else sky_file_target
+
+    resolved_grid_filter = grid_filter
+    if resolved_grid_filter == "*" and isinstance(sensor_grid_target, dict):
+        if sensor_grid_target.get("target_type") != "radiance_sensor_grid":
+            raise ValueError("sensor_grid_target must be a radiance_sensor_grid target.")
+        grid_id = sensor_grid_target.get("identifier")
+        if grid_id:
+            resolved_grid_filter = str(grid_id)
+
+    resolved_view_filter = view_filter
+    if resolved_view_filter == "*" and isinstance(view_target, dict):
+        if view_target.get("target_type") != "radiance_view":
+            raise ValueError("view_target must be a radiance_view target.")
+        view_id = view_target.get("identifier")
+        if view_id:
+            resolved_view_filter = str(view_id)
+
+    if normalized_recipe in _COMFORT_MAP_RECIPES:
+        from garden.recipes.runner import start_generic_recipe
+
+        comfort_options = dict(recipe_options or {})
+        if north is not None and "north" not in comfort_options:
+            comfort_options["north"] = north
+        if min_sensor_count is not None and "min-sensor-count" not in comfort_options and "min_sensor_count" not in comfort_options:
+            comfort_options["min-sensor-count"] = min_sensor_count
+        result = start_generic_recipe(
+            garden_root=garden_root,
+            recipe=normalized_recipe,
+            model_target=model_target,
+            weather_file_target=weather_file_target,
+            radiance_parameters=radiance_parameters,
+            recipe_options=comfort_options,
+            run_id=run_id,
+            workers=workers,
+            reload_old=reload_old,
+            silent=silent,
+            debug_folder=debug_folder,
+        )
+    elif normalized_recipe in {"point-in-time-grid", "daylight-factor", "sky-view"}:
+        if normalized_recipe == "point-in-time-grid" and resolved_sky_file is None and sky is None:
+            raise ValueError("Provide radiance_sky_file for point-in-time-grid Radiance runs.")
+        result = start_radiance_grid_run(
+            garden_root=garden_root,
+            model_target=model_target,
+            calculation_type=normalized_recipe,
+            sky_file_target=resolved_sky_file,
+            sky=sky,
+            grid_filter=resolved_grid_filter,
+            metric=str(_opt("metric", metric, "illuminance")),
+            min_sensor_count=min_sensor_count,
+            grid_metrics=_opt("grid_metrics", grid_metrics),
+            cloudy_sky=str(_opt("cloudy_sky", cloudy_sky, "uniform")),
+            radiance_parameters=radiance_parameters,
+            run_id=run_id,
+            workers=workers,
+            reload_old=reload_old,
+            silent=silent,
+            debug_folder=debug_folder,
+        )
+    elif normalized_recipe == "point-in-time-view":
+        if resolved_sky_file is None and sky is None:
+            raise ValueError("Provide radiance_sky_file for point-in-time-view Radiance runs.")
+        result = start_radiance_view_run(
+            garden_root=garden_root,
+            model_target=model_target,
+            calculation_type="point_in_time",
+            sky_file_target=resolved_sky_file,
+            sky=sky,
+            view_filter=resolved_view_filter,
+            metric=str(_opt("metric", metric, "luminance")),
+            resolution=_opt("resolution", resolution),
+            skip_overture=_opt("skip_overture", skip_overture),
+            radiance_parameters=radiance_parameters,
+            run_id=run_id,
+            workers=workers,
+            reload_old=reload_old,
+            silent=silent,
+            debug_folder=debug_folder,
+        )
+    elif normalized_recipe in {
+        "annual-daylight",
+        "annual-daylight-enhanced",
+        "annual-irradiance",
+        "cumulative-radiation",
+        "direct-sun-hours",
+    }:
+        calc_type = (
+            "annual_daylight"
+            if normalized_recipe == "annual-daylight-enhanced"
+            else normalized_recipe.replace("-", "_")
+        )
+        result = start_radiance_matrix_run(
+            garden_root=garden_root,
+            model_target=model_target,
+            calculation_type=calc_type,
+            enhanced=(normalized_recipe == "annual-daylight-enhanced"),
+            wea_target=wea_target,
+            wea_path=wea_path,
+            weather_file_target=weather_file_target,
+            grid_filter=resolved_grid_filter,
+            north=north,
+            timestep=_opt("timestep", timestep),
+            schedule=_opt("schedule", schedule),
+            thresholds=_opt("thresholds", thresholds),
+            output_type=_opt("output_type", output_type),
+            sky_density=_opt("sky_density", sky_density),
+            min_sensor_count=min_sensor_count,
+            grid_metrics=_opt("grid_metrics", grid_metrics),
+            radiance_parameters=radiance_parameters,
+            run_id=run_id,
+            workers=workers,
+            reload_old=reload_old,
+            silent=silent,
+            debug_folder=debug_folder,
+        )
+    elif normalized_recipe == "imageless-annual-glare":
+        result = start_radiance_imageless_annual_glare(
+            garden_root=garden_root,
+            model_target=model_target,
+            wea_target=wea_target,
+            wea_path=wea_path,
+            weather_file_target=weather_file_target,
+            view_filter=resolved_view_filter,
+            grid_filter=resolved_grid_filter,
+            north=north,
+            schedule=_opt("schedule", schedule),
+            dgp_threshold=float(_opt("dgp_threshold", dgp_threshold, 0.4)),
+            luminance_factor=float(_opt("luminance_factor", luminance_factor, 2000.0)),
+            min_sensor_count=min_sensor_count,
+            radiance_parameters=radiance_parameters,
+            run_id=run_id,
+            workers=workers,
+            reload_old=reload_old,
+            silent=silent,
+            debug_folder=debug_folder,
+        )
+    else:
+        compliance_options: dict[str, Any] = {}
+        if normalized_recipe in {"leed-daylight-option-one", "well-daylight"}:
+            diff = float(_opt("diffuse_transmission", diffuse_transmission, 0.05))
+            spec = float(_opt("specular_transmission", specular_transmission, 0.0001))
+            if not 0.0001 <= diff <= 1.0:
+                raise ValueError("diffuse_transmission must be between 0.0001 and 1.")
+            if not 0.0001 <= spec <= 1.0:
+                raise ValueError("specular_transmission must be between 0.0001 and 1.")
+            compliance_options = {
+                "diffuse-transmission": diff,
+                "specular-transmission": spec,
+            }
+        elif normalized_recipe == "leed-daylight-option-two":
+            glare_devices = str(
+                _opt("glare_control_devices", glare_control_devices, "glare-control")
+            )
+            if glare_devices not in {"glare-control", "no-glare-control"}:
+                raise ValueError(
+                    "glare_control_devices must be 'glare-control' or 'no-glare-control'."
+                )
+            compliance_options = {"glare-control-devices": glare_devices}
+        elif normalized_recipe == "annual-daylight-en17037":
+            compliance_options = {
+                "grid-metrics": _normalize_grid_metrics(_opt("grid_metrics", grid_metrics)),
+                "thresholds": _opt("thresholds", thresholds),
+            }
+        result = start_radiance_compliance_run(
+            garden_root=garden_root,
+            recipe_name=normalized_recipe,
+            model_target=model_target,
+            wea_target=wea_target,
+            wea_path=wea_path,
+            weather_file_target=weather_file_target,
+            grid_filter=resolved_grid_filter,
+            north=north,
+            min_sensor_count=min_sensor_count,
+            radiance_parameters=radiance_parameters,
+            run_id=run_id,
+            workers=workers,
+            reload_old=reload_old,
+            silent=silent,
+            debug_folder=debug_folder,
+            recipe_options=compliance_options or None,
+        )
+
+    if wait_seconds is not None and wait_seconds > 0:
+        interval = max(float(poll_interval or 1.0), 0.2)
+        deadline = time.monotonic() + float(wait_seconds)
+        run_target = result.get("run_target") or result.get("target")
+        resolved_run_id = result.get("run_id")
+        while result.get("status") in {"queued", "running"} and time.monotonic() < deadline:
+            remaining = max(deadline - time.monotonic(), 0.0)
+            if remaining <= 0:
+                break
+            time.sleep(min(interval, remaining))
+            result = get_radiance_run(
+                garden_root=garden_root,
+                run_target=run_target,
+                run_id=resolved_run_id,
+            )
+        result.setdefault("summary_view", {})["wait_seconds_requested"] = wait_seconds
     return result

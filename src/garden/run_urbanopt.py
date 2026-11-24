@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import csv
+import json
+import os
 import shutil
+import time
 import traceback
 from pathlib import Path
 from typing import Any
 
+from dragonfly_energy.measure import MapperMeasure
 from dragonfly_energy.run import base_honeybee_osw as sdk_base_honeybee_osw
 from dragonfly_energy.run import prepare_urbanopt_folder as sdk_prepare_urbanopt_folder
+from dragonfly_energy.run import run_default_report as sdk_run_default_report
 from dragonfly_energy.run import run_urbanopt as sdk_run_urbanopt
+from honeybee_energy.measure import Measure
+from honeybee_energy.result.emissions import emissions_from_sql
+from honeybee_energy.result.eui import eui_from_sql
+from honeybee_energy.simulation.parameter import SimulationParameter
+from ladybug.sql import SQLiteResult
 
-from garden.background import submit_daemon
+from garden.background import submit_worker_process
 from garden.dragonfly_des.export import (
     DES_FEATURE_GEOJSON_ARTIFACT_TYPE,
     DES_SCENARIO_CSV_ARTIFACT_TYPE,
@@ -38,6 +49,7 @@ from garden.urbanopt_cli import (
     outputs_from_sdk_result,
     preflight_urbanopt_runtime,
     prime_urbanopt_sdk_version_cache,
+    run_urbanopt_default_report_with_cli_bundle,
     run_urbanopt_energy_with_cli_bundle,
 )
 from ladybug_tools_mcp.contracts import make_artifact_receipt, make_report
@@ -73,6 +85,7 @@ _URBANOPT_RUNS = RunManager(
         "started_at",
         "completed_at",
         "run_folder",
+        "worker_pid",
         "prepared_project_target",
         "feature_geojson_target",
         "scenario_csv_target",
@@ -85,6 +98,102 @@ _URBANOPT_RUNS = RunManager(
 _URBANOPT_RUN_LEDGER = _URBANOPT_RUNS.ledger
 
 
+def _resolve_osw_options(
+    *,
+    garden_root_path: Path,
+    project_dir: Path,
+    sim_par_target: dict[str, Any] | None = None,
+    additional_measures: list[dict[str, Any] | str] | None = None,
+    additional_mapper_measures: list[dict[str, Any] | str] | None = None,
+    base_osw: str | dict[str, Any] | None = None,
+    emissions_year: int | None = None,
+) -> dict[str, Any]:
+    sim_par_json: str | None = None
+    if sim_par_target is not None:
+        if isinstance(sim_par_target, dict) and isinstance(sim_par_target.get("path"), str):
+            resolved = resolve_existing_garden_path(
+                garden_root_path,
+                sim_par_target["path"],
+                kind="file",
+                suffix=".json",
+                label="SimulationParameter JSON",
+            )
+            sim_par_json = str(resolved)
+        elif isinstance(sim_par_target, dict):
+            sim_par_obj = SimulationParameter.from_dict(sim_par_target)
+            sim_par_file = project_dir / "_simulation_parameter.json"
+            sim_par_file.write_text(
+                json.dumps(sim_par_obj.to_dict(), indent=2),
+                encoding="utf-8",
+            )
+            sim_par_json = str(sim_par_file)
+        else:
+            raise ValueError("sim_par_target must be a Garden SimulationParameter target or dict.")
+
+    measures: list[Measure] | None = None
+    if additional_measures is not None:
+        measures = []
+        for item in additional_measures:
+            if isinstance(item, dict):
+                measures.append(Measure.from_dict(item))
+            elif isinstance(item, str):
+                resolved_dir = resolve_existing_garden_path(
+                    garden_root_path,
+                    item,
+                    kind="directory",
+                    label="OpenStudio Measure folder",
+                )
+                measures.append(Measure(str(resolved_dir)))
+            else:
+                raise ValueError("additional_measures items must be Measure dicts or Garden paths.")
+
+    mapper_measures: list[MapperMeasure] | None = None
+    if additional_mapper_measures is not None:
+        mapper_measures = []
+        for item in additional_mapper_measures:
+            if isinstance(item, dict):
+                mapper_measures.append(MapperMeasure.from_dict(item))
+            elif isinstance(item, str):
+                resolved_dir = resolve_existing_garden_path(
+                    garden_root_path,
+                    item,
+                    kind="directory",
+                    label="URBANopt MapperMeasure folder",
+                )
+                mapper_measures.append(MapperMeasure(str(resolved_dir)))
+            else:
+                raise ValueError(
+                    "additional_mapper_measures items must be MapperMeasure dicts or Garden paths."
+                )
+
+    resolved_base_osw: str | None = None
+    if base_osw is not None:
+        if isinstance(base_osw, str):
+            resolved_base_osw = str(
+                resolve_existing_garden_path(
+                    garden_root_path,
+                    base_osw,
+                    kind="file",
+                    suffix=".osw",
+                    label="Base OSW file",
+                )
+            )
+        elif isinstance(base_osw, dict):
+            osw_file = project_dir / "_base_workflow.osw"
+            osw_file.write_text(json.dumps(base_osw, indent=2), encoding="utf-8")
+            resolved_base_osw = str(osw_file)
+        else:
+            raise ValueError("base_osw must be a Garden-relative .osw path or OSW dictionary.")
+
+    return {
+        "sim_par_json": sim_par_json,
+        "additional_measures": measures,
+        "additional_mapper_measures": mapper_measures,
+        "base_osw": resolved_base_osw,
+        "emissions_year": int(emissions_year) if emissions_year is not None else None,
+    }
+
+
 @serialized_run_start
 def prepare_project(
     *,
@@ -93,6 +202,11 @@ def prepare_project(
     weather_target: dict[str, Any] | None = None,
     cpu_count: int | None = None,
     verbose: bool = False,
+    sim_par_target: dict[str, Any] | None = None,
+    additional_measures: list[dict[str, Any] | str] | None = None,
+    additional_mapper_measures: list[dict[str, Any] | str] | None = None,
+    base_osw: str | dict[str, Any] | None = None,
+    emissions_year: int | None = None,
 ) -> dict[str, Any]:
     """Prepare a Garden-bounded URBANopt Energy project from a feature GeoJSON."""
     garden_root_path = require_garden_root(garden_root)
@@ -127,10 +241,24 @@ def prepare_project(
         model_target=model_target,
     )
     _clear_urbanopt_run_outputs(garden_root_path, project_dir)
+    osw_opts = _resolve_osw_options(
+        garden_root_path=garden_root_path,
+        project_dir=project_dir,
+        sim_par_target=sim_par_target,
+        additional_measures=additional_measures,
+        additional_mapper_measures=additional_mapper_measures,
+        base_osw=base_osw,
+        emissions_year=emissions_year,
+    )
     sdk_base_honeybee_osw(
         str(project_dir),
+        sim_par_json=osw_opts["sim_par_json"],
+        additional_measures=osw_opts["additional_measures"],
+        additional_mapper_measures=osw_opts["additional_mapper_measures"],
+        base_osw=osw_opts["base_osw"],
         epw_file=str(epw_path) if epw_path is not None else None,
         skip_report=False,
+        emissions_year=osw_opts["emissions_year"],
     )
     write_urbanopt_bundle_config(project_dir, runtime)
     scenario_csv = Path(
@@ -207,7 +335,38 @@ def prepare_project(
     }
 
 
-@serialized_run_start
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def _worker_environment(garden_root: Path, run_dir: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    temp_dir = (garden_root / "tmp" / run_dir.name).resolve()
+    temp_dir.relative_to(garden_root)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    env["TEMP"] = str(temp_dir)
+    env["TMP"] = str(temp_dir)
+    return env
+
+
+def _record_worker_pid(garden_root: Path, run_id: str, proc: Any) -> None:
+    worker_pid = getattr(proc, "pid", None)
+    if worker_pid is None:
+        return
+    current = _URBANOPT_RUNS.get(garden_root, run_id)
+    if current is not None and current.get("worker_pid") is None:
+        current["worker_pid"] = worker_pid
+        _URBANOPT_RUNS.upsert(garden_root, current)
+
+
 def start_simulation(
     *,
     garden_root: str,
@@ -216,8 +375,46 @@ def start_simulation(
     scenario_csv_target: dict[str, Any],
     run_id: str | None = None,
     cpu_count: int | None = None,
+    wait_seconds: float | None = None,
+    poll_interval: float = 2.0,
 ) -> dict[str, Any]:
     """Start an URBANopt Energy run and write a Garden run ledger."""
+    result = _start_simulation_locked(
+        garden_root=garden_root,
+        prepared_project_target=prepared_project_target,
+        feature_geojson_target=feature_geojson_target,
+        scenario_csv_target=scenario_csv_target,
+        run_id=run_id,
+        cpu_count=cpu_count,
+    )
+    requested_wait = max(float(wait_seconds or 0), 0.0)
+    if not requested_wait:
+        return result
+    applied_wait = min(requested_wait, 240.0)
+    interval = max(float(poll_interval or 2.0), 0.2)
+    deadline = time.monotonic() + applied_wait
+    while result.get("runtime_status") in {"queued", "running"} and time.monotonic() < deadline:
+        time.sleep(min(interval, max(deadline - time.monotonic(), 0.0)))
+        result = poll_simulation(
+            garden_root=garden_root,
+            run_target=result.get("run_target"),
+        )
+    summary_view = result.setdefault("summary_view", {})
+    summary_view["wait_seconds_requested"] = wait_seconds
+    summary_view["wait_seconds_applied"] = applied_wait
+    return result
+
+
+@serialized_run_start
+def _start_simulation_locked(
+    *,
+    garden_root: str,
+    prepared_project_target: dict[str, Any],
+    feature_geojson_target: dict[str, Any],
+    scenario_csv_target: dict[str, Any],
+    run_id: str | None = None,
+    cpu_count: int | None = None,
+) -> dict[str, Any]:
     garden_root_path = require_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     normalized_run_id = _URBANOPT_RUNS.normalize_run_id(run_id)
@@ -276,17 +473,25 @@ def start_simulation(
     _URBANOPT_RUNS.upsert(garden_root_path, record)
     if status != "blocked":
         try:
-            submit_daemon(
-                _run_urbanopt_job,
-                name="urbanopt-run",
-                garden_root=str(garden_root_path),
-                run_id=normalized_run_id,
-                project_dir=str(project_dir),
-                feature_geojson=str(feature_geojson),
-                scenario_csv=str(scenario_csv),
-                cpu_count=cpu_count,
-                runtime=preflight.get("runtime"),
+            proc = submit_worker_process(
+                garden_root=garden_root_path,
+                run_dir=project_dir,
+                worker_module="garden.run_urbanopt:_run_urbanopt_job",
+                request=_json_safe(
+                    {
+                        "garden_root": str(garden_root_path),
+                        "run_id": normalized_run_id,
+                        "project_dir": str(project_dir),
+                        "feature_geojson": str(feature_geojson),
+                        "scenario_csv": str(scenario_csv),
+                        "cpu_count": cpu_count,
+                        "runtime": preflight.get("runtime"),
+                    }
+                ),
+                cwd=garden_root_path,
+                environment=_worker_environment(garden_root_path, project_dir),
             )
+            _record_worker_pid(garden_root_path, normalized_run_id, proc)
         except Exception as exc:
             record.update(_URBANOPT_RUNS.failure_fields(str(exc), traceback.format_exc()))
             _URBANOPT_RUNS.upsert(garden_root_path, record)
@@ -384,20 +589,23 @@ def _run_urbanopt_job(
         if failed_job_error:
             failure = _URBANOPT_RUNS.failure_fields(failed_job_error, failed_job_error)
             failure["outputs"] = discovered
-            record.update(failure)
-            _URBANOPT_RUNS.upsert(garden_root_path, record)
+            latest = _URBANOPT_RUNS.get(garden_root_path, run_id) or record
+            latest.setdefault("worker_pid", os.getpid())
+            latest.update(failure)
+            _URBANOPT_RUNS.upsert(garden_root_path, latest)
             return
-        record.update(
-            {
-                "status": "completed",
-                "runtime_status": "completed",
-                "completed_at": utc_now_iso(),
-                "outputs": discovered,
-            }
-        )
+        updates = {
+            "status": "completed",
+            "runtime_status": "completed",
+            "completed_at": utc_now_iso(),
+            "outputs": discovered,
+        }
     except Exception as exc:
-        record.update(_URBANOPT_RUNS.failure_fields(str(exc), traceback.format_exc()))
-    _URBANOPT_RUNS.upsert(garden_root_path, record)
+        updates = _URBANOPT_RUNS.failure_fields(str(exc), traceback.format_exc())
+    latest = _URBANOPT_RUNS.get(garden_root_path, run_id) or record
+    latest.setdefault("worker_pid", os.getpid())
+    latest.update(updates)
+    _URBANOPT_RUNS.upsert(garden_root_path, latest)
 
 
 def _clear_urbanopt_run_outputs(garden_root: Path, project_dir: Path) -> None:
@@ -510,7 +718,7 @@ def _result_from_record(
     if runtime_status in {"blocked", "failed"} and not recommended:
         recommended = [CONFIG_NEXT_TOOL]
     poll_next = {
-        "tool": "DF_URBANopt_Poll_Simulation",
+        "tool": "GD_Poll_Run",
         "arguments": {"garden_root": str(garden_root), "run_target": target},
     }
     summary_view = {
@@ -532,7 +740,7 @@ def _result_from_record(
         "preflight": record.get("preflight"),
     }
     attach_runtime_diagnostics(summary_view, report_details, record.get("preflight"))
-    return {
+    result: dict[str, Any] = {
         "target": target,
         "run_target": target,
         "runtime_status": runtime_status,
@@ -543,6 +751,199 @@ def _result_from_record(
             message=message,
             warnings=list((record.get("preflight") or {}).get("issues") or []),
             details=report_details,
+        ),
+    }
+    if record.get("worker_pid") is not None:
+        summary_view["worker_pid"] = record["worker_pid"]
+        result["worker_pid"] = record["worker_pid"]
+    return result
+
+
+def _extract_building_sql_summary(
+    sql_path: Path,
+    *,
+    building_id: str,
+    subregion: str | None = None,
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "building_id": building_id,
+        "sql_path": str(sql_path),
+    }
+    eui_data = eui_from_sql(str(sql_path), absolute=False)
+    summary.update(
+        {
+            "eui_kwh_m2": eui_data.get("eui"),
+            "total_floor_area_m2": eui_data.get("total_floor_area"),
+            "conditioned_floor_area_m2": eui_data.get("conditioned_floor_area"),
+            "total_energy_kwh": eui_data.get("total_energy"),
+            "end_uses_kwh_m2": dict(eui_data.get("end_uses") or {}),
+        }
+    )
+    sql_obj = SQLiteResult(str(sql_path))
+    peak_kw: float | None = None
+    for table_name in (
+        "Demand End Use Components Summary",
+        "Component Sizing Summary",
+        "Annual Building Utility Performance Summary",
+    ):
+        try:
+            tabular = sql_obj.tabular_data_by_name(table_name)
+        except Exception:
+            tabular = {}
+        if tabular:
+            for row_key, row_vals in tabular.items():
+                if "total end uses" in str(row_key).lower() and row_vals:
+                    try:
+                        val = float(row_vals[0])
+                        peak_kw = round(val / 1000.0 if val > 10000 else val, 4)
+                    except (TypeError, ValueError):
+                        pass
+                    break
+        if peak_kw is not None:
+            break
+    if peak_kw is not None:
+        summary["peak_electric_kw"] = peak_kw
+    if subregion is not None:
+        try:
+            summary["emissions"] = emissions_from_sql(str(sql_path), subregion=subregion)
+        except Exception:
+            pass
+    return summary
+
+
+def read_urbanopt_results(
+    *,
+    garden_root: str,
+    feature_geojson_target: dict[str, Any],
+    scenario_csv_target: dict[str, Any],
+    run_default_report: bool = True,
+    include_building_sql_summary: bool = True,
+    subregion: str | None = None,
+) -> dict[str, Any]:
+    """Generate/read URBANopt default scenario reports and per-building EnergyPlus SQL summaries."""
+    garden_root_path = require_garden_root(garden_root)
+    manifest = GardenManifest.read(garden_root_path)
+    feature_geojson = _resolve_feature_geojson(garden_root_path, manifest, feature_geojson_target)
+    scenario_csv = _resolve_scenario_csv(garden_root_path, manifest, scenario_csv_target)
+    project_dir = feature_geojson.parent
+    run_root = project_dir / "run"
+    scenario_dir = run_root / scenario_csv.stem
+    if not scenario_dir.is_dir():
+        lower_dir = run_root / scenario_csv.stem.lower()
+        if lower_dir.is_dir():
+            scenario_dir = lower_dir
+
+    report_csv = scenario_dir / "default_scenario_report.csv"
+    report_json = scenario_dir / "default_scenario_report.json"
+    warnings: list[str] = []
+
+    if run_default_report:
+        preflight = preflight_urbanopt_runtime()
+        if preflight["runtime_status"] != "blocked":
+            prime_urbanopt_sdk_version_cache(preflight)
+            runtime = preflight.get("runtime")
+            write_urbanopt_bundle_config(project_dir, runtime)
+            if has_urbanopt_cli_bundle(runtime):
+                r_csv, r_json = run_urbanopt_default_report_with_cli_bundle(
+                    feature_geojson=str(feature_geojson),
+                    scenario_csv=str(scenario_csv),
+                    runtime=runtime,
+                )
+            else:
+                with urbanopt_runtime_env(runtime):
+                    raw_csv, raw_json = sdk_run_default_report(
+                        str(feature_geojson),
+                        str(scenario_csv),
+                    )
+                    r_csv, r_json = Path(raw_csv), Path(raw_json)
+            report_csv, report_json = r_csv, r_json
+        elif not report_csv.is_file() and not report_json.is_file():
+            return operation_blocked_result(
+                garden_root=garden_root_path,
+                manifest=manifest,
+                operation="read_urbanopt_results",
+                preflight=preflight,
+                label="URBANopt Energy",
+            )
+        else:
+            warnings.append(
+                "URBANopt CLI unavailable; read existing default_scenario_report files on disk."
+            )
+
+    scenario_report_data: dict[str, Any] | None = None
+    if report_json.is_file():
+        scenario_report_data = json.loads(report_json.read_text(encoding="utf-8"))
+
+    csv_rows: list[dict[str, Any]] = []
+    if report_csv.is_file():
+        with report_csv.open("r", encoding="utf-8", newline="") as handle:
+            csv_rows = list(csv.DictReader(handle))
+
+    buildings_summary: list[dict[str, Any]] = []
+    if include_building_sql_summary and scenario_dir.is_dir():
+        for entry in sorted(scenario_dir.iterdir()):
+            if not entry.is_dir():
+                continue
+            for candidate_sql in (entry / "eplusout.sql", entry / "in.sql"):
+                if candidate_sql.is_file():
+                    try:
+                        buildings_summary.append(
+                            _extract_building_sql_summary(
+                                candidate_sql,
+                                building_id=entry.name,
+                                subregion=subregion,
+                            )
+                        )
+                    except Exception as exc:
+                        warnings.append(
+                            f"Could not parse SQL summary for building '{entry.name}': {exc}"
+                        )
+                    break
+
+    total_area = sum(float(b.get("total_floor_area_m2") or 0.0) for b in buildings_summary)
+    total_energy = sum(float(b.get("total_energy_kwh") or 0.0) for b in buildings_summary)
+    district_eui = round(total_energy / total_area, 3) if total_area > 0 else None
+
+    if scenario_report_data is None and not csv_rows and not buildings_summary:
+        raise ValueError(
+            "No URBANopt scenario reports or building SQL results were found under "
+            f"{to_posix_relative(scenario_dir, garden_root_path)}."
+        )
+
+    scenario_info = (
+        scenario_report_data.get("scenario_report")
+        if isinstance(scenario_report_data, dict)
+        else None
+    )
+    summary_view = {
+        "garden_target": manifest.target(),
+        "feature_geojson_target": feature_geojson_target,
+        "scenario_csv_target": scenario_csv_target,
+        "report_json_path": (
+            to_posix_relative(report_json, garden_root_path) if report_json.is_file() else None
+        ),
+        "report_csv_path": (
+            to_posix_relative(report_csv, garden_root_path) if report_csv.is_file() else None
+        ),
+        "scenario_report": scenario_info or scenario_report_data,
+        "csv_row_count": len(csv_rows),
+        "building_count": len(buildings_summary),
+        "total_floor_area_m2": round(total_area, 3) if buildings_summary else None,
+        "total_energy_kwh": round(total_energy, 3) if buildings_summary else None,
+        "district_eui_kwh_m2": district_eui,
+    }
+    return {
+        "scenario_report": scenario_report_data,
+        "csv_rows": csv_rows,
+        "buildings": buildings_summary,
+        "summary_view": summary_view,
+        "report": make_report(
+            status="warning" if warnings else "ok",
+            message=(
+                f"Read URBANopt results ({len(buildings_summary)} building SQL summary(s), "
+                f"{len(csv_rows)} CSV row(s))."
+            ),
+            warnings=warnings,
         ),
     }
 
@@ -560,5 +961,6 @@ __all__ = [
     "list_run_outputs",
     "poll_simulation",
     "prepare_project",
+    "read_urbanopt_results",
     "start_simulation",
 ]

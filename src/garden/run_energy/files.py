@@ -8,7 +8,8 @@ import shutil
 from typing import Any
 
 from honeybee_energy.result.eui import eui_from_sql
-from honeybee_energy.run import run_idf, run_osw
+from honeybee_energy.result.osw import OSW
+from honeybee_energy.run import run_idf, run_osw, to_openstudio_sim_folder
 
 from ladybug_tools_mcp.contracts import make_report
 from garden.manifest import GardenManifest, utc_now_iso
@@ -22,14 +23,15 @@ from garden.run_energy.annual import (
     _outputs_map,
     _run_target,
     _upsert_record,
+    load_and_configure_measures,
 )
 from garden.run_energy.config import WEATHER_TARGET_TYPE
 from garden.run_ledger import serialized_run_start
 
 IDF_FILE_RECIPE = "energyplus_idf"
 OSM_FILE_RECIPE = "openstudio_osm"
-IDF_OUTPUT_NAMES = ("idf", "sql", "zsz", "rdd", "html", "err", "eui")
-OSM_OUTPUT_NAMES = ("osm", "idf", "sql", "zsz", "rdd", "html", "err", "eui")
+IDF_OUTPUT_NAMES = ("idf", "sql", "zsz", "rdd", "eio", "html", "err", "eui")
+OSM_OUTPUT_NAMES = ("osm", "osw", "idf", "sql", "zsz", "rdd", "eio", "html", "err", "eui")
 
 
 def _garden_root(value: str | Path) -> Path:
@@ -123,8 +125,36 @@ def _write_workflow_osw(
     *,
     osm_path: Path,
     epw_path: Path,
+    measures: list[Any] | None = None,
 ) -> Path:
     workflow_path = osm_path.parent / "workflow.osw"
+    if measures:
+        try:
+            _, generated_osw, _ = to_openstudio_sim_folder(
+                str(osm_path),
+                str(osm_path.parent),
+                epw_file=str(epw_path),
+                additional_measures=list(measures),
+            )
+            if generated_osw:
+                return Path(generated_osw).resolve()
+        except shutil.SameFileError:
+            # Handle input OSM already named in.osm inside target directory.
+            from honeybee_energy.measure import Measure as _Measure
+
+            sorted_measures = _Measure.sort_measures(measures)
+            measure_paths = sorted({str(Path(m.folder).parent) for m in sorted_measures})
+            payload = {
+                "seed_file": str(osm_path),
+                "weather_file": str(epw_path),
+                "measure_paths": measure_paths,
+                "steps": [m.to_osw_dict() for m in sorted_measures],
+            }
+            workflow_path.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            return workflow_path
     payload = {
         "seed_file": str(osm_path),
         "weather_file": str(epw_path),
@@ -151,6 +181,7 @@ def _energyplus_output_paths(run_dir: Path) -> dict[str, Path]:
         "sql": run_dir / "eplusout.sql",
         "zsz": run_dir / "epluszsz.csv",
         "rdd": run_dir / "eplusout.rdd",
+        "eio": run_dir / "eplusout.eio",
         "html": run_dir / "eplustbl.htm",
         "err": run_dir / "eplusout.err",
     }
@@ -254,6 +285,8 @@ def _prepare_osm_file_run(
     osm_path: str,
     weather_target: dict[str, Any] | None,
     epw_path: str | None,
+    measures: list[dict[str, Any] | str] | None = None,
+    measures_only: bool = False,
     run_id: str | None,
     silent: bool,
 ) -> dict[str, Any]:
@@ -273,6 +306,11 @@ def _prepare_osm_file_run(
         required=True,
     )
     assert resolved_epw is not None
+    loaded_measures, normalized_measures = load_and_configure_measures(
+        garden_root_path,
+        measures,
+        validate_required=True,
+    )
     run_dir = (resolved_osm.parent / "run").resolve()
     run_dir.relative_to(garden_root_path)
     if resolved_epw.is_relative_to(run_dir):
@@ -315,7 +353,10 @@ def _prepare_osm_file_run(
         "outputs": _missing_file_outputs(OSM_OUTPUT_NAMES),
         "warnings": [],
         "silent": silent,
+        "measures_only": bool(measures_only),
     }
+    if normalized_measures:
+        record["measures"] = normalized_measures
     _upsert_record(garden_root_path, record)
     try:
         _clear_idf_native_outputs(garden_root_path, run_dir)
@@ -324,6 +365,7 @@ def _prepare_osm_file_run(
         workflow_path = _write_workflow_osw(
             osm_path=resolved_osm,
             epw_path=resolved_epw,
+            measures=loaded_measures,
         )
     except Exception as exc:
         _mark_file_setup_failed(
@@ -460,6 +502,8 @@ def run_osm_file(
     osm_path: str,
     weather_target: dict[str, Any] | None = None,
     epw_path: str | None = None,
+    measures: list[dict[str, Any] | str] | None = None,
+    measures_only: bool = False,
     run_id: str | None = None,
     silent: bool = True,
 ) -> dict[str, Any]:
@@ -469,6 +513,8 @@ def run_osm_file(
         osm_path=osm_path,
         weather_target=weather_target,
         epw_path=epw_path,
+        measures=measures,
+        measures_only=measures_only,
         run_id=run_id,
         silent=silent,
     )
@@ -492,7 +538,7 @@ def run_osm_file(
         with _capture_recipe_stdio((_garden_root(garden_root) / record["run_folder"]).parent):
             osm_result, idf_result = run_osw(
                 str(prepared["workflow_path"]),
-                measures_only=False,
+                measures_only=measures_only,
                 silent=silent,
             )
     except Exception as exc:
@@ -500,6 +546,13 @@ def run_osm_file(
         warnings.append(str(exc))
 
     run_dir = (garden_root_path / str(record["run_folder"])).resolve()
+    osw_parent = run_dir.parent
+    out_osw_path = osw_parent / "out.osw"
+    workflow_file = (
+        out_osw_path
+        if out_osw_path.is_file()
+        else Path(str(prepared["workflow_path"]))
+    )
     known_outputs = _energyplus_output_paths(run_dir)
     output_paths: dict[str, Path | None] = {
         "osm": (
@@ -507,6 +560,7 @@ def run_osm_file(
             if osm_result
             else _existing_file(run_dir / "in.osm")
         ),
+        "osw": _existing_file(workflow_file),
         "idf": (
             _existing_file(Path(idf_result).resolve())
             if idf_result
@@ -514,10 +568,23 @@ def run_osm_file(
         ),
         **{name: _existing_file(path) for name, path in known_outputs.items()},
     }
-    output_paths["eui"] = _eui_output(output_paths.get("sql"), run_dir)
-    if status == "completed" and not all(output_paths.get(name) for name in ("sql", "err")):
-        status = "failed"
-        warnings.append("OpenStudio did not produce the required SQL and ERR output files.")
+    output_paths["eui"] = None if measures_only else _eui_output(output_paths.get("sql"), run_dir)
+    if out_osw_path.is_file():
+        try:
+            osw_obj = OSW(str(out_osw_path))
+            if osw_obj.errors:
+                status = "failed"
+                warnings.extend(osw_obj.errors)
+        except Exception as exc:
+            warnings.append(f"Could not parse out.osw: {exc}")
+    if status == "completed":
+        if measures_only:
+            if not (output_paths.get("osm") or output_paths.get("osw")):
+                status = "failed"
+                warnings.append("OpenStudio measures-only run did not produce in.osm or out.osw.")
+        elif not all(output_paths.get(name) for name in ("sql", "err")):
+            status = "failed"
+            warnings.append("OpenStudio did not produce the required SQL and ERR output files.")
     outputs = _file_outputs(
         garden_root=garden_root_path,
         run_dir=run_dir,
@@ -537,7 +604,11 @@ def run_osm_file(
         manifest=manifest,
         record=record,
         warnings=warnings,
-        completed_message="OSM file simulation completed.",
+        completed_message=(
+            "OSM measures-only workflow completed."
+            if measures_only
+            else "OSM file simulation completed."
+        ),
         failed_message="OSM file simulation failed; run record was saved.",
     )
 
@@ -651,4 +722,58 @@ def run_idf_file(
         warnings=warnings,
         completed_message="IDF file simulation completed.",
         failed_message="IDF file simulation failed; run record was saved.",
+    )
+
+
+def run_simulation_file(
+    *,
+    garden_root: str,
+    file_path: str,
+    file_type: str = "auto",
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    expand_objects: bool = True,
+    measures: list[dict[str, Any] | str] | None = None,
+    measures_only: bool = False,
+    run_id: str | None = None,
+    silent: bool = True,
+) -> dict[str, Any]:
+    """Run an edited EnergyPlus .idf or OpenStudio .osm file by file_type or extension."""
+    normalized_type = str(file_type or "auto").strip().lower()
+    if normalized_type not in {"auto", "idf", "osm"}:
+        raise ValueError("file_type must be one of: auto, idf, osm.")
+    if normalized_type == "auto":
+        suffix = Path(file_path).suffix.lower()
+        if suffix == ".idf":
+            normalized_type = "idf"
+        elif suffix == ".osm":
+            normalized_type = "osm"
+        else:
+            raise ValueError(
+                "Could not infer simulation file_type from file_path extension; "
+                "pass an .idf/.osm file or set file_type explicitly."
+            )
+    if normalized_type == "idf":
+        if measures or measures_only:
+            raise ValueError(
+                "measures and measures_only are only supported for OpenStudio (.osm) files, not .idf files."
+            )
+        return run_idf_file(
+            garden_root=garden_root,
+            idf_path=file_path,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            expand_objects=expand_objects,
+            run_id=run_id,
+            silent=silent,
+        )
+    return run_osm_file(
+        garden_root=garden_root,
+        osm_path=file_path,
+        weather_target=weather_target,
+        epw_path=epw_path,
+        measures=measures,
+        measures_only=measures_only,
+        run_id=run_id,
+        silent=silent,
     )

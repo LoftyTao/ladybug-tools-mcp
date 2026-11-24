@@ -2,392 +2,505 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
+
+
+GridObjectKind = Literal[
+    "substation",
+    "transformer",
+    "electrical_connector",
+    "electrical_network",
+    "road_network",
+    "ground_photovoltaics",
+    "financial_parameters",
+    "wire",
+    "power_line",
+    "transformer_properties",
+    "reopt_parameter",
+]
 
 
 def register(mcp: FastMCP) -> None:
     """Register dragonfly_grid tools."""
 
     @mcp.tool(
-        name="DF_Grid_Electrical_Connector",
+        name="DF_Grid_Create_Object",
         description=(
-            "Create a Dragonfly Electric Grid OpenDSS ElectricalConnector from "
-            "2D polyline points and a power-line identifier returned by "
-            "DF_Grid_Search_OpenDSS. Use the target in DF_Grid_Electrical_Network."
+            "Create and persist a Dragonfly Electric Grid object by kind: substation, "
+            "transformer, electrical_connector, electrical_network, road_network, "
+            "ground_photovoltaics, or financial_parameters. Use LB_Search_Standards_Library "
+            "to look up OpenDSS transformer_properties and power_lines catalog identifiers."
         ),
-        tags={"dragonfly", "electric-grid", "opendss", "connector", "author", "target"},
+        tags={"dragonfly", "electric-grid", "opendss", "reopt", "rnm", "author", "target"},
         timeout=20,
     )
-    def create_electrical_connector(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        identifier: Annotated[str, Field(description="Stable identifier for the Grid ElectricalConnector target.")],
-        polyline_points: Annotated[list[list[float]], Field(description="Ordered 2D connector points as [[x, y], ...].")],
-        power_line_identifier: Annotated[str, Field(description="OpenDSS power-line identifier from DF_Grid_Search_OpenDSS.")],
-        display_name: Annotated[str | None, Field(description="Optional display name stored on the SDK object.")] = None,
+    def create_grid_object(
+        garden_root: Annotated[
+            str,
+            Field(description="Garden root containing garden.json."),
+        ],
+        kind: Annotated[
+            GridObjectKind,
+            Field(description="Dragonfly Electric Grid object kind."),
+        ],
+        identifier: Annotated[
+            str,
+            Field(description="Stable identifier for the saved Grid object target."),
+        ],
+        display_name: Annotated[
+            str | None,
+            Field(description="Optional display name stored on the SDK object."),
+        ] = None,
+        footprint_points: Annotated[
+            list[list[float]] | None,
+            Field(description="2D footprint points [[x, y], ...] for substation, transformer, or ground_photovoltaics."),
+        ] = None,
+        polyline_points: Annotated[
+            list[list[float]] | None,
+            Field(description="2D polyline points [[x, y], ...] for electrical_connector."),
+        ] = None,
+        transformer_properties_identifier: Annotated[
+            str | None,
+            Field(description="OpenDSS transformer properties identifier from LB_Search_Standards_Library (for transformer)."),
+        ] = None,
+        transformer_properties_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional custom transformer_properties target (from kind='transformer_properties')."),
+        ] = None,
+        power_line_identifier: Annotated[
+            str | None,
+            Field(description="OpenDSS power-line identifier from LB_Search_Standards_Library (for electrical_connector)."),
+        ] = None,
+        power_line_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional custom power_line target (from kind='power_line')."),
+        ] = None,
+        substation_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Substation target for electrical_network or road_network."),
+        ] = None,
+        transformer_targets: Annotated[
+            list[dict[str, Any]] | None,
+            Field(description="Transformer targets for electrical_network."),
+        ] = None,
+        connector_targets: Annotated[
+            list[dict[str, Any]] | None,
+            Field(description="ElectricalConnector targets for electrical_network."),
+        ] = None,
+        road_segments: Annotated[
+            list[dict[str, Any]] | None,
+            Field(description="Road segment dicts {identifier, polyline_points} for road_network."),
+        ] = None,
+        building_identifier: Annotated[
+            str | None,
+            Field(description="Optional Dragonfly Building identifier associated with ground_photovoltaics."),
+        ] = None,
+        analysis_years: Annotated[
+            int,
+            Field(description="REopt analysis period in years (for financial_parameters)."),
+        ] = 25,
+        escalation_rate: Annotated[
+            float,
+            Field(description="Annual escalation rate fraction (for financial_parameters)."),
+        ] = 0.023,
+        tax_rate: Annotated[
+            float,
+            Field(description="Tax rate fraction (for financial_parameters)."),
+        ] = 0.26,
+        discount_rate: Annotated[
+            float,
+            Field(description="Discount rate fraction (for financial_parameters)."),
+        ] = 0.083,
+        geojson_file_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative RNM GeoJSON path for electrical_network from_rnm_geojson."),
+        ] = None,
+        location: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Ladybug Location dict when loading electrical_network from RNM GeoJSON."),
+        ] = None,
+        point: Annotated[
+            list[float] | None,
+            Field(description="Optional [x, y] coordinate origin when loading electrical_network from RNM GeoJSON."),
+        ] = None,
+        units: Annotated[
+            str,
+            Field(description="Model units when loading electrical_network from RNM GeoJSON."),
+        ] = "Meters",
+        ampacity: Annotated[
+            float,
+            Field(description="Wire ampacity (A) for kind='wire'."),
+        ] = 220,
+        geometrical_mean_radius: Annotated[
+            float,
+            Field(description="Wire GMR (mm) for kind='wire'."),
+        ] = 3.9,
+        resistance: Annotated[
+            float,
+            Field(description="Resistance (Ohm/km or per-unit) for wire or transformer_properties."),
+        ] = 0.3937,
+        diameter: Annotated[
+            float,
+            Field(description="Wire diameter (mm) for kind='wire'."),
+        ] = 10,
+        voltage_level: Annotated[
+            str,
+            Field(description="Voltage level ('MV' or 'LV') for kind='wire'."),
+        ] = "MV",
+        wire_type: Annotated[
+            str,
+            Field(description="Wire type ('OH' or 'UG') for kind='wire'."),
+        ] = "OH",
+        concentric_properties: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional ConcentricProperties fields dict for underground kind='wire'."),
+        ] = None,
+        wires: Annotated[
+            list[Any] | None,
+            Field(description="Wire targets, dicts, or catalog IDs for kind='power_line'."),
+        ] = None,
+        heights: Annotated[
+            list[float] | None,
+            Field(description="Wire vertical heights (m) for kind='power_line'."),
+        ] = None,
+        relative_xs: Annotated[
+            list[float] | None,
+            Field(description="Wire horizontal offsets (m) for kind='power_line'."),
+        ] = None,
+        phases: Annotated[
+            list[str] | None,
+            Field(description="Phase labels (e.g. ['A','B','C','N']) for kind='power_line'."),
+        ] = None,
+        phase_count: Annotated[
+            int | None,
+            Field(description="Phase count for power_line or transformer_properties."),
+        ] = None,
+        nominal_voltage: Annotated[
+            float | None,
+            Field(description="Optional nominal voltage for kind='power_line'."),
+        ] = None,
+        kva: Annotated[
+            float | None,
+            Field(description="kVA rating for kind='transformer_properties'."),
+        ] = None,
+        reactance: Annotated[
+            float,
+            Field(description="Per-unit reactance for kind='transformer_properties'."),
+        ] = 0.1,
+        high_voltage: Annotated[
+            float,
+            Field(description="High-side voltage (kV) for kind='transformer_properties'."),
+        ] = 13.2,
+        low_voltage: Annotated[
+            float,
+            Field(description="Low-side voltage (kV) for kind='transformer_properties'."),
+        ] = 0.48,
+        is_center_tap: Annotated[
+            bool,
+            Field(description="Center-tap flag for kind='transformer_properties'."),
+        ] = False,
+        connection: Annotated[
+            str,
+            Field(description="Winding connection (e.g. Wye-Wye) for kind='transformer_properties'."),
+        ] = "Wye-Wye",
+        financial_parameters_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional FinancialParameter target for kind='reopt_parameter'."),
+        ] = None,
+        financial_parameter: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional FinancialParameter dict for kind='reopt_parameter'."),
+        ] = None,
+        pv_parameter: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional PVParameter dict for kind='reopt_parameter'."),
+        ] = None,
+        storage_parameter: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional StorageParameter dict for kind='reopt_parameter'."),
+        ] = None,
+        wind_parameter: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional WindParameter dict for kind='reopt_parameter'."),
+        ] = None,
+        generator_parameter: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional GeneratorParameter dict for kind='reopt_parameter'."),
+        ] = None,
+        include_body: Annotated[
+            bool,
+            Field(description="Return the serialized SDK object dict in addition to the compact target."),
+        ] = False,
     ) -> dict[str, Any]:
-        """Create a Dragonfly Electric Grid ElectricalConnector."""
-        from garden.dragonfly_grid.authoring import create_electrical_connector as service
+        """Create and persist a Dragonfly Electric Grid object."""
+        from garden.dragonfly_grid import authoring
 
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            polyline_points=polyline_points,
-            power_line_identifier=power_line_identifier,
-            display_name=display_name,
-        )
-
-    @mcp.tool(
-        name="DF_Grid_Electrical_Network",
-        description=(
-            "Create a Dragonfly Electric Grid ElectricalNetwork from a Substation "
-            "target plus Transformer and ElectricalConnector targets. Pass the "
-            "returned target into Dragonfly-to-GeoJSON/export workflows when grid "
-            "export support is available."
-        ),
-        tags={"dragonfly", "electric-grid", "opendss", "network", "author", "target"},
-        timeout=20,
-    )
-    def create_electrical_network(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        identifier: Annotated[str, Field(description="Stable identifier for the ElectricalNetwork target.")],
-        substation_target: Annotated[dict[str, Any], Field(description="Target returned by DF_Grid_Substation.")],
-        transformer_targets: Annotated[list[dict[str, Any]], Field(description="Transformer targets returned by DF_Grid_Transformer.")],
-        connector_targets: Annotated[list[dict[str, Any]], Field(description="ElectricalConnector targets returned by DF_Grid_Electrical_Connector.")],
-        display_name: Annotated[str | None, Field(description="Optional display name stored on the SDK object.")] = None,
-    ) -> dict[str, Any]:
-        """Create a Dragonfly Electric Grid ElectricalNetwork."""
-        from garden.dragonfly_grid.authoring import create_electrical_network as service
-
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            substation_target=substation_target,
-            transformer_targets=transformer_targets,
-            connector_targets=connector_targets,
-            display_name=display_name,
-        )
-
-    @mcp.tool(
-        name="DF_Grid_Financial_Parameters",
-        description=(
-            "Create Dragonfly Energy REopt FinancialParameter settings for "
-            "Grid/REopt workflows. This authors financial assumptions only; use "
-            "DF_Grid_Start_REopt for runtime-gated REopt execution. Returns "
-            "target, summary_view, persistence_receipt, and report."
-        ),
-        tags={"dragonfly", "electric-grid", "reopt", "financial", "author", "target"},
-        timeout=20,
-    )
-    def create_financial_parameters(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        identifier: Annotated[str, Field(description="Stable identifier for the FinancialParameter target.")],
-        analysis_years: Annotated[int, Field(description="REopt analysis period in years.")] = 25,
-        escalation_rate: Annotated[float, Field(description="Annual escalation rate fraction.")] = 0.023,
-        tax_rate: Annotated[float, Field(description="Tax rate fraction.")] = 0.26,
-        discount_rate: Annotated[float, Field(description="Discount rate fraction.")] = 0.083,
-    ) -> dict[str, Any]:
-        """Create Dragonfly Energy REopt FinancialParameter settings."""
-        from garden.dragonfly_grid.authoring import create_financial_parameters as service
-
-        return service(
+        if kind == "substation":
+            if footprint_points is None:
+                raise ValueError("kind='substation' requires footprint_points.")
+            return authoring.create_substation(
+                garden_root=garden_root,
+                identifier=identifier,
+                footprint_points=footprint_points,
+                display_name=display_name,
+                include_body=include_body,
+            )
+        if kind == "transformer":
+            if footprint_points is None or (
+                transformer_properties_identifier is None
+                and transformer_properties_target is None
+            ):
+                raise ValueError(
+                    "kind='transformer' requires footprint_points and either "
+                    "transformer_properties_identifier or transformer_properties_target."
+                )
+            return authoring.create_transformer(
+                garden_root=garden_root,
+                identifier=identifier,
+                footprint_points=footprint_points,
+                transformer_properties_identifier=transformer_properties_identifier,
+                transformer_properties_target=transformer_properties_target,
+                display_name=display_name,
+                include_body=include_body,
+            )
+        if kind == "electrical_connector":
+            if polyline_points is None or (
+                power_line_identifier is None and power_line_target is None
+            ):
+                raise ValueError(
+                    "kind='electrical_connector' requires polyline_points and either "
+                    "power_line_identifier or power_line_target."
+                )
+            return authoring.create_electrical_connector(
+                garden_root=garden_root,
+                identifier=identifier,
+                polyline_points=polyline_points,
+                power_line_identifier=power_line_identifier,
+                power_line_target=power_line_target,
+                display_name=display_name,
+                include_body=include_body,
+            )
+        if kind == "electrical_network":
+            return authoring.create_electrical_network(
+                garden_root=garden_root,
+                identifier=identifier,
+                substation_target=substation_target,
+                transformer_targets=transformer_targets,
+                connector_targets=connector_targets,
+                geojson_file_path=geojson_file_path,
+                location=location,
+                point=point,
+                units=units,
+                display_name=display_name,
+                include_body=include_body,
+            )
+        if kind == "road_network":
+            if substation_target is None or road_segments is None:
+                raise ValueError("kind='road_network' requires substation_target and road_segments.")
+            return authoring.create_road_network(
+                garden_root=garden_root,
+                identifier=identifier,
+                substation_target=substation_target,
+                road_segments=road_segments,
+                display_name=display_name,
+                include_body=include_body,
+            )
+        if kind == "ground_photovoltaics":
+            if footprint_points is None:
+                raise ValueError("kind='ground_photovoltaics' requires footprint_points.")
+            return authoring.create_ground_photovoltaics(
+                garden_root=garden_root,
+                identifier=identifier,
+                footprint_points=footprint_points,
+                building_identifier=building_identifier,
+                display_name=display_name,
+                include_body=include_body,
+            )
+        if kind == "wire":
+            return authoring.create_wire(
+                garden_root=garden_root,
+                identifier=identifier,
+                ampacity=ampacity,
+                geometrical_mean_radius=geometrical_mean_radius,
+                resistance=resistance,
+                diameter=diameter,
+                voltage_level=voltage_level,
+                wire_type=wire_type,
+                concentric_properties=concentric_properties,
+                display_name=display_name,
+                include_body=include_body,
+            )
+        if kind == "power_line":
+            if wires is None or heights is None or relative_xs is None or phases is None:
+                raise ValueError(
+                    "kind='power_line' requires wires, heights, relative_xs, and phases."
+                )
+            return authoring.create_power_line(
+                garden_root=garden_root,
+                identifier=identifier,
+                wires=wires,
+                heights=heights,
+                relative_xs=relative_xs,
+                phases=phases,
+                phase_count=phase_count,
+                nominal_voltage=nominal_voltage,
+                display_name=display_name,
+                include_body=include_body,
+            )
+        if kind == "transformer_properties":
+            if kva is None:
+                raise ValueError("kind='transformer_properties' requires kva.")
+            return authoring.create_transformer_properties(
+                garden_root=garden_root,
+                identifier=identifier,
+                kva=kva,
+                resistance=0.1 if resistance == 0.3937 else resistance,
+                reactance=reactance,
+                phase_count=phase_count or 3,
+                high_voltage=high_voltage,
+                low_voltage=low_voltage,
+                is_center_tap=is_center_tap,
+                connection=connection,
+                display_name=display_name,
+                include_body=include_body,
+            )
+        if kind == "reopt_parameter":
+            return authoring.create_reopt_parameter(
+                garden_root=garden_root,
+                identifier=identifier,
+                financial_parameters_target=financial_parameters_target,
+                financial_parameter=financial_parameter,
+                pv_parameter=pv_parameter,
+                storage_parameter=storage_parameter,
+                wind_parameter=wind_parameter,
+                generator_parameter=generator_parameter,
+                include_body=include_body,
+            )
+        return authoring.create_financial_parameters(
             garden_root=garden_root,
             identifier=identifier,
             analysis_years=analysis_years,
             escalation_rate=escalation_rate,
             tax_rate=tax_rate,
             discount_rate=discount_rate,
+            include_body=include_body,
         )
 
     @mcp.tool(
-        name="DF_Grid_Ground_Photovoltaics",
+        name="DF_Grid_Start_Simulation",
         description=(
-            'Create a Dragonfly Energy REopt GroundMountPV object from footprint points. This '
-            'authors PV geometry for Grid/REopt export handoff. Returns target, summary_view, '
-            'persistence_receipt, and report.'
+            "Start or block a Dragonfly Electric Grid OpenDSS, REopt, or RNM run from "
+            "feature GeoJSON and scenario CSV targets. Writes a Garden run ledger with "
+            "poll_next pointing to GD_Poll_Run, and optionally accepts wait_seconds to "
+            "wait for completion in one call."
         ),
-        tags={"dragonfly", "electric-grid", "reopt", "photovoltaic", "pv", "author", "target"},
-        timeout=20,
+        tags={"dragonfly", "electric-grid", "opendss", "reopt", "rnm", "run", "runtime", "target"},
+        timeout=300,
     )
-    def create_ground_photovoltaics(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        identifier: Annotated[str, Field(description="Stable identifier for the GroundMountPV target.")],
-        footprint_points: Annotated[list[list[float]], Field(description="2D ground-mounted PV footprint points as [[x, y], ...].")],
-        building_identifier: Annotated[str | None, Field(description="Optional Dragonfly Building identifier associated with this PV system.")] = None,
-        display_name: Annotated[str | None, Field(description="Optional display name stored on the SDK object.")] = None,
+    def start_grid_simulation(
+        garden_root: Annotated[
+            str,
+            Field(description="Garden root containing garden.json; the run ledger is written inside this Garden."),
+        ],
+        engine: Annotated[
+            Literal["opendss", "reopt", "rnm"],
+            Field(description="Grid simulation engine: 'opendss', 'reopt', or 'rnm'."),
+        ],
+        feature_geojson_target: Annotated[
+            dict[str, Any],
+            Field(description="Feature GeoJSON artifact target for the Grid project."),
+        ],
+        scenario_csv_target: Annotated[
+            dict[str, Any],
+            Field(description="Scenario CSV artifact target paired with the feature GeoJSON."),
+        ],
+        run_id: Annotated[
+            str | None,
+            Field(description="Optional stable run id; omit to let the Garden create one."),
+        ] = None,
+        autosize: Annotated[
+            bool,
+            Field(description="Whether to request OpenDSS network upgrade/autosizing (engine='opendss')."),
+        ] = False,
+        urdb_label: Annotated[
+            str | None,
+            Field(description="URDB utility rate label (required when engine='reopt')."),
+        ] = None,
+        developer_key: Annotated[
+            str | None,
+            Field(description="Optional REopt developer key (redacted in reports; engine='reopt')."),
+        ] = None,
+        financial_parameters_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional saved FinancialParameter target for engine='reopt'."),
+        ] = None,
+        financial_parameters: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional inline FinancialParameter dict for engine='reopt'."),
+        ] = None,
+        reopt_parameter_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional saved REoptParameter target for engine='reopt'."),
+        ] = None,
+        reopt_parameter: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional inline REoptParameter dict for engine='reopt'."),
+        ] = None,
+        underground_ratio: Annotated[
+            float,
+            Field(description="RNM underground ratio (engine='rnm')."),
+        ] = 0.9,
+        lv_only: Annotated[
+            bool,
+            Field(description="Whether RNM should run low-voltage-only network generation (engine='rnm')."),
+        ] = True,
+        nodes_per_building: Annotated[
+            int,
+            Field(description="RNM nodes per building (engine='rnm')."),
+        ] = 1,
+        wait_seconds: Annotated[
+            float | None,
+            Field(description="Optional seconds to poll for completion before returning; omit to return immediately."),
+        ] = None,
+        poll_interval: Annotated[
+            float,
+            Field(description="Polling interval in seconds when wait_seconds is provided."),
+        ] = 2.0,
     ) -> dict[str, Any]:
-        """Create a Dragonfly Energy GroundMountPV object."""
-        from garden.dragonfly_grid.authoring import create_ground_photovoltaics as service
+        """Start or block an OpenDSS, REopt, or RNM simulation run."""
+        from garden.dragonfly_grid import runs
 
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            footprint_points=footprint_points,
-            building_identifier=building_identifier,
-            display_name=display_name,
-        )
-
-    @mcp.tool(
-        name="DF_Grid_Road_Network",
-        description=(
-            "Create a Dragonfly Electric Grid RNM RoadNetwork from a Substation "
-            "target and road segment dictionaries. Road segments use "
-            "{identifier, polyline_points}. Returns a compact target for RNM workflows."
-        ),
-        tags={"dragonfly", "electric-grid", "rnm", "road", "network", "author", "target"},
-        timeout=20,
-    )
-    def create_road_network(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        identifier: Annotated[str, Field(description="Stable identifier for the RoadNetwork target.")],
-        substation_target: Annotated[dict[str, Any], Field(description="Target returned by DF_Grid_Substation.")],
-        road_segments: Annotated[list[dict[str, Any]], Field(description="Road segment dicts with identifier and polyline_points fields.")],
-        display_name: Annotated[str | None, Field(description="Optional display name stored on the SDK object.")] = None,
-    ) -> dict[str, Any]:
-        """Create a Dragonfly Electric Grid RoadNetwork."""
-        from garden.dragonfly_grid.authoring import create_road_network as service
-
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            substation_target=substation_target,
-            road_segments=road_segments,
-            display_name=display_name,
-        )
-
-    @mcp.tool(
-        name="DF_Grid_Substation",
-        description=(
-            "Create a Dragonfly Electric Grid OpenDSS Substation from "
-            "Grasshopper-style footprint points. Use the returned target in "
-            "DF_Grid_Electrical_Network or DF_Grid_Road_Network. Returns target, "
-            "summary_view, persistence_receipt, and report."
-        ),
-        tags={"dragonfly", "electric-grid", "opendss", "author", "target"},
-        timeout=20,
-    )
-    def create_substation(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        identifier: Annotated[str, Field(description="Stable identifier for the Grid Substation target.")],
-        footprint_points: Annotated[list[list[float]], Field(description="Closed or open 2D footprint points as [[x, y], ...].")],
-        display_name: Annotated[str | None, Field(description="Optional display name stored on the SDK object.")] = None,
-    ) -> dict[str, Any]:
-        """Create a Dragonfly Electric Grid Substation."""
-        from garden.dragonfly_grid.authoring import create_substation as service
-
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            footprint_points=footprint_points,
-            display_name=display_name,
-        )
-
-    @mcp.tool(
-        name="DF_Grid_Transformer",
-        description=(
-            "Create a Dragonfly Electric Grid OpenDSS Transformer from footprint "
-            "points and an OpenDSS transformer properties identifier returned by "
-            "DF_Grid_Search_OpenDSS. Returns a compact Grid target for network assembly."
-        ),
-        tags={"dragonfly", "electric-grid", "opendss", "transformer", "author", "target"},
-        timeout=20,
-    )
-    def create_transformer(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        identifier: Annotated[str, Field(description="Stable identifier for the Grid Transformer target.")],
-        footprint_points: Annotated[list[list[float]], Field(description="2D transformer footprint points as [[x, y], ...].")],
-        transformer_properties_identifier: Annotated[str, Field(description="OpenDSS transformer properties identifier from DF_Grid_Search_OpenDSS.")],
-        display_name: Annotated[str | None, Field(description="Optional display name stored on the SDK object.")] = None,
-    ) -> dict[str, Any]:
-        """Create a Dragonfly Electric Grid Transformer."""
-        from garden.dragonfly_grid.authoring import create_transformer as service
-
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            footprint_points=footprint_points,
-            transformer_properties_identifier=transformer_properties_identifier,
-            display_name=display_name,
-        )
-
-    @mcp.tool(
-        name="DF_Grid_Network_To_Visualization_Set",
-        description=(
-            "Create a compact Ladybug Display VisualizationSet target for a "
-            "Dragonfly Electric Grid ElectricalNetwork. Use the returned "
-            "visualization_set_target with shared visualization exporters."
-        ),
-        tags={"dragonfly", "electric-grid", "visualization", "visualization-set", "target"},
-        timeout=20,
-    )
-    def grid_network_to_visualization_set(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        network_target: Annotated[dict[str, Any], Field(description="ElectricalNetwork target returned by DF_Grid_Electrical_Network.")],
-        name: Annotated[str | None, Field(description="Optional VisualizationSet identifier/display name.")] = None,
-        return_visualization_set: Annotated[bool, Field(description="Return the full VisualizationSet dict; keep false for compact target handoff.")] = False,
-    ) -> dict[str, Any]:
-        """Create a VisualizationSet target for an Electric Grid network."""
-        from garden.dragonfly_grid.authoring import grid_network_to_visualization_set as service
-
-        return service(
-            garden_root=garden_root,
-            network_target=network_target,
-            name=name,
-            return_visualization_set=return_visualization_set,
-        )
-
-    @mcp.tool(
-        name="DF_Grid_Results_To_Visualization_Set",
-        description=(
-            "Create a compact Ladybug Display VisualizationSet target for "
-            "registered Dragonfly Grid OpenDSS result artifacts. Use shared "
-            "visualization exporters for SVG, HTML, or vtk.js output."
-        ),
-        tags={"dragonfly", "electric-grid", "opendss", "result", "visualization", "visualization-set", "target"},
-        timeout=20,
-    )
-    def grid_results_to_visualization_set(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        result_targets: Annotated[list[dict[str, Any]], Field(description="Registered OpenDSS CSV result artifact targets.")],
-        name: Annotated[str, Field(description="VisualizationSet identifier/display name.")] = "OpenDSS Results",
-        return_visualization_set: Annotated[bool, Field(description="Return the full VisualizationSet dict; keep false for compact target handoff.")] = False,
-    ) -> dict[str, Any]:
-        """Create a VisualizationSet target for Electric Grid result artifacts."""
-        from garden.dragonfly_grid.authoring import grid_results_to_visualization_set as service
-
-        return service(
-            garden_root=garden_root,
-            result_targets=result_targets,
-            name=name,
-            return_visualization_set=return_visualization_set,
-        )
-
-    @mcp.tool(
-        name="DF_Grid_Read_OpenDSS_Result",
-        description=(
-            "Read a registered Dragonfly Grid OpenDSS CSV result artifact into a "
-            "compact preview. The result_target must be a Garden artifact with "
-            "artifact_type=dragonfly_grid_opendss_result_csv; arbitrary CSV paths "
-            "are rejected."
-        ),
-        tags={"dragonfly", "electric-grid", "opendss", "result", "read", "target"},
-        timeout=20,
-    )
-    def read_opendss_result(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json.")],
-        result_target: Annotated[dict[str, Any], Field(description="Registered OpenDSS CSV result artifact target.")],
-        max_rows: Annotated[int, Field(description="Maximum preview rows to return.")] = 25,
-    ) -> dict[str, Any]:
-        """Read a registered OpenDSS result artifact."""
-        from garden.dragonfly_grid.authoring import read_opendss_result as service
-
-        return service(garden_root=garden_root, result_target=result_target, max_rows=max_rows)
-
-    @mcp.tool(
-        name="DF_Grid_Search_OpenDSS",
-        description=(
-            "Search Dragonfly Energy OpenDSS catalog identifiers for transformer "
-            "properties, power lines, and wires. Returns compact catalog records "
-            "for DF_Grid_Transformer and DF_Grid_Electrical_Connector inputs, "
-            "plus matches, summary_view, and report."
-        ),
-        tags={"dragonfly", "electric-grid", "opendss", "search", "catalog", "list"},
-        timeout=20,
-    )
-    def search_opendss(
-        keywords: Annotated[list[str] | None, Field(description="Optional keywords that must all appear in the catalog identifier.")] = None,
-        catalogs: Annotated[list[str] | None, Field(description="Optional catalogs: transformer_properties, power_lines, wires.")] = None,
-        limit: Annotated[int, Field(description="Maximum compact records to return.")] = 25,
-    ) -> dict[str, Any]:
-        """Search OpenDSS catalog identifiers."""
-        from garden.dragonfly_grid.authoring import search_opendss as service
-
-        return service(keywords=keywords, catalogs=catalogs, limit=limit)
-
-    @mcp.tool(
-        name="DF_Grid_Start_OpenDSS",
-        description=(
-            'Start or block an OpenDSS run from a feature GeoJSON target and scenario CSV target. '
-            'Returns a blocked run ledger when OpenDSS is unavailable.'
-        ),
-        tags={"dragonfly", "electric-grid", "opendss", "run", "runtime", "target"},
-        timeout=30,
-    )
-    def start_opendss(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json; the run ledger is written inside this Garden.")],
-        feature_geojson_target: Annotated[dict[str, Any], Field(description="Feature GeoJSON artifact target for the OpenDSS project.")],
-        scenario_csv_target: Annotated[dict[str, Any], Field(description="Scenario CSV artifact target paired with the feature GeoJSON.")],
-        run_id: Annotated[str | None, Field(description="Optional stable run id; omit to let the Garden create one.")] = None,
-        autosize: Annotated[bool, Field(description="Whether to request OpenDSS network upgrade/autosizing when runtime is ready.")] = False,
-    ) -> dict[str, Any]:
-        """Start or block an OpenDSS run."""
-        from garden.dragonfly_grid.runs import start_opendss as service
-
-        return service(
-            garden_root=garden_root,
-            feature_geojson_target=feature_geojson_target,
-            scenario_csv_target=scenario_csv_target,
-            run_id=run_id,
-            autosize=autosize,
-        )
-
-    @mcp.tool(
-        name="DF_Grid_Start_REopt",
-        description=(
-            'Start or block a Dragonfly Electric Grid REopt post-processing run from feature '
-            'GeoJSON and scenario CSV targets. When no local REopt service is configured, returns '
-            'a blocked ledger with runtime_diagnostics.external_api_blocker.'
-        ),
-        tags={"dragonfly", "electric-grid", "reopt", "run", "runtime", "target"},
-        timeout=30,
-    )
-    def start_reopt(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json; the run ledger is written inside this Garden.")],
-        feature_geojson_target: Annotated[dict[str, Any], Field(description="Feature GeoJSON artifact target for the REopt project.")],
-        scenario_csv_target: Annotated[dict[str, Any], Field(description="Scenario CSV artifact target paired with the feature GeoJSON.")],
-        urdb_label: Annotated[str, Field(description="URDB utility rate label passed to Dragonfly Energy REopt when runtime is ready.")],
-        run_id: Annotated[str | None, Field(description="Optional stable run id; omit to let the Garden create one.")] = None,
-        developer_key: Annotated[str | None, Field(description='Optional REopt developer key (redacted in reports).')] = None,
-    ) -> dict[str, Any]:
-        """Start or block a REopt run."""
-        from garden.dragonfly_grid.runs import start_reopt as service
-
-        return service(
-            garden_root=garden_root,
-            feature_geojson_target=feature_geojson_target,
-            scenario_csv_target=scenario_csv_target,
-            urdb_label=urdb_label,
-            run_id=run_id,
-            developer_key=developer_key,
-        )
-
-    @mcp.tool(
-        name="DF_Grid_Start_RNM",
-        description=(
-            "Start or block a Dragonfly Electric Grid RNM run from a feature "
-            "GeoJSON target and scenario CSV target. Under the local-service "
-            "runtime policy, API-backed RNM-US submission returns a blocked run "
-            "ledger with runtime_diagnostics.external_api_blocker and "
-            "LB_Get_Runtime_Config as the next check."
-        ),
-        tags={"dragonfly", "electric-grid", "rnm", "run", "runtime", "target"},
-        timeout=30,
-    )
-    def start_rnm(
-        garden_root: Annotated[str, Field(description="Garden root containing garden.json; the run ledger is written inside this Garden.")],
-        feature_geojson_target: Annotated[dict[str, Any], Field(description="Feature GeoJSON artifact target for the URBANopt/RNM project.")],
-        scenario_csv_target: Annotated[dict[str, Any], Field(description="Scenario CSV artifact target paired with the feature GeoJSON.")],
-        run_id: Annotated[str | None, Field(description="Optional stable run id; omit to let the Garden create one.")] = None,
-        underground_ratio: Annotated[float, Field(description="RNM underground ratio passed to Dragonfly Energy when runtime is ready.")] = 0.9,
-        lv_only: Annotated[bool, Field(description="Whether RNM should run low-voltage-only network generation.")] = True,
-        nodes_per_building: Annotated[int, Field(description="RNM nodes per building.")] = 1,
-    ) -> dict[str, Any]:
-        """Start or block an RNM run."""
-        from garden.dragonfly_grid.runs import start_rnm as service
-
-        return service(
+        if engine == "opendss":
+            return runs.start_opendss(
+                garden_root=garden_root,
+                feature_geojson_target=feature_geojson_target,
+                scenario_csv_target=scenario_csv_target,
+                run_id=run_id,
+                autosize=autosize,
+                wait_seconds=wait_seconds,
+                poll_interval=poll_interval,
+            )
+        if engine == "reopt":
+            if not urdb_label:
+                raise ValueError("engine='reopt' requires urdb_label.")
+            return runs.start_reopt(
+                garden_root=garden_root,
+                feature_geojson_target=feature_geojson_target,
+                scenario_csv_target=scenario_csv_target,
+                urdb_label=urdb_label,
+                financial_parameters_target=financial_parameters_target,
+                financial_parameters=financial_parameters,
+                reopt_parameter_target=reopt_parameter_target,
+                reopt_parameter=reopt_parameter,
+                run_id=run_id,
+                developer_key=developer_key,
+                wait_seconds=wait_seconds,
+                poll_interval=poll_interval,
+            )
+        return runs.start_rnm(
             garden_root=garden_root,
             feature_geojson_target=feature_geojson_target,
             scenario_csv_target=scenario_csv_target,
@@ -395,4 +508,116 @@ def register(mcp: FastMCP) -> None:
             underground_ratio=underground_ratio,
             lv_only=lv_only,
             nodes_per_building=nodes_per_building,
+            wait_seconds=wait_seconds,
+            poll_interval=poll_interval,
+        )
+
+    @mcp.tool(
+        name="DF_Grid_Results",
+        description=(
+            "Read OpenDSS CSV results or build VisualizationSet handoffs for Grid "
+            "networks and results: action='read_opendss_result', 'network_to_vis_set', "
+            "or 'results_to_vis_set'. Use LB_Export_Visualization_Set to export "
+            "resulting VisualizationSets to HTML, SVG, or vtk.js."
+        ),
+        tags={"dragonfly", "electric-grid", "opendss", "result", "visualization", "visualization-set", "target"},
+        timeout=20,
+    )
+    def grid_results(
+        garden_root: Annotated[
+            str,
+            Field(description="Garden root containing garden.json."),
+        ],
+        action: Annotated[
+            Literal[
+                "read_opendss_result",
+                "read_reopt_result",
+                "network_to_vis_set",
+                "results_to_vis_set",
+            ],
+            Field(description="Grid result action: 'read_opendss_result', 'read_reopt_result', 'network_to_vis_set', or 'results_to_vis_set'."),
+        ],
+        result_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Registered OpenDSS CSV result artifact target (action='read_opendss_result')."),
+        ] = None,
+        result_targets: Annotated[
+            list[dict[str, Any]] | None,
+            Field(description="Registered OpenDSS CSV result artifact targets."),
+        ] = None,
+        network_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="ElectricalNetwork target (for 'network_to_vis_set' or matching geometry in 'results_to_vis_set')."),
+        ] = None,
+        attr_name: Annotated[
+            str,
+            Field(description="Network equipment attribute to visualize for action='network_to_vis_set'."),
+        ] = "identifier",
+        attribute: Annotated[
+            str | int,
+            Field(description="Collection aggregation ('max', 'min', 'average', 'total', or integer step) for 'results_to_vis_set'."),
+        ] = "max",
+        run_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Completed REopt run_target for action='read_reopt_result'."),
+        ] = None,
+        report_json_path: Annotated[
+            str | None,
+            Field(description="Garden-relative scenario_optimization.json path for action='read_reopt_result'."),
+        ] = None,
+        report_csv_path: Annotated[
+            str | None,
+            Field(description="Garden-relative scenario_optimization.csv path for action='read_reopt_result'."),
+        ] = None,
+        max_rows: Annotated[
+            int,
+            Field(description="Maximum preview rows to return for action='read_opendss_result'."),
+        ] = 25,
+        name: Annotated[
+            str | None,
+            Field(description="Optional VisualizationSet identifier/display name."),
+        ] = None,
+        return_visualization_set: Annotated[
+            bool,
+            Field(description="Return the full VisualizationSet dict; keep false for compact target handoff."),
+        ] = False,
+    ) -> dict[str, Any]:
+        """Read OpenDSS/REopt results or convert Grid networks/results to VisualizationSets."""
+        from garden.dragonfly_grid import authoring
+
+        if action == "read_opendss_result":
+            if result_target is None and result_targets is None:
+                raise ValueError("action='read_opendss_result' requires result_target or result_targets.")
+            return authoring.read_opendss_result(
+                garden_root=garden_root,
+                result_target=result_target,
+                result_targets=result_targets,
+                max_rows=max_rows,
+            )
+        if action == "read_reopt_result":
+            return authoring.read_reopt_result(
+                garden_root=garden_root,
+                report_json_path=report_json_path,
+                report_csv_path=report_csv_path,
+                run_target=run_target,
+            )
+        if action == "network_to_vis_set":
+            if network_target is None:
+                raise ValueError("action='network_to_vis_set' requires network_target.")
+            return authoring.grid_network_to_visualization_set(
+                garden_root=garden_root,
+                network_target=network_target,
+                attr_name=attr_name,
+                name=name,
+                return_visualization_set=return_visualization_set,
+            )
+        if result_targets is None:
+            raise ValueError("action='results_to_vis_set' requires result_targets.")
+        return authoring.grid_results_to_visualization_set(
+            garden_root=garden_root,
+            result_targets=result_targets,
+            network_target=network_target,
+            attribute=attribute,
+            name=name or "OpenDSS Results",
+            return_visualization_set=return_visualization_set,
         )

@@ -2,47 +2,11 @@
 
 from __future__ import annotations
 
-import time
-
-from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
 
-from ladybug_tools_mcp.contracts import make_report
-
-
-_TIME_ZONE_OFFSET_NAMES = {
-    -9: "YST",
-    -8: "PST",
-    -7: "MST",
-    -6: "CST",
-    -5: "EST",
-    -4: "AST",
-    0: "GMT",
-    1: "CET",
-    2: "EET",
-    3: "AST",
-    4: "GST",
-    5.5: "IST",
-    9: "JST",
-    12: "NZST",
-}
-
-def _normalize_time_zone(time_zone: str | int | float | None) -> str | None:
-    if time_zone is None:
-        return None
-    if isinstance(time_zone, str):
-        stripped = time_zone.strip()
-        try:
-            numeric = float(stripped)
-        except ValueError:
-            return stripped
-    else:
-        numeric = float(time_zone)
-    key: int | float = int(numeric) if numeric.is_integer() else numeric
-    return _TIME_ZONE_OFFSET_NAMES.get(key, str(time_zone))
 
 RAW_RADIANCE_FLAGS = (
     "ab",
@@ -66,6 +30,7 @@ RAW_RADIANCE_FLAGS = (
     "c",
 )
 
+
 def _raw_radiance_options(values: dict[str, Any]) -> str | None:
     parts: list[str] = []
     for flag in RAW_RADIANCE_FLAGS:
@@ -84,500 +49,298 @@ def _raw_radiance_options(values: dict[str, Any]) -> str | None:
         parts.extend((f"-{flag}", str(value)))
     return " ".join(parts) or None
 
+
 VectorInput = list[float] | dict[str, float] | None
-
-def _sensor_grid_vector(value: VectorInput, name: str) -> list[float] | None:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        try:
-            return [float(value["x"]), float(value["y"]), float(value["z"])]
-        except KeyError as exc:
-            raise ValueError(f"{name} dict must include x, y, and z.") from exc
-    if len(value) != 3:
-        raise ValueError(f"{name} must include exactly three numbers.")
-    return [float(value[0]), float(value[1]), float(value[2])]
-
-def _room_identifier_from_target(
-    room_identifier: str | None,
-    room_target: dict[str, Any] | None,
-) -> str | None:
-    if room_identifier is not None or not isinstance(room_target, dict):
-        return room_identifier
-    if str(room_target.get("object_type", "")).lower() == "room":
-        value = room_target.get("object_identifier") or room_target.get("identifier")
-        if isinstance(value, str) and value:
-            return value
-    return room_identifier
-
-def _positions_from_rectangular_grid(
-    *,
-    positions: list[list[float]] | None,
-    x_dim: float | None,
-    y_dim: float | None,
-    height: float | None,
-    x_count: int | None,
-    y_count: int | None,
-    grid_spacing: float | None = None,
-    origin: list[float] | None = None,
-) -> list[list[float]]:
-    if positions is not None:
-        return positions
-    if x_dim is not None and y_dim is not None:
-        if grid_spacing is not None and grid_spacing > 0:
-            x_count = max(1, int(float(x_dim) / float(grid_spacing)))
-            y_count = max(1, int(float(y_dim) / float(grid_spacing)))
-        x_count = 4 if x_count is None else x_count
-        y_count = 4 if y_count is None else y_count
-    if x_dim is None or y_dim is None or x_count is None or y_count is None:
-        if x_count is not None and y_count is not None:
-            x_dim = float(x_count) if x_dim is None else x_dim
-            y_dim = float(y_count) if y_dim is None else y_dim
-    if x_dim is None or y_dim is None or x_count is None or y_count is None:
-        raise ValueError(
-            "Provide positions, or provide x_dim, y_dim, x_count, and y_count to create a rectangular workplane grid."
-        )
-    if x_dim <= 0 or y_dim <= 0:
-        raise ValueError("x_dim and y_dim must be greater than zero.")
-    if x_count < 1 or y_count < 1:
-        raise ValueError("x_count and y_count must be at least 1.")
-    origin_values = origin or [0, 0, 0]
-    if len(origin_values) != 3:
-        raise ValueError("origin must include exactly three numbers when provided.")
-    z = float(origin_values[2]) + float(0.8 if height is None else height)
-    x_step = float(x_dim) / int(x_count)
-    y_step = float(y_dim) / int(y_count)
-    return [
-        [
-            float(origin_values[0]) + (x_index + 0.5) * x_step,
-            float(origin_values[1]) + (y_index + 0.5) * y_step,
-            z,
-        ]
-        for y_index in range(int(y_count))
-        for x_index in range(int(x_count))
-    ]
-
-def _view_vector(value: VectorInput, field_name: str) -> list[float] | None:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        try:
-            return [float(value[axis]) for axis in ("x", "y", "z")]
-        except KeyError as exc:
-            raise ValueError(f"{field_name} dict must include x, y, and z.") from exc
-    return [float(item) for item in value]
-
-def _direction_from_target(
-    position: list[float] | None,
-    target: list[float] | None,
-) -> list[float] | None:
-    if target is None:
-        return None
-    origin = position or [0, 0, 0]
-    if len(origin) != 3 or len(target) != 3:
-        raise ValueError("position and target must both be [x, y, z] vectors.")
-    return [float(target[index]) - float(origin[index]) for index in range(3)]
-
-def _normalize_view_type(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized.startswith("vt") and len(normalized) == 3:
-        normalized = normalized[-1]
-    allowed = {"v", "h", "l", "c", "a", "s"}
-    if normalized not in allowed:
-        raise ValueError("view_type must be one of v, h, l, c, a, s, or a Radiance vt* token.")
-    return normalized
-
-_FORMAL_ARTIFACT_TYPES = {
-    "radiance_sky_file",
-    "radiance_view",
-    "radiance_sensor_grid",
-    "radiance_hdr_image",
-    "radiance_gif_image",
-}
-
-def _normalize_artifact_type(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
-    if not normalized:
-        return None
-    if normalized not in _FORMAL_ARTIFACT_TYPES:
-        allowed = ", ".join(sorted(_FORMAL_ARTIFACT_TYPES))
-        raise ValueError(f"artifact_type must be one of: {allowed}.")
-    return normalized
-
-def _run_id_from_target(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        for key in ("run_id", "identifier", "id"):
-            found = value.get(key)
-            if found:
-                return str(found)
-        target = value.get("target")
-        if target is not None:
-            return _run_id_from_target(target)
-    return None
-
-def _relative_run_parameter_match(
-    garden_root_path: Path,
-    garden_id: str,
-    record: dict[str, Any],
-) -> dict[str, Any] | None:
-    parameter_path = record.get("radiance_parameters_path")
-    if not parameter_path:
-        return None
-    path = (garden_root_path / str(parameter_path)).resolve()
-    try:
-        path.relative_to(garden_root_path)
-    except ValueError:
-        return None
-    if not path.is_file():
-        return None
-    radiance_parameters = path.read_text(encoding="utf-8").strip()
-    identifier = f"{record.get('run_id')}_radiance_parameters"
-    target = {
-        "target_type": "radiance_parameters",
-        "domain": "honeybee_radiance",
-        "garden_id": garden_id,
-        "identifier": identifier,
-        "path": str(parameter_path).replace("\\", "/"),
-        "radiance_parameters": radiance_parameters,
-        "value": radiance_parameters,
-    }
-    return {
-        "identifier": identifier,
-        "run_id": record.get("run_id"),
-        "recipe": record.get("recipe"),
-        "path": target["path"],
-        "target": target,
-        "radiance_parameters": radiance_parameters,
-    }
-
-def _sensor_grid_target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any]) -> dict[str, Any]:
-    path = str(artifact.get("path") or "")
-    name = artifact.get("name")
-    if not isinstance(name, str) or not name:
-        raise ValueError("radiance_sensor_grid artifact requires a name.")
-    return {
-        "target_type": "radiance_sensor_grid",
-        "domain": "honeybee_radiance",
-        "garden_id": garden_target.get("garden_id"),
-        "identifier": name,
-        "path": path,
-    }
-
-def _sky_file_target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any]) -> dict[str, Any]:
-    path = str(artifact.get("path") or "")
-    name = artifact.get("name")
-    if not isinstance(name, str) or not name:
-        raise ValueError("radiance_sky_file artifact requires a name.")
-    return {
-        "target_type": "radiance_sky_file",
-        "domain": "honeybee_radiance",
-        "garden_id": garden_target.get("garden_id"),
-        "identifier": name,
-        "path": path,
-    }
-
-def _view_target_from_artifact(artifact: dict[str, Any], garden_target: dict[str, Any]) -> dict[str, Any]:
-    path = str(artifact.get("path") or "")
-    name = artifact.get("name")
-    if not isinstance(name, str) or not name:
-        raise ValueError("radiance_view artifact requires a name.")
-    return {
-        "target_type": "radiance_view",
-        "domain": "honeybee_radiance",
-        "garden_id": garden_target.get("garden_id"),
-        "identifier": name,
-        "path": path,
-    }
-
-def _requires_radiance_sky_file(calculation_type: str) -> bool:
-    return calculation_type.strip().lower().replace("-", "_").replace(" ", "_") == "point_in_time"
-
-def _view_filter_from_target(view_target: dict[str, Any] | None) -> str | None:
-    if not isinstance(view_target, dict):
-        return None
-    if view_target.get("target_type") != "radiance_view":
-        raise ValueError("view_target must be a radiance_view target.")
-    identifier = view_target.get("identifier")
-    return str(identifier) if identifier else None
 
 
 def register(mcp: FastMCP) -> None:
     """Register radiance tools."""
 
     @mcp.tool(
-        name="RAD_Add_Luminaire_To_Model",
+        name="RAD_Create_Sky_Asset",
         description=(
-            'Attach Radiance luminaire targets to a Garden Honeybee model for electric-lighting '
-            'Radiance studies. Pass luminaire targets from RAD_Create_Luminaire plus an optional '
-            'Honeybee model target. This edits model.properties.radiance.luminaires. Returns '
-            'target, model_target, summary_view, persistence_receipt, and report for later search '
-            'or simulation calls.'
-        ),
-        tags={
-            "radiance",
-            "model",
-            "edit",
-            "luminaire",
-            "electric-lighting",
-        },
-        timeout=60,
-    )
-    def add_radiance_luminaire_to_model(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ],
-        luminaires: Annotated[
-            list[dict[str, Any]],
-            Field(description="Radiance Luminaire object_dict values or Garden Properties Library luminaire targets."),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Honeybee model target. Defaults to the Garden base model."),
-        ] = None,
-        replace_existing: Annotated[
-            bool,
-            Field(description="Replace existing model luminaires with the same identifiers."),
-        ] = False,
-    ) -> dict[str, Any]:
-        """Attach Radiance Luminaire objects to a Garden Honeybee model."""
-        from garden.radiance.luminaires import add_radiance_luminaire_to_model as service
-
-        return service(
-            garden_root=garden_root,
-            luminaires=luminaires,
-            model_target=model_target,
-            replace_existing=replace_existing,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_ASHRAE_Clear_Sky_WEA",
-        description=(
-            'Create a Radiance WEA file from ASHRAE Clear Sky conditions for a Garden location. '
-            'Use this for clear-sky daylight or irradiance setup when the workflow needs '
-            'synthetic WEA weather for RAD_Create_Sky_Matrix. This writes WEA data for Radiance '
-            'sky workflows. Returns target, wea_target, summary_view, persistence_receipt, and '
-            'report.'
+            "Create a Radiance sky or weather asset in a Garden project. Supports ten "
+            "asset_type modes: 'cie_sky' (gensky point-in-time .sky target), "
+            "'climate_based_sky' (gendaylit point-in-time .sky target), "
+            "'certain_irradiance' (fixed irradiance/illuminance sky incl. 0 lux dark sky), "
+            "'from_epw_hoy' (climate-based sky from EPW at HOY or date/time), "
+            "'skydome' (SkyDome/UniformSky for rfluxmtx), 'leed_illuminance' (LEED v4.1 Opt 2 "
+            "9AM/3PM clear equinox skies), 'abnt_nbr_15575' (4 ABNT NBR 15575 skies), "
+            "'wea_from_epw' (WEA file), 'wea_clear_sky' (ASHRAE clear-sky WEA), and "
+            "'sky_matrix' (SkyMatrix from wea_target, EPW, stat_path, or location with optional "
+            "hoys filter and benefit_matrix). Returns target, summary_view, persistence_receipt, and report."
         ),
         tags={
             "radiance",
             "sky",
             "weather",
             "wea",
-            "ashrae-clear-sky",
+            "sky-matrix",
+            "author",
         },
-        timeout=60,
+        timeout=120,
     )
-    def create_ashrae_clear_sky_wea(
+    def create_radiance_sky_asset(
         garden_root: Annotated[
             str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
+            Field(
+                description=(
+                    "Garden root path containing garden.json, usually GD_Create['garden_root']; "
+                    "required when saving or reading Garden targets."
+                )
+            ),
+        ],
+        asset_type: Annotated[
+            Literal[
+                "cie_sky",
+                "climate_based_sky",
+                "certain_irradiance",
+                "from_epw_hoy",
+                "skydome",
+                "leed_illuminance",
+                "abnt_nbr_15575",
+                "wea_from_epw",
+                "wea_clear_sky",
+                "sky_matrix",
+            ],
+            Field(
+                description=(
+                    "Sky asset kind: cie_sky, climate_based_sky, certain_irradiance, "
+                    "from_epw_hoy, skydome, leed_illuminance, abnt_nbr_15575, "
+                    "wea_from_epw, wea_clear_sky, or sky_matrix."
+                )
+            ),
         ],
         identifier: Annotated[
             str | None,
-            Field(description="Stable identifier for the ASHRAE clear-sky WEA artifact and target."),
+            Field(description="Optional stable identifier for the persisted sky/WEA/matrix artifact."),
         ] = None,
-        location: Annotated[
-            dict[str, Any] | None,
-            Field(description="Ladybug Location dictionary with city, latitude, longitude, time_zone, and optional elevation."),
+        month: Annotated[
+            int | None,
+            Field(description="Month number (1-12) for cie_sky, climate_based_sky, or from_epw_hoy."),
         ] = None,
-        city: Annotated[
-            str | None,
-            Field(description="Optional city name accepted when location is omitted."),
+        day: Annotated[
+            int | None,
+            Field(description="Day of month for cie_sky, climate_based_sky, or from_epw_hoy."),
         ] = None,
-        region: Annotated[
-            str | None,
-            Field(description="Optional state or region value used when location is omitted."),
+        time: Annotated[
+            str | float | None,
+            Field(description="Local time for cie_sky, climate_based_sky, or from_epw_hoy, e.g. '12:00' or 12.0."),
         ] = None,
+        time_zone: Annotated[
+            str | int | float | None,
+            Field(
+                description=(
+                    "Optional Radiance time zone token (such as EST/MST) or numeric UTC offset "
+                    "(required when constructing a Location from coordinates)."
+                )
+            ),
+        ] = None,
+        solar_time: Annotated[
+            bool,
+            Field(description="Use local solar time instead of local standard time for cie_sky/climate_based_sky."),
+        ] = False,
+        solar_altitude: Annotated[
+            float | None,
+            Field(description="Optional sun altitude angle in degrees (provide with solar_azimuth instead of month/day/time)."),
+        ] = None,
+        solar_azimuth: Annotated[
+            float | None,
+            Field(description="Optional sun azimuth angle in degrees (provide with solar_altitude instead of month/day/time)."),
+        ] = None,
+        sky_type: Annotated[
+            str,
+            Field(
+                description=(
+                    "CIE sky type for cie_sky: sunny, sunny_no_sun, cloudy, uniform_cloudy, "
+                    "intermediate, or intermediate_no_sun."
+                )
+            ),
+        ] = "sunny",
         latitude: Annotated[
             float | None,
-            Field(description="Optional latitude accepted when location is omitted."),
+            Field(description="Optional site latitude in degrees."),
         ] = None,
         longitude: Annotated[
             float | None,
-            Field(description="Optional longitude accepted when location is omitted."),
+            Field(description="Optional site longitude in degrees."),
         ] = None,
-        time_zone: Annotated[
+        standard_meridian: Annotated[
             float | None,
-            Field(description="Optional time zone accepted when location is omitted."),
+            Field(description="Optional standard meridian for gensky/gendaylit -m."),
+        ] = None,
+        ground_reflectance: Annotated[
+            float | None,
+            Field(description="Optional ground reflectance (-g). Defaults to 0.2."),
+        ] = None,
+        sky_turbidity: Annotated[
+            float | None,
+            Field(description="Optional sky turbidity for cie_sky (gensky -t)."),
+        ] = None,
+        solar_radiance: Annotated[
+            float | None,
+            Field(description="Optional solar radiance for cie_sky (gensky -r)."),
+        ] = None,
+        direct_horizontal_irradiance: Annotated[
+            float | None,
+            Field(description="Optional direct horizontal irradiance for cie_sky (gensky -R)."),
+        ] = None,
+        zenith_brightness: Annotated[
+            float | None,
+            Field(description="Optional zenith brightness for cie_sky (gensky -b)."),
+        ] = None,
+        diffuse_horizontal_irradiance: Annotated[
+            float | None,
+            Field(description="Diffuse horizontal irradiance for cie_sky (gensky -B) or climate_based_sky (gendaylit -W)."),
+        ] = None,
+        direct_normal_irradiance: Annotated[
+            float | None,
+            Field(description="Direct normal irradiance for climate_based_sky (gendaylit -W)."),
+        ] = None,
+        direct_normal_illuminance: Annotated[
+            float | None,
+            Field(description="Direct normal illuminance for climate_based_sky (gendaylit -L)."),
+        ] = None,
+        diffuse_horizontal_illuminance: Annotated[
+            float | None,
+            Field(description="Diffuse horizontal illuminance for climate_based_sky (gendaylit -L)."),
+        ] = None,
+        output_mode: Annotated[
+            int | None,
+            Field(description="Optional gendaylit -O output mode for climate_based_sky."),
+        ] = None,
+        sky_part: Annotated[
+            str | None,
+            Field(description="Optional climate_based_sky part: visible/luminance or solar/radiance."),
+        ] = None,
+        weather_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Garden weather_file target for EPW-backed skies/WEA/sky_matrix."),
+        ] = None,
+        epw_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative EPW path for EPW-backed skies/WEA/sky_matrix."),
+        ] = None,
+        stat_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative .stat file path for sky_matrix (Wea.from_stat_file)."),
+        ] = None,
+        wea_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional wea_file target for sky_matrix, leed_illuminance, or abnt_nbr_15575."),
+        ] = None,
+        location: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Ladybug Location dictionary for wea_clear_sky or sky_matrix."),
+        ] = None,
+        city: Annotated[
+            str | None,
+            Field(description="Optional city name when constructing a Location without location dict."),
+        ] = None,
+        region: Annotated[
+            str | None,
+            Field(description="Optional state/region when constructing a Location without location dict."),
         ] = None,
         elevation: Annotated[
             float | None,
-            Field(description="Optional elevation accepted when location is omitted."),
+            Field(description="Optional elevation when constructing a Location without location dict."),
         ] = None,
         sky_clearness: Annotated[
             float,
-            Field(description="ASHRAE sky clearness value. Default 1."),
+            Field(description="ASHRAE sky clearness value for wea_clear_sky or location-based sky_matrix."),
         ] = 1,
         timestep: Annotated[
             int,
-            Field(description="WEA timestep. Default 1 for hourly data."),
+            Field(description="WEA timestep (default 1 for hourly data) for wea_from_epw or wea_clear_sky."),
         ] = 1,
+        hoys: Annotated[
+            list[float] | None,
+            Field(description="Optional hours of year filter for wea_from_epw or sky_matrix."),
+        ] = None,
+        hoy: Annotated[
+            float | None,
+            Field(description="Optional hour of year (0-8759) for from_epw_hoy."),
+        ] = None,
         is_leap_year: Annotated[
             bool,
-            Field(description="Whether to create a leap-year WEA."),
+            Field(description="Whether to create a leap-year WEA for wea_clear_sky."),
         ] = False,
-        output_subdir: Annotated[
-            str,
-            Field(description="Garden-relative output folder for WEA artifacts."),
-        ] = "artifacts/radiance/wea",
         write_hours: Annotated[
             bool,
             Field(description="Whether to write hour values into the WEA file."),
         ] = False,
+        north: Annotated[
+            float,
+            Field(description="Counterclockwise north angle in degrees."),
+        ] = 0,
+        high_density: Annotated[
+            bool,
+            Field(description="Use Reinhart high-density sky patches instead of Tregenza patches for sky_matrix."),
+        ] = False,
+        compute: Annotated[
+            bool,
+            Field(description="When true, compute and persist direct/diffuse patch values for sky_matrix."),
+        ] = False,
+        irradiance: Annotated[
+            float | None,
+            Field(description="Horizontal diffuse irradiance (W/m2) for certain_irradiance."),
+        ] = None,
+        illuminance: Annotated[
+            float | None,
+            Field(description="Horizontal illuminance (lux, including 0 for dark sky) for certain_irradiance."),
+        ] = None,
+        uniform: Annotated[
+            bool,
+            Field(description="Use uniform sky instead of cloudy (for certain_irradiance) or UniformSky (for skydome)."),
+        ] = False,
+        cloudy: Annotated[
+            bool | None,
+            Field(description="Optional cloudy flag inverse of uniform for certain_irradiance."),
+        ] = None,
+        sky_density: Annotated[
+            int,
+            Field(description="Sky patch density for skydome (1=145 patches)."),
+        ] = 1,
+        ground_emittance: Annotated[
+            float,
+            Field(description="Ground emittance (0-1) for skydome."),
+        ] = 0.2,
+        is_colored: Annotated[
+            bool,
+            Field(description="Colored sky flag for from_epw_hoy."),
+        ] = False,
+        benefit_matrix: Annotated[
+            bool,
+            Field(description="Generate a radiation benefit sky matrix from EPW dry-bulb temperature."),
+        ] = False,
+        balance_temperature: Annotated[
+            float,
+            Field(description="Balance temperature (C) for sky_matrix benefit_matrix."),
+        ] = 15.0,
+        balance_offset: Annotated[
+            float,
+            Field(description="Neutral deadband offset (C) around balance_temperature for benefit_matrix."),
+        ] = 2.0,
+        output_subdir: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative output folder override."),
+        ] = None,
         return_object_dict: Annotated[
             bool,
-            Field(description='Return the full Wea object_dict. Keep false for compact target handoff.'),
+            Field(description="Return full Wea object_dict when creating WEA files. Keep false for compact handoff."),
         ] = False,
     ) -> dict[str, Any]:
-        """Create a clear-sky WEA target."""
-        from garden.radiance.sky import create_ashrae_clear_sky_wea as service
+        """Create a Radiance sky, WEA, or SkyMatrix asset."""
+        from garden.radiance.sky import create_radiance_sky_asset as service
 
-        if identifier is None:
-            identifier = city or "ashrae_clear_sky_wea"
-        if location is None:
-            if latitude is None or longitude is None or time_zone is None:
-                raise ValueError(
-                    "Provide location, or provide latitude, longitude, and time_zone."
-                )
-            location = {
-                "type": "Location",
-                "city": city or identifier,
-                "state": region,
-                "latitude": latitude,
-                "longitude": longitude,
-                "time_zone": time_zone,
-                "elevation": 0 if elevation is None else elevation,
-            }
         return service(
             garden_root=garden_root,
-            identifier=identifier,
-            location=location,
-            sky_clearness=sky_clearness,
-            timestep=timestep,
-            is_leap_year=is_leap_year,
-            output_subdir=output_subdir,
-            write_hours=write_hours,
-            return_object_dict=return_object_dict,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_CIE_Standard_Sky",
-        description=(
-            'Create a Garden radiance_sky_file target backed by a Radiance gensky command. Use '
-            'this for a single-timestep CIE standard sky such as sunny, cloudy, uniform cloudy, '
-            'or intermediate. The persisted .sky file starts with !gensky and serves as a compact '
-            'Radiance scene include.'
-        ),
-        tags={
-            "radiance",
-            "sky",
-            "weather",
-            "point-in-time",
-            "cie",
-        },
-        timeout=60,
-    )
-    def create_cie_standard_sky(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ],
-        identifier: Annotated[
-            str | None,
-            Field(description="Stable identifier for the point-in-time CIE Radiance .sky artifact and target."),
-        ] = None,
-        month: Annotated[
-            int | None,
-            Field(description="Month number for date/time mode. Required unless solar angles are used."),
-        ] = None,
-        day: Annotated[
-            int | None,
-            Field(description="Day of month for date/time mode. Required unless solar angles are used."),
-        ] = None,
-        time: Annotated[
-            str | float | None,
-            Field(description="Time for date/time mode, for example 12:00 or 12.0."),
-        ] = None,
-        time_zone: Annotated[
-            str | int | float | None,
-            Field(description="Optional Radiance time zone token such as MST or EST. Numeric offsets like -5 are accepted and normalized to common Radiance tokens."),
-        ] = None,
-        solar_time: Annotated[
-            bool,
-            Field(description="Use local solar time instead of local standard time."),
-        ] = False,
-        solar_altitude: Annotated[
-            float | None,
-            Field(description="Optional sun altitude angle in degrees. Provide with solar_azimuth instead of month/day/time."),
-        ] = None,
-        solar_azimuth: Annotated[
-            float | None,
-            Field(description="Optional sun azimuth angle in degrees. Provide with solar_altitude instead of month/day/time."),
-        ] = None,
-        sky_type: Annotated[
-            str,
-            Field(description="CIE sky type: sunny, sunny_no_sun, cloudy, uniform_cloudy, intermediate, or intermediate_no_sun."),
-        ] = "sunny",
-        latitude: Annotated[
-            float | None,
-            Field(description="Optional site latitude in degrees for the gensky -a option."),
-        ] = None,
-        longitude: Annotated[
-            float | None,
-            Field(description="Optional site longitude in degrees for the gensky -o option."),
-        ] = None,
-        standard_meridian: Annotated[
-            float | None,
-            Field(description="Optional standard meridian for the gensky -m option."),
-        ] = None,
-        ground_reflectance: Annotated[
-            float | None,
-            Field(description="Optional average ground reflectance for the gensky -g option."),
-        ] = None,
-        sky_turbidity: Annotated[
-            float | None,
-            Field(description="Optional sky turbidity for the gensky -t option."),
-        ] = None,
-        solar_radiance: Annotated[
-            float | None,
-            Field(description="Optional solar radiance for the gensky -r option."),
-        ] = None,
-        direct_horizontal_irradiance: Annotated[
-            float | None,
-            Field(description="Optional direct horizontal irradiance for the gensky -R option."),
-        ] = None,
-        zenith_brightness: Annotated[
-            float | None,
-            Field(description="Optional zenith brightness for the gensky -b option."),
-        ] = None,
-        diffuse_horizontal_irradiance: Annotated[
-            float | None,
-            Field(description="Optional diffuse horizontal irradiance for the gensky -B option."),
-        ] = None,
-        output_subdir: Annotated[
-            str,
-            Field(description="Garden-relative output folder for Radiance .sky artifacts."),
-        ] = "artifacts/radiance/sky",
-    ) -> dict[str, Any]:
-        """Create a CIE standard Radiance sky file."""
-        from garden.radiance.sky import create_cie_standard_sky as service
-
-        if identifier is None:
-            identifier = "cie_standard_sky"
-        return service(
-            garden_root=garden_root,
+            asset_type=asset_type,
             identifier=identifier,
             month=month,
             day=day,
             time=time,
-            time_zone=_normalize_time_zone(time_zone),
+            time_zone=time_zone,
             solar_time=solar_time,
             solar_altitude=solar_altitude,
             solar_azimuth=solar_azimuth,
@@ -591,251 +354,263 @@ def register(mcp: FastMCP) -> None:
             direct_horizontal_irradiance=direct_horizontal_irradiance,
             zenith_brightness=zenith_brightness,
             diffuse_horizontal_irradiance=diffuse_horizontal_irradiance,
-            output_subdir=output_subdir,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_Climate_Based_Sky",
-        description=(
-            'Create a Garden radiance_sky_file target backed by a Radiance gendaylit command. Use '
-            'this for a single-timestep climate-based sky from direct normal plus diffuse '
-            'horizontal irradiance or illuminance. The persisted .sky file starts with !gendaylit '
-            'and serves as a compact Radiance scene include.'
-        ),
-        tags={
-            "radiance",
-            "sky",
-            "weather",
-            "point-in-time",
-            "climate-based",
-        },
-        timeout=60,
-    )
-    def create_climate_based_sky(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ],
-        identifier: Annotated[
-            str | None,
-            Field(description="Stable identifier for the point-in-time climate-based Radiance .sky artifact and target."),
-        ] = None,
-        month: Annotated[
-            int | None,
-            Field(description="Month number for date/time mode. Required unless solar angles are used."),
-        ] = None,
-        day: Annotated[
-            int | None,
-            Field(description="Day of month for date/time mode. Required unless solar angles are used."),
-        ] = None,
-        time: Annotated[
-            str | float | None,
-            Field(description="Time for date/time mode, for example 12:00 or 12.0."),
-        ] = None,
-        time_zone: Annotated[
-            str | int | float | None,
-            Field(description="Optional Radiance time zone token such as MST or EST. Numeric offsets like -7 are accepted and normalized to common Radiance tokens."),
-        ] = None,
-        solar_time: Annotated[
-            bool,
-            Field(description="Use local solar time instead of local standard time."),
-        ] = False,
-        solar_altitude: Annotated[
-            float | None,
-            Field(description="Optional sun altitude angle in degrees. Provide with solar_azimuth instead of month/day/time."),
-        ] = None,
-        solar_azimuth: Annotated[
-            float | None,
-            Field(description="Optional sun azimuth angle in degrees. Provide with solar_altitude instead of month/day/time."),
-        ] = None,
-        direct_normal_irradiance: Annotated[
-            float | None,
-            Field(description="Direct normal irradiance for the gendaylit -W option. Provide with diffuse_horizontal_irradiance."),
-        ] = None,
-        diffuse_horizontal_irradiance: Annotated[
-            float | None,
-            Field(description="Diffuse horizontal irradiance for the gendaylit -W option. Provide with direct_normal_irradiance."),
-        ] = None,
-        direct_normal_illuminance: Annotated[
-            float | None,
-            Field(description="Direct normal illuminance for the gendaylit -L option. Provide with diffuse_horizontal_illuminance."),
-        ] = None,
-        diffuse_horizontal_illuminance: Annotated[
-            float | None,
-            Field(description="Diffuse horizontal illuminance for the gendaylit -L option. Provide with direct_normal_illuminance."),
-        ] = None,
-        output_mode: Annotated[
-            int | None,
-            Field(description="Optional gendaylit -O output mode, for example 0 for visible radiation."),
-        ] = None,
-        sky_part: Annotated[
-            str | None,
-            Field(description="Optional sky part value: visible/luminance or solar/radiance."),
-        ] = None,
-        latitude: Annotated[
-            float | None,
-            Field(description="Optional site latitude in degrees for the gendaylit -a option."),
-        ] = None,
-        longitude: Annotated[
-            float | None,
-            Field(description="Optional site longitude in degrees for the gendaylit -o option."),
-        ] = None,
-        standard_meridian: Annotated[
-            float | None,
-            Field(description="Optional standard meridian for the gendaylit -m option."),
-        ] = None,
-        ground_reflectance: Annotated[
-            float | None,
-            Field(description="Optional average ground reflectance for the gendaylit -g option."),
-        ] = None,
-        output_subdir: Annotated[
-            str,
-            Field(description="Garden-relative output folder for Radiance .sky artifacts."),
-        ] = "artifacts/radiance/sky",
-    ) -> dict[str, Any]:
-        """Create a climate-based Radiance sky file."""
-        from garden.radiance.sky import create_climate_based_sky as service
-
-        if identifier is None:
-            identifier = "climate_based_sky"
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            month=month,
-            day=day,
-            time=time,
-            time_zone=_normalize_time_zone(time_zone),
-            solar_time=solar_time,
-            solar_altitude=solar_altitude,
-            solar_azimuth=solar_azimuth,
             direct_normal_irradiance=direct_normal_irradiance,
-            diffuse_horizontal_irradiance=diffuse_horizontal_irradiance,
             direct_normal_illuminance=direct_normal_illuminance,
             diffuse_horizontal_illuminance=diffuse_horizontal_illuminance,
             output_mode=output_mode,
             sky_part=sky_part,
-            latitude=latitude,
-            longitude=longitude,
-            standard_meridian=standard_meridian,
-            ground_reflectance=ground_reflectance,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            stat_path=stat_path,
+            wea_target=wea_target,
+            location=location,
+            city=city,
+            region=region,
+            elevation=elevation,
+            sky_clearness=sky_clearness,
+            timestep=timestep,
+            hoys=hoys,
+            hoy=hoy,
+            is_leap_year=is_leap_year,
+            write_hours=write_hours,
+            north=north,
+            high_density=high_density,
+            compute=compute,
+            irradiance=irradiance,
+            illuminance=illuminance,
+            uniform=uniform,
+            cloudy=cloudy,
+            sky_density=sky_density,
+            ground_emittance=ground_emittance,
+            is_colored=is_colored,
+            benefit_matrix=benefit_matrix,
+            balance_temperature=balance_temperature,
+            balance_offset=balance_offset,
             output_subdir=output_subdir,
+            return_object_dict=return_object_dict,
         )
 
     @mcp.tool(
-        name="RAD_Create_Glass_Modifier",
+        name="RAD_Create_Modifier",
         description=(
-            'Create a Honeybee Radiance Glass modifier for daylight and view workflows. The SDK '
-            'glass interface uses transmittance or transmissivity values, not reflectance. Use '
-            'garden_root and return_object_dict=false to save a reusable Garden Properties '
-            'Library modifier target.'
+            "Create a Honeybee Radiance modifier ('opaque'/Plastic, 'glass', 'metal', "
+            "'mirror', 'trans', 'bsdf', 'absdf', 'glow', 'light', 'spotlight', 'illum', "
+            "'dielectric', 'brtdfunc', 'plastic2', 'metal2', 'trans2', or 'raw_rad' via "
+            "Primitive.from_string), with optional parent modifier chaining. With garden_root "
+            "and return_object_dict=false, saves a reusable Garden Properties Library target."
         ),
         tags={
             "radiance",
             "modifier",
             "material",
             "author",
-            "glass",
         },
         timeout=20,
     )
-    def create_radiance_glass_modifier(
-        identifier: Annotated[str, Field(description="Radiance Glass modifier identifier.")],
+    def create_radiance_modifier(
+        modifier_type: Annotated[
+            Literal[
+                "opaque",
+                "glass",
+                "metal",
+                "mirror",
+                "trans",
+                "bsdf",
+                "absdf",
+                "glow",
+                "light",
+                "spotlight",
+                "illum",
+                "dielectric",
+                "brtdfunc",
+                "plastic2",
+                "metal2",
+                "trans2",
+                "raw_rad",
+            ],
+            Field(description="Modifier material kind."),
+        ],
+        identifier: Annotated[
+            str,
+            Field(description="Stable Radiance modifier identifier."),
+        ],
+        rgb_reflectance: Annotated[
+            float | list[float] | None,
+            Field(description="Scalar or [r, g, b] reflectance (0-1) for opaque, metal, mirror, trans, or *2 materials."),
+        ] = None,
+        specularity: Annotated[
+            float | None,
+            Field(description="Specularity fraction (0-1) for opaque, metal, trans, plastic2, metal2, trans2."),
+        ] = None,
+        roughness: Annotated[
+            float | None,
+            Field(description="Roughness fraction (0-1) for opaque, metal, or trans."),
+        ] = None,
+        transmitted_diff: Annotated[
+            float | None,
+            Field(description="Diffuse transmitted fraction (0-1) for trans or trans2."),
+        ] = None,
+        transmitted_spec: Annotated[
+            float | None,
+            Field(description="Specular transmitted fraction (0-1) for trans or trans2."),
+        ] = None,
+        alternate_material: Annotated[
+            str | dict[str, Any] | None,
+            Field(description="Optional alternate material name (such as 'void') or modifier dict for mirror/illum."),
+        ] = None,
         rgb_transmittance: Annotated[
             float | list[float] | None,
-            Field(description="Simple visible transmittance for all channels, or [r, g, b] transmittance values."),
-        ] = None,
-        transmittance: Annotated[
-            float | list[float] | None,
-            Field(description="Optional natural synonym for rgb_transmittance. Accepts a number or [r, g, b] values."),
-        ] = None,
-        r_transmittance: Annotated[
-            float | None,
-            Field(description="Red transmittance. Provide with g_transmittance and b_transmittance."),
-        ] = None,
-        g_transmittance: Annotated[
-            float | None,
-            Field(description="Green transmittance. Provide with r_transmittance and b_transmittance."),
-        ] = None,
-        b_transmittance: Annotated[
-            float | None,
-            Field(description="Blue transmittance. Provide with r_transmittance and g_transmittance."),
+            Field(description="Scalar or [r, g, b] visible transmittance (0-1) for glass."),
         ] = None,
         rgb_transmissivity: Annotated[
             float | list[float] | None,
-            Field(description="Simple transmissivity for all channels, or [r, g, b] transmissivity values."),
-        ] = None,
-        transmissivity: Annotated[
-            float | list[float] | None,
-            Field(description="Optional natural synonym for rgb_transmissivity. Accepts a number or [r, g, b] values."),
-        ] = None,
-        r_transmissivity: Annotated[
-            float | None,
-            Field(description="Red transmissivity. Provide with g_transmissivity and b_transmissivity."),
-        ] = None,
-        g_transmissivity: Annotated[
-            float | None,
-            Field(description="Green transmissivity. Provide with r_transmissivity and b_transmissivity."),
-        ] = None,
-        b_transmissivity: Annotated[
-            float | None,
-            Field(description="Blue transmissivity. Provide with r_transmissivity and g_transmissivity."),
+            Field(description="Scalar or [r, g, b] transmissivity (0-1) for glass."),
         ] = None,
         refraction_index: Annotated[
             float | None,
-            Field(description="Optional glass refraction index, such as 1.52 for float glass."),
+            Field(description="Optional refraction index for glass or dielectric (default 1.52)."),
+        ] = None,
+        modifier: Annotated[
+            dict[str, Any] | str | None,
+            Field(description="Optional parent modifier (library target, identifier, or dict) for modifier chaining."),
+        ] = None,
+        params: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description=(
+                    "Optional type-specific parameter overrides such as r/g/b channels, "
+                    "bsdf_file, up_orientation, thickness, rgb_emittance, max_radius, angle, "
+                    "direction, rgb_transmission, hartmann_constant, u_roughness, v_roughness, "
+                    "rad_text, or values."
+                )
+            ),
         ] = None,
         garden_root: Annotated[
             str | None,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
+            Field(
+                description=(
+                    "Optional Garden root path containing garden.json. When supplied, saves the "
+                    "modifier to the Garden Properties Library and returns a target."
+                )
+            ),
         ] = None,
         return_object_dict: Annotated[
             bool,
-            Field(description="Return the full modifier object_dict. Set false with garden_root."),
+            Field(description="Return the full modifier object_dict. Set false with garden_root for compact handoff."),
         ] = True,
     ) -> dict[str, Any]:
-        """Create a Honeybee Radiance Glass modifier."""
-        from garden.radiance.modifiers import create_radiance_glass_modifier as service
+        """Create a Honeybee Radiance modifier."""
+        from garden.radiance.modifiers import create_radiance_modifier as service
 
-        if rgb_transmittance is None:
-            rgb_transmittance = transmittance
-        if rgb_transmissivity is None:
-            rgb_transmissivity = transmissivity
-        if isinstance(rgb_transmittance, list):
-            if len(rgb_transmittance) != 3:
-                raise ValueError("rgb_transmittance list must have three values.")
-            r_transmittance, g_transmittance, b_transmittance = [
-                float(value) for value in rgb_transmittance
-            ]
-            rgb_transmittance = None
-        if isinstance(rgb_transmissivity, list):
-            if len(rgb_transmissivity) != 3:
-                raise ValueError("rgb_transmissivity list must have three values.")
-            r_transmissivity, g_transmissivity, b_transmissivity = [
-                float(value) for value in rgb_transmissivity
-            ]
-            rgb_transmissivity = None
         return service(
+            modifier_type=modifier_type,
             identifier=identifier,
+            rgb_reflectance=rgb_reflectance,
+            specularity=specularity,
+            roughness=roughness,
+            transmitted_diff=transmitted_diff,
+            transmitted_spec=transmitted_spec,
+            alternate_material=alternate_material,
             rgb_transmittance=rgb_transmittance,
-            r_transmittance=r_transmittance,
-            g_transmittance=g_transmittance,
-            b_transmittance=b_transmittance,
             rgb_transmissivity=rgb_transmissivity,
-            r_transmissivity=r_transmissivity,
-            g_transmissivity=g_transmissivity,
-            b_transmissivity=b_transmissivity,
             refraction_index=refraction_index,
+            modifier=modifier,
+            params=params,
             garden_root=garden_root,
             return_object_dict=return_object_dict,
         )
 
     @mcp.tool(
-        name="RAD_Create_Luminaire",
+        name="RAD_Create_Modifier_Set",
         description=(
-            'Create a Honeybee Radiance Luminaire from IES LM-63 text or a Garden-contained IES '
-            'file path. Supports LuminaireZone placement instances, CustomLamp settings, and '
-            'Garden Properties Library saving with garden_root and return_object_dict=false. Use '
-            'the returned target as a reusable luminaire or IES resource for Radiance workflows.'
+            "Create a Honeybee Radiance ModifierSet (optionally inheriting from base_modifier_set "
+            "and overriding wall_set, floor_set, roof_ceiling_set, aperture_set, door_set, "
+            "shade_set, or air_boundary_modifier). With garden_root, saves a reusable "
+            "honeybee_radiance:modifier_set Garden Properties Library target."
+        ),
+        tags={
+            "radiance",
+            "modifier",
+            "modifier-set",
+            "author",
+        },
+        timeout=20,
+    )
+    def create_radiance_modifier_set(
+        identifier: Annotated[
+            str,
+            Field(description="Stable Radiance ModifierSet identifier."),
+        ],
+        base_modifier_set: Annotated[
+            dict[str, Any] | str | None,
+            Field(description="Optional base ModifierSet target, standards identifier, or dict to inherit defaults from."),
+        ] = None,
+        wall_set: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional wall modifiers dict: {'exterior_modifier': ..., 'interior_modifier': ...}."),
+        ] = None,
+        floor_set: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional floor modifiers dict: {'exterior_modifier': ..., 'interior_modifier': ...}."),
+        ] = None,
+        roof_ceiling_set: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional roof/ceiling modifiers dict: {'exterior_modifier': ..., 'interior_modifier': ...}."),
+        ] = None,
+        aperture_set: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional aperture modifiers dict: {'window_modifier': ..., 'interior_modifier': ..., 'skylight_modifier': ..., 'operable_modifier': ...}."),
+        ] = None,
+        door_set: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional door modifiers dict: {'exterior_modifier': ..., 'interior_modifier': ..., 'exterior_glass_modifier': ..., 'interior_glass_modifier': ..., 'overhead_modifier': ...}."),
+        ] = None,
+        shade_set: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional shade modifiers dict: {'exterior_modifier': ..., 'interior_modifier': ...}."),
+        ] = None,
+        air_boundary_modifier: Annotated[
+            dict[str, Any] | str | None,
+            Field(description="Optional modifier for AirBoundary faces."),
+        ] = None,
+        return_detail: Annotated[
+            Literal["summary", "full"],
+            Field(description="Detail level for summary_view: 'summary' or 'full'."),
+        ] = "summary",
+        garden_root: Annotated[
+            str | None,
+            Field(description="Optional Garden root path containing garden.json to persist the ModifierSet."),
+        ] = None,
+        return_object_dict: Annotated[
+            bool,
+            Field(description="Return full ModifierSet object_dict. Set false with garden_root for compact handoff."),
+        ] = True,
+    ) -> dict[str, Any]:
+        """Create a Honeybee Radiance ModifierSet."""
+        from garden.radiance.modifiers import create_radiance_modifier_set as service
+
+        return service(
+            identifier=identifier,
+            base_modifier_set=base_modifier_set,
+            wall_set=wall_set,
+            floor_set=floor_set,
+            roof_ceiling_set=roof_ceiling_set,
+            aperture_set=aperture_set,
+            door_set=door_set,
+            shade_set=shade_set,
+            air_boundary_modifier=air_boundary_modifier,
+            return_detail=return_detail,
+            garden_root=garden_root,
+            return_object_dict=return_object_dict,
+        )
+
+    @mcp.tool(
+        name="RAD_Manage_Luminaires",
+        description=(
+            "Create, attach, list, or remove Honeybee Radiance Luminaires (IES LM-63). "
+            "Supports custom_lamp modes including predefined CustomLamp.from_lamp_name strings, "
+            "action='create', action='attach', action='create_and_attach' (default), "
+            "action='list', and action='remove'."
         ),
         tags={
             "radiance",
@@ -844,28 +619,52 @@ def register(mcp: FastMCP) -> None:
             "luminaire",
             "electric-lighting",
         },
-        timeout=20,
+        timeout=60,
     )
-    def create_radiance_luminaire(
+    def manage_radiance_luminaires(
+        action: Annotated[
+            Literal["create", "attach", "create_and_attach", "list", "remove"],
+            Field(description="Operation: create, attach, create_and_attach (default), list, or remove."),
+        ] = "create_and_attach",
+        garden_root: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Garden root path containing garden.json, usually GD_Create['garden_root']; "
+                    "required for attach/create_and_attach/list/remove."
+                )
+            ),
+        ] = None,
         ies_content: Annotated[
             str | None,
-            Field(description="IES LM-63 file text. Provide exactly one of ies_content or ies_path."),
+            Field(description="IES LM-63 file text for create or create_and_attach."),
         ] = None,
         ies_path: Annotated[
             str | None,
-            Field(description="Path to an existing IES LM-63 file. Provide exactly one of ies_path or ies_content."),
+            Field(description="Path to an existing IES LM-63 file for create or create_and_attach."),
         ] = None,
         identifier: Annotated[
             str | None,
-            Field(description="Optional Luminaire identifier. If omitted, the SDK derives one from IES metadata or file name."),
+            Field(description="Optional Luminaire identifier."),
         ] = None,
         instances: Annotated[
             list[dict[str, Any]] | None,
-            Field(description="Optional LuminaireZone instances. Each item needs point as [x,y,z] or Point3D dict, and may include spin, tilt, rotation, or aiming_point."),
+            Field(
+                description=(
+                    "Optional LuminaireZone placement instances. Each item needs point ([x, y, z] "
+                    "or Point3D dict) and optional spin, tilt, rotation, or aiming_point."
+                )
+            ),
         ] = None,
         custom_lamp: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional SDK CustomLamp dict or simple settings like {'mode':'rgb','rgb':[1,0.8,0.6]} or {'mode':'color_temperature','color_temperature':3000}."),
+            dict[str, Any] | str | None,
+            Field(
+                description=(
+                    "Optional CustomLamp dict, settings ({'mode':'rgb','rgb':[1,0.8,0.6]}, "
+                    "{'mode':'color_temperature','color_temperature':3000}, {'mode':'lamp_name','lamp_name':...}), "
+                    "or direct legacy Honeybee lamp name string."
+                )
+            ),
         ] = None,
         light_loss_factor: Annotated[
             float,
@@ -875,22 +674,84 @@ def register(mcp: FastMCP) -> None:
             float,
             Field(description="Positive candela multiplier applied to the IES distribution."),
         ] = 1.0,
-        garden_root: Annotated[
-            str | None,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
+        luminaires: Annotated[
+            list[dict[str, Any]] | None,
+            Field(description="Existing Luminaire object_dict values or Garden luminaire targets for attach."),
         ] = None,
+        luminaire_identifiers: Annotated[
+            list[str] | str | None,
+            Field(description="Luminaire identifier(s) or wildcard pattern(s) to remove when action='remove'."),
+        ] = None,
+        remove_all: Annotated[
+            bool,
+            Field(description="Remove all luminaires from model (and library if remove_from_library=true) when action='remove'."),
+        ] = False,
+        remove_from_library: Annotated[
+            bool,
+            Field(description="Also remove matching luminaire JSON files from Garden library when action='remove'."),
+        ] = False,
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Honeybee model target. Defaults to the Garden base model."),
+        ] = None,
+        replace_existing: Annotated[
+            bool,
+            Field(description="Replace existing model luminaires with the same identifiers."),
+        ] = False,
         return_object_dict: Annotated[
             bool,
-            Field(description=(
-                'Return the full Luminaire object_dict. Set false with garden_root for a compact '
-                'target response.'
-            )),
+            Field(description="Return the created Luminaire object_dict when creating."),
         ] = True,
     ) -> dict[str, Any]:
-        """Create a Honeybee Radiance Luminaire from IES content or path."""
-        from garden.radiance.luminaires import create_radiance_luminaire as service
+        """Create, attach, list, or remove Honeybee Radiance Luminaires."""
+        from garden.radiance.luminaires import (
+            add_radiance_luminaire_to_model,
+            create_radiance_luminaire,
+            list_radiance_luminaires,
+            remove_radiance_luminaire_from_model,
+        )
 
-        return service(
+        if action == "list":
+            return list_radiance_luminaires(
+                garden_root=garden_root,
+                model_target=model_target,
+            )
+        if action == "remove":
+            if not garden_root:
+                raise ValueError("garden_root is required when action is 'remove'.")
+            return remove_radiance_luminaire_from_model(
+                garden_root=garden_root,
+                luminaire_identifiers=luminaire_identifiers,
+                model_target=model_target,
+                remove_all=remove_all,
+                remove_from_library=remove_from_library,
+            )
+        if action == "create":
+            return create_radiance_luminaire(
+                ies_content=ies_content,
+                ies_path=ies_path,
+                identifier=identifier,
+                instances=instances,
+                custom_lamp=custom_lamp,
+                light_loss_factor=light_loss_factor,
+                candela_multiplier=candela_multiplier,
+                garden_root=garden_root,
+                return_object_dict=return_object_dict,
+            )
+        if action == "attach":
+            if not garden_root:
+                raise ValueError("garden_root is required when action is 'attach'.")
+            if not luminaires:
+                raise ValueError("luminaires must be provided when action is 'attach'.")
+            return add_radiance_luminaire_to_model(
+                garden_root=garden_root,
+                luminaires=luminaires,
+                model_target=model_target,
+                replace_existing=replace_existing,
+            )
+        if not garden_root:
+            raise ValueError("garden_root is required when action is 'create_and_attach'.")
+        created = create_radiance_luminaire(
             ies_content=ies_content,
             ies_path=ies_path,
             identifier=identifier,
@@ -899,205 +760,434 @@ def register(mcp: FastMCP) -> None:
             light_loss_factor=light_loss_factor,
             candela_multiplier=candela_multiplier,
             garden_root=garden_root,
-            return_object_dict=return_object_dict,
+            return_object_dict=True,
         )
+        to_attach: list[dict[str, Any]] = [created.get("target") or created["object_dict"]]
+        if luminaires:
+            to_attach.extend(luminaires)
+        attached = add_radiance_luminaire_to_model(
+            garden_root=garden_root,
+            luminaires=to_attach,
+            model_target=model_target,
+            replace_existing=replace_existing,
+        )
+        if created.get("target") is not None:
+            attached["luminaire_target"] = created["target"]
+        if created.get("persistence_receipt") is not None:
+            attached["luminaire_persistence_receipt"] = created["persistence_receipt"]
+        if return_object_dict and "object_dict" in created:
+            attached["object_dict"] = created["object_dict"]
+        attached["summary_view"]["luminaire"] = created["summary_view"]
+        return attached
 
     @mcp.tool(
-        name="RAD_Create_Metal_Modifier",
+        name="RAD_Setup_Dynamic_Group",
         description=(
-            'Create a Honeybee Radiance Metal modifier with RGB reflectance, specularity, and '
-            'roughness. Use garden_root and return_object_dict=false to save a reusable Garden '
-            'Properties Library modifier target. This controls Radiance optical appearance.'
+            "Apply Radiance dynamic_group_identifier and states (supporting modifier_direct, "
+            "vmtx_geometry, dmtx_geometry, and tmtx_thickness) to Shade/Aperture/Door targets, "
+            "or set operation='auto_group' to automatically group exterior apertures using "
+            "honeybee_radiance.dynamic.multiphase.automatic_aperture_grouping."
         ),
         tags={
+            "dynamic",
             "radiance",
-            "modifier",
-            "material",
-            "author",
-            "metal",
+            "model",
+            "edit",
         },
-        timeout=20,
+        timeout=120,
     )
-    def create_radiance_metal_modifier(
-        identifier: Annotated[str, Field(description="Radiance Metal modifier identifier.")],
-        rgb_reflectance: Annotated[
-            float | None,
-            Field(description="Simple reflectance for red, green, and blue channels."),
-        ] = None,
-        r_reflectance: Annotated[
-            float | None,
-            Field(description="Red reflectance. Provide with g_reflectance and b_reflectance."),
-        ] = None,
-        g_reflectance: Annotated[
-            float | None,
-            Field(description="Green reflectance. Provide with r_reflectance and b_reflectance."),
-        ] = None,
-        b_reflectance: Annotated[
-            float | None,
-            Field(description="Blue reflectance. Provide with r_reflectance and g_reflectance."),
-        ] = None,
-        specularity: Annotated[float, Field(description="Metal specularity fraction.")] = 0.9,
-        roughness: Annotated[float, Field(description="Metal roughness fraction.")] = 0.0,
+    def setup_radiance_dynamic_group(
         garden_root: Annotated[
-            str | None,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
+            str,
+            Field(
+                description=(
+                    "Garden root path containing garden.json, usually GD_Create['garden_root']; "
+                    "required when saving or reading Garden targets."
+                )
+            ),
+        ],
+        targets: Annotated[
+            list[dict[str, Any]] | None,
+            Field(
+                description=(
+                    "Shade, Aperture, or Door typed targets to update for replace_all/add/clear; "
+                    "omit when operation='auto_group'."
+                )
+            ),
         ] = None,
-        return_object_dict: Annotated[
+        dynamic_group_identifier: Annotated[
+            str | None,
+            Field(description="Dynamic group identifier to set on targets (not used for auto_group)."),
+        ] = None,
+        states: Annotated[
+            list[dict[str, Any]] | None,
+            Field(
+                description=(
+                    "List of Radiance state dicts supporting modifier, modifier_direct, shades, "
+                    "vmtx_geometry, dmtx_geometry, and tmtx_thickness."
+                )
+            ),
+        ] = None,
+        operation: Annotated[
+            Literal["replace_all", "add", "clear", "auto_group"],
+            Field(description="Operation: replace_all, add, clear, or auto_group."),
+        ] = "replace_all",
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Honeybee model target for auto_group or tmtx_thickness."),
+        ] = None,
+        size: Annotated[
+            float,
+            Field(description="Aperture sensor grid cell size (m) for auto_group."),
+        ] = 0.2,
+        threshold: Annotated[
+            float,
+            Field(description="View factor similarity threshold for clustering apertures in auto_group."),
+        ] = 0.001,
+        ambient_division: Annotated[
+            int,
+            Field(description="Ambient divisions (-ad) for rfluxmtx view factor grouping in auto_group."),
+        ] = 1000,
+        room_based: Annotated[
             bool,
-            Field(description="Return the full modifier object_dict. Set false with garden_root."),
+            Field(description="Restrict aperture groups per room in auto_group."),
         ] = True,
+        view_factor_or_orientation: Annotated[
+            bool,
+            Field(description="Group by rfluxmtx view factor (true) or aperture orientation only (false) in auto_group."),
+        ] = True,
+        vertical_tolerance: Annotated[
+            float | None,
+            Field(description="Optional vertical separation limit between apertures in the same group for auto_group."),
+        ] = None,
+        tmtx_thickness: Annotated[
+            float | None,
+            Field(description="Optional default 3-phase transmission matrix thickness to auto-generate vmtx/dmtx geometries."),
+        ] = None,
     ) -> dict[str, Any]:
-        """Create a Honeybee Radiance Metal modifier."""
-        from garden.radiance.modifiers import create_radiance_metal_modifier as service
+        """Apply Radiance dynamic state settings or automatically group exterior apertures."""
+        from garden.radiance.dynamic import setup_radiance_dynamic_group as service
 
         return service(
-            identifier=identifier,
-            rgb_reflectance=rgb_reflectance,
-            r_reflectance=r_reflectance,
-            g_reflectance=g_reflectance,
-            b_reflectance=b_reflectance,
-            specularity=specularity,
-            roughness=roughness,
             garden_root=garden_root,
-            return_object_dict=return_object_dict,
+            targets=targets,
+            dynamic_group_identifier=dynamic_group_identifier,
+            states=states,
+            operation=operation,
+            model_target=model_target,
+            size=size,
+            threshold=threshold,
+            ambient_division=ambient_division,
+            room_based=room_based,
+            view_factor_or_orientation=view_factor_or_orientation,
+            vertical_tolerance=vertical_tolerance,
+            tmtx_thickness=tmtx_thickness,
         )
 
     @mcp.tool(
-        name="RAD_Create_Mirror_Modifier",
+        name="RAD_Create_Scene_Asset",
         description=(
-            'Create a Honeybee Radiance Mirror modifier with RGB reflectance for planar '
-            'virtual-source reflections. Use garden_root and return_object_dict=false to save a '
-            'reusable Garden Properties Library modifier target.'
+            "Create, generate from Honeybee Rooms, merge, split, or remove Radiance SensorGrids "
+            "and Views. Persists a .json sidecar alongside .pts so mesh, room_identifier, "
+            "group_identifier, and base_geometry survive reattachment. Supports asset_type modes: "
+            "sensor_grid, view, room_floor_grid, room_radial_grid (for imageless glare), "
+            "exterior_face_grid, exterior_aperture_grid, and room_view; plus action='remove'|'merge'|'split'."
         ),
         tags={
             "radiance",
-            "modifier",
-            "material",
+            "sensor-grid",
+            "view",
             "author",
-            "mirror",
         },
-        timeout=20,
+        timeout=60,
     )
-    def create_radiance_mirror_modifier(
-        identifier: Annotated[str, Field(description="Radiance Mirror modifier identifier.")],
-        rgb_reflectance: Annotated[
-            float | None,
-            Field(description="Simple reflectance for red, green, and blue channels."),
-        ] = None,
-        r_reflectance: Annotated[
-            float | None,
-            Field(description="Red reflectance. Provide with g_reflectance and b_reflectance."),
-        ] = None,
-        g_reflectance: Annotated[
-            float | None,
-            Field(description="Green reflectance. Provide with r_reflectance and b_reflectance."),
-        ] = None,
-        b_reflectance: Annotated[
-            float | None,
-            Field(description="Blue reflectance. Provide with r_reflectance and g_reflectance."),
-        ] = None,
-        alternate_material: Annotated[
-            str | None,
-            Field(description="Optional alternate material for non-source rays, such as void."),
-        ] = None,
-        garden_root: Annotated[
-            str | None,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ] = None,
-        return_object_dict: Annotated[
-            bool,
-            Field(description="Return the full modifier object_dict. Set false with garden_root."),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Create a Honeybee Radiance Mirror modifier."""
-        from garden.radiance.modifiers import create_radiance_mirror_modifier as service
-
-        return service(
-            identifier=identifier,
-            rgb_reflectance=rgb_reflectance,
-            r_reflectance=r_reflectance,
-            g_reflectance=g_reflectance,
-            b_reflectance=b_reflectance,
-            alternate_material=alternate_material,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_Opaque_Modifier",
-        description=(
-            'Create an opaque Honeybee Radiance modifier using the SDK Plastic material with RGB '
-            'reflectance. Use garden_root and return_object_dict=false to save a reusable Garden '
-            'Properties Library modifier target for Honeybee face, aperture, door, or shade '
-            'Radiance modifier fields.'
-        ),
-        tags={
-            "radiance",
-            "modifier",
-            "material",
-            "author",
-            "opaque",
-        },
-        timeout=20,
-    )
-    def create_radiance_opaque_modifier(
-        identifier: Annotated[str, Field(description="Radiance Plastic/Opaque modifier identifier.")],
-        rgb_reflectance: Annotated[
-            float | list[float] | None,
-            Field(description="Simple reflectance for red, green, and blue channels."),
-        ] = None,
-        r_reflectance: Annotated[
-            float | None,
-            Field(description="Red reflectance. Provide with g_reflectance and b_reflectance."),
-        ] = None,
-        g_reflectance: Annotated[
-            float | None,
-            Field(description="Green reflectance. Provide with r_reflectance and b_reflectance."),
-        ] = None,
-        b_reflectance: Annotated[
-            float | None,
-            Field(description="Blue reflectance. Provide with r_reflectance and g_reflectance."),
-        ] = None,
-        specularity: Annotated[float, Field(description="Plastic specularity fraction.")] = 0.0,
-        roughness: Annotated[float, Field(description="Plastic roughness fraction.")] = 0.0,
-        garden_root: Annotated[
-            str | None,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ] = None,
-        return_object_dict: Annotated[
-            bool,
-            Field(description="Return the full modifier object_dict. Set false with garden_root."),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Create an opaque Honeybee Radiance modifier."""
-        from garden.radiance.modifiers import create_radiance_opaque_modifier as service
-
-        if isinstance(rgb_reflectance, list):
-            if len(rgb_reflectance) != 3:
-                raise ValueError("rgb_reflectance list must have three values.")
-            r_reflectance, g_reflectance, b_reflectance = [
-                float(value) for value in rgb_reflectance
+    def create_radiance_scene_asset(
+        asset_type: Annotated[
+            Literal[
+                "sensor_grid",
+                "view",
+                "room_floor_grid",
+                "room_radial_grid",
+                "exterior_face_grid",
+                "exterior_aperture_grid",
+                "room_view",
+                "remove",
+                "merge",
+                "split",
             ]
-            rgb_reflectance = None
+            | None,
+            Field(description="Scene asset type to create or action alias."),
+        ] = None,
+        action: Annotated[
+            Literal["create", "remove", "merge", "split"],
+            Field(description="Scene asset action: create (default), remove, merge, or split."),
+        ] = "create",
+        identifier: Annotated[
+            str | None,
+            Field(description="Stable identifier for the SensorGrid or View."),
+        ] = None,
+        positions: Annotated[
+            list[list[float]] | None,
+            Field(description="Explicit sensor positions [[x, y, z], ...] for sensor_grid or room_radial_grid."),
+        ] = None,
+        direction: Annotated[
+            VectorInput,
+            Field(description="Shared sensor direction or camera look direction as [x, y, z] or {x,y,z}."),
+        ] = None,
+        directions: Annotated[
+            list[list[float]] | None,
+            Field(description="Per-sensor directions [[x, y, z], ...] matching positions for sensor_grid."),
+        ] = None,
+        x_dim: Annotated[
+            float | None,
+            Field(description="Rectangular workplane width or room grid X spacing."),
+        ] = None,
+        y_dim: Annotated[
+            float | None,
+            Field(description="Rectangular workplane depth or room grid Y spacing."),
+        ] = None,
+        height: Annotated[
+            float | None,
+            Field(description="Workplane height above origin for rectangular sensor_grid (defaults to 0.8)."),
+        ] = None,
+        x_count: Annotated[
+            int | None,
+            Field(description="Sensor sample count along local x for rectangular or object sensor_grid."),
+        ] = None,
+        y_count: Annotated[
+            int | None,
+            Field(description="Sensor sample count along local y for rectangular or object sensor_grid."),
+        ] = None,
+        grid_spacing: Annotated[
+            float | None,
+            Field(description="Approximate sensor spacing in model units."),
+        ] = None,
+        origin: Annotated[
+            VectorInput,
+            Field(description="Rectangular sensor_grid origin [x, y, z] or {x,y,z}. Defaults to [0, 0, 0]."),
+        ] = None,
+        object_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description=(
+                    "Optional Honeybee face, aperture, door, or shade target to sample into a "
+                    "mesh-backed sensor_grid (requires garden_root)."
+                )
+            ),
+        ] = None,
+        offset: Annotated[
+            float | None,
+            Field(description="Normal/floor offset distance (defaults to 0.01 object, 0.8 room floor, 1.2 radial, 0.1 exterior)."),
+        ] = None,
+        flip_direction: Annotated[
+            bool,
+            Field(description="Flip sensor normal and offset direction when sampling object_target."),
+        ] = False,
+        position: Annotated[
+            VectorInput,
+            Field(description="Camera position [x, y, z] or {x,y,z} for view (defaults to [0, 0, 0])."),
+        ] = None,
+        target: Annotated[
+            VectorInput,
+            Field(description="Optional camera look-at point [x, y, z] or {x,y,z} used to derive direction for view."),
+        ] = None,
+        up_vector: Annotated[
+            VectorInput,
+            Field(description="Camera up vector [x, y, z] or {x,y,z} for view (defaults to [0, 1, 0])."),
+        ] = None,
+        view_type: Annotated[
+            str,
+            Field(description="Radiance view type (v, h, l, c, a, s, or vt* token) for view or room_view."),
+        ] = "v",
+        h_size: Annotated[
+            float,
+            Field(description="Horizontal field of view/size for view."),
+        ] = 60,
+        v_size: Annotated[
+            float,
+            Field(description="Vertical field of view/size for view."),
+        ] = 60,
+        shift: Annotated[
+            float | None,
+            Field(description="Optional Radiance view shift (-vs) for view."),
+        ] = None,
+        lift: Annotated[
+            float | None,
+            Field(description="Optional Radiance view lift (-vl) for view."),
+        ] = None,
+        display_name: Annotated[
+            str | None,
+            Field(description="Optional display name."),
+        ] = None,
+        room_identifier: Annotated[
+            str | None,
+            Field(description="Optional Honeybee Room identifier for grid/view association or generation."),
+        ] = None,
+        room_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Honeybee Room target used to infer room_identifier."),
+        ] = None,
+        group_identifier: Annotated[
+            str | None,
+            Field(description="Optional Radiance dynamic group identifier."),
+        ] = None,
+        wall_offset: Annotated[
+            float,
+            Field(description="Inset offset from room walls for room_floor_grid or room_radial_grid."),
+        ] = 0.0,
+        remove_out: Annotated[
+            bool,
+            Field(description="Remove grid vertices/sensors falling outside concave room boundaries."),
+        ] = False,
+        dir_count: Annotated[
+            int,
+            Field(description="Number of horizontal viewing directions per point for room_radial_grid.", ge=1),
+        ] = 8,
+        start_vector: Annotated[
+            VectorInput,
+            Field(description="Starting direction vector [x, y, z] for room_radial_grid."),
+        ] = None,
+        mesh_radius: Annotated[
+            float | None,
+            Field(description="Optional radial wedge mesh radius for room_radial_grid."),
+        ] = None,
+        face_type: Annotated[
+            str,
+            Field(description="Face type ('Wall', 'RoofCeiling', 'Floor', 'All') for exterior_face_grid."),
+        ] = "Wall",
+        punched_geometry: Annotated[
+            bool,
+            Field(description="Exclude apertures/doors from exterior_face_grid when true."),
+        ] = False,
+        aperture_type: Annotated[
+            str,
+            Field(description="Aperture type ('All', 'Window', 'Skylight') for exterior_aperture_grid."),
+        ] = "All",
+        target_kind: Annotated[
+            Literal["all", "sensor_grid", "view"],
+            Field(description="Asset kind filter for action='remove'."),
+        ] = "all",
+        grid_identifiers: Annotated[
+            list[str] | str | None,
+            Field(description="SensorGrid identifier(s) or pattern(s) for remove or merge."),
+        ] = None,
+        view_identifiers: Annotated[
+            list[str] | str | None,
+            Field(description="View identifier(s) or pattern(s) for remove."),
+        ] = None,
+        filter_pattern: Annotated[
+            str,
+            Field(description="Wildcard pattern for remove or merge."),
+        ] = "*",
+        remove_all: Annotated[
+            bool,
+            Field(description="Remove all matching SensorGrids/Views when action='remove'."),
+        ] = False,
+        sensor_grid_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Existing radiance_sensor_grid target to convert (radial) or split."),
+        ] = None,
+        sensor_grid_targets: Annotated[
+            list[dict[str, Any]] | None,
+            Field(description="List of radiance_sensor_grid targets for action='merge'."),
+        ] = None,
+        split_count: Annotated[
+            int,
+            Field(description="Number of chunks when action='split'.", ge=2),
+        ] = 2,
+        max_sensors: Annotated[
+            int | None,
+            Field(description="Maximum sensors per chunk when action='split'.", ge=1),
+        ] = None,
+        replace_existing: Annotated[
+            bool,
+            Field(description="Replace original model grids when merging or splitting."),
+        ] = True,
+        garden_root: Annotated[
+            str | None,
+            Field(description="Garden root path containing garden.json."),
+        ] = None,
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Honeybee model target. Defaults to the Garden base model when attaching."),
+        ] = None,
+        attach_to_model: Annotated[
+            bool,
+            Field(description="When true, attach the SensorGrid or View to model.properties.radiance and save."),
+        ] = False,
+        output_subdir: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative output folder override."),
+        ] = None,
+        return_object_dict: Annotated[
+            bool,
+            Field(description="Return the full SensorGrid or View object_dict. Set false for compact handoff."),
+        ] = True,
+    ) -> dict[str, Any]:
+        """Create, generate from rooms, merge, split, or remove Radiance SensorGrids and Views."""
+        from garden.radiance.assets import create_radiance_scene_asset as service
+
         return service(
+            asset_type=asset_type,
+            action=action,
             identifier=identifier,
-            rgb_reflectance=rgb_reflectance,
-            r_reflectance=r_reflectance,
-            g_reflectance=g_reflectance,
-            b_reflectance=b_reflectance,
-            specularity=specularity,
-            roughness=roughness,
+            positions=positions,
+            direction=direction,
+            directions=directions,
+            x_dim=x_dim,
+            y_dim=y_dim,
+            height=height,
+            x_count=x_count,
+            y_count=y_count,
+            grid_spacing=grid_spacing,
+            origin=origin,
+            object_target=object_target,
+            offset=offset,
+            flip_direction=flip_direction,
+            position=position,
+            target=target,
+            up_vector=up_vector,
+            view_type=view_type,
+            h_size=h_size,
+            v_size=v_size,
+            shift=shift,
+            lift=lift,
+            display_name=display_name,
+            room_identifier=room_identifier,
+            room_target=room_target,
+            group_identifier=group_identifier,
+            wall_offset=wall_offset,
+            remove_out=remove_out,
+            dir_count=dir_count,
+            start_vector=start_vector,
+            mesh_radius=mesh_radius,
+            face_type=face_type,
+            punched_geometry=punched_geometry,
+            aperture_type=aperture_type,
+            target_kind=target_kind,
+            grid_identifiers=grid_identifiers,
+            view_identifiers=view_identifiers,
+            filter_pattern=filter_pattern,
+            remove_all=remove_all,
+            sensor_grid_target=sensor_grid_target,
+            sensor_grid_targets=sensor_grid_targets,
+            split_count=split_count,
+            max_sensors=max_sensors,
+            replace_existing=replace_existing,
             garden_root=garden_root,
+            model_target=model_target,
+            attach_to_model=attach_to_model,
+            output_subdir=output_subdir,
             return_object_dict=return_object_dict,
         )
 
     @mcp.tool(
         name="RAD_Create_Parameters",
         description=(
-            'Create recommended Radiance command parameters for rtrace grid, rpict view, or '
-            'rfluxmtx annual/matrix daylight recipes. Pass the returned radiance_parameters '
-            'string or target to RAD_Start_Grid_Simulation, RAD_Start_View_Simulation, or '
-            'RAD_Start_Matrix_Simulation. Returns target, summary_view, and report.'
+            "Create recommended Radiance command parameters for all rtrace, rpict, rfluxmtx, "
+            "rcontrib, dcglare, evalglare, annual daylight/compliance, or comfort-map recipes. "
+            "Pass the returned radiance_parameters string or target to RAD_Start_Simulation or "
+            "RAD_Manage_Recipes. Returns target, summary_view, and report."
         ),
         tags={
             "radiance",
@@ -1112,7 +1202,14 @@ def register(mcp: FastMCP) -> None:
         recipe_type: Annotated[
             str,
             Field(
-                description="Radiance recipe family or command: point-in-time-grid, daylight-factor, point-in-time-view, annual-daylight, annual-irradiance, cumulative-radiation, rtrace, rpict, or rfluxmtx.",
+                description=(
+                    "Radiance recipe or command name (including point-in-time-grid, daylight-factor, "
+                    "sky-view, point-in-time-view, annual-daylight, annual-daylight-enhanced, "
+                    "direct-sun-hours, annual-irradiance, cumulative-radiation, imageless-annual-glare, "
+                    "leed-daylight-option-one, leed-daylight-option-two, annual-daylight-en17037, "
+                    "well-daylight, breeam-daylight-4b, pmv-comfort-map, utci-comfort-map, "
+                    "adaptive-comfort-map, rtrace, rpict, rfluxmtx, rcontrib, dcglare, or evalglare)."
+                ),
             ),
         ],
         detail_level: Annotated[
@@ -1184,1172 +1281,937 @@ def register(mcp: FastMCP) -> None:
         return result
 
     @mcp.tool(
-        name="RAD_Create_Sensor_Grid",
+        name="RAD_Start_Simulation",
         description=(
-            'Create a Honeybee Radiance SensorGrid from explicit sensor positions or rectangular '
-            'workplane dimensions. With garden_root, the tool writes a Garden .pts artifact and '
-            'returns a compact radiance_sensor_grid target. Set attach_to_model=true to add the '
-            'SensorGrid to the Honeybee model Radiance properties for later daylight recipes.'
+            "Start any Garden Honeybee Radiance or comfort-map simulation recipe in the background "
+            "(or wait until completion/timeout when wait_seconds is provided). Select recipe from: "
+            "point-in-time-grid, daylight-factor, sky-view, point-in-time-view, annual-daylight, "
+            "annual-daylight-enhanced, annual-irradiance, cumulative-radiation, direct-sun-hours, "
+            "imageless-annual-glare, leed-daylight-option-one, leed-daylight-option-two, "
+            "annual-daylight-en17037, breeam-daylight-4b, well-daylight, pmv-comfort-map, "
+            "utci-comfort-map, or adaptive-comfort-map. Poll with GD_Poll_Run and read with RAD_Read_Results."
         ),
         tags={
-            "radiance",
-            "sensor-grid",
-            "author",
-            "pts",
-        },
-        timeout=60,
-    )
-    def create_radiance_sensor_grid(
-        identifier: Annotated[
-            str | None,
-            Field(description="Stable Radiance SensorGrid identifier. Defaults to sensor_grid when omitted."),
-        ] = None,
-        positions: Annotated[
-            list[list[float]] | None,
-            Field(description="Sensor positions as [[x, y, z], ...]. Omit only when using x_dim/y_dim/x_count/y_count."),
-        ] = None,
-        direction: Annotated[
-            list[float] | None,
-            Field(description="Optional shared sensor direction [x, y, z]. Default is [0, 0, 1]. Use instead of directions."),
-        ] = None,
-        directions: Annotated[
-            list[list[float]] | None,
-            Field(description="Optional per-position directions as [[x, y, z], ...]. Must match positions length. Use instead of direction."),
-        ] = None,
-        display_name: Annotated[
-            str | None,
-            Field(description="Optional display name."),
-        ] = None,
-        room_identifier: Annotated[
-            str | None,
-            Field(description="Optional Honeybee Room identifier associated with this grid."),
-        ] = None,
-        room_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Honeybee Room target used to infer room_identifier when provided."),
-        ] = None,
-        x_dim: Annotated[
-            float | None,
-            Field(description="Optional rectangular workplane width in model units. Used only when positions is omitted."),
-        ] = None,
-        y_dim: Annotated[
-            float | None,
-            Field(description="Optional rectangular workplane depth in model units. Used only when positions is omitted."),
-        ] = None,
-        height: Annotated[
-            float | None,
-            Field(description="Optional workplane height above origin. Defaults to 0.8 when generating positions."),
-        ] = None,
-        x_count: Annotated[
-            int | None,
-            Field(description="Optional number of sensors along x when generating a rectangular grid."),
-        ] = None,
-        y_count: Annotated[
-            int | None,
-            Field(description="Optional number of sensors along y when generating a rectangular grid."),
-        ] = None,
-        grid_spacing: Annotated[
-            float | None,
-            Field(description="Optional spacing used to derive x_count/y_count from x_dim/y_dim."),
-        ] = None,
-        origin: Annotated[
-            VectorInput,
-            Field(description="Optional rectangular grid origin [x, y, z], or {'x': x, 'y': y, 'z': z}. Defaults to [0, 0, 0]."),
-        ] = None,
-        group_identifier: Annotated[
-            str | None,
-            Field(description="Optional Radiance group identifier."),
-        ] = None,
-        garden_root: Annotated[
-            str | None,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ] = None,
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Honeybee model target. Used when attach_to_model is true; omitted means Garden base model."),
-        ] = None,
-        attach_to_model: Annotated[
-            bool,
-            Field(description="When true, add the SensorGrid to model.properties.radiance.sensor_grids and save the model."),
-        ] = False,
-        output_subdir: Annotated[
-            str,
-            Field(description="Garden-relative output folder for Radiance sensor .pts artifacts."),
-        ] = "artifacts/radiance/sensors",
-        return_object_dict: Annotated[
-            bool,
-            Field(description=(
-                'Return the full SensorGrid object_dict. Keep false for compact target handoff.'
-            )),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Create a Honeybee Radiance SensorGrid."""
-        from garden.radiance.assets import create_radiance_sensor_grid as service
-
-        if identifier is None:
-            identifier = "sensor_grid"
-        if model_target is not None and not attach_to_model:
-            attach_to_model = True
-        origin = _sensor_grid_vector(origin, "origin")
-        if (
-            positions is None
-            and x_dim is None
-            and y_dim is None
-            and grid_spacing is not None
-            and x_count is not None
-            and y_count is not None
-        ):
-            x_dim = float(grid_spacing) * int(x_count)
-            y_dim = float(grid_spacing) * int(y_count)
-        positions = _positions_from_rectangular_grid(
-            positions=positions,
-            x_dim=x_dim,
-            y_dim=y_dim,
-            height=height,
-            x_count=x_count,
-            y_count=y_count,
-            grid_spacing=grid_spacing,
-            origin=origin,
-        )
-        room_identifier = _room_identifier_from_target(room_identifier, room_target)
-        return service(
-            identifier=identifier,
-            positions=positions,
-            direction=direction,
-            directions=directions,
-            display_name=display_name,
-            room_identifier=room_identifier,
-            group_identifier=group_identifier,
-            garden_root=garden_root,
-            model_target=model_target,
-            attach_to_model=attach_to_model,
-            output_subdir=output_subdir,
-            return_object_dict=return_object_dict,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_Sensor_Grid_From_Object",
-        description=(
-            "Create a Honeybee Radiance SensorGrid by sampling the surface of "
-            "a Honeybee Face, Aperture, Door, Shade, shading panel, PV panel, "
-            "or solar collector target. Use this for object-hosted grids, "
-            "shade irradiance sensors, and PV solar-potential studies. Pass "
-            "object_target from Honeybee object search or shade creation plus "
-            "garden_root. Set attach_to_model=true to attach the grid for "
-            "Radiance grid or annual-irradiance recipes. This samples existing "
-            "geometry and preserves its mesh. Room-hosted surfaces also set "
-            "room_identifier for daylight compliance assessments. Use a room "
-            "floor face with flip_direction=true and offset=0.8 for an upward "
-            "workplane grid."
-        ),
-        tags={
-            "radiance",
-            "sensor-grid",
-            "author",
-            "object-surface",
-        },
-        timeout=60,
-    )
-    def create_radiance_sensor_grid_from_object(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ],
-        object_target: Annotated[
-            dict[str, Any],
-            Field(
-                description='Required Honeybee face, aperture, door, or shade target to sample into a Radiance SensorGrid. Pass matches[i].target from HB_Search_Model_Objects or target from HB_Create_Shade.'
-            ),
-        ],
-        identifier: Annotated[
-            str | None,
-            Field(description="Stable SensorGrid identifier. Defaults to object_sensor_grid."),
-        ] = None,
-        grid_spacing: Annotated[
-            float | None,
-            Field(description="Optional approximate spacing in model units used to derive x_count/y_count."),
-        ] = None,
-        x_count: Annotated[
-            int | None,
-            Field(description="Optional number of samples along the local object x direction."),
-        ] = None,
-        y_count: Annotated[
-            int | None,
-            Field(description="Optional number of samples along the local object y direction."),
-        ] = None,
-        offset: Annotated[
-            float,
-            Field(description="Offset distance along the object normal. Defaults to 0.01 model units."),
-        ] = 0.01,
-        flip_direction: Annotated[
-            bool,
-            Field(description="When true, flip the sensor direction and offset to the reverse normal."),
-        ] = False,
-        display_name: Annotated[
-            str | None,
-            Field(description="Optional display name."),
-        ] = None,
-        group_identifier: Annotated[
-            str | None,
-            Field(description="Optional Radiance group identifier."),
-        ] = None,
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Honeybee model target. Defaults to the Garden base model."),
-        ] = None,
-        attach_to_model: Annotated[
-            bool,
-            Field(description="When true, add the SensorGrid to model.properties.radiance.sensor_grids and save the model."),
-        ] = False,
-        output_subdir: Annotated[
-            str,
-            Field(description="Garden-relative output folder for Radiance sensor .pts artifacts."),
-        ] = "artifacts/radiance/sensors",
-        return_object_dict: Annotated[
-            bool,
-            Field(description=(
-                'Return the full SensorGrid object_dict. Keep false for compact target handoff.'
-            )),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Create a Honeybee Radiance SensorGrid from an object surface."""
-        from garden.radiance.assets import create_radiance_sensor_grid_from_object as service
-
-        if identifier is None:
-            identifier = "object_sensor_grid"
-        return service(
-            identifier=identifier,
-            object_target=object_target,
-            garden_root=garden_root,
-            grid_spacing=grid_spacing,
-            x_count=x_count,
-            y_count=y_count,
-            offset=offset,
-            flip_direction=flip_direction,
-            display_name=display_name,
-            group_identifier=group_identifier,
-            model_target=model_target,
-            attach_to_model=attach_to_model,
-            output_subdir=output_subdir,
-            return_object_dict=return_object_dict,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_Shade_State",
-        description=(
-            "Create a Honeybee RadianceShadeState dictionary for dynamic "
-            "Shades. Optional modifier may be a modifier dict, Garden "
-            "Properties Library modifier target, or standards-library "
-            "identifier. Optional shades is a list of StateGeometry "
-            "dictionaries from RAD_Create_State_Geometry. Return value is "
-            "an object_dict/state_dict, not a Garden target; pass it into "
-            "RAD_Setup_Dynamic_Group states=[...] before running recipes."
-        ),
-        tags={
-            "radiance",
-            "model",
-            "edit",
-            "shade-state",
-            "dynamic-state",
-        },
-        timeout=20,
-    )
-    def create_radiance_shade_state(
-        modifier: Annotated[
-            dict[str, Any] | str | None,
-            Field(
-                description="Optional Radiance modifier dict, Garden Properties Library modifier target, or standards-library identifier."
-            ),
-        ] = None,
-        shades: Annotated[
-            list[dict[str, Any] | None] | None,
-            Field(description="Optional list of Radiance StateGeometry dictionaries for dynamic shade geometry."),
-        ] = None,
-        garden_root: Annotated[
-            str | None,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Create a Honeybee RadianceShadeState."""
-        from garden.radiance.dynamic import create_radiance_shade_state as service
-
-        if shades is not None:
-            shades = [shade for shade in shades if shade is not None]
-        result = service(modifier=modifier, shades=shades, garden_root=garden_root)
-        result.setdefault("state_dict", result.get("object_dict"))
-        return result
-
-    @mcp.tool(
-        name="RAD_Create_Sky",
-        description=(
-            'Create a Radiance sky definition artifact from standard sky inputs for point-in-time '
-            'daylight workflows. Use RAD_Create_Sky_File when a recipe needs a persisted sky file '
-            'target. This creates sky input data only. Returns target, sky_target, summary_view, '
-            'persistence_receipt, and report.'
-        ),
-        tags={
-            "radiance",
-            "sky",
-            "weather",
-            "point-in-time",
-            "sky-file",
-        },
-        timeout=60,
-    )
-    def create_radiance_sky(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        identifier: Annotated[str, Field(description="Stable identifier for the point-in-time Radiance .sky artifact and target.")] = "radiance_sky",
-        month: Annotated[int, Field(description="Month number for date/time mode.")] = 6,
-        day: Annotated[int, Field(description="Day of month for date/time mode.")] = 21,
-        time: Annotated[str | float, Field(description="Time for date/time mode, for example 12:00 or 12.0.")] = "12:00",
-        sky_type: Annotated[str, Field(description="CIE sky type such as sunny, cloudy, or intermediate.")] = "sunny",
-        latitude: Annotated[float | None, Field(description="Optional site latitude.")] = None,
-        longitude: Annotated[float | None, Field(description="Optional site longitude.")] = None,
-        standard_meridian: Annotated[float | None, Field(description="Optional standard meridian.")] = None,
-        ground_reflectance: Annotated[float | None, Field(description="Optional average ground reflectance.")] = None,
-        output_subdir: Annotated[str, Field(description="Garden-relative output folder for Radiance .sky artifacts.")] = "artifacts/radiance/sky",
-    ) -> dict[str, Any]:
-        """Create a CIE standard Radiance sky file."""
-        from garden.radiance.sky import create_cie_standard_sky as service
-
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            month=month,
-            day=day,
-            time=time,
-            sky_type=sky_type,
-            latitude=latitude,
-            longitude=longitude,
-            standard_meridian=standard_meridian,
-            ground_reflectance=ground_reflectance,
-            output_subdir=output_subdir,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_Sky_File",
-        description=(
-            'Create a Garden Radiance .sky file target for point-in-time grid or view recipes. '
-            'Pass a Radiance sky definition or sky dictionary from RAD_Create_Sky, '
-            'RAD_Create_CIE_Standard_Sky, or RAD_Create_Climate_Based_Sky. This persists a sky '
-            'include for recipes. Returns target, sky_file_target, summary_view, '
-            'persistence_receipt, and report.'
-        ),
-        tags={
-            "radiance",
-            "sky",
-            "weather",
-            "point-in-time",
-            "sky-file",
-        },
-        timeout=60,
-    )
-    def create_radiance_sky_file(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        identifier: Annotated[str, Field(description="Stable identifier for the point-in-time Radiance .sky artifact and target.")] = "radiance_sky_file",
-        month: Annotated[int, Field(description="Month number for date/time mode.")] = 6,
-        day: Annotated[int, Field(description="Day of month for date/time mode.")] = 21,
-        time: Annotated[str | float, Field(description="Time for date/time mode.")] = "12:00",
-        sky_type: Annotated[str, Field(description="CIE sky type such as sunny or cloudy.")] = "sunny",
-        ground_reflectance: Annotated[float | None, Field(description="Optional average ground reflectance.")] = None,
-        output_subdir: Annotated[str, Field(description="Garden-relative output folder.")] = "artifacts/radiance/sky",
-    ) -> dict[str, Any]:
-        """Create a Radiance sky file."""
-        from garden.radiance.sky import create_cie_standard_sky as service
-
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            month=month,
-            day=day,
-            time=time,
-            sky_type=sky_type,
-            ground_reflectance=ground_reflectance,
-            output_subdir=output_subdir,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_State_Geometry",
-        description=(
-            'Create a Honeybee Radiance StateGeometry dictionary for dynamic shade or subface '
-            'states. Provide geometry as a Ladybug Face3D dict or vertices as [[x, y, z], ...]. '
-            'Optional modifier may be a modifier dict, Garden Properties Library modifier target, '
-            'or standards-library identifier. This returns a state-geometry object_dict for state '
-            'tools.'
-        ),
-        tags={
-            "radiance",
-            "model",
-            "edit",
-            "state-geometry",
-            "dynamic-state",
-        },
-        timeout=20,
-    )
-    def create_radiance_state_geometry(
-        identifier: Annotated[
-            str | None,
-            Field(description=(
-                "Honeybee Radiance StateGeometry identifier. Defaults to 'state_geometry' when "
-                'omitted.'
-            )),
-        ] = None,
-        geometry: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Ladybug Geometry Face3D dictionary."),
-        ] = None,
-        vertices: Annotated[
-            list[list[float]] | None,
-            Field(description="Optional vertices as [[x, y, z], ...]. Use instead of geometry."),
-        ] = None,
-        modifier: Annotated[
-            dict[str, Any] | str | None,
-            Field(
-                description="Optional Radiance modifier dict, Garden Properties Library modifier target, or standards-library identifier."
-            ),
-        ] = None,
-        garden_root: Annotated[
-            str | None,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Create a Honeybee Radiance StateGeometry."""
-        from garden.radiance.dynamic import create_radiance_state_geometry as service
-
-        identifier = identifier or "state_geometry"
-        return service(
-            identifier=identifier,
-            geometry=geometry,
-            vertices=vertices,
-            modifier=modifier,
-            garden_root=garden_root,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_Subface_State",
-        description=(
-            'Create a Honeybee RadianceSubFaceState dictionary for dynamic Apertures or Doors. '
-            'Optional modifier may be a modifier dict, Garden Properties Library modifier target, '
-            'or standards-library identifier. Optional shades is a list of StateGeometry '
-            'dictionaries from RAD_Create_State_Geometry. This returns an object_dict for dynamic '
-            'state assembly.'
-        ),
-        tags={
-            "radiance",
-            "model",
-            "edit",
-            "subface-state",
-            "dynamic-state",
-        },
-        timeout=20,
-    )
-    def create_radiance_subface_state(
-        modifier: Annotated[
-            dict[str, Any] | str | None,
-            Field(
-                description="Optional Radiance modifier dict, Garden Properties Library modifier target, or standards-library identifier."
-            ),
-        ] = None,
-        shades: Annotated[
-            list[dict[str, Any]] | None,
-            Field(description="Optional list of Radiance StateGeometry dictionaries for dynamic aperture/door shade geometry."),
-        ] = None,
-        garden_root: Annotated[
-            str | None,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Create a Honeybee RadianceSubFaceState."""
-        from garden.radiance.dynamic import create_radiance_subface_state as service
-
-        return service(modifier=modifier, shades=shades, garden_root=garden_root)
-
-    @mcp.tool(
-        name="RAD_Create_Trans_Modifier",
-        description=(
-            'Create a Honeybee Radiance Trans translucent modifier with RGB reflectance plus '
-            'transmitted diffuse and specular fractions. Use garden_root and '
-            'return_object_dict=false to save a reusable Garden Properties Library modifier '
-            'target.'
-        ),
-        tags={
-            "radiance",
-            "modifier",
-            "material",
-            "author",
-            "trans",
-        },
-        timeout=20,
-    )
-    def create_radiance_trans_modifier(
-        identifier: Annotated[str, Field(description="Radiance Trans modifier identifier.")],
-        rgb_reflectance: Annotated[
-            float | None,
-            Field(description="Simple reflectance for red, green, and blue channels."),
-        ] = None,
-        r_reflectance: Annotated[
-            float | None,
-            Field(description="Red reflectance. Provide with g_reflectance and b_reflectance."),
-        ] = None,
-        g_reflectance: Annotated[
-            float | None,
-            Field(description="Green reflectance. Provide with r_reflectance and b_reflectance."),
-        ] = None,
-        b_reflectance: Annotated[
-            float | None,
-            Field(description="Blue reflectance. Provide with r_reflectance and g_reflectance."),
-        ] = None,
-        specularity: Annotated[float, Field(description="Trans specularity fraction.")] = 0.0,
-        roughness: Annotated[float, Field(description="Trans roughness fraction.")] = 0.0,
-        transmitted_diff: Annotated[
-            float,
-            Field(description="Diffuse transmitted fraction."),
-        ] = 0.0,
-        transmitted_spec: Annotated[
-            float,
-            Field(description="Specular transmitted fraction."),
-        ] = 0.0,
-        garden_root: Annotated[
-            str | None,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ] = None,
-        return_object_dict: Annotated[
-            bool,
-            Field(description="Return the full modifier object_dict. Set false with garden_root."),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Create a Honeybee Radiance Trans modifier."""
-        from garden.radiance.modifiers import create_radiance_trans_modifier as service
-
-        return service(
-            identifier=identifier,
-            rgb_reflectance=rgb_reflectance,
-            r_reflectance=r_reflectance,
-            g_reflectance=g_reflectance,
-            b_reflectance=b_reflectance,
-            specularity=specularity,
-            roughness=roughness,
-            transmitted_diff=transmitted_diff,
-            transmitted_spec=transmitted_spec,
-            garden_root=garden_root,
-            return_object_dict=return_object_dict,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_View",
-        description=(
-            'Create a Radiance View / Honeybee Radiance View for rpict daylight rendering from '
-            'position, direction or look-at point, up vector, view type, and view size. With '
-            'garden_root, the tool writes a Garden .vf artifact and returns a compact '
-            'radiance_view target. Set attach_to_model=true to add the View to the Honeybee model '
-            'Radiance properties for later view or glare recipes.'
-        ),
-        tags={
-            "radiance",
-            "view",
-            "author",
-            "camera",
-        },
-        timeout=60,
-    )
-    def create_radiance_view(
-        identifier: Annotated[
-            str | None,
-            Field(description="Stable View identifier. Defaults to view when omitted."),
-        ] = None,
-        position: Annotated[
-            list[float] | dict[str, float] | None,
-            Field(description="View position [x, y, z]. Default is [0, 0, 0]."),
-        ] = None,
-        direction: Annotated[
-            list[float] | dict[str, float] | None,
-            Field(description="View direction [x, y, z]. Default is [0, 0, 1]."),
-        ] = None,
-        target: Annotated[
-            list[float] | dict[str, float] | None,
-            Field(description="Optional look-at point [x, y, z]. Used to derive direction as target - position when direction is omitted."),
-        ] = None,
-        up_view_vector: Annotated[
-            list[float] | dict[str, float] | None,
-            Field(description="View up vector [x, y, z]. Default is [0, 1, 0]."),
-        ] = None,
-        view_type: Annotated[
-            str,
-            Field(description="Radiance view type character: v, h, l, c, a, or s. Radiance CLI tokens like vtv/vth/vtl/vtc/vta/vts are accepted."),
-        ] = "v",
-        h_size: Annotated[
-            float,
-            Field(description="Horizontal view size or field of view."),
-        ] = 60,
-        v_size: Annotated[
-            float,
-            Field(description="Vertical view size or field of view."),
-        ] = 60,
-        shift: Annotated[
-            float | None,
-            Field(description="Optional Radiance view shift (-vs)."),
-        ] = None,
-        lift: Annotated[
-            float | None,
-            Field(description="Optional Radiance view lift (-vl)."),
-        ] = None,
-        display_name: Annotated[
-            str | None,
-            Field(description="Optional display name."),
-        ] = None,
-        room_identifier: Annotated[
-            str | None,
-            Field(description="Optional Honeybee Room identifier associated with this view."),
-        ] = None,
-        group_identifier: Annotated[
-            str | None,
-            Field(description="Optional Radiance group identifier."),
-        ] = None,
-        garden_root: Annotated[
-            str | None,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ] = None,
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Honeybee model target with target_type=honeybee_model. Used when attach_to_model is true; omitted means Garden base model."),
-        ] = None,
-        attach_to_model: Annotated[
-            bool,
-            Field(description="When true, add the View to model.properties.radiance.views and save the model."),
-        ] = False,
-        output_subdir: Annotated[
-            str,
-            Field(description="Garden-relative output folder for Radiance view .vf artifacts."),
-        ] = "artifacts/radiance/views",
-        return_object_dict: Annotated[
-            bool,
-            Field(description='Return the full View object_dict. Keep false for compact target handoff.'),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Create a Honeybee Radiance View."""
-        from garden.radiance.assets import create_radiance_view as service
-
-        if identifier is None:
-            identifier = "view"
-        if model_target is not None and not attach_to_model:
-            attach_to_model = True
-        position = _view_vector(position, "position")
-        direction = _view_vector(direction, "direction")
-        target = _view_vector(target, "target")
-        up_view_vector = _view_vector(up_view_vector, "up_view_vector")
-        if direction is None:
-            direction = _direction_from_target(position, target)
-        view_type = _normalize_view_type(view_type)
-        return service(
-            identifier=identifier,
-            position=position,
-            direction=direction,
-            up_view_vector=up_view_vector,
-            view_type=view_type,
-            h_size=h_size,
-            v_size=v_size,
-            shift=shift,
-            lift=lift,
-            display_name=display_name,
-            room_identifier=room_identifier,
-            group_identifier=group_identifier,
-            garden_root=garden_root,
-            model_target=model_target,
-            attach_to_model=attach_to_model,
-            output_subdir=output_subdir,
-            return_object_dict=return_object_dict,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_Sky_Matrix",
-        description=(
-            'Create a Garden sky_matrix target for Ladybug Radiance studies from a wea_file '
-            'target, Garden weather_file target, Garden-relative EPW path, or ASHRAE clear-sky '
-            'Location. This prepares gendaymtx/SkyMatrix inputs for annual or matrix recipes; '
-            'compute=true also stores direct and diffuse sky patch values.'
-        ),
-        tags={
-            "radiance",
-            "sky",
-            "weather",
-            "sky-matrix",
-            "wea",
-        },
-        timeout=120,
-    )
-    def create_sky_matrix(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ],
-        identifier: Annotated[
-            str | None,
-            Field(description=(
-                "Stable identifier for the Radiance sky_matrix target. Defaults to 'sky_matrix' "
-                'when omitted.'
-            )),
-        ] = None,
-        wea_target: Annotated[
-            dict[str, Any] | None,
-            Field(description='Optional wea_file target from RAD_Create_WEA_From_Weather_File or RAD_Create_ASHRAE_Clear_Sky_WEA.'),
-        ] = None,
-        weather_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Garden weather_file target. Use instead of wea_target, epw_path, or location."),
-        ] = None,
-        epw_path: Annotated[
-            str | None,
-            Field(description="Optional Garden-relative EPW path. Use instead of wea_target, weather_target, or location."),
-        ] = None,
-        location: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Ladybug Location dict for ASHRAE clear-sky SkyMatrix. Use instead of wea/weather/epw inputs."),
-        ] = None,
-        sky_clearness: Annotated[
-            float,
-            Field(description="ASHRAE sky clearness when location is used."),
-        ] = 1,
-        north: Annotated[
-            float,
-            Field(description="Counterclockwise north angle in degrees."),
-        ] = 0,
-        high_density: Annotated[
-            bool,
-            Field(description="Use Reinhart high-density sky patches instead of default Tregenza patches."),
-        ] = False,
-        ground_reflectance: Annotated[
-            float,
-            Field(description="Average ground reflectance for the sky matrix."),
-        ] = 0.2,
-        compute: Annotated[
-            bool,
-            Field(description="When true, compute and persist direct/diffuse sky patch values. Keep false for compact setup."),
-        ] = False,
-        output_subdir: Annotated[
-            str,
-            Field(description="Garden-relative output folder for sky matrix JSON artifacts."),
-        ] = "artifacts/radiance/sky",
-    ) -> dict[str, Any]:
-        """Create a SkyMatrix target."""
-        from garden.radiance.sky import create_sky_matrix as service
-
-        if identifier is None:
-            identifier = "sky_matrix"
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            wea_target=wea_target,
-            weather_target=weather_target,
-            epw_path=epw_path,
-            location=location,
-            sky_clearness=sky_clearness,
-            north=north,
-            high_density=high_density,
-            ground_reflectance=ground_reflectance,
-            compute=compute,
-            output_subdir=output_subdir,
-        )
-
-    @mcp.tool(
-        name="RAD_Create_WEA_From_Weather_File",
-        description=(
-            'Create a Radiance/DAYSIM WEA file artifact from a Garden-managed weather_file target '
-            'or Garden-relative EPW path. Pass weather_target returned by EP_Import_Local_Weather '
-            'or EP_Search_Weather_Files. Returns a compact wea_file target for '
-            'RAD_Create_Sky_Matrix and later Radiance matrix workflows.'
-        ),
-        tags={
-            "radiance",
-            "sky",
-            "weather",
-            "wea",
-            "epw",
-        },
-        timeout=60,
-    )
-    def create_wea_from_weather_file(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ],
-        identifier: Annotated[
-            str,
-            Field(description="Stable identifier for the WEA artifact and target derived from a Garden EPW weather file."),
-        ],
-        weather_target: Annotated[
-            dict[str, Any] | None,
-            Field(description='Optional Garden weather_file target from EP_Import_Local_Weather or EP_Search_Weather_Files.'),
-        ] = None,
-        epw_path: Annotated[
-            str | None,
-            Field(description="Optional Garden-relative EPW path. Use instead of weather_target."),
-        ] = None,
-        timestep: Annotated[
-            int,
-            Field(description="WEA timestep. Default 1 for hourly data."),
-        ] = 1,
-        hoys: Annotated[
-            list[float] | None,
-            Field(description="Optional hours of year to keep in the WEA."),
-        ] = None,
-        write_hours: Annotated[
-            bool,
-            Field(description="Whether to write hour values into the WEA file."),
-        ] = False,
-        output_subdir: Annotated[
-            str,
-            Field(description="Garden-relative output folder for WEA artifacts."),
-        ] = "artifacts/radiance/wea",
-        return_object_dict: Annotated[
-            bool,
-            Field(description='Return the full Wea object_dict. Keep false for compact target handoff.'),
-        ] = False,
-    ) -> dict[str, Any]:
-        """Create a WEA file target from EPW weather data."""
-        from garden.radiance.sky import create_wea_from_weather_file as service
-
-        return service(
-            garden_root=garden_root,
-            identifier=identifier,
-            weather_target=weather_target,
-            epw_path=epw_path,
-            timestep=timestep,
-            hoys=hoys,
-            write_hours=write_hours,
-            output_subdir=output_subdir,
-            return_object_dict=return_object_dict,
-        )
-
-    @mcp.tool(
-        name="RAD_Poll_Simulation",
-        description=(
-            "Get one Garden radiance_run record by target or run_id without "
-            "returning large Radiance result files. Use after "
-            "RAD_Start_Grid_Simulation, RAD_Start_View_Simulation, "
-            "RAD_Start_Matrix_Simulation, RAD_Start_Imageless_Annual_Glare, "
-            "or a daylight compliance start tool. "
-            "When the user asks to wait, "
-            "pass wait_seconds to throttle polling. Returns runtime_status "
-            "through summary_view.status, poll_next, and report. Treat failed "
-            "runtime_status as requiring report review."
-        ),
-        tags={
+            "start",
             "radiance",
             "simulate",
             "poll",
-            "run-ledger",
         },
-        annotations={"readOnlyHint": True},
-        timeout=20,
+        timeout=3600,
     )
-    def get_radiance_run(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        run_target: Annotated[
+    def start_radiance_simulation(
+        garden_root: Annotated[
+            str,
+            Field(
+                description=(
+                    "Garden root path containing garden.json, usually GD_Create['garden_root']; "
+                    "required when saving or reading Garden targets."
+                )
+            ),
+        ],
+        recipe: Annotated[
+            Literal[
+                "point-in-time-grid",
+                "daylight-factor",
+                "sky-view",
+                "point-in-time-view",
+                "annual-daylight",
+                "annual-daylight-enhanced",
+                "annual-irradiance",
+                "cumulative-radiation",
+                "direct-sun-hours",
+                "imageless-annual-glare",
+                "leed-daylight-option-one",
+                "leed-daylight-option-two",
+                "annual-daylight-en17037",
+                "breeam-daylight-4b",
+                "well-daylight",
+                "pmv-comfort-map",
+                "utci-comfort-map",
+                "adaptive-comfort-map",
+            ],
+            Field(description="Exact Honeybee Radiance or comfort-map recipe name to run."),
+        ],
+        model_target: Annotated[
             dict[str, Any] | None,
-            Field(description=(
-                'Optional Garden radiance_run target returned by RAD_Start_Grid_Simulation, '
-                'RAD_Start_View_Simulation, or RAD_Start_Matrix_Simulation.'
-            )),
+            Field(
+                description=(
+                    "Optional Honeybee model target with target_type=honeybee_model. Defaults to "
+                    "the Garden base model."
+                )
+            ),
+        ] = None,
+        radiance_sky_file: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description=(
+                    "Radiance sky file target from RAD_Create_Sky_Asset (required for "
+                    "point-in-time-grid and point-in-time-view unless sky is given)."
+                )
+            ),
+        ] = None,
+        sky: Annotated[
+            str | None,
+            Field(description="Optional raw recipe sky string instead of radiance_sky_file."),
+        ] = None,
+        wea_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description=(
+                    "Garden WEA target from RAD_Create_Sky_Asset for matrix, glare, "
+                    "leed-daylight-option-one/two, or breeam-daylight-4b."
+                )
+            ),
+        ] = None,
+        wea_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative .wea path. Prefer wea_target."),
+        ] = None,
+        weather_file_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description=(
+                    "Garden weather_file target (with annual epw_path) required for "
+                    "annual-daylight-en17037, well-daylight, or comfort-map recipes."
+                )
+            ),
+        ] = None,
+        grid_filter: Annotated[
+            str,
+            Field(description="SensorGrid identifier or pattern ('*' for all attached SensorGrids)."),
+        ] = "*",
+        sensor_grid_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional radiance_sensor_grid target used when grid_filter is '*'."),
+        ] = None,
+        view_filter: Annotated[
+            str,
+            Field(description="Radiance View identifier or pattern ('*' for all attached Views)."),
+        ] = "*",
+        view_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional radiance_view target used when view_filter is '*'."),
+        ] = None,
+        north: Annotated[
+            float | None,
+            Field(description="Optional north angle in degrees."),
+        ] = None,
+        min_sensor_count: Annotated[
+            int,
+            Field(description="Minimum sensors per redistributed grid batch.", ge=1),
+        ] = 1,
+        radiance_parameters: Annotated[
+            str | dict[str, Any] | None,
+            Field(description="Optional Radiance parameters string or RAD_Create_Parameters result."),
         ] = None,
         run_id: Annotated[
             str | None,
-            Field(description="Optional run identifier when run_target is omitted."),
+            Field(description="Optional stable run identifier. Omit to generate one."),
         ] = None,
+        workers: Annotated[
+            int | None,
+            Field(description="Optional recipe worker count.", ge=1),
+        ] = None,
+        reload_old: Annotated[
+            bool,
+            Field(description="Reload existing recipe results in the run folder when available."),
+        ] = False,
+        silent: Annotated[
+            bool,
+            Field(description="Run the Radiance recipe silently."),
+        ] = True,
         wait_seconds: Annotated[
-            int | float | None,
-            Field(description="Optional maximum polling duration in seconds before returning."),
+            float | None,
+            Field(
+                description="Optional maximum seconds to wait for completion before returning.",
+                ge=0,
+            ),
         ] = None,
         poll_interval: Annotated[
-            int | float | None,
-            Field(description="Optional polling interval in seconds when wait_seconds is supplied."),
+            float,
+            Field(description="Polling interval in seconds when wait_seconds is supplied.", gt=0),
+        ] = 1.0,
+        metric: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional point-in-time metric (illuminance, irradiance, luminance, or radiance). "
+                    "Defaults to illuminance for grid and luminance for view."
+                )
+            ),
+        ] = None,
+        cloudy_sky: Annotated[
+            str | None,
+            Field(description="Sky View condition ('uniform' or 'cloudy') for sky-view."),
+        ] = None,
+        resolution: Annotated[
+            int | None,
+            Field(description="Optional image resolution for point-in-time-view.", ge=1),
+        ] = None,
+        skip_overture: Annotated[
+            bool | None,
+            Field(description="Optional skip-overture flag for point-in-time-view."),
+        ] = None,
+        timestep: Annotated[
+            int | None,
+            Field(description="Optional timestep for matrix recipes.", ge=1),
+        ] = None,
+        schedule: Annotated[
+            dict[str, Any] | list[float] | str | None,
+            Field(description="Optional annual occupancy schedule (Garden schedule target, 8760 list, CSV path, or inline CSV text)."),
+        ] = None,
+        thresholds: Annotated[
+            str | None,
+            Field(description="Optional DA/UDI threshold string for annual-daylight or annual-daylight-en17037."),
+        ] = None,
+        output_type: Annotated[
+            str | None,
+            Field(description="Optional output-type ('solar' or 'visible') for annual-irradiance."),
+        ] = None,
+        sky_density: Annotated[
+            int | None,
+            Field(description="Optional sky-density for cumulative-radiation.", ge=1),
+        ] = None,
+        grid_metrics: Annotated[
+            list[dict[str, Any]] | dict[str, Any] | str | None,
+            Field(description="Optional native grid-metrics list[dict], dict (auto-wrapped to list), or JSON/file string."),
+        ] = None,
+        dgp_threshold: Annotated[
+            float | None,
+            Field(description="DGP threshold (0-1) for imageless-annual-glare.", ge=0, le=1),
+        ] = None,
+        luminance_factor: Annotated[
+            float | None,
+            Field(description="Luminance threshold in cd/m2 for imageless-annual-glare.", gt=0),
+        ] = None,
+        diffuse_transmission: Annotated[
+            float | None,
+            Field(
+                description="Diffuse blind transmission fraction (0.0001-1) for leed-daylight-option-one or well-daylight.",
+                ge=0.0001,
+                le=1,
+            ),
+        ] = None,
+        specular_transmission: Annotated[
+            float | None,
+            Field(
+                description="Specular blind transmission fraction (0.0001-1) for leed-daylight-option-one or well-daylight.",
+                ge=0.0001,
+                le=1,
+            ),
+        ] = None,
+        glare_control_devices: Annotated[
+            Literal["glare-control", "no-glare-control"] | None,
+            Field(description="Glare control enum for leed-daylight-option-two."),
+        ] = None,
+        debug_folder: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative debug folder path passed to RecipeSettings."),
+        ] = None,
+        recipe_options: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional extra recipe option overrides dictionary (including comfort-map inputs)."),
         ] = None,
     ) -> dict[str, Any]:
-        """Get one Radiance simulation run."""
-        from garden.radiance.run import get_radiance_run as service
+        """Start a Honeybee Radiance or comfort-map simulation recipe."""
+        from garden.radiance.run import start_radiance_simulation as service
 
-        interval = max(float(poll_interval or 1.0), 0.2)
-        deadline = time.monotonic() + max(float(wait_seconds or 0), 0)
-        result = service(garden_root=garden_root, run_target=run_target, run_id=run_id)
-        while wait_seconds and result.get("status") in {"queued", "running"} and time.monotonic() < deadline:
-            time.sleep(min(interval, max(deadline - time.monotonic(), 0.0)))
-            result = service(garden_root=garden_root, run_target=run_target, run_id=run_id)
-        if wait_seconds:
-            result.setdefault("summary_view", {})["wait_seconds_requested"] = wait_seconds
-        return result
-
-    @mcp.tool(
-        name="RAD_List_Artifact_Files",
-        description=(
-            'List Garden-managed Radiance artifact file records such as HDR images, falsecolor '
-            'images, grid result files, and VisualizationSet exports. Use this to find artifact '
-            'paths before export or preview. This reads Garden artifact metadata and compact '
-            'paths. Returns matches, artifact_paths, summary_view, and report.'
-        ),
-        tags={
-            "artifact",
-            "radiance",
-            "result",
-            "search",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def list_radiance_artifact_files(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        artifact_type: Annotated[str | None, Field(description="Optional formal Radiance artifact target_type, such as radiance_sky_file, radiance_view, radiance_sensor_grid, radiance_hdr_image, or radiance_gif_image. Omit to list all Radiance artifact files.")] = None,
-        query: Annotated[str | None, Field(description="Optional artifact name or Garden-relative path substring filter.")] = None,
-        limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
-    ) -> dict[str, Any]:
-        """List Radiance artifact records from the Garden manifest."""
-        from garden.store import list_garden_artifacts as service
-
-        normalized_artifact_type = _normalize_artifact_type(artifact_type)
-        result = service(garden_root=garden_root, artifact_type=normalized_artifact_type)
-        query_text = (query or "").strip().lower()
-        matches = list(result["matches"])
-        if query_text:
-            matches = [
-                artifact
-                for artifact in matches
-                if query_text
-                in " ".join(
-                    str(value)
-                    for value in (
-                        artifact.get("name"),
-                        artifact.get("path"),
-                        artifact.get("artifact_type"),
-                    )
-                    if value
-                ).lower()
-            ]
-        if limit is not None:
-            matches = matches[:limit]
-        result["matches"] = matches
-        result["files"] = matches
-        result["summary_view"]["artifact_type"] = normalized_artifact_type
-        result["summary_view"]["requested_artifact_type"] = artifact_type
-        result["summary_view"]["query"] = query
-        result["summary_view"]["count"] = len(matches)
-        grouped: dict[str, list[dict[str, Any]]] = {
-            "sky_files": [],
-            "views": [],
-            "sensor_grids": [],
-            "hdr_images": [],
-            "falsecolor": [],
-            "gifs": [],
-        }
-        for artifact in matches:
-            artifact_type_value = artifact.get("artifact_type")
-            if artifact_type_value == "radiance_sky_file":
-                grouped["sky_files"].append(artifact)
-            elif artifact_type_value == "radiance_view":
-                grouped["views"].append(artifact)
-            elif artifact_type_value == "radiance_sensor_grid":
-                grouped["sensor_grids"].append(artifact)
-            elif artifact_type_value == "radiance_hdr_image":
-                grouped["hdr_images"].append(artifact)
-                producer = artifact.get("source", {}).get("producer") if isinstance(artifact.get("source"), dict) else None
-                if producer == "RAD_HDR_To_Falsecolor":
-                    grouped["falsecolor"].append(artifact)
-            elif artifact_type_value == "radiance_gif_image":
-                grouped["gifs"].append(artifact)
-        result.update(grouped)
-        if len(matches) == 1:
-            result["artifact"] = matches[0]
-        return result
-
-    @mcp.tool(
-        name="RAD_List_Artifacts",
-        description=(
-            'List Garden-managed Radiance artifact records and compact artifact_paths. Use this '
-            'to find saved Radiance files without reading large image, matrix, or grid payloads. '
-            'Artifact inventory only. Returns matches, artifact_paths, summary_view, and report.'
-        ),
-        tags={
-            "artifact",
-            "radiance",
-            "result",
-            "search",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def list_radiance_artifacts(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        artifact_type: Annotated[str | None, Field(description="Optional formal Radiance artifact target_type filter. Omit to list every registered Radiance artifact.")] = None,
-        query: Annotated[str | None, Field(description="Optional artifact name or Garden-relative path substring filter.")] = None,
-        limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
-    ) -> dict[str, Any]:
-        """List Radiance artifacts."""
-        from garden.store import list_garden_artifacts as service
-
-        result = service(
+        return service(
             garden_root=garden_root,
-            artifact_type=_normalize_artifact_type(artifact_type),
+            recipe=recipe,
+            model_target=model_target,
+            radiance_sky_file=radiance_sky_file,
+            sky=sky,
+            wea_target=wea_target,
+            wea_path=wea_path,
+            weather_file_target=weather_file_target,
+            grid_filter=grid_filter,
+            sensor_grid_target=sensor_grid_target,
+            view_filter=view_filter,
+            view_target=view_target,
+            north=north,
+            min_sensor_count=min_sensor_count,
+            radiance_parameters=radiance_parameters,
+            run_id=run_id,
+            workers=workers,
+            reload_old=reload_old,
+            silent=silent,
+            wait_seconds=wait_seconds,
+            poll_interval=poll_interval,
+            metric=metric,
+            cloudy_sky=cloudy_sky,
+            resolution=resolution,
+            skip_overture=skip_overture,
+            timestep=timestep,
+            schedule=schedule,
+            thresholds=thresholds,
+            output_type=output_type,
+            sky_density=sky_density,
+            grid_metrics=grid_metrics,
+            dgp_threshold=dgp_threshold,
+            luminance_factor=luminance_factor,
+            diffuse_transmission=diffuse_transmission,
+            specular_transmission=specular_transmission,
+            glare_control_devices=glare_control_devices,
+            debug_folder=debug_folder,
+            recipe_options=recipe_options,
         )
-        query_text = (query or "").strip().lower()
-        matches = list(result["matches"])
-        if query_text:
-            matches = [
-                artifact
-                for artifact in matches
-                if query_text
-                in " ".join(
-                    str(value)
-                    for value in (
-                        artifact.get("name"),
-                        artifact.get("path"),
-                        artifact.get("artifact_type"),
-                    )
-                    if value
-                ).lower()
-            ]
-        if limit is not None:
-            matches = matches[:limit]
-        result["matches"] = matches
-        result["artifact_paths"] = [item.get("path") for item in matches if item.get("path")]
-        result["summary_view"]["count"] = len(matches)
-        result["summary_view"]["query"] = query
-        return result
 
     @mcp.tool(
-        name="RAD_List_Grid_Results",
+        name="RAD_Manage_Recipes",
         description=(
-            'List SensorGrid result folders from a completed Radiance run using SDK folder '
-            'conventions: folders with grids_info.json and result files such as .res or .ill. Use '
-            'before RAD_Grid_Result_To_Visualization_Set. This lists result folders and metadata. '
-            'Returns matches/grids, summary_view, and report.'
+            "Schema-driven generic Queenbee / lbt-recipes runner supporting all 19 installed "
+            "lbt-recipes packages (including pmv-comfort-map, utci-comfort-map, adaptive-comfort-map, "
+            "and annual-energy-use) plus external local Queenbee recipe folder paths. "
+            "Use action='list' to enumerate installed recipes, action='describe' for full input/output "
+            "schemas, or action='start' to resolve Garden targets and execute via GD_Poll_Run."
         ),
         tags={
-            "artifact",
+            "recipe",
+            "queenbee",
             "radiance",
-            "sensor-grid",
-            "result",
-            "visualize",
+            "comfort",
+            "simulate",
         },
-        annotations={"readOnlyHint": True},
-        timeout=20,
+        timeout=3600,
     )
-    def list_radiance_grid_results(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        run_target: Annotated[
+    def manage_recipes(
+        action: Annotated[
+            Literal["list", "describe", "start"],
+            Field(description="Recipe action: list, describe, or start."),
+        ],
+        recipe: Annotated[
+            str | None,
+            Field(description="Installed lbt-recipes name or local Queenbee recipe folder path (required for describe and start)."),
+        ] = None,
+        garden_root: Annotated[
+            str | None,
+            Field(description="Garden root path containing garden.json (required for start)."),
+        ] = None,
+        model_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional completed radiance_run target from a grid or matrix recipe. Poll the run before listing result folders."),
+            Field(description="Optional Honeybee model target resolved automatically for 'model' input."),
+        ] = None,
+        weather_file_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Garden weather_file target resolved for 'epw', 'ddy', or 'wea' inputs."),
+        ] = None,
+        weather_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Alias for weather_file_target."),
+        ] = None,
+        epw_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative EPW path."),
+        ] = None,
+        ddy_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative DDY path."),
+        ] = None,
+        wea_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional WEA target for 'wea' input."),
+        ] = None,
+        wea_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative WEA path."),
+        ] = None,
+        radiance_sky_file: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Radiance sky target for 'sky' input."),
+        ] = None,
+        sky: Annotated[
+            str | None,
+            Field(description="Optional sky string for 'sky' input."),
+        ] = None,
+        schedule: Annotated[
+            dict[str, Any] | list[float] | str | None,
+            Field(description="Optional Garden schedule target, list, or CSV text materialized to .csv."),
+        ] = None,
+        sim_par: Annotated[
+            dict[str, Any] | str | None,
+            Field(description="Optional EnergyPlus simulation parameter target or dict for 'sim-par'."),
+        ] = None,
+        radiance_parameters: Annotated[
+            str | dict[str, Any] | None,
+            Field(description="Optional Radiance parameters string or target."),
+        ] = None,
+        inputs: Annotated[
+            dict[str, Any] | None,
+            Field(description="Recipe-specific input dictionary matching schema input names."),
+        ] = None,
+        recipe_options: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional alias/override dictionary merged with inputs."),
         ] = None,
         run_id: Annotated[
             str | None,
-            Field(description="Optional run identifier for a completed grid or matrix run when run_target is not supplied."),
+            Field(description="Optional stable run identifier."),
+        ] = None,
+        workers: Annotated[
+            int | None,
+            Field(description="Optional cpu-count worker limit.", ge=1),
+        ] = None,
+        reload_old: Annotated[
+            bool,
+            Field(description="Reload previous intermediate task results if present."),
+        ] = False,
+        silent: Annotated[
+            bool,
+            Field(description="Suppress console output in worker process."),
+        ] = True,
+        debug_folder: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative debug folder path."),
         ] = None,
     ) -> dict[str, Any]:
-        """List Radiance SensorGrid result folders."""
-        from garden.radiance.visual import list_radiance_grid_results as service
+        """List, describe, or start any lbt-recipes or local Queenbee recipe."""
+        from garden.recipes.runner import manage_recipes as service
 
-        return service(garden_root=garden_root, run_target=run_target, run_id=run_id)
+        return service(
+            action=action,
+            recipe=recipe,
+            garden_root=garden_root,
+            model_target=model_target,
+            weather_file_target=weather_file_target,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            ddy_path=ddy_path,
+            wea_target=wea_target,
+            wea_path=wea_path,
+            radiance_sky_file=radiance_sky_file,
+            sky=sky,
+            schedule=schedule,
+            sim_par=sim_par,
+            radiance_parameters=radiance_parameters,
+            inputs=inputs,
+            recipe_options=recipe_options,
+            run_id=run_id,
+            workers=workers,
+            reload_old=reload_old,
+            silent=silent,
+            debug_folder=debug_folder,
+        )
 
     @mcp.tool(
-        name="RAD_List_HDR_Images",
+        name="RAD_Read_Results",
         description=(
-            'List HDR image artifacts from completed Radiance view runs. Use this before '
-            'falsecolor, GIF, or image search workflows. This returns image artifact metadata and '
-            'paths only. Returns matches, artifact_paths, summary_view, and report.'
+            "Read compact quantitative results or run postprocessing on a completed Garden Radiance or "
+            "comfort-map run. Supports nine result_kind modes: 'annual_daylight', 'glare', 'compliance', "
+            "'grid_summary' (numeric stats for point-in-time-grid/DF/sky-view/radiation/sun-hours/comfort grids), "
+            "'annual_postprocess' (post-hoc DA/cDA/UDI/sDA/ASE/uniformity/HOY-filtered stats via honeybee_radiance_postprocess), "
+            "'daylight_control_schedule' (8760 electric dimming schedules persisted to Garden for EnergyPlus), "
+            "'dynamic_schedule' (sensor_maximum, ies_lm_83, or leed aperture blind schedules), "
+            "'comfort_map' (TCP/HSP/CSP summary), and 'list_outputs' (grid folders, HDR images, raw outputs)."
+        ),
+        tags={
+            "radiance",
+            "metrics",
+            "compliance",
+            "glare",
+            "result",
+            "summary",
+        },
+        timeout=120,
+    )
+    def read_radiance_results(
+        garden_root: Annotated[
+            str,
+            Field(
+                description=(
+                    "Garden root path containing garden.json, usually GD_Create['garden_root']; "
+                    "required when saving or reading Garden targets."
+                )
+            ),
+        ],
+        result_kind: Annotated[
+            Literal[
+                "annual_daylight",
+                "glare",
+                "compliance",
+                "grid_summary",
+                "annual_postprocess",
+                "daylight_control_schedule",
+                "dynamic_schedule",
+                "comfort_map",
+                "list_outputs",
+            ],
+            Field(description="Result summary / postprocessing mode."),
+        ],
+        run_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Completed radiance_run target returned by RAD_Start_Simulation, RAD_Manage_Recipes, or GD_Poll_Run."),
+        ] = None,
+        run_id: Annotated[
+            str | None,
+            Field(description="Completed Radiance run identifier when run_target is omitted."),
+        ] = None,
+        grid_identifier: Annotated[
+            str | None,
+            Field(description="Optional grid identifier for report provenance."),
+        ] = None,
+        grid_filter: Annotated[
+            str,
+            Field(description="SensorGrid pattern filter for grid_summary, annual_postprocess, schedules."),
+        ] = "*",
+        output_name: Annotated[
+            str | None,
+            Field(description="Optional specific output folder name for grid_summary."),
+        ] = None,
+        metrics: Annotated[
+            list[str] | None,
+            Field(description="Optional metric list for annual_daylight, for example ['sda', 'ase', 'da', 'udi']."),
+        ] = None,
+        view_identifier: Annotated[
+            str | None,
+            Field(description="Optional view identifier for glare report provenance."),
+        ] = None,
+        dgp_threshold: Annotated[
+            float,
+            Field(description="DGP exceedance threshold for glare summary."),
+        ] = 0.4,
+        thresholds: Annotated[
+            dict[str, Any] | None,
+            Field(description="Custom threshold dictionary for annual_postprocess."),
+        ] = None,
+        threshold: Annotated[
+            float,
+            Field(description="Illuminance threshold (lux) for DA/sDA in annual_postprocess."),
+        ] = 300.0,
+        min_threshold: Annotated[
+            float,
+            Field(description="Minimum UDI threshold (lux) for annual_postprocess."),
+        ] = 100.0,
+        max_threshold: Annotated[
+            float,
+            Field(description="Maximum UDI threshold (lux) for annual_postprocess."),
+        ] = 3000.0,
+        target_time: Annotated[
+            float,
+            Field(description="Occupied hours percentage threshold for sDA in annual_postprocess."),
+        ] = 50.0,
+        ase_threshold: Annotated[
+            float,
+            Field(description="Direct illuminance threshold (lux) for ASE in annual_postprocess."),
+        ] = 1000.0,
+        ase_occ_hours: Annotated[
+            int,
+            Field(description="Maximum annual direct hours for ASE in annual_postprocess."),
+        ] = 250,
+        uniformity_threshold: Annotated[
+            float,
+            Field(description="Minimum uniformity ratio threshold for annual_postprocess."),
+        ] = 0.5,
+        schedule: Annotated[
+            dict[str, Any] | list[float] | str | None,
+            Field(description="Optional occupancy/base schedule target, 8760 list, or CSV path."),
+        ] = None,
+        dynamic_schedule: Annotated[
+            dict[str, Any] | str | None,
+            Field(description="Optional DynamicSchedule target, dict, or JSON path for postprocess or dimming."),
+        ] = None,
+        hoys: Annotated[
+            list[float] | None,
+            Field(description="Optional hours of year filter for HOY-filtered statistics in annual_postprocess."),
+        ] = None,
+        res_type: Annotated[
+            Literal["total", "direct"],
+            Field(description="Result component for postprocess / dynamic_schedule: total or direct."),
+        ] = "total",
+        mode: Annotated[
+            str | None,
+            Field(description="Optional mode override ('auto'|'daylight'|'irradiance' for annual_postprocess; 'sensor_maximum'|'ies_lm_83'|'leed' for dynamic_schedule)."),
+        ] = None,
+        ill_setpoint: Annotated[
+            float,
+            Field(description="Target workplane illuminance setpoint (lux) for daylight_control_schedule."),
+        ] = 300.0,
+        min_power_in: Annotated[
+            float,
+            Field(description="Minimum ballast power fraction at full dimming for daylight_control_schedule."),
+        ] = 0.3,
+        min_light_out: Annotated[
+            float,
+            Field(description="Minimum light output fraction before clamping for daylight_control_schedule."),
+        ] = 0.2,
+        off_at_min: Annotated[
+            bool,
+            Field(description="Switch electric lighting off completely when below min_light_out for daylight_control_schedule."),
+        ] = False,
+        identifier_prefix: Annotated[
+            str | None,
+            Field(description="Identifier prefix for persisted daylight_control_schedule artifacts."),
+        ] = None,
+        persist_to_garden: Annotated[
+            bool,
+            Field(description="Persist ScheduleFixedInterval library targets into Garden for daylight_control_schedule."),
+        ] = True,
+        sensor_index: Annotated[
+            dict[str, list[int]] | None,
+            Field(description="Map {grid_full_id: [sensor_idx]} for dynamic_schedule mode='sensor_maximum'."),
+        ] = None,
+        maximum: Annotated[
+            float,
+            Field(description="Maximum allowed illuminance (lux) on control sensor for dynamic_schedule mode='sensor_maximum'."),
+        ] = 3000.0,
+        shade_transmittance: Annotated[
+            float | dict[str, float],
+            Field(description="Shade transmittance multiplier or per-aperture-group dict for ies_lm_83 / leed dynamic_schedule."),
+        ] = 0.05,
+        use_states: Annotated[
+            bool,
+            Field(description="Use simulated blind states instead of shade_transmittance multiplier for ies_lm_83 / leed."),
+        ] = False,
+        save_report: Annotated[
+            bool,
+            Field(description="Save a compact JSON report artifact."),
+        ] = True,
+        include_values: Annotated[
+            bool,
+            Field(description="Return raw sensor/metric arrays. Keep false for compact handoff."),
+        ] = False,
+        page: Annotated[
+            int,
+            Field(description="One-based space summary page number for compliance.", ge=1),
+        ] = 1,
+        page_size: Annotated[
+            int,
+            Field(description="Compliance space row page size (1-50).", ge=1, le=50),
+        ] = 25,
+    ) -> dict[str, Any]:
+        """Read compact metrics, run postprocessing, export schedules, or inspect outputs."""
+        if result_kind == "annual_daylight":
+            from garden.radiance.metrics import summarize_annual_daylight_metrics
+
+            return summarize_annual_daylight_metrics(
+                garden_root=garden_root,
+                run_target=run_target,
+                run_id=run_id,
+                grid_identifier=grid_identifier,
+                metrics=metrics,
+                save_report=save_report,
+                include_values=include_values,
+            )
+        if result_kind == "glare":
+            from garden.radiance.metrics import summarize_radiance_glare_metrics
+
+            return summarize_radiance_glare_metrics(
+                garden_root=garden_root,
+                run_target=run_target,
+                run_id=run_id,
+                view_identifier=view_identifier,
+                dgp_threshold=dgp_threshold,
+                save_report=save_report,
+                include_values=include_values,
+            )
+        if result_kind == "grid_summary":
+            from garden.radiance.metrics import summarize_radiance_grid_results
+
+            return summarize_radiance_grid_results(
+                garden_root=garden_root,
+                run_target=run_target,
+                run_id=run_id,
+                output_name=output_name,
+                grid_filter=grid_filter,
+                save_report=save_report,
+                include_values=include_values,
+            )
+        if result_kind == "annual_postprocess":
+            from garden.radiance.metrics import run_annual_postprocess
+
+            return run_annual_postprocess(
+                garden_root=garden_root,
+                run_target=run_target,
+                run_id=run_id,
+                grid_filter=grid_filter,
+                thresholds=thresholds,
+                threshold=threshold,
+                min_threshold=min_threshold,
+                max_threshold=max_threshold,
+                target_time=target_time,
+                ase_threshold=ase_threshold,
+                ase_occ_hours=ase_occ_hours,
+                uniformity_threshold=uniformity_threshold,
+                schedule=schedule,
+                dynamic_schedule=dynamic_schedule,
+                hoys=hoys,
+                res_type=res_type,
+                mode=mode or "auto",
+                save_report=save_report,
+                include_values=include_values,
+            )
+        if result_kind == "daylight_control_schedule":
+            from garden.radiance.metrics import export_daylight_control_schedules
+
+            return export_daylight_control_schedules(
+                garden_root=garden_root,
+                run_target=run_target,
+                run_id=run_id,
+                grid_filter=grid_filter,
+                schedule=schedule,
+                dynamic_schedule=dynamic_schedule,
+                ill_setpoint=ill_setpoint,
+                min_power_in=min_power_in,
+                min_light_out=min_light_out,
+                off_at_min=off_at_min,
+                identifier_prefix=identifier_prefix,
+                persist_to_garden=persist_to_garden,
+            )
+        if result_kind == "dynamic_schedule":
+            from garden.radiance.metrics import generate_radiance_dynamic_schedule
+
+            return generate_radiance_dynamic_schedule(
+                garden_root=garden_root,
+                run_target=run_target,
+                run_id=run_id,
+                mode=mode or "sensor_maximum",
+                grid_filter=grid_filter,
+                sensor_index=sensor_index,
+                maximum=maximum,
+                shade_transmittance=shade_transmittance,
+                use_states=use_states,
+                res_type=res_type,
+            )
+        if result_kind == "comfort_map":
+            from garden.radiance.metrics import summarize_comfort_map_metrics
+
+            return summarize_comfort_map_metrics(
+                garden_root=garden_root,
+                run_target=run_target,
+                run_id=run_id,
+                save_report=save_report,
+                include_values=include_values,
+            )
+        if result_kind == "list_outputs":
+            from garden.radiance.metrics import list_radiance_run_all_outputs
+
+            return list_radiance_run_all_outputs(
+                garden_root=garden_root,
+                run_target=run_target,
+                run_id=run_id,
+            )
+        from garden.radiance.compliance_results import read_daylight_compliance
+
+        return read_daylight_compliance(
+            garden_root=garden_root,
+            run_target=run_target,
+            run_id=run_id,
+            page=page,
+            page_size=page_size,
+        )
+
+    @mcp.tool(
+        name="RAD_Process_HDR_Image",
+        description=(
+            "Analyze or process a Radiance .hdr image artifact. Supports operations: "
+            "'falsecolor' (falsecolor .hdr), 'gif' (ra_gif preview), 'png' (ra_bmp + PNG preview), "
+            "'bmp' (ra_bmp preview), 'evalglare' (structured dgp, dgi, ugr, vcp, cgi, ev, glare sources "
+            "+ optional check HDR), 'pcond' (human vision tone-mapping), 'pfilt' (resize/exposure filter), "
+            "'pcomb' (combine/arithmetic expression on one or multiple HDRs), and 'getinfo' (header/dimensions)."
         ),
         tags={
             "artifact",
+            "convert",
             "radiance",
             "image",
             "result",
         },
-        annotations={"readOnlyHint": True},
-        timeout=20,
+        timeout=120,
     )
-    def list_radiance_hdr_images(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
+    def process_radiance_hdr_image(
+        garden_root: Annotated[
+            str,
+            Field(
+                description=(
+                    "Garden root path containing garden.json, usually GD_Create['garden_root']; "
+                    "required when saving or reading Garden targets."
+                )
+            ),
+        ],
+        operation: Annotated[
+            Literal[
+                "falsecolor",
+                "gif",
+                "png",
+                "bmp",
+                "evalglare",
+                "pcond",
+                "pfilt",
+                "pcomb",
+                "getinfo",
+            ],
+            Field(description="HDR operation: falsecolor, gif, png, bmp, evalglare, pcond, pfilt, pcomb, or getinfo."),
+        ],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description='Optional completed view radiance_run target returned by RAD_Start_View_Simulation. Poll the run before listing HDR images.'),
+            Field(description="Optional completed point-in-time-view radiance_run target."),
         ] = None,
         run_id: Annotated[
             str | None,
-            Field(description="Optional run identifier for a completed view run when run_target is not supplied."),
+            Field(description="Optional completed view run identifier when run_target is omitted."),
         ] = None,
-    ) -> dict[str, Any]:
-        """List .hdr images for a Radiance view run."""
-        from garden.radiance.visual import list_radiance_hdr_images as service
-
-        return service(garden_root=garden_root, run_target=run_target, run_id=run_id)
-
-    @mcp.tool(
-        name="RAD_List_Run_Outputs",
-        description=(
-            'List indexed outputs for one Garden Radiance run, including grid results, HDR '
-            'images, matrices, parameters, and reports when present. Use after '
-            'RAD_Poll_Simulation reports a finished runtime_status. Output inventory only. '
-            'Returns matches, summary_view, and report.'
-        ),
-        tags={
-            "artifact",
-            "outputs",
-            "radiance",
-            "result",
-            "search",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def list_radiance_run_outputs(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        run_target: Annotated[
-            dict[str, Any] | None,
-            Field(description=(
-                'Optional radiance_run target returned by RAD_Start_Grid_Simulation, '
-                'RAD_Start_View_Simulation, or RAD_Start_Matrix_Simulation. Poll the run before '
-                'listing outputs.'
-            )),
-        ] = None,
-        run_id: Annotated[
+        image_path: Annotated[
             str | None,
-            Field(description="Optional run identifier when run_target is not supplied."),
+            Field(description="Optional Garden-relative .hdr image path for direct processing."),
         ] = None,
-    ) -> dict[str, Any]:
-        """List outputs for one Radiance simulation run."""
-        from garden.radiance.run import list_radiance_run_outputs as service
-
-        return service(garden_root=garden_root, run_target=run_target, run_id=run_id)
-
-    @mcp.tool(
-        name="RAD_List_Runs",
-        description=(
-            'List Radiance simulation runs recorded in a Garden run ledger. Use this to find '
-            'run_id, run_target, status, or run folder metadata before polling or reading '
-            'results. This reads the run ledger only. Returns matches, summary_view, and report.'
-        ),
-        tags={
-            "ledger",
-            "radiance",
-            "simulate",
-            "poll",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def list_radiance_runs(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        status: Annotated[
+        image_paths: Annotated[
+            list[str] | None,
+            Field(description="Optional list of Garden-relative .hdr paths for multi-image pcomb."),
+        ] = None,
+        image_name: Annotated[
             str | None,
-            Field(description="Optional runtime_status filter for Garden run ledger records, such as running, completed, failed, or cancelled."),
+            Field(description="Optional .hdr file name inside the view run results folder."),
         ] = None,
+        name: Annotated[
+            str | None,
+            Field(description="Optional output artifact name without extension."),
+        ] = None,
+        scale: Annotated[
+            str | float | None,
+            Field(description="Optional falsecolor legend scale (number or Radiance auto scale)."),
+        ] = None,
+        legend_label: Annotated[
+            str | None,
+            Field(description="Optional falsecolor legend label, such as Lux or cd/m2."),
+        ] = None,
+        legend_multiplier: Annotated[
+            float | None,
+            Field(description="Optional falsecolor multiplier (-m)."),
+        ] = None,
+        contour_lines: Annotated[
+            bool | None,
+            Field(description="Optional falsecolor contour line flag (-cl)."),
+        ] = None,
+        contour_bands: Annotated[
+            bool | None,
+            Field(description="Optional falsecolor contour band flag (-cb)."),
+        ] = None,
+        palette: Annotated[
+            str | None,
+            Field(description="Optional falsecolor palette (-pal)."),
+        ] = None,
+        exposure: Annotated[
+            str | float | int | None,
+            Field(description="Optional exposure compensation (for gif, bmp/png ['auto'|'human'|'linear'|'+/-stops'], pcond, pfilt)."),
+        ] = None,
+        gamma: Annotated[
+            float | None,
+            Field(description="Optional gamma correction (for gif, bmp, png)."),
+        ] = None,
+        black_and_white: Annotated[
+            bool | None,
+            Field(description="Optional black-and-white output flag (-b) for gif, bmp, png."),
+        ] = None,
+        colors: Annotated[
+            int | None,
+            Field(description="Optional color count limit (-c) for gif."),
+        ] = None,
+        sampling_factor: Annotated[
+            int | None,
+            Field(description="Optional sampling factor (-n) for gif."),
+        ] = None,
+        detailed: Annotated[
+            bool,
+            Field(description="Include detailed evalglare metrics (-d, including Ev and glare sources)."),
+        ] = True,
+        threshold_factor: Annotated[
+            float | None,
+            Field(description="Optional luminance threshold factor (-b, cd/m2) for evalglare."),
+        ] = None,
+        correction_mode: Annotated[
+            str | None,
+            Field(description="Optional evalglare luminance correction mode ('0', 'l+', or 'l-')."),
+        ] = None,
+        check_image: Annotated[
+            bool,
+            Field(description="Save evalglare glare-source check HDR (-c) artifact when true."),
+        ] = False,
+        check_image_name: Annotated[
+            str | None,
+            Field(description="Optional artifact name for evalglare check HDR."),
+        ] = None,
+        human_vision: Annotated[
+            bool | None,
+            Field(description="Apply human-vision dynamic compression (-h) for pcond."),
+        ] = None,
+        x_res: Annotated[
+            int | None,
+            Field(description="Target X pixel resolution (-x) for pfilt."),
+        ] = None,
+        y_res: Annotated[
+            int | None,
+            Field(description="Target Y pixel resolution (-y) for pfilt."),
+        ] = None,
+        radius: Annotated[
+            float | None,
+            Field(description="Gaussian filter radius (-r) for pfilt."),
+        ] = None,
+        pixel_aspect: Annotated[
+            float | None,
+            Field(description="Pixel aspect ratio (-p) for pfilt."),
+        ] = None,
+        expression: Annotated[
+            str | None,
+            Field(description="Radiance pixel expression (-e) for pcomb."),
+        ] = None,
+        dimensions_only: Annotated[
+            bool | None,
+            Field(description="Return only image resolution header (-d) for getinfo."),
+        ] = None,
+        additional_options: Annotated[
+            str | None,
+            Field(description="Optional raw Radiance CLI options string."),
+        ] = None,
+        output_subdir: Annotated[
+            str,
+            Field(description="Garden-relative output folder for image artifacts."),
+        ] = "artifacts/radiance/images",
     ) -> dict[str, Any]:
-        """List Radiance simulation runs."""
-        from garden.radiance.run import list_radiance_runs as service
+        """Process or inspect a Radiance HDR image."""
+        from garden.radiance.visual import process_radiance_hdr_image as service
 
-        return service(garden_root=garden_root, status=status)
+        return service(
+            garden_root=garden_root,
+            operation=operation,
+            run_target=run_target,
+            run_id=run_id,
+            image_path=image_path,
+            image_paths=image_paths,
+            image_name=image_name,
+            name=name,
+            scale=scale,
+            legend_label=legend_label,
+            legend_multiplier=legend_multiplier,
+            contour_lines=contour_lines,
+            contour_bands=contour_bands,
+            palette=palette,
+            exposure=exposure,
+            gamma=gamma,
+            black_and_white=black_and_white,
+            colors=colors,
+            sampling_factor=sampling_factor,
+            detailed=detailed,
+            threshold_factor=threshold_factor,
+            correction_mode=correction_mode,
+            check_image=check_image,
+            check_image_name=check_image_name,
+            human_vision=human_vision,
+            x_res=x_res,
+            y_res=y_res,
+            radius=radius,
+            pixel_aspect=pixel_aspect,
+            expression=expression,
+            dimensions_only=dimensions_only,
+            additional_options=additional_options,
+            output_subdir=output_subdir,
+        )
 
     @mcp.tool(
         name="RAD_Grid_Result_To_Visualization_Set",
         description=(
-            'Create a Ladybug Display VisualizationSet target from Radiance SensorGrid result '
-            'folders using honeybee_display.model_to_vis_set(grid_data_path=...). This converts '
-            'existing grid results into a VisualizationSet.'
+            "Create a Ladybug Display VisualizationSet target from Radiance SensorGrid result "
+            "folders using honeybee_display.model_to_vis_set(grid_data_path=...). Poll the run "
+            "with GD_Poll_Run (include_outputs=true) before converting."
         ),
         tags={
             "artifact",
@@ -2362,10 +2224,23 @@ def register(mcp: FastMCP) -> None:
         timeout=60,
     )
     def radiance_grid_result_to_visualization_set(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
+        garden_root: Annotated[
+            str,
+            Field(
+                description=(
+                    "Garden root path containing garden.json, usually GD_Create['garden_root']; "
+                    "required when saving or reading Garden targets."
+                )
+            ),
+        ],
         run_target: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional completed radiance_run target with SensorGrid result outputs. Poll the run before converting result data."),
+            Field(
+                description=(
+                    "Optional completed radiance_run target with SensorGrid result outputs. Poll "
+                    "the run with GD_Poll_Run before converting result data."
+                )
+            ),
         ] = None,
         run_id: Annotated[
             str | None,
@@ -2417,7 +2292,12 @@ def register(mcp: FastMCP) -> None:
         ] = "radiance_grid_result",
         return_visualization_set: Annotated[
             bool,
-            Field(description="Return the full VisualizationSet dict. Set false to save a compact Garden visualization_set_target for export tools."),
+            Field(
+                description=(
+                    "Return the full VisualizationSet dict. Set false to save a compact Garden "
+                    "visualization_set_target for export tools."
+                )
+            ),
         ] = True,
     ) -> dict[str, Any]:
         """Create a VisualizationSet from Radiance grid results."""
@@ -2439,2117 +2319,4 @@ def register(mcp: FastMCP) -> None:
             active_grid_data=active_grid_data,
             name=name,
             return_visualization_set=return_visualization_set,
-        )
-
-    @mcp.tool(
-        name="RAD_HDR_To_Falsecolor",
-        description=(
-            'Convert a Radiance HDR image artifact to a falsecolor image artifact for daylight or '
-            'glare review. Pass image_target from RAD_List_HDR_Images or RAD_Search_Images. This '
-            'converts an existing HDR artifact. Returns target, image_target, artifact_path, '
-            'summary_view, and report.'
-        ),
-        tags={
-            "artifact",
-            "convert",
-            "radiance",
-            "image",
-            "result",
-        },
-        timeout=60,
-    )
-    def radiance_hdr_to_falsecolor(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        run_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional completed point-in-time view radiance_run target. Poll the run before converting HDR artifacts."),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional run identifier when run_target is omitted."),
-        ] = None,
-        image_path: Annotated[
-            str | None,
-            Field(description="Optional Garden-relative .hdr image path for direct artifact conversion."),
-        ] = None,
-        image_name: Annotated[
-            str | None,
-            Field(description="Optional .hdr file name inside the view run results folder."),
-        ] = None,
-        name: Annotated[
-            str | None,
-            Field(description="Optional output artifact name without extension."),
-        ] = None,
-        scale: Annotated[
-            str | float | None,
-            Field(description="Optional falsecolor legend scale. Use a number or Radiance auto scale text."),
-        ] = None,
-        legend_label: Annotated[
-            str | None,
-            Field(description="Optional legend label, such as Lux or cd/m2."),
-        ] = None,
-        legend_multiplier: Annotated[
-            float | None,
-            Field(description="Optional falsecolor multiplier, equivalent to -m."),
-        ] = None,
-        contour_lines: Annotated[
-            bool | None,
-            Field(description="Optional contour line flag, equivalent to -cl."),
-        ] = None,
-        contour_bands: Annotated[
-            bool | None,
-            Field(description="Optional contour band flag, equivalent to -cb."),
-        ] = None,
-        palette: Annotated[
-            str | None,
-            Field(description="Optional falsecolor palette, equivalent to -pal."),
-        ] = None,
-        additional_options: Annotated[
-            str | None,
-            Field(description="Optional raw Falsecolor options string for SDK update_from_string."),
-        ] = None,
-        output_subdir: Annotated[
-            str,
-            Field(description="Garden-relative output folder for image artifacts."),
-        ] = "artifacts/radiance/images",
-    ) -> dict[str, Any]:
-        """Create a falsecolor HDR artifact."""
-        from garden.radiance.visual import radiance_hdr_to_falsecolor as service
-
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            run_id=run_id,
-            image_path=image_path,
-            image_name=image_name,
-            name=name,
-            scale=scale,
-            legend_label=legend_label,
-            legend_multiplier=legend_multiplier,
-            contour_lines=contour_lines,
-            contour_bands=contour_bands,
-            palette=palette,
-            additional_options=additional_options,
-            output_subdir=output_subdir,
-        )
-
-    @mcp.tool(
-        name="RAD_HDR_To_GIF",
-        description=(
-            'Convert a Radiance HDR image artifact to a GIF image artifact for lightweight '
-            'preview or sharing. Pass image_target from RAD_List_HDR_Images or RAD_Search_Images. '
-            'This converts an existing HDR artifact. Returns target, image_target, artifact_path, '
-            'summary_view, and report.'
-        ),
-        tags={
-            "artifact",
-            "convert",
-            "radiance",
-            "image",
-            "result",
-        },
-        timeout=60,
-    )
-    def radiance_hdr_to_gif(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        run_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional completed point-in-time view radiance_run target. Poll the run before converting HDR artifacts."),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional run identifier when run_target is omitted."),
-        ] = None,
-        image_path: Annotated[
-            str | None,
-            Field(description="Optional Garden-relative .hdr image path for direct artifact conversion."),
-        ] = None,
-        image_name: Annotated[
-            str | None,
-            Field(description="Optional .hdr file name inside the view run results folder."),
-        ] = None,
-        name: Annotated[
-            str | None,
-            Field(description="Optional output artifact name without extension."),
-        ] = None,
-        exposure: Annotated[
-            int | None,
-            Field(description="Optional exposure compensation in f-stops, equivalent to -e."),
-        ] = None,
-        gamma: Annotated[
-            float | None,
-            Field(description="Optional gamma correction, equivalent to -g."),
-        ] = None,
-        black_and_white: Annotated[
-            bool | None,
-            Field(description="Optional black-and-white output flag, equivalent to -b."),
-        ] = None,
-        colors: Annotated[
-            int | None,
-            Field(description="Optional color count limit, equivalent to -c."),
-        ] = None,
-        sampling_factor: Annotated[
-            int | None,
-            Field(description="Optional sampling factor for large images, equivalent to -n."),
-        ] = None,
-        additional_options: Annotated[
-            str | None,
-            Field(description="Optional raw ra_gif options string for SDK update_from_string."),
-        ] = None,
-        output_subdir: Annotated[
-            str,
-            Field(description="Garden-relative output folder for image artifacts."),
-        ] = "artifacts/radiance/images",
-    ) -> dict[str, Any]:
-        """Create a GIF artifact from HDR input."""
-        from garden.radiance.visual import radiance_hdr_to_gif as service
-
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            run_id=run_id,
-            image_path=image_path,
-            image_name=image_name,
-            name=name,
-            exposure=exposure,
-            gamma=gamma,
-            black_and_white=black_and_white,
-            colors=colors,
-            sampling_factor=sampling_factor,
-            additional_options=additional_options,
-            output_subdir=output_subdir,
-        )
-
-    @mcp.tool(
-        name="RAD_Read_Daylight_Compliance",
-        description=(
-            "Read one completed native Radiance daylight compliance run for "
-            "LEED Option 1/2, EN 17037, WELL, or BREEAM 4b. Returns aggregate "
-            "credit or criteria summaries, a bounded paginated space/program "
-            "summary, indexed output paths, and a reusable visualization_set "
-            "target when the recipe VSF exists. Poll the run first with "
-            "RAD_Poll_Simulation. This reads summary JSON/CSV and VSF paths; "
-            "it never returns annual illuminance matrices."
-        ),
-        tags={
-            "radiance",
-            "compliance",
-            "result",
-            "summary",
-            "visualize",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=30,
-    )
-    def read_daylight_compliance(
-        garden_root: Annotated[
-            str,
-            Field(
-                description=(
-                    "Garden root path containing garden.json, usually "
-                    "GD_Create['garden_root']."
-                )
-            ),
-        ],
-        run_target: Annotated[
-            dict[str, Any],
-            Field(
-                description=(
-                    "Completed radiance_run target returned by a native daylight "
-                    "compliance start tool. The recipe type is checked before "
-                    "reading results."
-                )
-            ),
-        ],
-        page: Annotated[
-            int,
-            Field(description="One-based space summary page number.", ge=1),
-        ] = 1,
-        page_size: Annotated[
-            int,
-            Field(
-                description="Number of space rows to return; capped at 50 to keep handoffs compact.",
-                ge=1,
-                le=50,
-            ),
-        ] = 25,
-    ) -> dict[str, Any]:
-        """Read compact daylight compliance outputs."""
-        from garden.radiance.compliance_results import (
-            read_daylight_compliance as service,
-        )
-
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            page=page,
-            page_size=page_size,
-        )
-
-    @mcp.tool(
-        name="RAD_Search_Images",
-        description=(
-            'Search Garden-managed Radiance image artifacts such as HDR, falsecolor, and GIF '
-            'outputs. Use this before image conversion or preview tools. This searches registered '
-            'image metadata and paths. Returns matches, image_targets, summary_view, and report.'
-        ),
-        tags={
-            "artifact",
-            "radiance",
-            "image",
-            "result",
-            "search",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def search_radiance_images(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        run_id: Annotated[str | None, Field(description="Optional completed Radiance view run identifier for narrowing image results.")] = None,
-        run_target: Annotated[
-            dict[str, Any] | str | None,
-            Field(description="Optional completed radiance_run target used to identify a view run."),
-        ] = None,
-        file_type: Annotated[
-            str | None,
-            Field(description="Optional formal image artifact type such as radiance_hdr_image or radiance_gif_image."),
-        ] = None,
-        query: Annotated[str | None, Field(description="Optional image artifact name or Garden-relative path substring filter.")] = None,
-        limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
-    ) -> dict[str, Any]:
-        """Search Radiance images."""
-        from garden.radiance.visual import list_radiance_hdr_images
-
-        from garden.store import list_garden_artifacts
-
-        if run_id is None:
-            run_id = _run_id_from_target(run_target)
-        query_text = (query or "").strip().lower()
-        matches: list[dict[str, Any]] = []
-
-        normalized_artifact_type = _normalize_artifact_type(file_type)
-        if normalized_artifact_type in {None, "radiance_hdr_image"}:
-            try:
-                hdrs = list_radiance_hdr_images(garden_root=garden_root, run_id=run_id)
-            except Exception:
-                hdrs = {"matches": []}
-            for image in hdrs.get("matches", []):
-                searchable = " ".join(str(value) for value in image.values() if value).lower()
-                if query_text and query_text not in searchable:
-                    continue
-                matches.append(
-                    {
-                        "kind": "run_hdr",
-                        "image_type": "hdr",
-                        "path": image.get("path"),
-                        "name": image.get("name"),
-                        "run_id": image.get("run_id"),
-                        "image": image,
-                    }
-                )
-
-        listed = list_garden_artifacts(
-            garden_root=garden_root,
-            artifact_type=normalized_artifact_type,
-        )
-        for artifact in listed.get("matches", []):
-            searchable = " ".join(
-                str(value)
-                for value in (
-                    artifact.get("name"),
-                    artifact.get("path"),
-                    artifact.get("artifact_type"),
-                )
-                if value
-            ).lower()
-            if query_text and query_text not in searchable:
-                continue
-            matches.append(
-                {
-                    "kind": "artifact",
-                    "image_type": artifact.get("artifact_type"),
-                    "path": artifact.get("path"),
-                    "name": artifact.get("name"),
-                    "artifact": artifact,
-                }
-            )
-        if limit is not None:
-            matches = matches[:limit]
-        hdr_images = [item for item in matches if item.get("image_type") == "hdr"]
-        return {
-            "matches": matches,
-            "images": matches,
-            "hdr_images": hdr_images,
-            "summary_view": {
-                "garden_target": listed.get("summary_view", {}).get("garden_target"),
-                "count": len(matches),
-                "query": query,
-                "file_type": file_type,
-                "recommended_hdr_tool": 'RAD_List_HDR_Images',
-            },
-        }
-
-    @mcp.tool(
-        name="RAD_Search_Library_Objects",
-        description=(
-            'Search Honeybee Radiance standards library identifiers for modifiers, materials, and '
-            'modifier sets. Use returned identifiers in Radiance authoring tools or Honeybee '
-            'Radiance properties. Searches built-in Radiance standards libraries. Returns '
-            'matches, summary_view, and report.'
-        ),
-        tags={
-            "search",
-            "radiance",
-            "modifier",
-            "material",
-            "author",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def search_radiance_library_objects(
-        query: Annotated[
-            str,
-            Field(
-                description="Required non-empty search text, such as 'generic wall' or 'modifier set'."
-            ),
-        ],
-        object_family: Annotated[
-            str | None,
-            Field(
-                description="Optional library family filter: modifier, modifier_set, material, or all."
-            ),
-        ] = None,
-        limit: Annotated[
-            int, Field(description="Maximum number of identifiers to return.")
-        ] = 10,
-    ) -> dict[str, Any]:
-        """Search Honeybee Radiance standards library identifiers."""
-        from garden.radiance.libraries import (
-            search_radiance_library_objects as service,
-        )
-
-        return service(
-            query=query,
-            object_family=object_family,
-            limit=limit,
-        )
-
-    @mcp.tool(
-        name="RAD_Search_Parameters",
-        description=(
-            'Search Radiance parameter strings recorded on Garden Radiance runs and return '
-            'compact radiance_parameters targets usable with RAD_Start_Grid_Simulation, '
-            'RAD_Start_View_Simulation, or RAD_Start_Matrix_Simulation. This searches saved '
-            'parameter records. If no stored parameters exist, call RAD_Create_Parameters or pass '
-            'a Radiance parameter string.'
-        ),
-        tags={
-            "parameters",
-            "radiance",
-            "result",
-            "search",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def search_radiance_parameters(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        query: Annotated[str | None, Field(description="Optional run_id, identifier, Garden path, or Radiance parameter text substring filter.")] = None,
-        limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
-    ) -> dict[str, Any]:
-        """Search stored Radiance parameter inputs."""
-        from garden.manifest import GardenManifest
-
-        from garden.radiance.run import _read_index
-
-        garden_root_path = Path(garden_root).expanduser().resolve()
-        manifest = GardenManifest.read(garden_root_path)
-        query_text = (query or "").strip().lower()
-        matches: list[dict[str, Any]] = []
-        for record in _read_index(garden_root_path):
-            match = _relative_run_parameter_match(
-                garden_root_path,
-                manifest.garden_id,
-                record,
-            )
-            if match is None:
-                continue
-            searchable = " ".join(
-                str(value)
-                for value in (
-                    match.get("identifier"),
-                    match.get("run_id"),
-                    match.get("recipe"),
-                    match.get("path"),
-                    match.get("radiance_parameters"),
-                )
-                if value
-            ).lower()
-            if query_text and query_text not in searchable:
-                continue
-            matches.append(match)
-            if limit is not None and len(matches) >= limit:
-                break
-        result: dict[str, Any] = {
-            "matches": matches,
-            "summary_view": {
-                "garden_target": manifest.target(),
-                "count": len(matches),
-                "query": query,
-                "recommended_tool": 'RAD_Create_Parameters',
-            },
-            "report": make_report(
-                status="ok",
-                message=f"Found {len(matches)} stored Radiance parameter input(s).",
-            ),
-        }
-        if len(matches) == 1:
-            result["target"] = matches[0]["target"]
-        return result
-
-    @mcp.tool(
-        name="RAD_Search_Sensor_Grids",
-        description=(
-            'Search Garden Radiance SensorGrid .pts artifacts and return compact '
-            'radiance_sensor_grid targets for grid recipe handoff. This searches saved '
-            'sensor-grid artifacts.'
-        ),
-        tags={
-            "artifact",
-            "radiance",
-            "sensor-grid",
-            "author",
-            "search",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def search_radiance_sensor_grids(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        query: Annotated[str | None, Field(description="Optional SensorGrid identifier or Garden-relative .pts path substring filter.")] = None,
-        limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
-    ) -> dict[str, Any]:
-        """Search Radiance SensorGrid artifacts."""
-        from garden.store import list_garden_artifacts
-
-        listed = list_garden_artifacts(
-            garden_root=garden_root,
-            artifact_type="radiance_sensor_grid",
-        )
-        garden_target = listed["summary_view"]["garden_target"]
-        query_text = (query or "").strip().lower()
-        matches: list[dict[str, Any]] = []
-        for artifact in listed["matches"]:
-            searchable = " ".join(
-                str(value)
-                for value in (
-                    artifact.get("name"),
-                    artifact.get("path"),
-                    artifact.get("artifact_type"),
-                )
-                if value
-            ).lower()
-            if query_text and query_text not in searchable:
-                continue
-            target = _sensor_grid_target_from_artifact(artifact, garden_target)
-            matches.append({"artifact": artifact, "target": target, **target})
-            if limit is not None and len(matches) >= limit:
-                break
-        result: dict[str, Any] = {
-            "matches": matches,
-            "summary_view": {
-                "garden_target": garden_target,
-                "count": len(matches),
-                "query": query,
-                "artifact_type": "radiance_sensor_grid",
-            },
-        }
-        if len(matches) == 1:
-            result["target"] = matches[0]["target"]
-        return result
-
-    @mcp.tool(
-        name="RAD_Search_Sky_Files",
-        description=(
-            'Search Garden Radiance sky_file artifacts and return compact radiance_sky_file '
-            'targets for point-in-time Radiance runs. This searches saved .sky inputs.'
-        ),
-        tags={
-            "artifact",
-            "radiance",
-            "sky",
-            "weather",
-            "search",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def search_radiance_sky_files(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        query: Annotated[str | None, Field(description="Optional sky identifier or Garden-relative .sky path substring filter.")] = None,
-        limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
-    ) -> dict[str, Any]:
-        """Search Radiance sky file artifacts."""
-        from garden.store import list_garden_artifacts
-
-        listed = list_garden_artifacts(
-            garden_root=garden_root,
-            artifact_type="radiance_sky_file",
-        )
-        garden_target = listed["summary_view"]["garden_target"]
-        query_text = (query or "").strip().lower()
-        matches: list[dict[str, Any]] = []
-        for artifact in listed["matches"]:
-            searchable = " ".join(
-                str(value)
-                for value in (
-                    artifact.get("name"),
-                    artifact.get("path"),
-                    artifact.get("artifact_type"),
-                )
-                if value
-            ).lower()
-            if query_text and query_text not in searchable:
-                continue
-            target = _sky_file_target_from_artifact(artifact, garden_target)
-            matches.append({"artifact": artifact, "target": target, **target})
-            if limit is not None and len(matches) >= limit:
-                break
-        result: dict[str, Any] = {
-            "matches": matches,
-            "summary_view": {
-                "garden_target": garden_target,
-                "count": len(matches),
-                "query": query,
-                "artifact_type": "radiance_sky_file",
-            },
-        }
-        if len(matches) == 1:
-            result["target"] = matches[0]["target"]
-        return result
-
-    @mcp.tool(
-        name="RAD_Search_Views",
-        description=(
-            'Search Garden Radiance View artifacts and return compact radiance_view targets for '
-            'point-in-time view runs. This searches saved .vf inputs.'
-        ),
-        tags={
-            "artifact",
-            "radiance",
-            "view",
-            "author",
-            "search",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def search_radiance_views(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        query: Annotated[str | None, Field(description="Optional View identifier or Garden-relative .vf path substring filter.")] = None,
-        limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
-    ) -> dict[str, Any]:
-        """Search Radiance View artifacts."""
-        from garden.store import list_garden_artifacts
-
-        listed = list_garden_artifacts(
-            garden_root=garden_root,
-            artifact_type="radiance_view",
-        )
-        garden_target = listed["summary_view"]["garden_target"]
-        query_text = (query or "").strip().lower()
-        matches: list[dict[str, Any]] = []
-        for artifact in listed["matches"]:
-            searchable = " ".join(
-                str(value)
-                for value in (
-                    artifact.get("name"),
-                    artifact.get("path"),
-                    artifact.get("artifact_type"),
-                )
-                if value
-            ).lower()
-            if query_text and query_text not in searchable:
-                continue
-            target = _view_target_from_artifact(artifact, garden_target)
-            matches.append({"artifact": artifact, "target": target, **target})
-            if limit is not None and len(matches) >= limit:
-                break
-        result: dict[str, Any] = {
-            "matches": matches,
-            "summary_view": {
-                "garden_target": garden_target,
-                "count": len(matches),
-                "query": query,
-                "artifact_type": "radiance_view",
-            },
-        }
-        if len(matches) == 1:
-            result["target"] = matches[0]["target"]
-        return result
-
-    @mcp.tool(
-        name="RAD_Search_Visualizations",
-        description=(
-            'Search Garden-managed Radiance image and visualization artifacts such as HDR '
-            'falsecolor images and GIF previews. For raw run HDR outputs, use RAD_List_HDR_Images '
-            'with a run target or run_id.'
-        ),
-        tags={
-            "artifact",
-            "radiance",
-            "result",
-            "search",
-        },
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def search_radiance_visualizations(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        artifact_type: Annotated[str | None, Field(description="Optional formal Radiance artifact target_type: radiance_hdr_image, radiance_gif_image, radiance_view, or radiance_sensor_grid.")] = None,
-        query: Annotated[str | None, Field(description="Optional visualization artifact name or Garden-relative path substring filter.")] = None,
-        limit: Annotated[int | None, Field(description="Optional maximum number of matches.")] = None,
-    ) -> dict[str, Any]:
-        """Search Radiance visualization artifacts."""
-        from garden.store import list_garden_artifacts as service
-
-        normalized_artifact_type = _normalize_artifact_type(artifact_type)
-        result = service(garden_root=garden_root, artifact_type=normalized_artifact_type)
-        query_text = (query or "").strip().lower()
-        matches = list(result["matches"])
-        if query_text:
-            matches = [
-                artifact
-                for artifact in matches
-                if query_text
-                in " ".join(
-                    str(value)
-                    for value in (
-                        artifact.get("name"),
-                        artifact.get("path"),
-                        artifact.get("artifact_type"),
-                    )
-                    if value
-                ).lower()
-            ]
-        if limit is not None:
-            matches = matches[:limit]
-        result["matches"] = matches
-        result["summary_view"]["artifact_type"] = normalized_artifact_type
-        result["summary_view"]["requested_artifact_type"] = artifact_type
-        result["summary_view"]["query"] = query
-        result["summary_view"]["count"] = len(matches)
-        if len(matches) == 1:
-            result["artifact"] = matches[0]
-        return result
-
-    @mcp.tool(
-        name="RAD_Setup_Dynamic_Group",
-        description=(
-            'Apply the same Honeybee Radiance dynamic_group_identifier and state update to '
-            'multiple Shade, Aperture, or Door targets in a Garden model. This creates model-side '
-            'grouping by setting object properties. For replace_all/add, pass at least one state '
-            'from RAD_Create_Shade_State or RAD_Create_Subface_State.'
-        ),
-        tags={
-            "dynamic",
-            "radiance",
-            "model",
-            "edit",
-        },
-        timeout=60,
-    )
-    def setup_radiance_dynamic_group(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ],
-        targets: Annotated[
-            list[dict[str, Any]] | None,
-            Field(description="Shade, Aperture, or Door typed targets to update; all targets receive the same dynamic_group_identifier."),
-        ] = None,
-        dynamic_group_identifier: Annotated[
-            str | None,
-            Field(description="Dynamic group identifier to set on every target."),
-        ] = None,
-        states: Annotated[
-            list[dict[str, Any]] | None,
-            Field(description="State dictionaries from RAD_Create_Shade_State or RAD_Create_Subface_State. Required for replace_all and add; omit for clear."),
-        ] = None,
-        operation: Annotated[
-            str,
-            Field(description="State operation on the target objects: replace_all, add, or clear."),
-        ] = "replace_all",
-    ) -> dict[str, Any]:
-        """Apply Radiance dynamic state settings to multiple Honeybee objects."""
-        from garden.radiance.dynamic import setup_radiance_dynamic_group as service
-
-        if targets is None:
-            raise ValueError("Provide targets.")
-        if dynamic_group_identifier is None:
-            raise ValueError("Provide dynamic_group_identifier.")
-        return service(
-            garden_root=garden_root,
-            targets=targets,
-            dynamic_group_identifier=dynamic_group_identifier,
-            states=states,
-            operation=operation,
-        )
-
-    @mcp.tool(
-        name="RAD_Start_Annual_Daylight_EN17037",
-        description=(
-            "Start a background Radiance annual daylight EN 17037 recipe for "
-            "a Honeybee model with attached, ungrouped SensorGrids. Use grids with meshes "
-            "for area-weighted criteria; point-only grids use sensor counts. "
-            "RAD_Create_Sensor_Grid_From_Object preserves the mesh. Provide a Garden "
-            "weather_file target returned by EP_Import_Local_Weather or "
-            "EP_Search_Weather_Files; its epw_path must reference an annual "
-            "hourly EPW file. Optional grid_metrics and thresholds configure "
-            "the accompanying annual metrics. Poll with RAD_Poll_Simulation, "
-            "then pass run_target to RAD_Read_Daylight_Compliance. Returns "
-            "run_target, radiance_run_target, and runtime_status through "
-            "summary_view.status, poll_next, and report."
-        ),
-        tags={
-            "start",
-            "radiance",
-            "simulate",
-            "compliance",
-            "en17037",
-            "poll",
-        },
-        timeout=60,
-    )
-    def start_annual_daylight_en17037(
-        garden_root: Annotated[
-            str,
-            Field(
-                description=(
-                    "Garden root path containing garden.json, usually "
-                    "GD_Create['garden_root']; required when saving or reading "
-                    "Garden targets."
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Honeybee model target with "
-                    "target_type=honeybee_model. Defaults to the Garden base "
-                    "model and should already have SensorGrids attached."
-                )
-            ),
-        ] = None,
-        weather_file_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Garden weather_file target returned by "
-                    "EP_Import_Local_Weather or EP_Search_Weather_Files. "
-                    "It must include a Garden-relative epw_path for an annual "
-                    "hourly EPW file. Required for EN 17037."
-                )
-            ),
-        ] = None,
-        grid_filter: Annotated[
-            str,
-            Field(
-                description=(
-                    "Honeybee Radiance grid-filter input. Use '*' for all "
-                    "attached SensorGrids or pass a SensorGrid identifier or "
-                    "pattern."
-                )
-            ),
-        ] = "*",
-        north: Annotated[
-            float | None,
-            Field(description="Optional north angle in degrees."),
-        ] = None,
-        min_sensor_count: Annotated[
-            int,
-            Field(
-                description=(
-                    "Minimum sensor count per redistributed batch; controls "
-                    "how grids are split between workers."
-                ),
-                ge=1,
-            ),
-        ] = 1,
-        radiance_parameters: Annotated[
-            str | dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Radiance parameters string or dictionary returned "
-                    "by RAD_Create_Parameters."
-                )
-            ),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional stable run identifier. Omit to generate one."),
-        ] = None,
-        workers: Annotated[
-            int | None,
-            Field(description="Optional recipe worker count.", ge=1),
-        ] = None,
-        reload_old: Annotated[
-            bool,
-            Field(
-                description=(
-                    "Ask the recipe to reload existing results in the run "
-                    "folder when available."
-                )
-            ),
-        ] = False,
-        silent: Annotated[
-            bool,
-            Field(description="Run the Radiance recipe silently."),
-        ] = True,
-        grid_metrics: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description="Optional native grid-metrics input for additional grid summaries."
-            ),
-        ] = None,
-        thresholds: Annotated[
-            str | None,
-            Field(description=(
-                "Optional DA/UDI threshold string, such as '-t 300 -lt 100 -ut 3000'. "
-                "Changes the accompanying annual metrics, not EN 17037 criteria."
-            )),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Start an annual daylight EN 17037 Radiance run."""
-        from garden.radiance.run import (
-            start_radiance_compliance_run as service,
-        )
-
-        return service(
-            garden_root=garden_root,
-            recipe_name="annual-daylight-en17037",
-            model_target=model_target,
-            weather_file_target=weather_file_target,
-            wea_target=None,
-            grid_filter=grid_filter,
-            north=north,
-            min_sensor_count=min_sensor_count,
-            radiance_parameters=radiance_parameters,
-            run_id=run_id,
-            workers=workers,
-            reload_old=reload_old,
-            silent=silent,
-            recipe_options={"grid-metrics": grid_metrics, "thresholds": thresholds},
-        )
-
-    @mcp.tool(
-        name="RAD_Start_BREEAM_Daylight_4B",
-        description=(
-            "Start a background Radiance BREEAM daylight 4b recipe for a "
-            "Honeybee model with attached, ungrouped SensorGrids. Provide a WEA target "
-            "from RAD_Create_WEA_From_Weather_File or "
-            "RAD_Create_ASHRAE_Clear_Sky_WEA. BREEAM requires each selected "
-            "SensorGrid to have a mesh and a valid room_identifier; generate "
-            "the grid from room floor faces when needed. The recipe evaluates "
-            "daylight by room program type, and the SDK treats unrecognized "
-            "room program types as office occupied spaces. Poll with "
-            "RAD_Poll_Simulation while summary_view.poll_next is present, "
-            "then pass run_target to RAD_Read_Daylight_Compliance. Returns "
-            "run_target, radiance_run_target, and runtime_status through "
-            "summary_view.status, poll_next, and report."
-        ),
-        tags={
-            "start",
-            "radiance",
-            "simulate",
-            "compliance",
-            "breeam",
-            "poll",
-        },
-        timeout=60,
-    )
-    def start_breeam_daylight_4b(
-        garden_root: Annotated[
-            str,
-            Field(
-                description=(
-                    "Garden root path containing garden.json, usually "
-                    "GD_Create['garden_root']; required when saving or reading "
-                    "Garden targets."
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Honeybee model target with "
-                    "target_type=honeybee_model. Defaults to the Garden base "
-                    "model and should already have SensorGrids attached."
-                )
-            ),
-        ] = None,
-        wea_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Garden WEA target returned by "
-                    "RAD_Create_WEA_From_Weather_File or "
-                    "RAD_Create_ASHRAE_Clear_Sky_WEA. It must reference an "
-                    "annual hourly weather file and is required for BREEAM "
-                    "4b."
-                )
-            ),
-        ] = None,
-        grid_filter: Annotated[
-            str,
-            Field(
-                description=(
-                    "Honeybee Radiance grid-filter input. Use '*' for all "
-                    "attached SensorGrids or pass a SensorGrid identifier or "
-                    "pattern."
-                )
-            ),
-        ] = "*",
-        north: Annotated[
-            float | None,
-            Field(description="Optional north angle in degrees."),
-        ] = None,
-        min_sensor_count: Annotated[
-            int,
-            Field(
-                description=(
-                    "Minimum sensor count per redistributed batch; controls "
-                    "how grids are split between workers."
-                ),
-                ge=1,
-            ),
-        ] = 1,
-        radiance_parameters: Annotated[
-            str | dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Radiance parameters string or dictionary returned "
-                    "by RAD_Create_Parameters."
-                )
-            ),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional stable run identifier. Omit to generate one."),
-        ] = None,
-        workers: Annotated[
-            int | None,
-            Field(description="Optional recipe worker count.", ge=1),
-        ] = None,
-        reload_old: Annotated[
-            bool,
-            Field(
-                description=(
-                    "Ask the recipe to reload existing results in the run "
-                    "folder when available."
-                )
-            ),
-        ] = False,
-        silent: Annotated[
-            bool,
-            Field(description="Run the Radiance recipe silently."),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Start a BREEAM daylight 4b Radiance run."""
-        from garden.radiance.run import (
-            start_radiance_compliance_run as service,
-        )
-
-        return service(
-            garden_root=garden_root,
-            recipe_name="breeam-daylight-4b",
-            model_target=model_target,
-            wea_target=wea_target,
-            weather_file_target=None,
-            grid_filter=grid_filter,
-            north=north,
-            min_sensor_count=min_sensor_count,
-            radiance_parameters=radiance_parameters,
-            run_id=run_id,
-            workers=workers,
-            reload_old=reload_old,
-            silent=silent,
-        )
-
-    @mcp.tool(
-        name="RAD_Start_Imageless_Annual_Glare",
-        description=(
-            "Start the native imageless-annual-glare Radiance recipe in the "
-            "background for a Honeybee model with attached SensorGrids and at "
-            "least one attached View. Provide a WEA target or Garden-relative "
-            "WEA path. The recipe produces annual DGP matrices and glare "
-            "autonomy (GA) outputs; dynamic Radiance states on the model are "
-            "handled by the native recipe. Poll with RAD_Poll_Simulation, then "
-            "pass the completed run_target to RAD_Summarize_Glare_Metrics."
-        ),
-        tags={
-            "start",
-            "radiance",
-            "simulate",
-            "glare",
-            "poll",
-        },
-        timeout=60,
-    )
-    def start_imageless_annual_glare(
-        garden_root: Annotated[
-            str,
-            Field(
-                description=(
-                    "Garden root path containing garden.json, usually "
-                    "GD_Create['garden_root']; required when saving or reading "
-                    "Garden targets."
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Honeybee model target with "
-                    "target_type=honeybee_model. Defaults to the Garden base "
-                    "model."
-                )
-            ),
-        ] = None,
-        wea_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Garden WEA target returned by "
-                    "RAD_Create_WEA_From_Weather_File or "
-                    "RAD_Create_ASHRAE_Clear_Sky_WEA."
-                )
-            ),
-        ] = None,
-        wea_path: Annotated[
-            str | None,
-            Field(description="Garden-relative .wea path. Prefer wea_target."),
-        ] = None,
-        view_filter: Annotated[
-            str,
-            Field(
-                description=(
-                    "Radiance View identifier or pattern. Use '*' for all "
-                    "attached Views."
-                )
-            ),
-        ] = "*",
-        view_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional radiance_view target used to select one View."),
-        ] = None,
-        grid_filter: Annotated[
-            str,
-            Field(
-                description=(
-                    "SensorGrid identifier or pattern. Use '*' for all "
-                    "attached SensorGrids."
-                )
-            ),
-        ] = "*",
-        north: Annotated[
-            float | None,
-            Field(description="Optional north angle in degrees."),
-        ] = None,
-        schedule: Annotated[
-            str | None,
-            Field(
-                description=(
-                    "Optional annual occupancy schedule file/path or schedule "
-                    "text accepted by the recipe."
-                )
-            ),
-        ] = None,
-        dgp_threshold: Annotated[
-            float,
-            Field(
-                description="DGP threshold used to calculate glare autonomy.",
-                ge=0,
-                le=1,
-            ),
-        ] = 0.4,
-        luminance_factor: Annotated[
-            float,
-            Field(
-                description=(
-                    "Luminance threshold in cd/m2 used to detect glare sources."
-                ),
-                gt=0,
-            ),
-        ] = 2000.0,
-        min_sensor_count: Annotated[
-            int,
-            Field(description="Minimum sensors per redistributed grid batch.", ge=1),
-        ] = 1,
-        radiance_parameters: Annotated[
-            str | dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Radiance parameters string or RAD_Create_Parameters "
-                    "result."
-                )
-            ),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional stable run identifier."),
-        ] = None,
-        workers: Annotated[
-            int | None,
-            Field(description="Optional recipe worker count.", ge=1),
-        ] = None,
-        reload_old: Annotated[
-            bool,
-            Field(
-                description=(
-                    "Reload existing recipe results in the run folder when "
-                    "available."
-                )
-            ),
-        ] = False,
-        silent: Annotated[
-            bool,
-            Field(description="Run the Radiance recipe silently."),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Start an imageless annual glare Radiance run."""
-        from garden.radiance.run import (
-            start_radiance_imageless_annual_glare as service,
-        )
-
-        if view_filter == "*":
-            view_filter = _view_filter_from_target(view_target) or view_filter
-        return service(
-            garden_root=garden_root,
-            model_target=model_target,
-            wea_target=wea_target,
-            wea_path=wea_path,
-            view_filter=view_filter,
-            grid_filter=grid_filter,
-            north=north,
-            schedule=schedule,
-            dgp_threshold=dgp_threshold,
-            luminance_factor=luminance_factor,
-            min_sensor_count=min_sensor_count,
-            radiance_parameters=radiance_parameters,
-            run_id=run_id,
-            workers=workers,
-            reload_old=reload_old,
-            silent=silent,
-        )
-
-    @mcp.tool(
-        name="RAD_Start_LEED_Daylight_Option_One",
-        description=(
-            "Start a background Radiance LEED daylight Option 1 recipe for a "
-            "Honeybee model with attached SensorGrids. Provide a WEA target "
-            "from RAD_Create_WEA_From_Weather_File or "
-            "RAD_Create_ASHRAE_Clear_Sky_WEA. The recipe applies aperture "
-            "group blinds, evaluates annual sDA and ASE, and calculates LEED "
-            "daylight credits using the 2% rule. diffuse_transmission is the "
-            "unitless diffuse light transmission fraction of the blinds; "
-            "specular_transmission is the unitless specular light transmission "
-            "fraction. Both accept values from 0.0001 to 1. Poll with "
-            "RAD_Poll_Simulation while summary_view.poll_next is present, "
-            "then pass run_target to RAD_Read_Daylight_Compliance. Returns "
-            "run_target, radiance_run_target, and runtime_status through "
-            "summary_view.status, poll_next, and report."
-        ),
-        tags={
-            "start",
-            "radiance",
-            "simulate",
-            "compliance",
-            "leed",
-            "poll",
-        },
-        timeout=60,
-    )
-    def start_leed_daylight_option_one(
-        garden_root: Annotated[
-            str,
-            Field(
-                description=(
-                    "Garden root path containing garden.json, usually "
-                    "GD_Create['garden_root']; required when saving or reading "
-                    "Garden targets."
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Honeybee model target with "
-                    "target_type=honeybee_model. Defaults to the Garden base "
-                    "model and should already have SensorGrids attached."
-                )
-            ),
-        ] = None,
-        wea_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Garden WEA target returned by "
-                    "RAD_Create_WEA_From_Weather_File or "
-                    "RAD_Create_ASHRAE_Clear_Sky_WEA. It must reference an "
-                    "annual hourly weather file and is required for LEED "
-                    "Option 1."
-                )
-            ),
-        ] = None,
-        grid_filter: Annotated[
-            str,
-            Field(
-                description=(
-                    "Honeybee Radiance grid-filter input. Use '*' for all "
-                    "attached SensorGrids or pass a SensorGrid identifier or "
-                    "pattern."
-                )
-            ),
-        ] = "*",
-        north: Annotated[
-            float | None,
-            Field(description="Optional north angle in degrees."),
-        ] = None,
-        min_sensor_count: Annotated[
-            int,
-            Field(
-                description=(
-                    "Minimum sensor count per redistributed batch; controls "
-                    "how grids are split between workers."
-                ),
-                ge=1,
-            ),
-        ] = 1,
-        diffuse_transmission: Annotated[
-            float,
-            Field(
-                description=(
-                    "Diffuse light transmission fraction of the aperture group "
-                    "blinds. The native recipe accepts 0.0001 to 1 and defaults "
-                    "to 0.05 (5%)."
-                ),
-                ge=0.0001,
-                le=1,
-            ),
-        ] = 0.05,
-        specular_transmission: Annotated[
-            float,
-            Field(
-                description=(
-                    "Specular light transmission fraction of the aperture group "
-                    "blinds. The native recipe accepts 0.0001 to 1 and defaults "
-                    "to 0.0001 (0.01%)."
-                ),
-                ge=0.0001,
-                le=1,
-            ),
-        ] = 0.0001,
-        radiance_parameters: Annotated[
-            str | dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Radiance parameters string or dictionary returned "
-                    "by RAD_Create_Parameters."
-                )
-            ),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional stable run identifier. Omit to generate one."),
-        ] = None,
-        workers: Annotated[
-            int | None,
-            Field(description="Optional recipe worker count.", ge=1),
-        ] = None,
-        reload_old: Annotated[
-            bool,
-            Field(
-                description=(
-                    "Ask the recipe to reload existing results in the run "
-                    "folder when available."
-                )
-            ),
-        ] = False,
-        silent: Annotated[
-            bool,
-            Field(description="Run the Radiance recipe silently."),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Start a LEED daylight Option 1 Radiance run."""
-        from garden.radiance.run import (
-            start_radiance_compliance_run as service,
-        )
-
-        return service(
-            garden_root=garden_root,
-            recipe_name="leed-daylight-option-one",
-            model_target=model_target,
-            wea_target=wea_target,
-            weather_file_target=None,
-            grid_filter=grid_filter,
-            north=north,
-            min_sensor_count=min_sensor_count,
-            radiance_parameters=radiance_parameters,
-            run_id=run_id,
-            workers=workers,
-            reload_old=reload_old,
-            silent=silent,
-            recipe_options={
-                "diffuse-transmission": diffuse_transmission,
-                "specular-transmission": specular_transmission,
-            },
-        )
-
-    @mcp.tool(
-        name="RAD_Start_LEED_Daylight_Option_Two",
-        description=(
-            "Start a background Radiance LEED daylight Option 2 recipe for a "
-            "Honeybee model with attached, ungrouped SensorGrids (empty "
-            "group_identifier). Provide a WEA target "
-            "from RAD_Create_WEA_From_Weather_File or "
-            "RAD_Create_ASHRAE_Clear_Sky_WEA. The recipe runs the 9AM and "
-            "3PM point-in-time illuminance checks and evaluates LEED credits. "
-            "Use glare_control_devices='glare-control' when the model has "
-            "view-preserving automatic glare-control devices; use "
-            "'no-glare-control' otherwise. Poll with RAD_Poll_Simulation "
-            "then pass run_target to RAD_Read_Daylight_Compliance. Returns run_target, "
-            "radiance_run_target, and runtime_status through summary_view.status, "
-            "poll_next, and report."
-        ),
-        tags={
-            "start",
-            "radiance",
-            "simulate",
-            "compliance",
-            "leed",
-            "poll",
-        },
-        timeout=60,
-    )
-    def start_leed_daylight_option_two(
-        garden_root: Annotated[
-            str,
-            Field(
-                description=(
-                    "Garden root path containing garden.json, usually "
-                    "GD_Create['garden_root']; required when saving or reading "
-                    "Garden targets."
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Honeybee model target with "
-                    "target_type=honeybee_model. Defaults to the Garden base "
-                    "model and should already have SensorGrids attached."
-                )
-            ),
-        ] = None,
-        wea_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Garden WEA target returned by "
-                    "RAD_Create_WEA_From_Weather_File or "
-                    "RAD_Create_ASHRAE_Clear_Sky_WEA. Required for LEED Option "
-                    "2."
-                )
-            ),
-        ] = None,
-        grid_filter: Annotated[
-            str,
-            Field(
-                description=(
-                    "Honeybee Radiance grid-filter input. Use '*' for all "
-                    "attached SensorGrids or pass a SensorGrid identifier or "
-                    "pattern."
-                )
-            ),
-        ] = "*",
-        north: Annotated[
-            float | None,
-            Field(description="Optional north angle in degrees."),
-        ] = None,
-        min_sensor_count: Annotated[
-            int,
-            Field(
-                description=(
-                    "Minimum sensor count per redistributed batch; controls "
-                    "how grids are split between workers."
-                ),
-                ge=1,
-            ),
-        ] = 1,
-        glare_control_devices: Annotated[
-            Literal["glare-control", "no-glare-control"],
-            Field(
-                description=(
-                    "LEED recipe glare-control-devices enum. Use "
-                    "'glare-control' when the model has view-preserving "
-                    "automatic glare-control devices with manual override; "
-                    "use 'no-glare-control' otherwise."
-                )
-            ),
-        ] = "glare-control",
-        radiance_parameters: Annotated[
-            str | dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Radiance parameters string or dictionary returned "
-                    "by RAD_Create_Parameters."
-                )
-            ),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional stable run identifier. Omit to generate one."),
-        ] = None,
-        workers: Annotated[
-            int | None,
-            Field(description="Optional recipe worker count.", ge=1),
-        ] = None,
-        reload_old: Annotated[
-            bool,
-            Field(
-                description=(
-                    "Ask the recipe to reload existing results in the run "
-                    "folder when available."
-                )
-            ),
-        ] = False,
-        silent: Annotated[
-            bool,
-            Field(description="Run the Radiance recipe silently."),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Start a LEED daylight Option 2 Radiance run."""
-        from garden.radiance.run import (
-            start_radiance_compliance_run as service,
-        )
-
-        return service(
-            garden_root=garden_root,
-            recipe_name="leed-daylight-option-two",
-            model_target=model_target,
-            wea_target=wea_target,
-            weather_file_target=None,
-            grid_filter=grid_filter,
-            north=north,
-            min_sensor_count=min_sensor_count,
-            radiance_parameters=radiance_parameters,
-            run_id=run_id,
-            workers=workers,
-            reload_old=reload_old,
-            silent=silent,
-            recipe_options={"glare-control-devices": glare_control_devices},
-        )
-
-    @mcp.tool(
-        name="RAD_Start_Grid_Simulation",
-        description=(
-            "Start a background Radiance daylight grid recipe for a Honeybee "
-            "model with attached SensorGrids. Use for point-in-time-grid, "
-            "daylight-factor, Sky View, and rtrace calculations. Provide a sky_file "
-            "target for point-in-time runs and poll with "
-            "RAD_Poll_Simulation before reading artifacts. Returns "
-            "run_target, radiance_run_target, runtime_status through "
-            "summary_view.status, poll_next, and report. Treat failed "
-            "runtime_status as requiring report review."
-        ),
-        tags={
-            "start",
-            "radiance",
-            "simulate",
-            "poll",
-        },
-        timeout=60,
-    )
-    def start_radiance_grid_run(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model and should already have SensorGrids attached."),
-        ] = None,
-        calculation_type: Annotated[
-            str,
-            Field(description="Grid calculation type: point_in_time, daylight_factor, or sky_view."),
-        ] = "point_in_time",
-        radiance_sky_file: Annotated[
-            dict[str, Any] | None,
-            Field(description='Radiance sky file target from RAD_Create_CIE_Standard_Sky, RAD_Create_Climate_Based_Sky, RAD_Create_Sky, or RAD_Create_Sky_File. Required for point_in_time runs.'),
-        ] = None,
-        grid_filter: Annotated[
-            str,
-            Field(description="Honeybee Radiance grid-filter input. Use '*' for all attached SensorGrids or pass one SensorGrid identifier."),
-        ] = "*",
-        sensor_grid_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional SensorGrid target. When supplied and grid_filter is '*', its identifier is used as grid-filter."),
-        ] = None,
-        metric: Annotated[
-            str,
-            Field(description="Point-in-time metric, usually illuminance, irradiance, luminance, or radiance depending on recipe."),
-        ] = "illuminance",
-        min_sensor_count: Annotated[
-            int | None,
-            Field(description='Minimum sensor count per split grid (default 1).'),
-        ] = 1,
-        grid_metrics: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional daylight-factor grid-metrics input when needed by the recipe."),
-        ] = None,
-        cloudy_sky: Annotated[
-            str,
-            Field(description="Sky View sky condition: uniform or cloudy."),
-        ] = "uniform",
-        radiance_parameters: Annotated[
-            str | dict[str, Any] | None,
-            Field(description="Optional Radiance parameters string or dictionary returned by RAD_Create_Parameters."),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional stable run identifier. Omit to generate one."),
-        ] = None,
-        workers: Annotated[int | None, Field(description="Optional recipe worker count.")] = None,
-        reload_old: Annotated[
-            bool,
-            Field(description="Ask the recipe to reload existing results in the run folder when available."),
-        ] = False,
-        silent: Annotated[bool, Field(description="Run the Radiance recipe silently.")] = True,
-    ) -> dict[str, Any]:
-        """Start a Radiance grid run."""
-        from garden.radiance.run import start_radiance_grid_run as service
-
-        if _requires_radiance_sky_file(calculation_type) and radiance_sky_file is None:
-            raise ValueError("Provide radiance_sky_file for point_in_time Radiance grid runs.")
-        if grid_filter == "*" and isinstance(sensor_grid_target, dict):
-            if sensor_grid_target.get("target_type") != "radiance_sensor_grid":
-                raise ValueError("sensor_grid_target must be a radiance_sensor_grid target.")
-            identifier = sensor_grid_target.get("identifier")
-            if identifier:
-                grid_filter = str(identifier)
-        return service(
-            garden_root=garden_root,
-            model_target=model_target,
-            calculation_type=calculation_type,
-            sky_file_target=radiance_sky_file,
-            sky=None,
-            grid_filter=grid_filter,
-            metric=metric,
-            min_sensor_count=min_sensor_count,
-            grid_metrics=grid_metrics,
-            cloudy_sky=cloudy_sky,
-            radiance_parameters=radiance_parameters,
-            run_id=run_id,
-            workers=workers,
-            reload_old=reload_old,
-            silent=silent,
-        )
-
-    @mcp.tool(
-        name="RAD_Start_Matrix_Simulation",
-        description=(
-            "Start a background Radiance annual or matrix daylight recipe for "
-            "a Honeybee model with attached SensorGrids and a WEA target. Use "
-            "for annual-daylight (with optional enhanced two-phase mode), "
-            "annual-irradiance, cumulative-radiation, direct-sun-hours, and "
-            "rfluxmtx calculations. Poll with RAD_Poll_Simulation before "
-            "reading artifacts. Returns run_target, radiance_run_target, "
-            "runtime_status through summary_view.status, poll_next, and "
-            "report. Treat failed runtime_status as requiring report review."
-        ),
-        tags={
-            "start",
-            "radiance",
-            "simulate",
-            "poll",
-        },
-        timeout=60,
-    )
-    def start_radiance_matrix_run(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model and should already have SensorGrids attached."),
-        ] = None,
-        calculation_type: Annotated[
-            str,
-            Field(description="Matrix calculation type: annual_daylight, annual_irradiance, cumulative_radiation, or direct_sun_hours."),
-        ] = "annual_daylight",
-        enhanced: Annotated[
-            bool,
-            Field(description="Use the annual-daylight-enhanced two-phase recipe when calculation_type is annual_daylight. Defaults to true."),
-        ] = True,
-        wea_target: Annotated[
-            dict[str, Any] | None,
-            Field(description='Garden WEA target returned by RAD_Create_WEA_From_Weather_File or RAD_Create_ASHRAE_Clear_Sky_WEA.'),
-        ] = None,
-        wea_path: Annotated[
-            str | None,
-            Field(description="Garden-relative .wea path for controlled workflows. Prefer wea_target."),
-        ] = None,
-        grid_filter: Annotated[
-            str,
-            Field(description="Honeybee Radiance grid-filter input. Use '*' for all attached SensorGrids or pass one SensorGrid identifier."),
-        ] = "*",
-        north: Annotated[float | None, Field(description="Optional north angle in degrees.")] = None,
-        timestep: Annotated[int | None, Field(description="Optional recipe timestep.")] = None,
-        schedule: Annotated[
-            str | None,
-            Field(description="Optional annual-daylight schedule file/path or schedule text accepted by the recipe."),
-        ] = None,
-        thresholds: Annotated[
-            str | None,
-            Field(description="Optional annual-daylight thresholds string accepted by the recipe."),
-        ] = None,
-        output_type: Annotated[
-            str | None,
-            Field(description="Optional annual-irradiance output-type, for example solar or visible."),
-        ] = None,
-        sky_density: Annotated[
-            int | None,
-            Field(description="Optional cumulative-radiation sky-density."),
-        ] = None,
-        min_sensor_count: Annotated[
-            int | None,
-            Field(description='Minimum sensor count per split grid (default 1).'),
-        ] = 1,
-        grid_metrics: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional annual-daylight grid-metrics input when needed by the recipe."),
-        ] = None,
-        radiance_parameters: Annotated[
-            str | dict[str, Any] | None,
-            Field(description='Optional Radiance parameters string or dictionary returned by RAD_Create_Parameters.'),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional stable run identifier. Omit to generate one."),
-        ] = None,
-        workers: Annotated[int | None, Field(description="Optional recipe worker count.")] = None,
-        reload_old: Annotated[
-            bool,
-            Field(description="Ask the recipe to reload existing results in the run folder when available."),
-        ] = False,
-        silent: Annotated[bool, Field(description="Run the Radiance recipe silently.")] = True,
-    ) -> dict[str, Any]:
-        """Start a Radiance matrix run."""
-        from garden.radiance.run import start_radiance_matrix_run as service
-
-        return service(
-            garden_root=garden_root,
-            model_target=model_target,
-            calculation_type=calculation_type,
-            enhanced=enhanced,
-            wea_target=wea_target,
-            wea_path=wea_path,
-            grid_filter=grid_filter,
-            north=north,
-            timestep=timestep,
-            schedule=schedule,
-            thresholds=thresholds,
-            output_type=output_type,
-            sky_density=sky_density,
-            min_sensor_count=min_sensor_count,
-            grid_metrics=grid_metrics,
-            radiance_parameters=radiance_parameters,
-            run_id=run_id,
-            workers=workers,
-            reload_old=reload_old,
-            silent=silent,
-        )
-
-    @mcp.tool(
-        name="RAD_Start_View_Simulation",
-        description=(
-            "Start a background Radiance daylight view recipe for a Honeybee "
-            "model with attached Views. Use for point-in-time-view and rpict "
-            "image calculations with view_filter or view_target from "
-            "RAD_Create_View. Poll with RAD_Poll_Simulation before "
-            "reading HDR or image artifacts. Returns run_target, "
-            "radiance_run_target, runtime_status through summary_view.status, "
-            "poll_next, and report. Treat failed runtime_status as requiring "
-            "report review."
-        ),
-        tags={
-            "start",
-            "radiance",
-            "simulate",
-            "poll",
-        },
-        timeout=60,
-    )
-    def start_radiance_view_run(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets.")],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Honeybee model target with target_type=honeybee_model. Defaults to the Garden base model and should already have Views attached."),
-        ] = None,
-        calculation_type: Annotated[
-            str,
-            Field(description="View calculation type. Currently point_in_time."),
-        ] = "point_in_time",
-        radiance_sky_file: Annotated[
-            dict[str, Any] | None,
-            Field(description='Radiance sky file target from RAD_Create_CIE_Standard_Sky, RAD_Create_Climate_Based_Sky, RAD_Create_Sky, or RAD_Create_Sky_File. Required for point_in_time view runs.'),
-        ] = None,
-        view_filter: Annotated[
-            str,
-            Field(description="Honeybee Radiance view-filter input. Use '*' for all attached Views or one View identifier."),
-        ] = "*",
-        view_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional radiance_view target. When supplied and view_filter is '*', its identifier is used as the view-filter."),
-        ] = None,
-        metric: Annotated[
-            str,
-            Field(description="Point-in-time image metric, usually luminance or radiance."),
-        ] = "luminance",
-        resolution: Annotated[
-            int | None,
-            Field(description="Optional image resolution passed to the recipe."),
-        ] = None,
-        skip_overture: Annotated[
-            bool | None,
-            Field(description="Optional skip-overture recipe flag."),
-        ] = None,
-        radiance_parameters: Annotated[
-            str | dict[str, Any] | None,
-            Field(description="Optional Radiance parameters string or dictionary returned by RAD_Create_Parameters."),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional stable run identifier. Omit to generate one."),
-        ] = None,
-        workers: Annotated[int | None, Field(description="Optional recipe worker count.")] = None,
-        reload_old: Annotated[
-            bool,
-            Field(description="Ask the recipe to reload existing results in the run folder when available."),
-        ] = False,
-        silent: Annotated[bool, Field(description="Run the Radiance recipe silently.")] = True,
-    ) -> dict[str, Any]:
-        """Start a Radiance view run."""
-        from garden.radiance.run import start_radiance_view_run as service
-
-        if radiance_sky_file is None:
-            raise ValueError("Provide radiance_sky_file for Radiance view runs.")
-        if view_filter == "*":
-            view_filter = _view_filter_from_target(view_target) or view_filter
-        return service(
-            garden_root=garden_root,
-            model_target=model_target,
-            calculation_type=calculation_type,
-            sky_file_target=radiance_sky_file,
-            sky=None,
-            view_filter=view_filter,
-            metric=metric,
-            resolution=resolution,
-            skip_overture=skip_overture,
-            radiance_parameters=radiance_parameters,
-            run_id=run_id,
-            workers=workers,
-            reload_old=reload_old,
-            silent=silent,
-        )
-
-    @mcp.tool(
-        name="RAD_Start_WELL_Daylight",
-        description=(
-            "Start a background Radiance WELL daylight recipe for a Honeybee "
-            "model with attached SensorGrids. Provide a Garden weather_file "
-            "target returned by EP_Import_Local_Weather or "
-            "EP_Search_Weather_Files; its epw_path must reference an annual "
-            "hourly EPW file. The recipe evaluates WELL L01 and L06 daylight "
-            "criteria, creates dynamic shading schedules, and reports the "
-            "WELL version used by the result. diffuse_transmission is the "
-            "unitless diffuse light transmission fraction of the aperture group "
-            "blinds; specular_transmission is the unitless specular light "
-            "transmission fraction. Both accept values from 0.0001 to 1. Poll "
-            "with RAD_Poll_Simulation while summary_view.poll_next is present, "
-            "then pass run_target to RAD_Read_Daylight_Compliance. Returns "
-            "run_target, radiance_run_target, and runtime_status through "
-            "summary_view.status, poll_next, and report, with L01, L06, and "
-            "WELL version result paths among the compliance outputs."
-        ),
-        tags={
-            "start",
-            "radiance",
-            "simulate",
-            "compliance",
-            "well",
-            "poll",
-        },
-        timeout=60,
-    )
-    def start_well_daylight(
-        garden_root: Annotated[
-            str,
-            Field(
-                description=(
-                    "Garden root path containing garden.json, usually "
-                    "GD_Create['garden_root']; required when saving or reading "
-                    "Garden targets."
-                )
-            ),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Honeybee model target with "
-                    "target_type=honeybee_model. Defaults to the Garden base "
-                    "model and should already have SensorGrids attached."
-                )
-            ),
-        ] = None,
-        weather_file_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Garden weather_file target returned by "
-                    "EP_Import_Local_Weather or EP_Search_Weather_Files. "
-                    "It must include a Garden-relative epw_path for an annual "
-                    "hourly EPW file. Required for WELL daylight."
-                )
-            ),
-        ] = None,
-        grid_filter: Annotated[
-            str,
-            Field(
-                description=(
-                    "Honeybee Radiance grid-filter input. Use '*' for all "
-                    "attached SensorGrids or pass a SensorGrid identifier or "
-                    "pattern."
-                )
-            ),
-        ] = "*",
-        north: Annotated[
-            float | None,
-            Field(description="Optional north angle in degrees."),
-        ] = None,
-        min_sensor_count: Annotated[
-            int,
-            Field(
-                description=(
-                    "Minimum sensor count per redistributed batch; controls "
-                    "how grids are split between workers."
-                ),
-                ge=1,
-            ),
-        ] = 1,
-        diffuse_transmission: Annotated[
-            float,
-            Field(
-                description=(
-                    "Diffuse light transmission fraction of the aperture group "
-                    "blinds. The native recipe accepts 0.0001 to 1 and defaults "
-                    "to 0.05 (5%)."
-                ),
-                ge=0.0001,
-                le=1,
-            ),
-        ] = 0.05,
-        specular_transmission: Annotated[
-            float,
-            Field(
-                description=(
-                    "Specular light transmission fraction of the aperture group "
-                    "blinds. The native recipe accepts 0.0001 to 1 and defaults "
-                    "to 0.0001 (0.01%)."
-                ),
-                ge=0.0001,
-                le=1,
-            ),
-        ] = 0.0001,
-        radiance_parameters: Annotated[
-            str | dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Radiance parameters string or dictionary returned "
-                    "by RAD_Create_Parameters."
-                )
-            ),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional stable run identifier. Omit to generate one."),
-        ] = None,
-        workers: Annotated[
-            int | None,
-            Field(description="Optional recipe worker count.", ge=1),
-        ] = None,
-        reload_old: Annotated[
-            bool,
-            Field(
-                description=(
-                    "Ask the recipe to reload existing results in the run "
-                    "folder when available."
-                )
-            ),
-        ] = False,
-        silent: Annotated[
-            bool,
-            Field(description="Run the Radiance recipe silently."),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Start a WELL daylight Radiance run."""
-        from garden.radiance.run import (
-            start_radiance_compliance_run as service,
-        )
-
-        return service(
-            garden_root=garden_root,
-            recipe_name="well-daylight",
-            model_target=model_target,
-            wea_target=None,
-            weather_file_target=weather_file_target,
-            grid_filter=grid_filter,
-            north=north,
-            min_sensor_count=min_sensor_count,
-            radiance_parameters=radiance_parameters,
-            run_id=run_id,
-            workers=workers,
-            reload_old=reload_old,
-            silent=silent,
-            recipe_options={
-                "diffuse-transmission": diffuse_transmission,
-                "specular-transmission": specular_transmission,
-            },
-        )
-
-    @mcp.tool(
-        name="RAD_Summarize_Annual_Daylight_Metrics",
-        description=(
-            'Summarize completed Honeybee Radiance annual daylight metrics such as sDA, ASE, DA, '
-            'CDA, UDI, daylight autonomy, annual sunlight exposure, and too-much-sun risk into a '
-            'compact Garden-backed report. Use after a completed annual daylight run. This reads '
-            'Radiance daylight metric artifacts. Pass/fail interpretation requires project or '
-            'rating-system thresholds.'
-        ),
-        tags={
-            "metrics",
-            "radiance",
-            "result",
-        },
-        timeout=60,
-    )
-    def summarize_annual_daylight_metrics(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ],
-        run_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional completed annual-daylight radiance_run target. Poll the run before summarizing metrics."),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(
-                description="Optional completed annual daylight run identifier when run_target is omitted."
-            ),
-        ] = None,
-        grid_identifier: Annotated[
-            str | None,
-            Field(description="Optional grid identifier for report provenance and future filtering."),
-        ] = None,
-        metrics: Annotated[
-            list[str] | None,
-            Field(
-                description="Optional metrics to summarize, for example ['sda', 'ase', 'da', 'udi']."
-            ),
-        ] = None,
-        save_report: Annotated[
-            bool,
-            Field(description="Save a compact JSON report artifact in the Garden and return a target."),
-        ] = True,
-        include_values: Annotated[
-            bool,
-            Field(description="Return raw metric values. Keep false for compact report handoff."),
-        ] = False,
-    ) -> dict[str, Any]:
-        """Summarize annual daylight metrics."""
-        from garden.radiance.metrics import summarize_annual_daylight_metrics as service
-
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            run_id=run_id,
-            grid_identifier=grid_identifier,
-            metrics=metrics,
-            save_report=save_report,
-            include_values=include_values,
-        )
-
-    @mcp.tool(
-        name="RAD_Summarize_Glare_Metrics",
-        description=(
-            'Summarize annual Radiance glare metrics from a completed imageless-annual-glare or '
-            'glare-capable run into compact DGP, GA, and visual-discomfort statistics. Use after '
-            'RAD_Poll_Simulation and output listing confirm results exist. This reads glare '
-            'metric artifacts. Returns target, summary_view, metrics, and report.'
-        ),
-        tags={
-            "radiance",
-            "glare",
-            "metrics",
-            "result",
-        },
-        timeout=60,
-    )
-    def summarize_radiance_glare_metrics(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required when saving or reading Garden targets."),
-        ],
-        run_target: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional completed radiance_run target with DGP/glare result outputs. Poll the run before summarizing metrics."),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional completed glare-capable Radiance run identifier."),
-        ] = None,
-        view_identifier: Annotated[
-            str | None,
-            Field(description="Optional view identifier for report provenance."),
-        ] = None,
-        dgp_threshold: Annotated[
-            float,
-            Field(
-                description="DGP threshold for exceedance summary. Pass/fail still depends on user/project criteria."
-            ),
-        ] = 0.4,
-        save_report: Annotated[
-            bool,
-            Field(description="Save a compact JSON glare report artifact in the Garden and return a target."),
-        ] = True,
-        include_values: Annotated[
-            bool,
-            Field(description="Return raw DGP values. Keep false for compact report handoff."),
-        ] = False,
-    ) -> dict[str, Any]:
-        """Summarize DGP/glare metrics."""
-        from garden.radiance.metrics import summarize_radiance_glare_metrics as service
-
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            run_id=run_id,
-            view_identifier=view_identifier,
-            dgp_threshold=dgp_threshold,
-            save_report=save_report,
-            include_values=include_values,
         )

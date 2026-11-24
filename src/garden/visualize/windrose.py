@@ -14,7 +14,7 @@ from ladybug_display.extension.windrose import wind_rose_to_vis_set
 from ladybug_tools_mcp.contracts import make_report
 from garden.analysis_period import analysis_period_from_input, analysis_period_summary
 from garden.manifest import GardenManifest
-from garden.visualize.artifacts import save_visualization_set
+from garden.visualize.artifacts import coerce_legend_parameter, save_visualization_set
 from garden.visualize.datacollection import _resolve_collection_input
 from garden.paths import slugify_name
 
@@ -155,6 +155,7 @@ def windrose_to_visualization_set(
     north: float = 0.0,
     show_zeros: bool = False,
     frequency_labels: bool = True,
+    legend_parameter: dict[str, Any] | None = None,
     name: str = "wind_rose",
     return_visualization_set: bool = True,
 ) -> dict[str, Any]:
@@ -241,6 +242,8 @@ def windrose_to_visualization_set(
         )
         windrose.north = north
         windrose.show_zeros = show_zeros
+        if legend_parameter is not None:
+            windrose.legend_parameters = coerce_legend_parameter(legend_parameter)
         visualization = wind_rose_to_vis_set(
             windrose,
             frequency_labels=frequency_labels,
@@ -258,7 +261,7 @@ def windrose_to_visualization_set(
         active_count=active_count,
     )
     source = {
-        "producer": "LB_Windrose_To_Visualization_Set",
+        "producer": "LB_Chart_To_Visualization_Set",
         "direction_data_collection": direction_source,
         "analysis_data_collection": analysis_source,
         "direction_count": direction_count,

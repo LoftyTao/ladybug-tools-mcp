@@ -63,8 +63,9 @@ internal sealed class SystemBuilder
             ResolveComponent(compId);
         }
 
-        // Build or resolve IB_ThermalZone instances keyed by room_name
+        // Build or resolve IB_ThermalZone instances keyed by room_name (two-pass so plenums can reference any zone)
         var zonesByRoom = new Dictionary<string, object>(StringComparer.Ordinal);
+        var zoneElsByRoom = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         if (draft.TryGetProperty("thermal_zones", out var tzListEl) && tzListEl.ValueKind == JsonValueKind.Array)
         {
             foreach (var tzEl in tzListEl.EnumerateArray())
@@ -73,8 +74,13 @@ internal sealed class SystemBuilder
                 if (zonesByRoom.ContainsKey(roomName))
                     throw new ArgumentException($"Duplicate thermal_zones entry for room_name '{roomName}'.");
 
-                var zone = CreateThermalZone(roomName, tzEl, ResolveComponent);
+                var zone = CreateThermalZone(roomName, tzEl, ResolveComponent, componentSpecs);
                 zonesByRoom[roomName] = zone;
+                zoneElsByRoom[roomName] = tzEl;
+            }
+            foreach (var kv in zoneElsByRoom)
+            {
+                ApplyThermalZonePlenums(kv.Key, zonesByRoom[kv.Key], kv.Value, zonesByRoom, ResolveComponent);
             }
         }
 
@@ -87,7 +93,7 @@ internal sealed class SystemBuilder
         {
             foreach (var alEl in alListEl.EnumerateArray())
             {
-                var airLoop = BuildAirLoop(alEl, ResolveComponent, zonesByRoom, assignedZoneRooms);
+                var airLoop = BuildAirLoop(alEl, ResolveComponent, componentSpecs, zonesByRoom, assignedZoneRooms);
                 airLoops.Add(airLoop);
             }
         }
@@ -116,7 +122,7 @@ internal sealed class SystemBuilder
         {
             foreach (var plEl in plListEl.EnumerateArray())
             {
-                var plantLoop = BuildPlantLoop(plEl, ResolveComponent);
+                var plantLoop = BuildPlantLoop(plEl, ResolveComponent, componentSpecs);
                 plantLoops.Add(plantLoop);
             }
         }
@@ -198,7 +204,11 @@ internal sealed class SystemBuilder
         return SummarizeSystem(sysType, sys);
     }
 
-    public Dictionary<string, object?> Validate(string specificationJson, IReadOnlyList<string> roomNames)
+    public Dictionary<string, object?> Validate(
+        string specificationJson,
+        IReadOnlyList<string> roomNames,
+        string? osmPath = null,
+        bool? runForwardTranslator = null)
     {
         var sysType = _runtime.ResolveHvacType("IB_HVACSystem");
         var fromJsonMethod = sysType.GetMethod("FromJson", BindingFlags.Public | BindingFlags.Static)!;
@@ -222,96 +232,151 @@ internal sealed class SystemBuilder
         var osZoneType = osAsm.GetType("OpenStudio.ThermalZone")
             ?? throw new TypeLoadException("OpenStudio.ThermalZone type not found.");
 
-        var osModel = Activator.CreateInstance(osModelType)!;
-        var setNameMethod = osZoneType.GetMethod("setName", new[] { typeof(string) });
-        foreach (var zName in zoneNames)
-        {
-            var osZone = Activator.CreateInstance(osZoneType, new[] { osModel })!;
-            setNameMethod?.Invoke(osZone, new object[] { zName });
-        }
-
         var errors = new List<string>();
         var warnings = new List<string>();
-        bool saveOk = false;
+        object? osModel = null;
+        bool hasExternalOsm = !string.IsNullOrWhiteSpace(osmPath);
 
-        var savedErr = Console.Error;
-        var logCapture = new StringWriter();
-        var utilType = _runtime.HvacAssembly.GetTypes().FirstOrDefault(t => t.Name == "IB_Utility");
-        var startSaving = utilType?.GetMethod("StartSaving", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-        var endSaving = utilType?.GetMethod("EndSaving", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-        bool savingStarted = false;
         try
         {
-            Console.SetError(logCapture);
-            if (startSaving != null)
+            if (hasExternalOsm)
             {
-                startSaving.Invoke(null, null);
-                savingStarted = true;
+                var fullOsmPath = Path.GetFullPath(osmPath!);
+                if (!File.Exists(fullOsmPath))
+                {
+                    errors.Add($"OSM file not found at '{fullOsmPath}'.");
+                    osModel = Activator.CreateInstance(osModelType)!;
+                }
+                else
+                {
+                    var osUtilCore = osAsm.GetType("OpenStudio.OpenStudioUtilitiesCore")
+                        ?? throw new TypeLoadException("OpenStudio.OpenStudioUtilitiesCore type not found.");
+                    var toPathMethod = osUtilCore.GetMethod("toPath", new[] { typeof(string) })
+                        ?? throw new MissingMethodException("OpenStudioUtilitiesCore.toPath(string) not found.");
+                    var osPath = toPathMethod.Invoke(null, new object[] { fullOsmPath })!;
+                    try
+                    {
+                        var loadMethod = osModelType.GetMethod("load", new[] { osPath.GetType() })
+                            ?? throw new MissingMethodException("OpenStudio.Model.load(OpenStudio.Path) not found.");
+                        var optModel = loadMethod.Invoke(null, new[] { osPath })!;
+                        try
+                        {
+                            var isInit = optModel.GetType().GetMethod("is_initialized")?.Invoke(optModel, null) is bool init && init;
+                            if (!isInit)
+                            {
+                                errors.Add($"Failed to load OpenStudio model from '{fullOsmPath}'.");
+                                osModel = Activator.CreateInstance(osModelType)!;
+                            }
+                            else
+                            {
+                                osModel = optModel.GetType().GetMethod("get")!.Invoke(optModel, null)!;
+                            }
+                        }
+                        finally
+                        {
+                            (optModel as IDisposable)?.Dispose();
+                        }
+                    }
+                    finally
+                    {
+                        (osPath as IDisposable)?.Dispose();
+                    }
+                }
             }
-            var saveMethod = sysType.GetMethod("SaveHVAC", new[] { osModelType })
-                ?? throw new MissingMethodException("IB_HVACSystem.SaveHVAC(OpenStudio.Model) not found.");
-            var result = saveMethod.Invoke(sys, new[] { osModel });
-            saveOk = result is bool b && b;
-            if (!saveOk)
+            else
             {
-                errors.Add("IB_HVACSystem.SaveHVAC(OpenStudio.Model) returned false.");
+                osModel = Activator.CreateInstance(osModelType)!;
+                var setNameMethod = osZoneType.GetMethod("setName", new[] { typeof(string) });
+                foreach (var zName in zoneNames)
+                {
+                    var osZone = Activator.CreateInstance(osZoneType, new[] { osModel })!;
+                    setNameMethod?.Invoke(osZone, new object[] { zName });
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            var inner = ex is TargetInvocationException tie && tie.InnerException != null ? tie.InnerException : ex;
-            errors.Add(inner.Message);
+
+            bool saveOk = false;
+            if (errors.Count == 0)
+            {
+                var savedErr = Console.Error;
+                var logCapture = new StringWriter();
+                var utilType = _runtime.HvacAssembly.GetTypes().FirstOrDefault(t => t.Name == "IB_Utility");
+                var startSaving = utilType?.GetMethod("StartSaving", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                var endSaving = utilType?.GetMethod("EndSaving", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                bool savingStarted = false;
+                try
+                {
+                    Console.SetError(logCapture);
+                    if (startSaving != null)
+                    {
+                        startSaving.Invoke(null, null);
+                        savingStarted = true;
+                    }
+                    var saveMethod = sysType.GetMethod("SaveHVAC", new[] { osModelType })
+                        ?? throw new MissingMethodException("IB_HVACSystem.SaveHVAC(OpenStudio.Model) not found.");
+                    var result = saveMethod.Invoke(sys, new[] { osModel });
+                    saveOk = result is bool b && b;
+                    if (!saveOk)
+                    {
+                        errors.Add("IB_HVACSystem.SaveHVAC(OpenStudio.Model) returned false.");
+                    }
+                    else
+                    {
+                        ApplyZoneEquipmentPriorities(sysType, sys, osAsm, osModelType, osModel, warnings);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    var inner = ex is TargetInvocationException tie && tie.InnerException != null ? tie.InnerException : ex;
+                    errors.Add(inner.Message);
+                }
+                finally
+                {
+                    if (savingStarted && endSaving != null)
+                    {
+                        try { endSaving.Invoke(null, null); } catch { }
+                    }
+                    Console.SetError(savedErr);
+                }
+
+                var logText = logCapture.ToString();
+                if (!string.IsNullOrWhiteSpace(logText))
+                {
+                    foreach (var line in logText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        var trimmed = line.Trim();
+                        if (!string.IsNullOrEmpty(trimmed)) warnings.Add(trimmed);
+                    }
+                }
+            }
+
+            Dictionary<string, object?>? forwardTranslatorInfo = null;
+            bool shouldRunFt = runForwardTranslator ?? hasExternalOsm;
+            if (shouldRunFt && saveOk && errors.Count == 0)
+            {
+                forwardTranslatorInfo = RunForwardTranslatorCheck(osAsm, osModelType, osModel, errors, warnings);
+            }
+
+            var osSummary = BuildOpenStudioSummary(osModelType, osModel);
+
+            var payload = new Dictionary<string, object?>
+            {
+                ["valid"] = saveOk && errors.Count == 0,
+                ["errors"] = errors,
+                ["warnings"] = warnings,
+                ["thermal_zones"] = zoneNames.ToList(),
+                ["system_summary"] = summary,
+                ["openstudio_summary"] = osSummary,
+            };
+            if (forwardTranslatorInfo != null)
+            {
+                payload["forward_translator"] = forwardTranslatorInfo;
+            }
+            return payload;
         }
         finally
         {
-            if (savingStarted && endSaving != null)
-            {
-                try { endSaving.Invoke(null, null); } catch { }
-            }
-            Console.SetError(savedErr);
+            (osModel as IDisposable)?.Dispose();
         }
-
-        var logText = logCapture.ToString();
-        if (!string.IsNullOrWhiteSpace(logText))
-        {
-            foreach (var line in logText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                var trimmed = line.Trim();
-                if (!string.IsNullOrEmpty(trimmed)) warnings.Add(trimmed);
-            }
-        }
-
-        var osSummary = new Dictionary<string, int>
-        {
-            ["thermal_zones"] = CountOsObjects(osModelType, osModel, "getThermalZones"),
-            ["air_loops"] = CountOsObjects(osModelType, osModel, "getAirLoopHVACs"),
-            ["plant_loops"] = CountOsObjects(osModelType, osModel, "getPlantLoops"),
-            ["vrf_systems"] = CountOsObjects(osModelType, osModel, "getAirConditionerVariableRefrigerantFlows"),
-            ["zone_hvac_four_pipe_fan_coils"] = CountOsObjects(osModelType, osModel, "getZoneHVACFourPipeFanCoils"),
-            ["zone_hvac_ptacs"] = CountOsObjects(osModelType, osModel, "getZoneHVACPackagedTerminalAirConditioners"),
-            ["zone_hvac_pthps"] = CountOsObjects(osModelType, osModel, "getZoneHVACPackagedTerminalHeatPumps"),
-            ["chillers_electric_eir"] = CountOsObjects(osModelType, osModel, "getChillerElectricEIRs"),
-            ["boilers_hot_water"] = CountOsObjects(osModelType, osModel, "getBoilerHotWaters"),
-            ["cooling_towers_variable_speed"] = CountOsObjects(osModelType, osModel, "getCoolingTowerVariableSpeeds"),
-            ["coil_cooling_waters"] = CountOsObjects(osModelType, osModel, "getCoilCoolingWaters"),
-            ["coil_heating_waters"] = CountOsObjects(osModelType, osModel, "getCoilHeatingWaters"),
-            ["air_terminals_vav_reheat"] = CountOsObjects(osModelType, osModel, "getAirTerminalSingleDuctVAVReheats"),
-            ["pumps_constant_speed"] = CountOsObjects(osModelType, osModel, "getPumpConstantSpeeds"),
-            ["pumps_variable_speed"] = CountOsObjects(osModelType, osModel, "getPumpVariableSpeeds"),
-            ["fans_on_off"] = CountOsObjects(osModelType, osModel, "getFanOnOffs"),
-            ["fans_constant_volume"] = CountOsObjects(osModelType, osModel, "getFanConstantVolumes"),
-            ["fans_variable_volume"] = CountOsObjects(osModelType, osModel, "getFanVariableVolumes"),
-        };
-
-        return new Dictionary<string, object?>
-        {
-            ["valid"] = saveOk && errors.Count == 0,
-            ["errors"] = errors,
-            ["warnings"] = warnings,
-            ["thermal_zones"] = zoneNames.ToList(),
-            ["system_summary"] = summary,
-            ["openstudio_summary"] = osSummary,
-        };
     }
 
     private Type ResolveVrfListElementType()
@@ -383,6 +448,16 @@ internal sealed class SystemBuilder
             ApplyFields(id, type, instance, fieldsEl, resolveComponent, allSpecs);
         }
 
+        if (spec.TryGetProperty("ib_properties", out var ibPropsEl) && ibPropsEl.ValueKind == JsonValueKind.Object)
+        {
+            ApplyIbProperties(id, type, instance, ibPropsEl, resolveComponent, allSpecs);
+        }
+
+        if (spec.TryGetProperty("children", out var childrenEl) && childrenEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyChildren(id, type, instance, childrenEl, resolveComponent);
+        }
+
         if (spec.TryGetProperty("wiring", out var wiringEl) && wiringEl.ValueKind != JsonValueKind.Null && wiringEl.ValueKind != JsonValueKind.Undefined)
         {
             ApplyWiring(id, type, instance, wiringEl, resolveComponent, allSpecs);
@@ -391,6 +466,21 @@ internal sealed class SystemBuilder
         if (spec.TryGetProperty("output_variables", out var outVarsEl) && outVarsEl.ValueKind == JsonValueKind.Array)
         {
             ApplyOutputVariables(id, type, instance, outVarsEl);
+        }
+
+        if (spec.TryGetProperty("ems_sensors", out var sensorsEl) && sensorsEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyEmsSensors(id, type, instance, sensorsEl, resolveComponent, allSpecs);
+        }
+
+        if (spec.TryGetProperty("ems_internal_variables", out var ivarsEl) && ivarsEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyEmsInternalVariables(id, type, instance, ivarsEl, resolveComponent, allSpecs);
+        }
+
+        if (spec.TryGetProperty("ems_actuators", out var actsEl) && actsEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyEmsActuators(id, type, instance, actsEl, resolveComponent, allSpecs);
         }
 
         return instance;
@@ -592,6 +682,25 @@ internal sealed class SystemBuilder
         var matchedMethod = FindMethod(normSlot);
         if (matchedMethod != null)
         {
+            if (string.Equals(matchedMethod.Name, "AddEMSSensors", StringComparison.OrdinalIgnoreCase)
+                && valueEl.ValueKind == JsonValueKind.Array)
+            {
+                ApplyEmsSensors(compId, type, instance, valueEl, resolveComponent, allSpecs);
+                return;
+            }
+            if (string.Equals(matchedMethod.Name, "AddEMSInternalVariables", StringComparison.OrdinalIgnoreCase)
+                && valueEl.ValueKind == JsonValueKind.Array)
+            {
+                ApplyEmsInternalVariables(compId, type, instance, valueEl, resolveComponent, allSpecs);
+                return;
+            }
+            if (string.Equals(matchedMethod.Name, "AddEMSActuators", StringComparison.OrdinalIgnoreCase)
+                && valueEl.ValueKind == JsonValueKind.Array)
+            {
+                ApplyEmsActuators(compId, type, instance, valueEl, resolveComponent, allSpecs);
+                return;
+            }
+
             var ps = matchedMethod.GetParameters();
             if (ps.Length == 1)
             {
@@ -700,11 +809,317 @@ internal sealed class SystemBuilder
         }
     }
 
-    private object CreateThermalZone(string roomName, JsonElement tzEl, Func<string, object> resolveComponent)
+    private void ApplyIbProperties(
+        string compId,
+        Type type,
+        object instance,
+        JsonElement ibPropsEl,
+        Func<string, object> resolveComponent,
+        Dictionary<string, JsonElement> allSpecs)
+    {
+        var ibPropsObj = type.GetProperty("IBProperties")?.GetValue(instance);
+        if (ibPropsObj is not IDictionary dict)
+            throw new ArgumentException($"Component '{compId}' ({type.Name}) does not expose IBProperties dictionary.");
+
+        foreach (var prop in ibPropsEl.EnumerateObject())
+        {
+            dict[prop.Name] = ConvertJsonValueForProperty(prop.Value, resolveComponent, allSpecs);
+        }
+    }
+
+    private object? ConvertJsonValueForProperty(
+        JsonElement el,
+        Func<string, object> resolveComponent,
+        Dictionary<string, JsonElement> allSpecs)
+    {
+        switch (el.ValueKind)
+        {
+            case JsonValueKind.Null:
+            case JsonValueKind.Undefined:
+                return null;
+            case JsonValueKind.True:
+            case JsonValueKind.False:
+                return el.GetBoolean();
+            case JsonValueKind.Number:
+                return el.TryGetInt32(out var iv) ? iv : el.GetDouble();
+            case JsonValueKind.String:
+                {
+                    var s = el.GetString()!;
+                    var stripped = StripRefPrefix(s);
+                    if ((s.StartsWith("@", StringComparison.Ordinal) || allSpecs.ContainsKey(stripped))
+                        && allSpecs.ContainsKey(stripped))
+                    {
+                        return resolveComponent(stripped);
+                    }
+                    return s;
+                }
+            case JsonValueKind.Array:
+                {
+                    var items = new List<object?>();
+                    foreach (var item in el.EnumerateArray())
+                    {
+                        items.Add(ConvertJsonValueForProperty(item, resolveComponent, allSpecs));
+                    }
+                    var nonNull = items.Where(x => x != null).ToList();
+                    if (nonNull.Count > 0 && nonNull.All(x => _runtime.ResolveHvacType("IB_HVACObject").IsInstanceOfType(x)))
+                    {
+                        var hvacListType = typeof(List<>).MakeGenericType(_runtime.ResolveHvacType("IB_HVACObject"));
+                        var typed = (IList)Activator.CreateInstance(hvacListType)!;
+                        foreach (var x in nonNull) typed.Add(x);
+                        return typed;
+                    }
+                    if (nonNull.Count > 0 && nonNull.All(x => x is double || x is int))
+                    {
+                        return nonNull.Select(Convert.ToDouble).ToList();
+                    }
+                    return items;
+                }
+            default:
+                return el.GetRawText();
+        }
+    }
+
+    private void ApplyChildren(
+        string compId,
+        Type type,
+        object instance,
+        JsonElement childrenEl,
+        Func<string, object> resolveComponent)
+    {
+        var childrenObj = type.GetProperty("Children")?.GetValue(instance);
+        if (childrenObj is not IList childList)
+            throw new ArgumentException($"Component '{compId}' ({type.Name}) does not expose Children list.");
+
+        foreach (var item in childrenEl.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetString()))
+                throw new ArgumentException($"children entries on '{compId}' must be component ID strings.");
+            var child = resolveComponent(StripRefPrefix(item.GetString()!));
+            childList.Add(child);
+        }
+    }
+
+    private void ApplyOptionalTrackingAndFields(
+        string label,
+        Type itemType,
+        object itemObj,
+        JsonElement objEl,
+        Func<string, object> resolveComponent,
+        Dictionary<string, JsonElement> allSpecs)
+    {
+        if (objEl.TryGetProperty("tracking_id", out var tidEl) && tidEl.ValueKind == JsonValueKind.String)
+        {
+            var tid = tidEl.GetString();
+            if (!string.IsNullOrWhiteSpace(tid))
+            {
+                itemType.GetMethod("SetTrackingID", new[] { typeof(string) })?.Invoke(itemObj, new object[] { tid });
+            }
+        }
+        if (objEl.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(nameEl.GetString()))
+        {
+            SetFieldByName(itemType, itemObj, "Name", nameEl.GetString()!);
+        }
+        if (objEl.TryGetProperty("fields", out var fieldsEl) && fieldsEl.ValueKind == JsonValueKind.Object)
+        {
+            ApplyFields(label, itemType, itemObj, fieldsEl, resolveComponent, allSpecs);
+        }
+    }
+
+    private void ApplyEmsSensors(
+        string compId,
+        Type type,
+        object instance,
+        JsonElement sensorsEl,
+        Func<string, object> resolveComponent,
+        Dictionary<string, JsonElement> allSpecs)
+    {
+        var sensorType = _runtime.ResolveHvacType("IB_EnergyManagementSystemSensor");
+        var listType = typeof(List<>).MakeGenericType(sensorType);
+        var list = (IList)Activator.CreateInstance(listType)!;
+
+        foreach (var item in sensorsEl.EnumerateArray())
+        {
+            object sensorObj;
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                sensorObj = resolveComponent(StripRefPrefix(item.GetString()!));
+                if (!sensorType.IsInstanceOfType(sensorObj))
+                    throw new ArgumentException($"ems_sensors item '{item.GetString()}' on '{compId}' is not an IB_EnergyManagementSystemSensor.");
+            }
+            else if (item.ValueKind == JsonValueKind.Object)
+            {
+                sensorObj = Activator.CreateInstance(sensorType)!;
+                ApplyOptionalTrackingAndFields($"{compId}:ems_sensor", sensorType, sensorObj, item, resolveComponent, allSpecs);
+                if (item.TryGetProperty("key_name", out var knEl) && knEl.ValueKind == JsonValueKind.String)
+                {
+                    sensorType.GetMethod("SetKeyName", new[] { typeof(string) })?.Invoke(sensorObj, new object[] { knEl.GetString()! });
+                }
+                if (item.TryGetProperty("output_variable", out var ovEl) && ovEl.ValueKind == JsonValueKind.String)
+                {
+                    sensorType.GetMethod("SetOutputVariable", new[] { typeof(string) })?.Invoke(sensorObj, new object[] { ovEl.GetString()! });
+                }
+                else if (item.TryGetProperty("output_variable_or_meter_name", out var ovmEl) && ovmEl.ValueKind == JsonValueKind.String)
+                {
+                    sensorType.GetMethod("SetOutputVariable", new[] { typeof(string) })?.Invoke(sensorObj, new object[] { ovmEl.GetString()! });
+                }
+            }
+            else
+            {
+                throw new ArgumentException($"Invalid ems_sensors entry on '{compId}'.");
+            }
+            list.Add(sensorObj);
+        }
+
+        if (list.Count > 0)
+        {
+            var addMethod = type.GetMethod("AddEMSSensors", new[] { listType })
+                ?? throw new MissingMethodException($"{type.Name}.AddEMSSensors not found.");
+            addMethod.Invoke(instance, new object[] { list });
+        }
+    }
+
+    private void ApplyEmsInternalVariables(
+        string compId,
+        Type type,
+        object instance,
+        JsonElement ivarsEl,
+        Func<string, object> resolveComponent,
+        Dictionary<string, JsonElement> allSpecs)
+    {
+        var ivarType = _runtime.ResolveHvacType("IB_EnergyManagementSystemInternalVariable");
+        var listType = typeof(List<>).MakeGenericType(ivarType);
+        var list = (IList)Activator.CreateInstance(listType)!;
+
+        foreach (var item in ivarsEl.EnumerateArray())
+        {
+            object ivarObj;
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                ivarObj = resolveComponent(StripRefPrefix(item.GetString()!));
+                if (!ivarType.IsInstanceOfType(ivarObj))
+                    throw new ArgumentException($"ems_internal_variables item '{item.GetString()}' on '{compId}' is not an IB_EnergyManagementSystemInternalVariable.");
+            }
+            else if (item.ValueKind == JsonValueKind.Object)
+            {
+                ivarObj = Activator.CreateInstance(ivarType)!;
+                ApplyOptionalTrackingAndFields($"{compId}:ems_internal_variable", ivarType, ivarObj, item, resolveComponent, allSpecs);
+                if (item.TryGetProperty("internal_data_type", out var dtEl) && dtEl.ValueKind == JsonValueKind.String)
+                {
+                    ivarType.GetMethod("SetInternalDataType", new[] { typeof(string) })?.Invoke(ivarObj, new object[] { dtEl.GetString()! });
+                }
+                else if (item.TryGetProperty("data_type", out var dt2El) && dt2El.ValueKind == JsonValueKind.String)
+                {
+                    ivarType.GetMethod("SetInternalDataType", new[] { typeof(string) })?.Invoke(ivarObj, new object[] { dt2El.GetString()! });
+                }
+                if (item.TryGetProperty("host_obj", out var hostEl) && hostEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(hostEl.GetString()))
+                {
+                    ivarType.GetProperty("HostObj")?.SetValue(ivarObj, resolveComponent(StripRefPrefix(hostEl.GetString()!)));
+                }
+            }
+            else
+            {
+                throw new ArgumentException($"Invalid ems_internal_variables entry on '{compId}'.");
+            }
+            list.Add(ivarObj);
+        }
+
+        if (list.Count > 0)
+        {
+            var addMethod = type.GetMethod("AddEMSInternalVariables", new[] { listType })
+                ?? throw new MissingMethodException($"{type.Name}.AddEMSInternalVariables not found.");
+            addMethod.Invoke(instance, new object[] { list });
+        }
+    }
+
+    private void ApplyEmsActuators(
+        string compId,
+        Type type,
+        object instance,
+        JsonElement actsEl,
+        Func<string, object> resolveComponent,
+        Dictionary<string, JsonElement> allSpecs)
+    {
+        var actType = _runtime.ResolveHvacType("IB_EnergyManagementSystemActuator");
+        var modelObjType = _runtime.ResolveHvacType("IB_ModelObject");
+        var listType = typeof(List<>).MakeGenericType(actType);
+        var list = (IList)Activator.CreateInstance(listType)!;
+
+        foreach (var item in actsEl.EnumerateArray())
+        {
+            object actObj;
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                actObj = resolveComponent(StripRefPrefix(item.GetString()!));
+                if (!actType.IsInstanceOfType(actObj))
+                    throw new ArgumentException($"ems_actuators item '{item.GetString()}' on '{compId}' is not an IB_EnergyManagementSystemActuator.");
+            }
+            else if (item.ValueKind == JsonValueKind.Object)
+            {
+                if (item.TryGetProperty("actuated_obj", out var aoEl) && aoEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(aoEl.GetString()))
+                {
+                    var aoKey = StripRefPrefix(aoEl.GetString()!);
+                    if (allSpecs.ContainsKey(aoKey))
+                    {
+                        var targetComp = resolveComponent(aoKey);
+                        actObj = actType.GetConstructor(new[] { modelObjType })!.Invoke(new[] { targetComp });
+                    }
+                    else
+                    {
+                        actObj = actType.GetConstructor(new[] { typeof(string) })!.Invoke(new object[] { aoKey });
+                    }
+                }
+                else
+                {
+                    actObj = Activator.CreateInstance(actType)!;
+                }
+
+                ApplyOptionalTrackingAndFields($"{compId}:ems_actuator", actType, actObj, item, resolveComponent, allSpecs);
+                if (item.TryGetProperty("actuated_component_type", out var ctEl) && ctEl.ValueKind == JsonValueKind.String)
+                {
+                    SetFieldByName(actType, actObj, "ActuatedComponentType", ctEl.GetString()!);
+                }
+                else if (item.TryGetProperty("component_type", out var ct2El) && ct2El.ValueKind == JsonValueKind.String)
+                {
+                    SetFieldByName(actType, actObj, "ActuatedComponentType", ct2El.GetString()!);
+                }
+                if (item.TryGetProperty("actuated_component_control_type", out var ccEl) && ccEl.ValueKind == JsonValueKind.String)
+                {
+                    SetFieldByName(actType, actObj, "ActuatedComponentControlType", ccEl.GetString()!);
+                }
+                else if (item.TryGetProperty("control_type", out var cc2El) && cc2El.ValueKind == JsonValueKind.String)
+                {
+                    SetFieldByName(actType, actObj, "ActuatedComponentControlType", cc2El.GetString()!);
+                }
+            }
+            else
+            {
+                throw new ArgumentException($"Invalid ems_actuators entry on '{compId}'.");
+            }
+            list.Add(actObj);
+        }
+
+        if (list.Count > 0)
+        {
+            var addMethod = type.GetMethod("AddEMSActuators", new[] { listType })
+                ?? throw new MissingMethodException($"{type.Name}.AddEMSActuators not found.");
+            addMethod.Invoke(instance, new object[] { list });
+        }
+    }
+
+    private object CreateThermalZone(
+        string roomName,
+        JsonElement tzEl,
+        Func<string, object> resolveComponent,
+        Dictionary<string, JsonElement> allSpecs)
     {
         var zoneType = _runtime.ResolveHvacType("IB_ThermalZone");
         var zone = Activator.CreateInstance(zoneType, new object[] { roomName })!;
+        var zoneLabel = $"thermal_zone:{roomName}";
 
+        if (tzEl.TryGetProperty("fields", out var fieldsEl) && fieldsEl.ValueKind == JsonValueKind.Object)
+        {
+            ApplyFields(zoneLabel, zoneType, zone, fieldsEl, resolveComponent, allSpecs);
+        }
         if (tzEl.TryGetProperty("sizing_zone", out var szEl) && szEl.ValueKind == JsonValueKind.String)
         {
             var szId = StripRefPrefix(szEl.GetString()!);
@@ -715,59 +1130,432 @@ internal sealed class SystemBuilder
             var atId = StripRefPrefix(atEl.GetString()!);
             zoneType.GetMethod("SetAirTerminal")!.Invoke(zone, new[] { resolveComponent(atId) });
         }
+
+        var eqIds = new List<string>();
         if (tzEl.TryGetProperty("zone_equipments", out var eqEl) && eqEl.ValueKind == JsonValueKind.Array)
         {
-            var addEq = zoneType.GetMethod("AddZoneEquipment")!;
             foreach (var item in eqEl.EnumerateArray())
             {
                 if (item.ValueKind != JsonValueKind.String)
                     throw new ArgumentException($"zone_equipments entries on room '{roomName}' must be component ID strings.");
-                addEq.Invoke(zone, new[] { resolveComponent(StripRefPrefix(item.GetString()!)) });
+                eqIds.Add(StripRefPrefix(item.GetString()!));
             }
         }
+
+        // Parse equipment_list_priorities if present, sort initial ZoneEquipments order and stash metadata on IBProperties
+        var priorityMap = ParseEquipmentListPriorities(tzEl, roomName);
+        if (priorityMap != null && eqIds.Count > 1)
+        {
+            eqIds = eqIds
+                .Select((eid, idx) => (Id: eid, Idx: idx, Score: priorityMap.TryGetValue(eid, out var pr) ? Math.Min(pr.Cooling, pr.Heating) : int.MaxValue))
+                .OrderBy(x => x.Score)
+                .ThenBy(x => x.Idx)
+                .Select(x => x.Id)
+                .ToList();
+        }
+        if (eqIds.Count > 0)
+        {
+            var addEq = zoneType.GetMethod("AddZoneEquipment")!;
+            foreach (var eid in eqIds)
+            {
+                addEq.Invoke(zone, new[] { resolveComponent(eid) });
+            }
+        }
+        if (priorityMap != null && priorityMap.Count > 0)
+        {
+            var resolvedPriorities = new List<Dictionary<string, object?>>();
+            foreach (var kv in priorityMap)
+            {
+                string? trackingTag = null;
+                if (allSpecs.ContainsKey(kv.Key))
+                {
+                    var compObj = resolveComponent(kv.Key);
+                    trackingTag = compObj.GetType().GetMethod("GetTrackingTagID")?.Invoke(compObj, null)?.ToString();
+                }
+                resolvedPriorities.Add(new Dictionary<string, object?>
+                {
+                    ["component"] = kv.Key,
+                    ["tracking_tag"] = trackingTag,
+                    ["cooling_priority"] = kv.Value.Cooling,
+                    ["heating_priority"] = kv.Value.Heating,
+                });
+            }
+            if (zoneType.GetProperty("IBProperties")?.GetValue(zone) is IDictionary ibProps)
+            {
+                ibProps["EquipmentListPriorities"] = JsonSerializer.Serialize(resolvedPriorities);
+            }
+        }
+
         if (tzEl.TryGetProperty("allow_multi_air_loops", out var amaEl) && (amaEl.ValueKind == JsonValueKind.True || amaEl.ValueKind == JsonValueKind.False))
         {
             zoneType.GetProperty("AllowMultiAirLoops")?.SetValue(zone, amaEl.GetBoolean());
         }
-        if (tzEl.TryGetProperty("supply_plenum", out var spEl) && spEl.ValueKind == JsonValueKind.String)
+        if (tzEl.TryGetProperty("is_air_terminal_before_zone_equipments", out var atbEl) && (atbEl.ValueKind == JsonValueKind.True || atbEl.ValueKind == JsonValueKind.False))
         {
-            zoneType.GetMethod("SetSupplyPlenum")!.Invoke(zone, new[] { resolveComponent(StripRefPrefix(spEl.GetString()!)) });
+            zoneType.GetProperty("IsAirTerminalBeforeZoneEquipments")?.SetValue(zone, atbEl.GetBoolean());
         }
-        if (tzEl.TryGetProperty("return_plenum", out var rpEl) && rpEl.ValueKind == JsonValueKind.String)
+        if (tzEl.TryGetProperty("wiring", out var wiringEl) && wiringEl.ValueKind == JsonValueKind.Object)
         {
-            zoneType.GetMethod("SetReturnPlenum")!.Invoke(zone, new[] { resolveComponent(StripRefPrefix(rpEl.GetString()!)) });
+            ApplyWiring(zoneLabel, zoneType, zone, wiringEl, resolveComponent, allSpecs);
+        }
+        if (tzEl.TryGetProperty("output_variables", out var outVarsEl) && outVarsEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyOutputVariables(zoneLabel, zoneType, zone, outVarsEl);
+        }
+        if (tzEl.TryGetProperty("ems_sensors", out var sensorsEl) && sensorsEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyEmsSensors(zoneLabel, zoneType, zone, sensorsEl, resolveComponent, allSpecs);
+        }
+        if (tzEl.TryGetProperty("ems_internal_variables", out var ivarsEl) && ivarsEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyEmsInternalVariables(zoneLabel, zoneType, zone, ivarsEl, resolveComponent, allSpecs);
+        }
+        if (tzEl.TryGetProperty("ems_actuators", out var actsEl) && actsEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyEmsActuators(zoneLabel, zoneType, zone, actsEl, resolveComponent, allSpecs);
         }
         return zone;
+    }
+
+    private void ApplyThermalZonePlenums(
+        string roomName,
+        object zone,
+        JsonElement tzEl,
+        Dictionary<string, object> zonesByRoom,
+        Func<string, object> resolveComponent)
+    {
+        var zoneType = zone.GetType();
+        if (tzEl.TryGetProperty("supply_plenum", out var spEl) && spEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(spEl.GetString()))
+        {
+            var plenum = ResolvePlenumZone(spEl.GetString()!, zonesByRoom, resolveComponent);
+            zoneType.GetMethod("SetSupplyPlenum")!.Invoke(zone, new[] { plenum });
+        }
+        if (tzEl.TryGetProperty("return_plenum", out var rpEl) && rpEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(rpEl.GetString()))
+        {
+            var plenum = ResolvePlenumZone(rpEl.GetString()!, zonesByRoom, resolveComponent);
+            zoneType.GetMethod("SetReturnPlenum")!.Invoke(zone, new[] { plenum });
+        }
+    }
+
+    private object ResolvePlenumZone(
+        string rawRef,
+        Dictionary<string, object> zonesByRoom,
+        Func<string, object> resolveComponent)
+    {
+        var key = StripRefPrefix(rawRef);
+        if (zonesByRoom.TryGetValue(key, out var existingZone))
+            return existingZone;
+        try
+        {
+            var comp = resolveComponent(key);
+            if (comp.GetType().Name == "IB_ThermalZone")
+                return comp;
+        }
+        catch (KeyNotFoundException)
+        {
+        }
+        var zoneType = _runtime.ResolveHvacType("IB_ThermalZone");
+        return Activator.CreateInstance(zoneType, new object[] { key })!;
+    }
+
+    private static Dictionary<string, (int Cooling, int Heating)>? ParseEquipmentListPriorities(
+        JsonElement tzEl,
+        string roomName)
+    {
+        if (!tzEl.TryGetProperty("equipment_list_priorities", out var el)
+            || el.ValueKind == JsonValueKind.Null
+            || el.ValueKind == JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        var map = new Dictionary<string, (int Cooling, int Heating)>(StringComparer.Ordinal);
+        if (el.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in el.EnumerateObject())
+            {
+                var cid = StripRefPrefix(prop.Name);
+                if (prop.Value.ValueKind == JsonValueKind.Number)
+                {
+                    int p = Math.Max(1, prop.Value.GetInt32());
+                    map[cid] = (p, p);
+                }
+                else if (prop.Value.ValueKind == JsonValueKind.Object)
+                {
+                    int cool = prop.Value.TryGetProperty("cooling_priority", out var cEl) && cEl.ValueKind == JsonValueKind.Number
+                        ? Math.Max(1, cEl.GetInt32())
+                        : (prop.Value.TryGetProperty("cooling", out var c2El) && c2El.ValueKind == JsonValueKind.Number ? Math.Max(1, c2El.GetInt32()) : 1);
+                    int heat = prop.Value.TryGetProperty("heating_priority", out var hEl) && hEl.ValueKind == JsonValueKind.Number
+                        ? Math.Max(1, hEl.GetInt32())
+                        : (prop.Value.TryGetProperty("heating", out var h2El) && h2El.ValueKind == JsonValueKind.Number ? Math.Max(1, h2El.GetInt32()) : cool);
+                    map[cid] = (cool, heat);
+                }
+                else
+                {
+                    throw new ArgumentException($"Invalid equipment_list_priorities value for '{prop.Name}' on room '{roomName}'.");
+                }
+            }
+            return map;
+        }
+
+        if (el.ValueKind == JsonValueKind.Array)
+        {
+            int idx = 1;
+            foreach (var item in el.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                {
+                    map[StripRefPrefix(item.GetString()!)] = (idx, idx);
+                }
+                else if (item.ValueKind == JsonValueKind.Object)
+                {
+                    var cid = item.TryGetProperty("component", out var compEl) && compEl.ValueKind == JsonValueKind.String
+                        ? StripRefPrefix(compEl.GetString()!)
+                        : GetRequiredString(item, "id");
+                    int cool = item.TryGetProperty("cooling_priority", out var cEl) && cEl.ValueKind == JsonValueKind.Number
+                        ? Math.Max(1, cEl.GetInt32())
+                        : (item.TryGetProperty("priority", out var pEl) && pEl.ValueKind == JsonValueKind.Number ? Math.Max(1, pEl.GetInt32()) : idx);
+                    int heat = item.TryGetProperty("heating_priority", out var hEl) && hEl.ValueKind == JsonValueKind.Number
+                        ? Math.Max(1, hEl.GetInt32())
+                        : cool;
+                    map[cid] = (cool, heat);
+                }
+                else
+                {
+                    throw new ArgumentException($"Invalid equipment_list_priorities array item on room '{roomName}'.");
+                }
+                idx++;
+            }
+            return map;
+        }
+
+        throw new ArgumentException($"equipment_list_priorities on room '{roomName}' must be an object or array.");
+    }
+
+    private void ApplyLoopCommon(
+        string loopLabel,
+        Type loopType,
+        object loopInst,
+        JsonElement loopEl,
+        Func<string, object> resolveComponent,
+        Dictionary<string, JsonElement> allSpecs)
+    {
+        if (loopEl.TryGetProperty("fields", out var fieldsEl) && fieldsEl.ValueKind == JsonValueKind.Object)
+        {
+            ApplyFields(loopLabel, loopType, loopInst, fieldsEl, resolveComponent, allSpecs);
+        }
+        if (loopEl.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(nameEl.GetString()))
+        {
+            SetFieldByName(loopType, loopInst, "Name", nameEl.GetString()!);
+        }
+        if (loopEl.TryGetProperty("availability_managers", out var amEl) && amEl.ValueKind == JsonValueKind.Array)
+        {
+            var amlObj = BuildAvailabilityManagerList(loopLabel, amEl, resolveComponent, allSpecs);
+            if (amlObj != null)
+            {
+                SetFieldByName(loopType, loopInst, "AvailabilityManagers", amlObj);
+            }
+        }
+        if (loopEl.TryGetProperty("wiring", out var wiringEl) && wiringEl.ValueKind == JsonValueKind.Object)
+        {
+            ApplyWiring(loopLabel, loopType, loopInst, wiringEl, resolveComponent, allSpecs);
+        }
+        if (loopEl.TryGetProperty("output_variables", out var outVarsEl) && outVarsEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyOutputVariables(loopLabel, loopType, loopInst, outVarsEl);
+        }
+        if (loopEl.TryGetProperty("ems_sensors", out var sensorsEl) && sensorsEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyEmsSensors(loopLabel, loopType, loopInst, sensorsEl, resolveComponent, allSpecs);
+        }
+        if (loopEl.TryGetProperty("ems_internal_variables", out var ivarsEl) && ivarsEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyEmsInternalVariables(loopLabel, loopType, loopInst, ivarsEl, resolveComponent, allSpecs);
+        }
+        if (loopEl.TryGetProperty("ems_actuators", out var actsEl) && actsEl.ValueKind == JsonValueKind.Array)
+        {
+            ApplyEmsActuators(loopLabel, loopType, loopInst, actsEl, resolveComponent, allSpecs);
+        }
+    }
+
+    private object? BuildAvailabilityManagerList(
+        string loopLabel,
+        JsonElement amEl,
+        Func<string, object> resolveComponent,
+        Dictionary<string, JsonElement> allSpecs)
+    {
+        var amBaseType = _runtime.ResolveHvacType("IB_AvailabilityManager");
+        var listType = typeof(List<>).MakeGenericType(amBaseType);
+        var managers = (IList)Activator.CreateInstance(listType)!;
+
+        foreach (var item in amEl.EnumerateArray())
+        {
+            object mgr;
+            if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+            {
+                mgr = resolveComponent(StripRefPrefix(item.GetString()!));
+            }
+            else if (item.ValueKind == JsonValueKind.Object)
+            {
+                mgr = InstantiateComponent($"{loopLabel}:availability_manager", item, resolveComponent, allSpecs);
+            }
+            else
+            {
+                throw new ArgumentException($"availability_managers entries on {loopLabel} must be component IDs or component spec objects.");
+            }
+            if (!amBaseType.IsInstanceOfType(mgr))
+            {
+                throw new ArgumentException($"Availability manager '{mgr.GetType().Name}' on {loopLabel} does not inherit from IB_AvailabilityManager.");
+            }
+            managers.Add(mgr);
+        }
+
+        if (managers.Count == 0) return null;
+
+        var amlType = _runtime.ResolveHvacType("IB_AvailabilityManagerList");
+        var aml = Activator.CreateInstance(amlType)!;
+        amlType.GetMethod("SetManagers", new[] { listType })!.Invoke(aml, new object[] { managers });
+        return aml;
     }
 
     private object BuildAirLoop(
         JsonElement alEl,
         Func<string, object> resolveComponent,
+        Dictionary<string, JsonElement> allSpecs,
         Dictionary<string, object> zonesByRoom,
         HashSet<string> assignedZoneRooms)
     {
         var alType = _runtime.ResolveHvacType("IB_AirLoopHVAC");
         var airLoop = Activator.CreateInstance(alType)!;
+        var loopName = alEl.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String
+            ? nEl.GetString() ?? "AirLoop"
+            : "AirLoop";
 
-        if (alEl.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String)
-        {
-            SetFieldByName(alType, airLoop, "Name", nameEl.GetString()!);
-        }
+        ApplyLoopCommon($"air_loop:{loopName}", alType, airLoop, alEl, resolveComponent, allSpecs);
 
         if (alEl.TryGetProperty("sizing_system", out var szEl) && szEl.ValueKind == JsonValueKind.String)
         {
             alType.GetMethod("SetSizingSystem")!.Invoke(airLoop, new[] { resolveComponent(StripRefPrefix(szEl.GetString()!)) });
         }
 
+        // Parse optional return_path (return fan/components before OA system, relief_stream_objs, and/or return_plenum)
+        var returnPreSupply = new List<object>();
+        var reliefStreamComps = new List<object>();
+        string? loopReturnPlenumRef = null;
+        if (alEl.TryGetProperty("return_path", out var rpEl) && rpEl.ValueKind != JsonValueKind.Null && rpEl.ValueKind != JsonValueKind.Undefined)
+        {
+            if (rpEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(rpEl.GetString()))
+            {
+                var key = StripRefPrefix(rpEl.GetString()!);
+                if (allSpecs.ContainsKey(key) && resolveComponent(key).GetType().Name != "IB_ThermalZone")
+                    returnPreSupply.Add(resolveComponent(key));
+                else
+                    loopReturnPlenumRef = key;
+            }
+            else if (rpEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in rpEl.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetString()))
+                        throw new ArgumentException("air_loops[].return_path array items must be component ID strings.");
+                    returnPreSupply.Add(resolveComponent(StripRefPrefix(item.GetString()!)));
+                }
+            }
+            else if (rpEl.ValueKind == JsonValueKind.Object)
+            {
+                if (rpEl.TryGetProperty("return_plenum", out var rplEl) && rplEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(rplEl.GetString()))
+                    loopReturnPlenumRef = rplEl.GetString()!;
+                else if (rpEl.TryGetProperty("plenum", out var plmEl) && plmEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(plmEl.GetString()))
+                    loopReturnPlenumRef = plmEl.GetString()!;
+
+                if (rpEl.TryGetProperty("return_fan", out var rfEl) && rfEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(rfEl.GetString()))
+                    returnPreSupply.Add(resolveComponent(StripRefPrefix(rfEl.GetString()!)));
+                else if (rpEl.TryGetProperty("fan", out var fEl) && fEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(fEl.GetString()))
+                    returnPreSupply.Add(resolveComponent(StripRefPrefix(fEl.GetString()!)));
+
+                foreach (var key in new[] { "components", "return_components" })
+                {
+                    if (rpEl.TryGetProperty(key, out var compsEl) && compsEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var c in compsEl.EnumerateArray())
+                        {
+                            if (c.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(c.GetString()))
+                                returnPreSupply.Add(resolveComponent(StripRefPrefix(c.GetString()!)));
+                        }
+                    }
+                }
+                foreach (var key in new[] { "relief_stream_objs", "relief_components" })
+                {
+                    if (rpEl.TryGetProperty(key, out var relEl) && relEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var c in relEl.EnumerateArray())
+                        {
+                            if (c.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(c.GetString()))
+                                reliefStreamComps.Add(resolveComponent(StripRefPrefix(c.GetString()!)));
+                        }
+                    }
+                }
+            }
+            else
+            {
+                throw new ArgumentException("air_loops[].return_path must be a string, list of component IDs, or object.");
+            }
+        }
+
         var addToSupply = alType.GetMethod("AddToSupplySide")!;
+        var addedSupplyObjs = new List<object>();
+        foreach (var preComp in returnPreSupply)
+        {
+            addToSupply.Invoke(airLoop, new[] { preComp });
+            addedSupplyObjs.Add(preComp);
+        }
+
         if (alEl.TryGetProperty("supply", out var supEl) && supEl.ValueKind == JsonValueKind.Array)
         {
             foreach (var item in supEl.EnumerateArray())
             {
                 if (item.ValueKind != JsonValueKind.String)
                     throw new ArgumentException("air_loops[].supply items must be component ID strings.");
-                addToSupply.Invoke(airLoop, new[] { resolveComponent(StripRefPrefix(item.GetString()!)) });
+                var comp = resolveComponent(StripRefPrefix(item.GetString()!));
+                if (reliefStreamComps.Count > 0 && comp.GetType().Name == "IB_OutdoorAirSystem")
+                {
+                    if (comp.GetType().GetProperty("ReliefStreamObjs")?.GetValue(comp) is IList relList)
+                    {
+                        foreach (var rc in reliefStreamComps) relList.Add(rc);
+                    }
+                }
+                addToSupply.Invoke(airLoop, new[] { comp });
+                addedSupplyObjs.Add(comp);
             }
+        }
+
+        if (alEl.TryGetProperty("supply_branches", out var sbEl) && sbEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var branchEl in sbEl.EnumerateArray())
+            {
+                if (branchEl.ValueKind != JsonValueKind.Array)
+                    throw new ArgumentException("air_loops[].supply_branches must be a list of component ID lists.");
+                foreach (var item in branchEl.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.String)
+                        throw new ArgumentException("air_loops[].supply_branches items must be component ID strings.");
+                    var comp = resolveComponent(StripRefPrefix(item.GetString()!));
+                    if (reliefStreamComps.Count > 0 && comp.GetType().Name == "IB_OutdoorAirSystem")
+                    {
+                        if (comp.GetType().GetProperty("ReliefStreamObjs")?.GetValue(comp) is IList relList)
+                        {
+                            foreach (var rc in reliefStreamComps) relList.Add(rc);
+                        }
+                    }
+                    addToSupply.Invoke(airLoop, new[] { comp });
+                    addedSupplyObjs.Add(comp);
+                }
+            }
+        }
+
+        if (reliefStreamComps.Count > 0 && !addedSupplyObjs.Any(o => o.GetType().Name == "IB_OutdoorAirSystem"))
+        {
+            throw new ArgumentException($"air_loops[].return_path specified relief components on '{loopName}', but no IB_OutdoorAirSystem was found on supply.");
         }
 
         object GetOrCreateZoneByRoom(string roomOrCompId)
@@ -778,7 +1566,6 @@ internal sealed class SystemBuilder
                 assignedZoneRooms.Add(key);
                 return z;
             }
-            // Also check if it's a component ID of an IB_ThermalZone in components
             try
             {
                 var comp = resolveComponent(key);
@@ -795,6 +1582,7 @@ internal sealed class SystemBuilder
             return created;
         }
 
+        var loopZones = new List<object>();
         var addToDemand = alType.GetMethod("AddToDemandSide")!;
         var hvacObjBase = _runtime.ResolveHvacType("IB_HVACObject");
         var airBranchesType = _runtime.ResolveHvacType("IB_AirLoopBranches");
@@ -808,6 +1596,7 @@ internal sealed class SystemBuilder
                 if (branchEl.ValueKind != JsonValueKind.Array)
                     throw new ArgumentException("air_loops[].demand_branches must be a list of branch lists.");
                 var items = branchEl.EnumerateArray().Select(x => GetOrCreateZoneByRoom(x.GetString()!)).ToArray();
+                loopZones.AddRange(items);
                 var arr = Array.CreateInstance(hvacObjBase, items.Length);
                 for (int i = 0; i < items.Length; i++) arr.SetValue(items[i], i);
                 addBranchMethod.Invoke(ab, new object[] { arr });
@@ -822,6 +1611,7 @@ internal sealed class SystemBuilder
                 if (zEl.ValueKind != JsonValueKind.String)
                     throw new ArgumentException("air_loops[].demand_zones items must be room name strings.");
                 var zoneObj = GetOrCreateZoneByRoom(zEl.GetString()!);
+                loopZones.Add(zoneObj);
                 var arr = Array.CreateInstance(hvacObjBase, 1);
                 arr.SetValue(zoneObj, 0);
                 addBranchMethod.Invoke(ab, new object[] { arr });
@@ -829,18 +1619,34 @@ internal sealed class SystemBuilder
             addToDemand.Invoke(airLoop, new[] { ab });
         }
 
+        if (!string.IsNullOrWhiteSpace(loopReturnPlenumRef))
+        {
+            var plenumObj = ResolvePlenumZone(loopReturnPlenumRef, zonesByRoom, resolveComponent);
+            foreach (var zObj in loopZones)
+            {
+                var zt = zObj.GetType();
+                if (zt.GetProperty("ReturnPlenum")?.GetValue(zObj) == null)
+                {
+                    zt.GetMethod("SetReturnPlenum")?.Invoke(zObj, new[] { plenumObj });
+                }
+            }
+        }
+
         return airLoop;
     }
 
-    private object BuildPlantLoop(JsonElement plEl, Func<string, object> resolveComponent)
+    private object BuildPlantLoop(
+        JsonElement plEl,
+        Func<string, object> resolveComponent,
+        Dictionary<string, JsonElement> allSpecs)
     {
         var plType = _runtime.ResolveHvacType("IB_PlantLoop");
         var plantLoop = Activator.CreateInstance(plType)!;
+        var loopName = plEl.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String
+            ? nEl.GetString() ?? "PlantLoop"
+            : "PlantLoop";
 
-        if (plEl.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String)
-        {
-            SetFieldByName(plType, plantLoop, "Name", nameEl.GetString()!);
-        }
+        ApplyLoopCommon($"plant_loop:{loopName}", plType, plantLoop, plEl, resolveComponent, allSpecs);
 
         // SizingPlant
         if (plEl.TryGetProperty("sizing_plant", out var spEl) && spEl.ValueKind == JsonValueKind.String)
@@ -878,10 +1684,12 @@ internal sealed class SystemBuilder
             plType.GetMethod("SetOperationScheme")!.Invoke(plantLoop, new[] { resolveComponent(StripRefPrefix(osEl.GetString()!)) });
         }
 
+        var (supplyBypassPipe, demandBypassPipe) = ResolvePlantBypassPipes(plEl, resolveComponent);
+
         var addToSupply = plType.GetMethod("AddToSupply")!;
         var addToDemand = plType.GetMethod("AddToDemand")!;
 
-        object BuildPlantBranches(JsonElement branchesEl, string sideName)
+        object BuildPlantBranches(JsonElement branchesEl, string sideName, object? extraBypassPipe)
         {
             var hvacObjBase = _runtime.ResolveHvacType("IB_HVACObject");
             var plBranchesType = _runtime.ResolveHvacType("IB_PlantLoopBranches");
@@ -901,10 +1709,27 @@ internal sealed class SystemBuilder
                 for (int i = 0; i < comps.Length; i++) arr.SetValue(comps[i], i);
                 addBranch.Invoke(branches, new object[] { arr });
             }
+            if (extraBypassPipe != null)
+            {
+                var bpArr = Array.CreateInstance(hvacObjBase, 1);
+                bpArr.SetValue(extraBypassPipe, 0);
+                addBranch.Invoke(branches, new object[] { bpArr });
+            }
             return branches;
         }
 
-        // Supply side: serial items (pump, etc.) + parallel supply_branches + optional setpoint
+        object BuildSingleBypassBranch(object bypassPipe)
+        {
+            var hvacObjBase = _runtime.ResolveHvacType("IB_HVACObject");
+            var plBranchesType = _runtime.ResolveHvacType("IB_PlantLoopBranches");
+            var branches = Activator.CreateInstance(plBranchesType)!;
+            var arr = Array.CreateInstance(hvacObjBase, 1);
+            arr.SetValue(bypassPipe, 0);
+            plBranchesType.GetMethod("AddBranch")!.Invoke(branches, new object[] { arr });
+            return branches;
+        }
+
+        bool supplyBypassAdded = false;
         if (plEl.TryGetProperty("supply", out var supEl) && supEl.ValueKind == JsonValueKind.Array)
         {
             foreach (var item in supEl.EnumerateArray())
@@ -915,7 +1740,9 @@ internal sealed class SystemBuilder
                 }
                 else if (item.ValueKind == JsonValueKind.Array)
                 {
-                    addToSupply.Invoke(plantLoop, new[] { BuildPlantBranches(item, "supply") });
+                    bool attachHere = supplyBypassPipe != null && !supplyBypassAdded && !plEl.TryGetProperty("supply_branches", out _);
+                    addToSupply.Invoke(plantLoop, new[] { BuildPlantBranches(item, "supply", attachHere ? supplyBypassPipe : null) });
+                    if (attachHere) supplyBypassAdded = true;
                 }
                 else
                 {
@@ -925,8 +1752,14 @@ internal sealed class SystemBuilder
         }
         if (plEl.TryGetProperty("supply_branches", out var sbEl) && sbEl.ValueKind == JsonValueKind.Array)
         {
-            addToSupply.Invoke(plantLoop, new[] { BuildPlantBranches(sbEl, "supply_branches") });
+            addToSupply.Invoke(plantLoop, new[] { BuildPlantBranches(sbEl, "supply_branches", supplyBypassPipe) });
+            supplyBypassAdded = true;
         }
+        if (supplyBypassPipe != null && !supplyBypassAdded)
+        {
+            addToSupply.Invoke(plantLoop, new[] { BuildSingleBypassBranch(supplyBypassPipe) });
+        }
+
         if (plEl.TryGetProperty("supply_setpoint_manager", out var spmEl) && spmEl.ValueKind == JsonValueKind.String)
         {
             addToSupply.Invoke(plantLoop, new[] { resolveComponent(StripRefPrefix(spmEl.GetString()!)) });
@@ -938,7 +1771,7 @@ internal sealed class SystemBuilder
             addToSupply.Invoke(plantLoop, new[] { spm });
         }
 
-        // Demand side
+        bool demandBypassAdded = false;
         if (plEl.TryGetProperty("demand", out var demEl) && demEl.ValueKind == JsonValueKind.Array)
         {
             foreach (var item in demEl.EnumerateArray())
@@ -949,7 +1782,9 @@ internal sealed class SystemBuilder
                 }
                 else if (item.ValueKind == JsonValueKind.Array)
                 {
-                    addToDemand.Invoke(plantLoop, new[] { BuildPlantBranches(item, "demand") });
+                    bool attachHere = demandBypassPipe != null && !demandBypassAdded && !plEl.TryGetProperty("demand_branches", out _);
+                    addToDemand.Invoke(plantLoop, new[] { BuildPlantBranches(item, "demand", attachHere ? demandBypassPipe : null) });
+                    if (attachHere) demandBypassAdded = true;
                 }
                 else
                 {
@@ -959,10 +1794,64 @@ internal sealed class SystemBuilder
         }
         if (plEl.TryGetProperty("demand_branches", out var dbEl) && dbEl.ValueKind == JsonValueKind.Array)
         {
-            addToDemand.Invoke(plantLoop, new[] { BuildPlantBranches(dbEl, "demand_branches") });
+            addToDemand.Invoke(plantLoop, new[] { BuildPlantBranches(dbEl, "demand_branches", demandBypassPipe) });
+            demandBypassAdded = true;
+        }
+        if (demandBypassPipe != null && !demandBypassAdded)
+        {
+            addToDemand.Invoke(plantLoop, new[] { BuildSingleBypassBranch(demandBypassPipe) });
         }
 
         return plantLoop;
+    }
+
+    private (object? SupplyBypass, object? DemandBypass) ResolvePlantBypassPipes(
+        JsonElement plEl,
+        Func<string, object> resolveComponent)
+    {
+        if (!plEl.TryGetProperty("bypass_pipes", out var bpEl)
+            || bpEl.ValueKind == JsonValueKind.Null
+            || bpEl.ValueKind == JsonValueKind.Undefined)
+        {
+            return (null, null);
+        }
+
+        var pipeType = _runtime.ResolveHvacType("IB_PipeAdiabatic");
+        object NewPipe() => Activator.CreateInstance(pipeType)!;
+
+        if (bpEl.ValueKind == JsonValueKind.False) return (null, null);
+        if (bpEl.ValueKind == JsonValueKind.True) return (NewPipe(), NewPipe());
+        if (bpEl.ValueKind == JsonValueKind.String)
+        {
+            var val = bpEl.GetString()!.Trim();
+            if (string.Equals(val, "both", StringComparison.OrdinalIgnoreCase)) return (NewPipe(), NewPipe());
+            if (string.Equals(val, "supply", StringComparison.OrdinalIgnoreCase)) return (NewPipe(), null);
+            if (string.Equals(val, "demand", StringComparison.OrdinalIgnoreCase)) return (null, NewPipe());
+            if (string.Equals(val, "none", StringComparison.OrdinalIgnoreCase)) return (null, null);
+            return (resolveComponent(StripRefPrefix(val)), null);
+        }
+        if (bpEl.ValueKind == JsonValueKind.Array)
+        {
+            var items = bpEl.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(x.GetString())).ToList();
+            object? sPipe = items.Count > 0 ? resolveComponent(StripRefPrefix(items[0].GetString()!)) : null;
+            object? dPipe = items.Count > 1 ? resolveComponent(StripRefPrefix(items[1].GetString()!)) : null;
+            return (sPipe, dPipe);
+        }
+        if (bpEl.ValueKind == JsonValueKind.Object)
+        {
+            object? ParseSide(string key)
+            {
+                if (!bpEl.TryGetProperty(key, out var sEl) || sEl.ValueKind == JsonValueKind.Null || sEl.ValueKind == JsonValueKind.False)
+                    return null;
+                if (sEl.ValueKind == JsonValueKind.True) return NewPipe();
+                if (sEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(sEl.GetString()))
+                    return resolveComponent(StripRefPrefix(sEl.GetString()!));
+                throw new ArgumentException($"plant_loops[].bypass_pipes.{key} must be boolean or component ID string.");
+            }
+            return (ParseSide("supply"), ParseSide("demand"));
+        }
+
+        throw new ArgumentException("plant_loops[].bypass_pipes must be boolean, string, list, or object.");
     }
 
     private object BuildVrfSystem(JsonElement vrfEl, Func<string, object> resolveComponent)
@@ -1127,6 +2016,1106 @@ internal sealed class SystemBuilder
         }
 
         throw new ArgumentException($"Cannot convert JSON {el.ValueKind} to {underlying.Name}.");
+    }
+
+    public Dictionary<string, object?> ReverseParse(string specificationJson)
+    {
+        var sysType = _runtime.ResolveHvacType("IB_HVACSystem");
+        var fromJsonMethod = sysType.GetMethod("FromJson", BindingFlags.Public | BindingFlags.Static)!;
+        var sys = fromJsonMethod.Invoke(null, new object[] { specificationJson })
+            ?? throw new InvalidOperationException("IB_HVACSystem.FromJson returned null.");
+
+        var ctx = new ReverseParseContext(this);
+        var draft = ctx.ParseSystem(sysType, sys);
+        var summary = SummarizeSystem(sysType, sys);
+        return new Dictionary<string, object?>
+        {
+            ["draft"] = draft,
+            ["summary"] = summary,
+            ["warnings"] = ctx.Warnings,
+        };
+    }
+
+    private sealed class ReverseParseContext
+    {
+        private readonly SystemBuilder _owner;
+        private readonly Dictionary<string, Dictionary<string, object?>> _components = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _trackingToId = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<object, string> _objToId = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<string, int> _counters = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Dictionary<string, object?>> _zonesByRoom = new(StringComparer.Ordinal);
+        private readonly List<string> _zoneOrder = new();
+        public List<string> Warnings { get; } = new();
+
+        public ReverseParseContext(SystemBuilder owner)
+        {
+            _owner = owner;
+        }
+
+        public Dictionary<string, object?> ParseSystem(Type sysType, object sys)
+        {
+            var displayName = sysType.GetProperty("DisplayName")?.GetValue(sys)?.ToString();
+            var airLoopsOut = new List<Dictionary<string, object?>>();
+            var plantLoopsOut = new List<Dictionary<string, object?>>();
+            var vrfsOut = new List<Dictionary<string, object?>>();
+
+            if (sysType.GetProperty("AirLoops")?.GetValue(sys) is IEnumerable airLoops)
+            {
+                foreach (var loop in airLoops)
+                {
+                    if (loop == null) continue;
+                    var loopType = loop.GetType();
+                    if (loopType.Name == "IB_NoAirLoop")
+                    {
+                        if (loopType.GetProperty("ThermalZones")?.GetValue(loop) is IEnumerable zones)
+                        {
+                            foreach (var z in zones)
+                            {
+                                if (z != null) RegisterThermalZone(z);
+                            }
+                        }
+                        continue;
+                    }
+                    if (loopType.Name == "IB_ExistAirLoop")
+                    {
+                        Warnings.Add("IB_ExistAirLoop encountered during reverse_parse; inspect air_loops carefully before rebuilding.");
+                        continue;
+                    }
+                    airLoopsOut.Add(ParseAirLoop(loopType, loop));
+                }
+            }
+
+            if (sysType.GetProperty("PlantLoops")?.GetValue(sys) is IEnumerable plantLoops)
+            {
+                foreach (var loop in plantLoops)
+                {
+                    if (loop == null) continue;
+                    var loopType = loop.GetType();
+                    if (loopType.Name == "IB_ExistPlantLoop")
+                    {
+                        Warnings.Add("IB_ExistPlantLoop encountered during reverse_parse; inspect plant_loops carefully before rebuilding.");
+                        continue;
+                    }
+                    plantLoopsOut.Add(ParsePlantLoop(loopType, loop));
+                }
+            }
+
+            if (sysType.GetProperty("VariableRefrigerantFlows")?.GetValue(sys) is IEnumerable vrfs)
+            {
+                foreach (var vrf in vrfs)
+                {
+                    if (vrf == null) continue;
+                    var vrfType = vrf.GetType();
+                    var vrfId = RegisterComponent(vrf, skipProps: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Terminals" });
+                    var terms = new List<string>();
+                    if (vrfType.GetProperty("Terminals")?.GetValue(vrf) is IEnumerable termEnum)
+                    {
+                        foreach (var t in termEnum)
+                        {
+                            if (t != null) terms.Add(RegisterComponent(t));
+                        }
+                    }
+                    vrfsOut.Add(new Dictionary<string, object?>
+                    {
+                        ["vrf"] = vrfId,
+                        ["terminals"] = terms,
+                    });
+                }
+            }
+
+            var zonesOut = _zoneOrder.Select(rn => _zonesByRoom[rn]).ToList();
+            return new Dictionary<string, object?>
+            {
+                ["schema_version"] = 1,
+                ["display_name"] = displayName,
+                ["imported_only"] = false,
+                ["components"] = _components,
+                ["thermal_zones"] = zonesOut,
+                ["air_loops"] = airLoopsOut,
+                ["plant_loops"] = plantLoopsOut,
+                ["vrf_systems"] = vrfsOut,
+                ["energy_management_system"] = null,
+                ["electric_load_center"] = null,
+            };
+        }
+
+        private Dictionary<string, object?> ParseAirLoop(Type loopType, object loop)
+        {
+            var entry = new Dictionary<string, object?>();
+            var (name, fields, availMgrs) = ExtractLoopAttributes(loop);
+            if (!string.IsNullOrWhiteSpace(name)) entry["name"] = name;
+            if (fields.Count > 0) entry["fields"] = fields;
+            if (availMgrs.Count > 0) entry["availability_managers"] = availMgrs;
+
+            var sizingSys = loopType.GetProperty("SizingSystem")?.GetValue(loop);
+            if (sizingSys != null)
+            {
+                entry["sizing_system"] = RegisterComponent(sizingSys);
+            }
+
+            var supplyIds = new List<string>();
+            if (loopType.GetProperty("SupplyComponents")?.GetValue(loop) is IEnumerable supEnum)
+            {
+                foreach (var item in supEnum)
+                {
+                    if (item != null) supplyIds.Add(RegisterComponent(item));
+                }
+            }
+            if (supplyIds.Count > 0) entry["supply"] = supplyIds;
+
+            var demandBranches = new List<List<string>>();
+            if (loopType.GetProperty("DemandComponents")?.GetValue(loop) is IEnumerable demEnum)
+            {
+                foreach (var item in demEnum)
+                {
+                    if (item == null) continue;
+                    var branchesProp = item.GetType().GetProperty("Branches");
+                    if (branchesProp?.GetValue(item) is IEnumerable branchesEnum)
+                    {
+                        foreach (var branch in branchesEnum)
+                        {
+                            if (branch is not IEnumerable branchItems) continue;
+                            var branchRooms = new List<string>();
+                            foreach (var z in branchItems)
+                            {
+                                if (z == null) continue;
+                                if (z.GetType().Name == "IB_ThermalZone")
+                                {
+                                    branchRooms.Add(RegisterThermalZone(z));
+                                }
+                                else
+                                {
+                                    branchRooms.Add(RegisterComponent(z));
+                                }
+                            }
+                            if (branchRooms.Count > 0) demandBranches.Add(branchRooms);
+                        }
+                    }
+                    else if (item.GetType().Name == "IB_ThermalZone")
+                    {
+                        demandBranches.Add(new List<string> { RegisterThermalZone(item) });
+                    }
+                }
+            }
+            if (demandBranches.Count > 0)
+            {
+                if (demandBranches.All(b => b.Count == 1))
+                    entry["demand_zones"] = demandBranches.Select(b => b[0]).ToList();
+                else
+                    entry["demand_branches"] = demandBranches;
+            }
+
+            AppendEmsAndOutputVars(loopType, loop, entry);
+            return entry;
+        }
+
+        private Dictionary<string, object?> ParsePlantLoop(Type loopType, object loop)
+        {
+            var entry = new Dictionary<string, object?>();
+            var (name, fields, availMgrs) = ExtractLoopAttributes(loop);
+            if (!string.IsNullOrWhiteSpace(name)) entry["name"] = name;
+            if (fields.Count > 0) entry["fields"] = fields;
+            if (availMgrs.Count > 0) entry["availability_managers"] = availMgrs;
+
+            var sizingPlant = loopType.GetProperty("SizingPlant")?.GetValue(loop);
+            if (sizingPlant != null)
+            {
+                entry["sizing_plant"] = RegisterComponent(sizingPlant);
+            }
+            var opScheme = loopType.GetProperty("OperationScheme")?.GetValue(loop);
+            if (opScheme != null)
+            {
+                entry["operation_scheme"] = RegisterComponent(opScheme);
+            }
+
+            if (loopType.GetProperty("SupplyComponents")?.GetValue(loop) is IEnumerable supEnum)
+            {
+                var supItems = supEnum.Cast<object?>().Where(x => x != null).ToList()!;
+                var (serialItems, branchGroups, trailingSpm) = SplitPlantSide(supItems!);
+                if (branchGroups.Count == 1 && serialItems.All(x => x is string))
+                {
+                    if (serialItems.Count > 0) entry["supply"] = serialItems;
+                    entry["supply_branches"] = branchGroups[0];
+                    if (trailingSpm != null) entry["supply_setpoint_manager"] = trailingSpm;
+                }
+                else
+                {
+                    var combined = new List<object>();
+                    combined.AddRange(serialItems);
+                    if (trailingSpm != null) combined.Add(trailingSpm);
+                    if (combined.Count > 0) entry["supply"] = combined;
+                }
+            }
+
+            if (loopType.GetProperty("DemandComponents")?.GetValue(loop) is IEnumerable demEnum)
+            {
+                var demItems = demEnum.Cast<object?>().Where(x => x != null).ToList()!;
+                var (serialItems, branchGroups, _) = SplitPlantSide(demItems!, allowTrailingSpm: false);
+                if (branchGroups.Count == 1 && serialItems.All(x => x is string))
+                {
+                    if (serialItems.Count > 0) entry["demand"] = serialItems;
+                    entry["demand_branches"] = branchGroups[0];
+                }
+                else if (serialItems.Count > 0)
+                {
+                    entry["demand"] = serialItems;
+                }
+            }
+
+            AppendEmsAndOutputVars(loopType, loop, entry);
+            return entry;
+        }
+
+        private (List<object> SerialItems, List<List<List<string>>> BranchGroups, string? TrailingSpm) SplitPlantSide(
+            List<object> rawItems,
+            bool allowTrailingSpm = true)
+        {
+            var items = new List<object>(rawItems);
+            string? trailingSpm = null;
+            if (allowTrailingSpm && items.Count > 0)
+            {
+                var last = items[^1];
+                var lastBase = last.GetType().BaseType?.Name ?? "";
+                if (lastBase == "IB_SetpointManager" || last.GetType().Name.StartsWith("IB_SetpointManager", StringComparison.Ordinal))
+                {
+                    trailingSpm = RegisterComponent(last);
+                    items.RemoveAt(items.Count - 1);
+                }
+            }
+
+            var serial = new List<object>();
+            var branchGroups = new List<List<List<string>>>();
+            foreach (var item in items)
+            {
+                if (item.GetType().GetProperty("Branches")?.GetValue(item) is IEnumerable branchesEnum)
+                {
+                    var group = new List<List<string>>();
+                    foreach (var b in branchesEnum)
+                    {
+                        if (b is not IEnumerable bEnum) continue;
+                        var ids = new List<string>();
+                        foreach (var c in bEnum)
+                        {
+                            if (c != null) ids.Add(RegisterComponent(c));
+                        }
+                        if (ids.Count > 0) group.Add(ids);
+                    }
+                    branchGroups.Add(group);
+                    serial.Add(group);
+                }
+                else
+                {
+                    serial.Add(RegisterComponent(item));
+                }
+            }
+
+            if (branchGroups.Count == 1 && serial.Count(x => x is List<List<string>>) == 1 && serial[^1] is List<List<string>>)
+            {
+                serial.RemoveAt(serial.Count - 1);
+            }
+            return (serial, branchGroups, trailingSpm);
+        }
+
+        private string RegisterThermalZone(object zoneObj)
+        {
+            var zt = zoneObj.GetType();
+            var zoneName = zt.GetProperty("ZoneName")?.GetValue(zoneObj)?.ToString();
+            var fields = ExtractFields(zt, zoneObj, out var tagComment);
+            if (string.IsNullOrWhiteSpace(zoneName) && fields.TryGetValue("Name", out var nVal))
+                zoneName = nVal?.ToString();
+            zoneName = string.IsNullOrWhiteSpace(zoneName) ? $"Zone_{_zoneOrder.Count + 1}" : zoneName!;
+
+            if (_zonesByRoom.ContainsKey(zoneName))
+                return zoneName;
+
+            fields.Remove("Name");
+            var tzDict = new Dictionary<string, object?>
+            {
+                ["room_name"] = zoneName,
+            };
+            _zonesByRoom[zoneName] = tzDict;
+            _zoneOrder.Add(zoneName);
+
+            var sizingZone = zt.GetProperty("SizingZone")?.GetValue(zoneObj);
+            if (sizingZone != null) tzDict["sizing_zone"] = RegisterComponent(sizingZone);
+
+            var airTerm = zt.GetProperty("AirTerminal")?.GetValue(zoneObj);
+            if (airTerm != null) tzDict["air_terminal"] = RegisterComponent(airTerm);
+
+            if (zt.GetProperty("ZoneEquipments")?.GetValue(zoneObj) is IEnumerable eqEnum)
+            {
+                var eqIds = new List<string>();
+                foreach (var eq in eqEnum)
+                {
+                    if (eq != null) eqIds.Add(RegisterComponent(eq));
+                }
+                if (eqIds.Count > 0) tzDict["zone_equipments"] = eqIds;
+            }
+
+            if (zt.GetProperty("AllowMultiAirLoops")?.GetValue(zoneObj) is bool ama && ama)
+                tzDict["allow_multi_air_loops"] = true;
+            if (zt.GetProperty("IsAirTerminalBeforeZoneEquipments")?.GetValue(zoneObj) is bool atb && atb)
+                tzDict["is_air_terminal_before_zone_equipments"] = true;
+
+            var supPlenum = zt.GetProperty("SupplyPlenum")?.GetValue(zoneObj);
+            if (supPlenum != null)
+            {
+                var spName = supPlenum.GetType().GetProperty("ZoneName")?.GetValue(supPlenum)?.ToString();
+                tzDict["supply_plenum"] = !string.IsNullOrWhiteSpace(spName) ? spName : RegisterComponent(supPlenum);
+            }
+            var retPlenum = zt.GetProperty("ReturnPlenum")?.GetValue(zoneObj);
+            if (retPlenum != null)
+            {
+                var rpName = retPlenum.GetType().GetProperty("ZoneName")?.GetValue(retPlenum)?.ToString();
+                tzDict["return_plenum"] = !string.IsNullOrWhiteSpace(rpName) ? rpName : RegisterComponent(retPlenum);
+            }
+
+            if (zt.GetProperty("IBProperties")?.GetValue(zoneObj) is IDictionary ibProps
+                && ibProps.Contains("EquipmentListPriorities")
+                && ibProps["EquipmentListPriorities"] is string epJson
+                && !string.IsNullOrWhiteSpace(epJson))
+            {
+                try
+                {
+                    tzDict["equipment_list_priorities"] = JsonSerializer.Deserialize<object>(epJson);
+                }
+                catch
+                {
+                }
+            }
+
+            if (fields.Count > 0) tzDict["fields"] = fields;
+            AppendEmsAndOutputVars(zt, zoneObj, tzDict);
+            return zoneName;
+        }
+
+        private (string? Name, Dictionary<string, object?> Fields, List<string> AvailabilityManagers) ExtractLoopAttributes(object loopObj)
+        {
+            var lt = loopObj.GetType();
+            var fields = ExtractFields(lt, loopObj, out _);
+            string? name = null;
+            if (fields.TryGetValue("Name", out var nVal))
+            {
+                name = nVal?.ToString();
+                fields.Remove("Name");
+            }
+            var availMgrs = new List<string>();
+            if (lt.GetProperty("CustomAttributes")?.GetValue(loopObj) is IEnumerable caEnum)
+            {
+                foreach (var arg in caEnum)
+                {
+                    if (arg == null) continue;
+                    var fObj = arg.GetType().GetProperty("Field")?.GetValue(arg);
+                    var fn = fObj?.GetType().GetProperty("FullName")?.GetValue(fObj)?.ToString();
+                    if (!string.Equals(fn, "AvailabilityManagers", StringComparison.OrdinalIgnoreCase)) continue;
+                    var val = arg.GetType().GetProperty("Value")?.GetValue(arg);
+                    if (val != null && val.GetType().GetProperty("Mangers")?.GetValue(val) is IEnumerable mgrs)
+                    {
+                        foreach (var m in mgrs)
+                        {
+                            if (m != null) availMgrs.Add(RegisterComponent(m));
+                        }
+                    }
+                    fields.Remove("AvailabilityManagers");
+                }
+            }
+            return (name, fields, availMgrs);
+        }
+
+        private string RegisterComponent(object obj, HashSet<string>? skipProps = null)
+        {
+            if (_objToId.TryGetValue(obj, out var existingByRef))
+                return existingByRef;
+
+            var type = obj.GetType();
+            var rawTag = type.GetMethod("GetTrackingTagID")?.Invoke(obj, null)?.ToString();
+            if (!string.IsNullOrWhiteSpace(rawTag) && _trackingToId.TryGetValue(rawTag, out var existingByTid))
+            {
+                _objToId[obj] = existingByTid;
+                return existingByTid;
+            }
+
+            var fields = ExtractFields(type, obj, out _);
+            string baseSlug = CatalogInspector.ToSnakeCase(type.Name.StartsWith("IB_", StringComparison.Ordinal) ? type.Name[3..] : type.Name);
+            if (fields.TryGetValue("Name", out var nameObj) && nameObj is string nameStr && !string.IsNullOrWhiteSpace(nameStr))
+            {
+                var cleaned = new string(nameStr.Trim().Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '_').ToArray()).Trim('_');
+                if (!string.IsNullOrWhiteSpace(cleaned))
+                    baseSlug = cleaned;
+            }
+
+            int idx = _counters.GetValueOrDefault(baseSlug) + 1;
+            _counters[baseSlug] = idx;
+            var compId = idx == 1 && !_components.ContainsKey(baseSlug) ? baseSlug : $"{baseSlug}_{idx}";
+            while (_components.ContainsKey(compId))
+            {
+                idx++;
+                _counters[baseSlug] = idx;
+                compId = $"{baseSlug}_{idx}";
+            }
+
+            _objToId[obj] = compId;
+            if (!string.IsNullOrWhiteSpace(rawTag))
+                _trackingToId[rawTag] = compId;
+
+            var spec = new Dictionary<string, object?>
+            {
+                ["type"] = type.Name,
+            };
+            _components[compId] = spec;
+
+            if (!string.IsNullOrWhiteSpace(rawTag))
+                spec["tracking_id"] = rawTag;
+            if (fields.Count > 0)
+                spec["fields"] = fields;
+
+            PopulateChildrenAndWiring(type, obj, spec, skipProps);
+            AppendEmsAndOutputVars(type, obj, spec);
+            return compId;
+        }
+
+        private void PopulateChildrenAndWiring(
+            Type type,
+            object obj,
+            Dictionary<string, object?> spec,
+            HashSet<string>? skipProps)
+        {
+            var children = new List<object>();
+            if (type.GetProperty("Children")?.GetValue(obj) is IEnumerable chEnum)
+            {
+                foreach (var c in chEnum)
+                {
+                    if (c != null) children.Add(c);
+                }
+            }
+
+            var ibPropsDict = new Dictionary<string, object?>();
+            if (type.GetProperty("IBProperties")?.GetValue(obj) is IDictionary rawIbProps)
+            {
+                foreach (DictionaryEntry de in rawIbProps)
+                {
+                    var k = de.Key?.ToString();
+                    if (string.IsNullOrWhiteSpace(k)) continue;
+                    ibPropsDict[k] = de.Value;
+                }
+            }
+
+            var ctorArgs = new List<object?>();
+            var wiring = new Dictionary<string, object?>();
+            var unmappedChildren = new List<string>();
+            var unmappedIbProps = new Dictionary<string, object?>();
+
+            // Special known constructors whose Children order differs from constructor order or relies on IBProperties
+            bool handledSpecial = false;
+            switch (type.Name)
+            {
+                case "IB_ZoneHVACPackagedTerminalAirConditioner" when children.Count >= 3:
+                    ctorArgs.Add(RegisterComponent(children[2])); // Fan
+                    ctorArgs.Add(RegisterComponent(children[1])); // HeatingCoil
+                    ctorArgs.Add(RegisterComponent(children[0])); // CoolingCoil
+                    handledSpecial = true;
+                    break;
+                case "IB_ZoneHVACPackagedTerminalHeatPump" when children.Count >= 4:
+                case "IB_ZoneHVACWaterToAirHeatPump" when children.Count >= 4:
+                    ctorArgs.Add(RegisterComponent(children[2])); // Fan
+                    ctorArgs.Add(RegisterComponent(children[1])); // HeatingCoil
+                    ctorArgs.Add(RegisterComponent(children[0])); // CoolingCoil
+                    ctorArgs.Add(RegisterComponent(children[3])); // SupplementalHeatingCoil
+                    handledSpecial = true;
+                    break;
+                case "IB_ZoneHVACEnergyRecoveryVentilator" when children.Count >= 3:
+                case "IB_ZoneHVACLowTempRadiantVarFlow" when children.Count >= 2:
+                case "IB_WaterUseEquipment" when children.Count >= 1:
+                case "IB_CoilHeatingDesuperheater" when children.Count >= 1:
+                case "IB_AirTerminalSingleDuctInletSideMixer" when children.Count >= 1:
+                    foreach (var c in children) ctorArgs.Add(RegisterComponent(c));
+                    handledSpecial = true;
+                    break;
+                case "IB_ZoneHVACLowTempRadiantConstFlow" when children.Count >= 2:
+                    ctorArgs.Add(RegisterComponent(children[0]));
+                    ctorArgs.Add(RegisterComponent(children[1]));
+                    if (ibPropsDict.TryGetValue("TubingLength", out var tlVal))
+                    {
+                        ctorArgs.Add(ConvertSafeJsonValue(tlVal));
+                        ibPropsDict.Remove("TubingLength");
+                    }
+                    else
+                    {
+                        ctorArgs.Add(0.0);
+                    }
+                    handledSpecial = true;
+                    break;
+                case "IB_CoilCoolingLowTempRadiantConstFlow":
+                case "IB_CoilHeatingLowTempRadiantConstFlow":
+                    foreach (var pk in new[] { "WaterHiT", "WaterLoT", "AirHiT", "AirLoT" })
+                    {
+                        ctorArgs.Add(ibPropsDict.TryGetValue(pk, out var pv) ? ConvertSafeJsonValue(pv) : 0.0);
+                        ibPropsDict.Remove(pk);
+                    }
+                    handledSpecial = true;
+                    break;
+                case "IB_CoilCoolingLowTempRadiantVarFlow":
+                    ctorArgs.Add(ibPropsDict.TryGetValue("AirHiT", out var aht) ? ConvertSafeJsonValue(aht) : 24.0);
+                    ibPropsDict.Remove("AirHiT");
+                    handledSpecial = true;
+                    break;
+                case "IB_CoilHeatingLowTempRadiantVarFlow":
+                    ctorArgs.Add(ibPropsDict.TryGetValue("AirLoT", out var alt) ? ConvertSafeJsonValue(alt) : 21.0);
+                    ibPropsDict.Remove("AirLoT");
+                    handledSpecial = true;
+                    break;
+                case "IB_ScheduleDay":
+                    if (ibPropsDict.TryGetValue("constantNumber", out var cnVal))
+                    {
+                        ctorArgs.Add(ConvertSafeJsonValue(cnVal));
+                        ibPropsDict.Remove("constantNumber");
+                        handledSpecial = true;
+                    }
+                    else if (ibPropsDict.TryGetValue("valuesFor24Hrs", out var v24Val))
+                    {
+                        ctorArgs.Add(ConvertSafeJsonValue(v24Val));
+                        ibPropsDict.Remove("valuesFor24Hrs");
+                        handledSpecial = true;
+                    }
+                    break;
+                case "IB_ScheduleFile":
+                    if (ibPropsDict.TryGetValue("filePath", out var fpVal))
+                    {
+                        ctorArgs.Add(ConvertSafeJsonValue(fpVal));
+                        ibPropsDict.Remove("filePath");
+                        handledSpecial = true;
+                    }
+                    break;
+            }
+
+            if (!handledSpecial && children.Count > 0)
+            {
+                // Check if type has a constructor matching children count and types (e.g., IB_ChillerElectricEIR(c1, c2, c3))
+                var setMethods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(m => !m.IsSpecialName
+                        && m.Name.StartsWith("Set", StringComparison.Ordinal)
+                        && m.DeclaringType != typeof(object)
+                        && m.DeclaringType?.Name is not ("IB_ModelObject" or "IB_HVACObject")
+                        && m.GetParameters().Length == 1)
+                    .ToList();
+
+                var matchingCtor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+                    .FirstOrDefault(c =>
+                    {
+                        var ps = c.GetParameters();
+                        return ps.Length == children.Count
+                            && ps.Select((p, i) => p.ParameterType.IsInstanceOfType(children[i])).All(ok => ok);
+                    });
+
+                // Prefer Set* wiring when every child uniquely maps to a Set* slot and type has parameterless ctor
+                bool hasDefaultCtor = type.GetConstructor(Type.EmptyTypes) != null
+                    || type.GetConstructors().Any(c => c.GetParameters().All(p => p.HasDefaultValue));
+
+                var matchedSetSlots = new List<(string Slot, string ChildId)>();
+                var usedMethods = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                bool allMatchedBySet = hasDefaultCtor;
+                if (allMatchedBySet)
+                {
+                    foreach (var child in children)
+                    {
+                        var matches = setMethods
+                            .Where(m => !usedMethods.Contains(m.Name) && m.GetParameters()[0].ParameterType.IsInstanceOfType(child))
+                            .ToList();
+                        if (matches.Count == 1)
+                        {
+                            usedMethods.Add(matches[0].Name);
+                            matchedSetSlots.Add((CatalogInspector.ToSnakeCase(matches[0].Name[3..]), RegisterComponent(child)));
+                        }
+                        else
+                        {
+                            allMatchedBySet = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (allMatchedBySet && matchedSetSlots.Count == children.Count)
+                {
+                    foreach (var (slot, cid) in matchedSetSlots)
+                        wiring[slot] = cid;
+                }
+                else if (matchingCtor != null)
+                {
+                    foreach (var child in children)
+                        ctorArgs.Add(RegisterComponent(child));
+                }
+                else
+                {
+                    foreach (var child in children)
+                        unmappedChildren.Add(RegisterComponent(child));
+                }
+            }
+
+            // Map IBProperties (such as OAStreamObjs / ReliefStreamObjs) to wiring when matching property exists
+            foreach (var kv in ibPropsDict)
+            {
+                if (skipProps != null && skipProps.Contains(kv.Key)) continue;
+                var prop = type.GetProperty(kv.Key, BindingFlags.Public | BindingFlags.Instance);
+                if (prop != null && (prop.CanWrite || typeof(IList).IsAssignableFrom(prop.PropertyType)))
+                {
+                    wiring[CatalogInspector.ToSnakeCase(kv.Key)] = ConvertSafeJsonValue(kv.Value);
+                }
+                else
+                {
+                    unmappedIbProps[kv.Key] = ConvertSafeJsonValue(kv.Value);
+                }
+            }
+
+            // Also inspect declared IB_ModelObject properties not already captured in Children/IBProperties
+            foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            {
+                if (skipProps != null && skipProps.Contains(prop.Name)) continue;
+                if (!prop.CanRead || !prop.CanWrite) continue;
+                if (prop.Name is "Memo" or "Children" or "CustomAttributes" or "IBProperties") continue;
+                var val = prop.GetValue(obj);
+                if (val == null) continue;
+                var ibModelType = _owner._runtime.ResolveHvacType("IB_ModelObject");
+                if (ibModelType.IsInstanceOfType(val))
+                {
+                    var childId = RegisterComponent(val);
+                    var slot = CatalogInspector.ToSnakeCase(prop.Name);
+                    if (!wiring.ContainsKey(slot) && !unmappedChildren.Contains(childId) && !ctorArgs.Contains(childId))
+                    {
+                        wiring[slot] = childId;
+                    }
+                }
+            }
+
+            if (ctorArgs.Count > 0) spec["ctor_args"] = ctorArgs;
+            if (wiring.Count > 0) spec["wiring"] = wiring;
+            if (unmappedChildren.Count > 0) spec["children"] = unmappedChildren;
+            if (unmappedIbProps.Count > 0) spec["ib_properties"] = unmappedIbProps;
+        }
+
+        private Dictionary<string, object?> ExtractFields(Type type, object obj, out string? trackingComment)
+        {
+            trackingComment = null;
+            var fields = new Dictionary<string, object?>(StringComparer.Ordinal);
+            var caObj = type.GetProperty("CustomAttributes")?.GetValue(obj);
+            if (caObj is not IEnumerable caEnum) return fields;
+
+            var rawTag = type.GetMethod("GetTrackingTagID")?.Invoke(obj, null)?.ToString();
+            foreach (var arg in caEnum)
+            {
+                if (arg == null) continue;
+                var fObj = arg.GetType().GetProperty("Field")?.GetValue(arg);
+                var fn = fObj?.GetType().GetProperty("FullName")?.GetValue(fObj)?.ToString();
+                if (string.IsNullOrWhiteSpace(fn)) continue;
+                var val = arg.GetType().GetProperty("Value")?.GetValue(arg);
+                if (string.Equals(fn, "Comment", StringComparison.OrdinalIgnoreCase) && val is string sVal)
+                {
+                    if (sVal == rawTag || sVal.StartsWith("TrackingID:", StringComparison.OrdinalIgnoreCase) || sVal.StartsWith("! TrackingID:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        trackingComment = sVal;
+                        continue;
+                    }
+                }
+                if (string.Equals(fn, "AvailabilityManagers", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                fields[fn] = ConvertSafeJsonValue(val);
+            }
+            return fields;
+        }
+
+        private void AppendEmsAndOutputVars(Type type, object obj, Dictionary<string, object?> target)
+        {
+            if (type.GetProperty("CustomOutputVariables")?.GetValue(obj) is IEnumerable ovEnum)
+            {
+                var ovs = new List<Dictionary<string, object?>>();
+                foreach (var ov in ovEnum)
+                {
+                    if (ov == null) continue;
+                    var varName = ov.GetType().GetProperty("VariableName")?.GetValue(ov)?.ToString();
+                    var ts = ov.GetType().GetProperty("TimeStep")?.GetValue(ov)?.ToString() ?? "Hourly";
+                    if (!string.IsNullOrWhiteSpace(varName))
+                    {
+                        ovs.Add(new Dictionary<string, object?>
+                        {
+                            ["variable_name"] = varName,
+                            ["reporting_frequency"] = ts,
+                        });
+                    }
+                }
+                if (ovs.Count > 0) target["output_variables"] = ovs;
+            }
+
+            if (type.GetProperty("CustomSensors")?.GetValue(obj) is IEnumerable sEnum)
+            {
+                var sensors = new List<Dictionary<string, object?>>();
+                foreach (var s in sEnum)
+                {
+                    if (s == null) continue;
+                    var st = s.GetType();
+                    var sFields = ExtractFields(st, s, out _);
+                    var item = new Dictionary<string, object?>();
+                    var rawTag = st.GetMethod("GetTrackingTagID")?.Invoke(s, null)?.ToString();
+                    if (!string.IsNullOrWhiteSpace(rawTag)) item["tracking_id"] = rawTag;
+                    if (sFields.TryGetValue("Name", out var nVal) && nVal != null) { item["name"] = nVal; sFields.Remove("Name"); }
+                    if (sFields.TryGetValue("KeyName", out var kVal) && kVal != null) { item["key_name"] = kVal; sFields.Remove("KeyName"); }
+                    if (sFields.TryGetValue("OutputVariableOrMeterName", out var oVal) && oVal != null) { item["output_variable"] = oVal; sFields.Remove("OutputVariableOrMeterName"); }
+                    if (sFields.Count > 0) item["fields"] = sFields;
+                    sensors.Add(item);
+                }
+                if (sensors.Count > 0) target["ems_sensors"] = sensors;
+            }
+
+            if (type.GetProperty("CustomInternalVariables")?.GetValue(obj) is IEnumerable ivEnum)
+            {
+                var ivs = new List<Dictionary<string, object?>>();
+                foreach (var iv in ivEnum)
+                {
+                    if (iv == null) continue;
+                    var ivt = iv.GetType();
+                    var ivFields = ExtractFields(ivt, iv, out _);
+                    var item = new Dictionary<string, object?>();
+                    var rawTag = ivt.GetMethod("GetTrackingTagID")?.Invoke(iv, null)?.ToString();
+                    if (!string.IsNullOrWhiteSpace(rawTag)) item["tracking_id"] = rawTag;
+                    if (ivFields.TryGetValue("Name", out var nVal) && nVal != null) { item["name"] = nVal; ivFields.Remove("Name"); }
+                    if (ivFields.TryGetValue("InternalDataType", out var dtVal) && dtVal != null) { item["internal_data_type"] = dtVal; ivFields.Remove("InternalDataType"); }
+                    var hostObj = ivt.GetProperty("HostObj")?.GetValue(iv);
+                    if (hostObj != null) item["host_obj"] = RegisterComponent(hostObj);
+                    if (ivFields.Count > 0) item["fields"] = ivFields;
+                    ivs.Add(item);
+                }
+                if (ivs.Count > 0) target["ems_internal_variables"] = ivs;
+            }
+
+            if (type.GetProperty("CustomActuators")?.GetValue(obj) is IEnumerable aEnum)
+            {
+                var acts = new List<Dictionary<string, object?>>();
+                foreach (var a in aEnum)
+                {
+                    if (a == null) continue;
+                    var at = a.GetType();
+                    var aFields = ExtractFields(at, a, out _);
+                    var item = new Dictionary<string, object?>();
+                    var rawTag = at.GetMethod("GetTrackingTagID")?.Invoke(a, null)?.ToString();
+                    if (!string.IsNullOrWhiteSpace(rawTag)) item["tracking_id"] = rawTag;
+                    if (aFields.TryGetValue("Name", out var nVal) && nVal != null) { item["name"] = nVal; aFields.Remove("Name"); }
+                    if (aFields.TryGetValue("ActuatedComponentType", out var ctVal) && ctVal != null) { item["actuated_component_type"] = ctVal; aFields.Remove("ActuatedComponentType"); }
+                    if (aFields.TryGetValue("ActuatedComponentControlType", out var ccVal) && ccVal != null) { item["actuated_component_control_type"] = ccVal; aFields.Remove("ActuatedComponentControlType"); }
+                    if (aFields.Count > 0) item["fields"] = aFields;
+                    acts.Add(item);
+                }
+                if (acts.Count > 0) target["ems_actuators"] = acts;
+            }
+        }
+
+        private object? ConvertSafeJsonValue(object? val)
+        {
+            if (val == null) return null;
+            var ibModelType = _owner._runtime.ResolveHvacType("IB_ModelObject");
+            if (ibModelType.IsInstanceOfType(val))
+            {
+                return "@" + RegisterComponent(val);
+            }
+            if (val is double d)
+                return double.IsFinite(d) ? d : null;
+            if (val is float f)
+                return float.IsFinite(f) ? (double)f : null;
+            if (val is bool or int or long or string)
+                return val;
+            if (val.GetType().IsEnum)
+                return val.ToString();
+            if (val is IEnumerable en and not string)
+            {
+                var list = new List<object?>();
+                foreach (var item in en)
+                {
+                    var converted = ConvertSafeJsonValue(item);
+                    if (converted is string s && s.StartsWith("@", StringComparison.Ordinal))
+                        list.Add(s[1..]);
+                    else
+                        list.Add(converted);
+                }
+                return list;
+            }
+            return val.ToString();
+        }
+    }
+
+    private void ApplyZoneEquipmentPriorities(
+        Type sysType,
+        object sys,
+        Assembly osAsm,
+        Type osModelType,
+        object osModel,
+        List<string> warnings)
+    {
+        var airLoops = sysType.GetProperty("AirLoops")?.GetValue(sys) as IEnumerable;
+        if (airLoops == null) return;
+
+        var ibZones = new List<object>();
+        foreach (var loop in airLoops)
+        {
+            if (loop == null) continue;
+            if (loop.GetType().Name == "IB_NoAirLoop")
+            {
+                if (loop.GetType().GetProperty("ThermalZones")?.GetValue(loop) is IEnumerable tzs)
+                {
+                    foreach (var z in tzs) if (z != null) ibZones.Add(z);
+                }
+            }
+            else if (loop.GetType().GetProperty("DemandComponents")?.GetValue(loop) is IEnumerable dem)
+            {
+                foreach (var d in dem)
+                {
+                    if (d?.GetType().GetProperty("Branches")?.GetValue(d) is IEnumerable branches)
+                    {
+                        foreach (var br in branches)
+                        {
+                            if (br is not IEnumerable bEnum) continue;
+                            foreach (var z in bEnum)
+                            {
+                                if (z != null && z.GetType().Name == "IB_ThermalZone") ibZones.Add(z);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (ibZones.Count == 0) return;
+
+        var osModelObjType = osAsm.GetType("OpenStudio.ModelObject");
+        var osZoneVec = osModelType.GetMethod("getThermalZones", Type.EmptyTypes)?.Invoke(osModel, null) as IEnumerable;
+        if (osZoneVec == null || osModelObjType == null) return;
+
+        var osZonesByName = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var oz in osZoneVec)
+        {
+            if (oz == null) continue;
+            var zn = oz.GetType().GetMethod("nameString", Type.EmptyTypes)?.Invoke(oz, null)?.ToString();
+            if (!string.IsNullOrWhiteSpace(zn)) osZonesByName[zn] = oz;
+        }
+
+        foreach (var ibZone in ibZones)
+        {
+            var zt = ibZone.GetType();
+            if (zt.GetProperty("IBProperties")?.GetValue(ibZone) is not IDictionary ibProps) continue;
+            if (!ibProps.Contains("EquipmentListPriorities")) continue;
+            if (ibProps["EquipmentListPriorities"] is not string jsonStr || string.IsNullOrWhiteSpace(jsonStr)) continue;
+
+            var zoneName = zt.GetProperty("ZoneName")?.GetValue(ibZone)?.ToString();
+            if (string.IsNullOrWhiteSpace(zoneName) || !osZonesByName.TryGetValue(zoneName, out var osZone))
+                continue;
+
+            var eqCandidates = new List<object>();
+            var at = zt.GetProperty("AirTerminal")?.GetValue(ibZone);
+            if (at != null) eqCandidates.Add(at);
+            if (zt.GetProperty("ZoneEquipments")?.GetValue(ibZone) is IEnumerable zeq)
+            {
+                foreach (var e in zeq) if (e != null) eqCandidates.Add(e);
+            }
+
+            var eqByTag = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (var eq in eqCandidates)
+            {
+                var tag = eq.GetType().GetMethod("GetTrackingTagID")?.Invoke(eq, null)?.ToString();
+                if (!string.IsNullOrWhiteSpace(tag)) eqByTag[tag] = eq;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(jsonStr);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array) continue;
+                var setCool = osZone.GetType().GetMethod("setCoolingPriority", new[] { osModelObjType, typeof(uint) });
+                var setHeat = osZone.GetType().GetMethod("setHeatingPriority", new[] { osModelObjType, typeof(uint) });
+
+                foreach (var entry in doc.RootElement.EnumerateArray())
+                {
+                    var tag = entry.TryGetProperty("tracking_tag", out var tEl) && tEl.ValueKind == JsonValueKind.String
+                        ? tEl.GetString()
+                        : null;
+                    if (string.IsNullOrWhiteSpace(tag) || !eqByTag.TryGetValue(tag, out var ibEq)) continue;
+                    var osEq = ibEq.GetType().GetMethod("GetOsmObjInModel")?.Invoke(ibEq, new[] { osModel });
+                    if (osEq == null) continue;
+                    if (entry.TryGetProperty("cooling_priority", out var cEl) && cEl.ValueKind == JsonValueKind.Number)
+                    {
+                        setCool?.Invoke(osZone, new[] { osEq, (uint)Math.Max(1, cEl.GetInt32()) });
+                    }
+                    if (entry.TryGetProperty("heating_priority", out var hEl) && hEl.ValueKind == JsonValueKind.Number)
+                    {
+                        setHeat?.Invoke(osZone, new[] { osEq, (uint)Math.Max(1, hEl.GetInt32()) });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                warnings.Add($"Failed to apply equipment_list_priorities on zone '{zoneName}': {ex.Message}");
+            }
+        }
+    }
+
+    private static Dictionary<string, object?> RunForwardTranslatorCheck(
+        Assembly osAsm,
+        Type osModelType,
+        object osModel,
+        List<string> errors,
+        List<string> warnings)
+    {
+        var ftType = osAsm.GetType("OpenStudio.EnergyPlusForwardTranslator");
+        if (ftType == null)
+        {
+            return new Dictionary<string, object?>
+            {
+                ["ran"] = false,
+                ["reason"] = "OpenStudio.EnergyPlusForwardTranslator type not found.",
+            };
+        }
+
+        var ftErrors = new List<string>();
+        var ftWarnings = new List<string>();
+        try
+        {
+            var ft = Activator.CreateInstance(ftType)!;
+            ftType.GetMethod("translateModel", new[] { osModelType })?.Invoke(ft, new[] { osModel });
+
+            void CollectLogs(string methodName, List<string> dest, List<string> agg)
+            {
+                if (ftType.GetMethod(methodName, Type.EmptyTypes)?.Invoke(ft, null) is IEnumerable logs)
+                {
+                    foreach (var log in logs)
+                    {
+                        var msg = log?.GetType().GetMethod("logMessage", Type.EmptyTypes)?.Invoke(log, null)?.ToString()?.Trim();
+                        if (!string.IsNullOrEmpty(msg))
+                        {
+                            dest.Add(msg);
+                            agg.Add($"[ForwardTranslator] {msg}");
+                        }
+                    }
+                }
+            }
+
+            CollectLogs("errors", ftErrors, errors);
+            CollectLogs("warnings", ftWarnings, warnings);
+        }
+        catch (Exception ex)
+        {
+            var inner = ex is TargetInvocationException tie && tie.InnerException != null ? tie.InnerException : ex;
+            ftErrors.Add(inner.Message);
+            errors.Add($"[ForwardTranslator] {inner.Message}");
+        }
+
+        return new Dictionary<string, object?>
+        {
+            ["ran"] = true,
+            ["error_count"] = ftErrors.Count,
+            ["warning_count"] = ftWarnings.Count,
+            ["errors"] = ftErrors,
+            ["warnings"] = ftWarnings,
+        };
+    }
+
+    private static Dictionary<string, int> BuildOpenStudioSummary(Type osModelType, object osModel)
+    {
+        int SumGetters(params string[] getters) => getters.Sum(g => CountOsObjects(osModelType, osModel, g));
+
+        return new Dictionary<string, int>
+        {
+            // Core & existing keys (preserved verbatim)
+            ["thermal_zones"] = CountOsObjects(osModelType, osModel, "getThermalZones"),
+            ["air_loops"] = CountOsObjects(osModelType, osModel, "getAirLoopHVACs"),
+            ["plant_loops"] = CountOsObjects(osModelType, osModel, "getPlantLoops"),
+            ["vrf_systems"] = CountOsObjects(osModelType, osModel, "getAirConditionerVariableRefrigerantFlows"),
+            ["zone_hvac_four_pipe_fan_coils"] = CountOsObjects(osModelType, osModel, "getZoneHVACFourPipeFanCoils"),
+            ["zone_hvac_ptacs"] = CountOsObjects(osModelType, osModel, "getZoneHVACPackagedTerminalAirConditioners"),
+            ["zone_hvac_pthps"] = CountOsObjects(osModelType, osModel, "getZoneHVACPackagedTerminalHeatPumps"),
+            ["chillers_electric_eir"] = CountOsObjects(osModelType, osModel, "getChillerElectricEIRs"),
+            ["boilers_hot_water"] = CountOsObjects(osModelType, osModel, "getBoilerHotWaters"),
+            ["cooling_towers_variable_speed"] = CountOsObjects(osModelType, osModel, "getCoolingTowerVariableSpeeds"),
+            ["coil_cooling_waters"] = CountOsObjects(osModelType, osModel, "getCoilCoolingWaters"),
+            ["coil_heating_waters"] = CountOsObjects(osModelType, osModel, "getCoilHeatingWaters"),
+            ["air_terminals_vav_reheat"] = CountOsObjects(osModelType, osModel, "getAirTerminalSingleDuctVAVReheats"),
+            ["pumps_constant_speed"] = CountOsObjects(osModelType, osModel, "getPumpConstantSpeeds"),
+            ["pumps_variable_speed"] = CountOsObjects(osModelType, osModel, "getPumpVariableSpeeds"),
+            ["fans_on_off"] = CountOsObjects(osModelType, osModel, "getFanOnOffs"),
+            ["fans_constant_volume"] = CountOsObjects(osModelType, osModel, "getFanConstantVolumes"),
+            ["fans_variable_volume"] = CountOsObjects(osModelType, osModel, "getFanVariableVolumes"),
+
+            // Expanded AirLoop / terminal / unitary / OA / heat recovery / plenum counts
+            ["air_terminals_cv_no_reheat"] = CountOsObjects(osModelType, osModel, "getAirTerminalSingleDuctConstantVolumeNoReheats"),
+            ["air_terminals_vav_no_reheat"] = CountOsObjects(osModelType, osModel, "getAirTerminalSingleDuctVAVNoReheats"),
+            ["air_terminals_piu_parallel"] = CountOsObjects(osModelType, osModel, "getAirTerminalSingleDuctParallelPIUReheats"),
+            ["air_terminals_piu_series"] = CountOsObjects(osModelType, osModel, "getAirTerminalSingleDuctSeriesPIUReheats"),
+            ["air_terminals_chilled_beam"] = CountOsObjects(osModelType, osModel, "getAirTerminalSingleDuctConstantVolumeCooledBeams"),
+            ["air_terminals_four_pipe_beam"] = CountOsObjects(osModelType, osModel, "getAirTerminalSingleDuctConstantVolumeFourPipeBeams"),
+            ["outdoor_air_systems"] = CountOsObjects(osModelType, osModel, "getAirLoopHVACOutdoorAirSystems"),
+            ["dedicated_outdoor_air_systems"] = CountOsObjects(osModelType, osModel, "getAirLoopHVACDedicatedOutdoorAirSystems"),
+            ["unitary_systems"] = CountOsObjects(osModelType, osModel, "getAirLoopHVACUnitarySystems"),
+            ["unitary_heat_pumps_air_to_air"] = SumGetters("getAirLoopHVACUnitaryHeatPumpAirToAirs", "getAirLoopHVACUnitaryHeatPumpAirToAirMultiSpeeds"),
+            ["heat_exchangers_air_to_air"] = CountOsObjects(osModelType, osModel, "getHeatExchangerAirToAirSensibleAndLatents"),
+            ["humidifiers_steam_electric"] = SumGetters("getHumidifierSteamElectrics", "getHumidifierSteamGass"),
+            ["evaporative_coolers"] = SumGetters("getEvaporativeCoolerDirectResearchSpecials", "getEvaporativeCoolerIndirectResearchSpecials"),
+            ["supply_plenums"] = CountOsObjects(osModelType, osModel, "getAirLoopHVACSupplyPlenums"),
+            ["return_plenums"] = CountOsObjects(osModelType, osModel, "getAirLoopHVACReturnPlenums"),
+
+            // Expanded Fan & Coil counts
+            ["fans_system_model"] = CountOsObjects(osModelType, osModel, "getFanSystemModels"),
+            ["fans_zone_exhaust"] = CountOsObjects(osModelType, osModel, "getFanZoneExhausts"),
+            ["coil_cooling_dx_single_speed"] = CountOsObjects(osModelType, osModel, "getCoilCoolingDXSingleSpeeds"),
+            ["coil_cooling_dx_two_speed"] = CountOsObjects(osModelType, osModel, "getCoilCoolingDXTwoSpeeds"),
+            ["coil_cooling_dx_variable_speed"] = CountOsObjects(osModelType, osModel, "getCoilCoolingDXVariableSpeeds"),
+            ["coil_cooling_dx_vrf"] = CountOsObjects(osModelType, osModel, "getCoilCoolingDXVariableRefrigerantFlows"),
+            ["coil_cooling_water_to_air_hp"] = CountOsObjects(osModelType, osModel, "getCoilCoolingWaterToAirHeatPumpEquationFits"),
+            ["coil_heating_electric"] = CountOsObjects(osModelType, osModel, "getCoilHeatingElectrics"),
+            ["coil_heating_gas"] = CountOsObjects(osModelType, osModel, "getCoilHeatingGass"),
+            ["coil_heating_dx_single_speed"] = CountOsObjects(osModelType, osModel, "getCoilHeatingDXSingleSpeeds"),
+            ["coil_heating_dx_vrf"] = CountOsObjects(osModelType, osModel, "getCoilHeatingDXVariableRefrigerantFlows"),
+            ["coil_heating_water_to_air_hp"] = CountOsObjects(osModelType, osModel, "getCoilHeatingWaterToAirHeatPumpEquationFits"),
+
+            // Expanded Zone HVAC counts
+            ["zone_hvac_vrf_terminals"] = CountOsObjects(osModelType, osModel, "getZoneHVACTerminalUnitVariableRefrigerantFlows"),
+            ["zone_hvac_water_to_air_hps"] = CountOsObjects(osModelType, osModel, "getZoneHVACWaterToAirHeatPumps"),
+            ["zone_hvac_unit_heaters"] = CountOsObjects(osModelType, osModel, "getZoneHVACUnitHeaters"),
+            ["zone_hvac_unit_ventilators"] = CountOsObjects(osModelType, osModel, "getZoneHVACUnitVentilators"),
+            ["zone_hvac_baseboards_water"] = CountOsObjects(osModelType, osModel, "getZoneHVACBaseboardConvectiveWaters"),
+            ["zone_hvac_baseboards_electric"] = CountOsObjects(osModelType, osModel, "getZoneHVACBaseboardConvectiveElectrics"),
+            ["zone_hvac_low_temp_radiant_var_flow"] = CountOsObjects(osModelType, osModel, "getZoneHVACLowTempRadiantVarFlows"),
+            ["zone_hvac_low_temp_radiant_const_flow"] = CountOsObjects(osModelType, osModel, "getZoneHVACLowTempRadiantConstFlows"),
+            ["zone_hvac_ervs"] = CountOsObjects(osModelType, osModel, "getZoneHVACEnergyRecoveryVentilators"),
+            ["zone_hvac_equipment_lists"] = CountOsObjects(osModelType, osModel, "getZoneHVACEquipmentLists"),
+
+            // Expanded Plant equipment counts
+            ["chillers_absorption"] = SumGetters("getChillerAbsorptions", "getChillerAbsorptionIndirects"),
+            ["cooling_towers_single_speed"] = CountOsObjects(osModelType, osModel, "getCoolingTowerSingleSpeeds"),
+            ["cooling_towers_two_speed"] = CountOsObjects(osModelType, osModel, "getCoolingTowerTwoSpeeds"),
+            ["fluid_coolers"] = SumGetters("getEvaporativeFluidCoolerSingleSpeeds", "getEvaporativeFluidCoolerTwoSpeeds"),
+            ["district_cooling"] = CountOsObjects(osModelType, osModel, "getDistrictCoolings"),
+            ["district_heating"] = SumGetters("getDistrictHeatingWaters", "getDistrictHeatingSteams"),
+            ["heat_pumps_water_to_water"] = SumGetters("getHeatPumpWaterToWaterEquationFitCoolings", "getHeatPumpWaterToWaterEquationFitHeatings"),
+            ["heat_pumps_plant_loop_eir"] = SumGetters("getHeatPumpPlantLoopEIRCoolings", "getHeatPumpPlantLoopEIRHeatings"),
+            ["ground_heat_exchangers"] = SumGetters("getGroundHeatExchangerVerticals", "getGroundHeatExchangerHorizontalTrenchs"),
+            ["heat_exchangers_fluid_to_fluid"] = CountOsObjects(osModelType, osModel, "getHeatExchangerFluidToFluids"),
+            ["water_heaters"] = SumGetters("getWaterHeaterMixeds", "getWaterHeaterStratifieds", "getWaterHeaterHeatPumps"),
+            ["pipes_adiabatic"] = CountOsObjects(osModelType, osModel, "getPipeAdiabatics"),
+
+            // Controls, Sizing, Curves, Schedules, EMS, Generators, OutputVariables
+            ["setpoint_managers"] = CountOsObjects(osModelType, osModel, "getSetpointManagers"),
+            ["availability_managers"] = CountOsObjects(osModelType, osModel, "getAvailabilityManagers"),
+            ["availability_manager_assignment_lists"] = CountOsObjects(osModelType, osModel, "getAvailabilityManagerAssignmentLists"),
+            ["controllers_outdoor_air"] = CountOsObjects(osModelType, osModel, "getControllerOutdoorAirs"),
+            ["controllers_water_coil"] = CountOsObjects(osModelType, osModel, "getControllerWaterCoils"),
+            ["sizing_zones"] = CountOsObjects(osModelType, osModel, "getSizingZones"),
+            ["sizing_systems"] = CountOsObjects(osModelType, osModel, "getSizingSystems"),
+            ["sizing_plants"] = CountOsObjects(osModelType, osModel, "getSizingPlants"),
+            ["curves"] = CountOsObjects(osModelType, osModel, "getCurves"),
+            ["schedules"] = CountOsObjects(osModelType, osModel, "getSchedules"),
+            ["ems_sensors"] = CountOsObjects(osModelType, osModel, "getEnergyManagementSystemSensors"),
+            ["ems_actuators"] = CountOsObjects(osModelType, osModel, "getEnergyManagementSystemActuators"),
+            ["ems_internal_variables"] = CountOsObjects(osModelType, osModel, "getEnergyManagementSystemInternalVariables"),
+            ["ems_programs"] = CountOsObjects(osModelType, osModel, "getEnergyManagementSystemPrograms"),
+            ["ems_program_calling_managers"] = CountOsObjects(osModelType, osModel, "getEnergyManagementSystemProgramCallingManagers"),
+            ["ems_output_variables"] = CountOsObjects(osModelType, osModel, "getEnergyManagementSystemOutputVariables"),
+            ["electric_load_center_distributions"] = CountOsObjects(osModelType, osModel, "getElectricLoadCenterDistributions"),
+            ["generators"] = CountOsObjects(osModelType, osModel, "getGenerators"),
+            ["output_variables"] = CountOsObjects(osModelType, osModel, "getOutputVariables"),
+        };
     }
 
     private static Dictionary<string, object?> SummarizeSystem(Type sysType, object sys)

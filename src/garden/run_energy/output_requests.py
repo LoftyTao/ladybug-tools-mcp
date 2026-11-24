@@ -18,16 +18,24 @@ ENERGY_OUTPUT_REQUEST_DOMAIN = "honeybee_energy"
 ENERGY_OUTPUT_REQUESTS_DIR = Path("runs") / "energy" / "output_requests"
 
 _PRESET_METHODS = {
+    "comfort_map": ("add_comfort_map_variables", ()),
     "comfort_metrics": ("add_comfort_metrics", ()),
     "electricity_generation": ("add_electricity_generation", ()),
     "energy_balance": ("add_energy_balance_variables", ()),
     "gains_and_losses": ("add_gains_and_losses", ()),
     "glazing_solar": ("add_glazing_solar", ()),
     "hvac_energy_use": ("add_hvac_energy_use", ()),
+    "plant_temperatures": ("add_plant_temperatures", ()),
+    "plant_variables": ("add_plant_variables", ()),
+    "stratification": ("add_stratification_variables", ()),
     "surface_energy_flow": ("add_surface_energy_flow", ()),
     "surface_temperature": ("add_surface_temperature", ()),
     "unmet_hours": ("add_unmet_hours", ()),
     "zone_energy_use": ("add_zone_energy_use", ()),
+}
+_PRESET_ALIASES = {
+    "comfort_map_variables": "comfort_map",
+    "stratification_variables": "stratification",
 }
 
 
@@ -51,6 +59,7 @@ def _request_path(garden_root: Path, identifier: str) -> Path:
 
 def _apply_preset(output: SimulationOutput, preset: str) -> None:
     key = preset.strip().lower().replace("-", "_")
+    key = _PRESET_ALIASES.get(key, key)
     if key not in _PRESET_METHODS:
         allowed = ", ".join(sorted(_PRESET_METHODS))
         raise ValueError(f"Unsupported energy output preset: {preset}. Allowed: {allowed}.")

@@ -39,6 +39,7 @@ def register(mcp: FastMCP) -> None:
             "flowerpot",
             "handoff",
         },
+        annotations={"destructiveHint": True},
         timeout=20,
     )
     def cleanup_flowerpots(

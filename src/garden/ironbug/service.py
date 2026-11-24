@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -230,21 +231,350 @@ def describe_ironbug_components(
     }
 
 
+IRONBUG_TEMPLATE_NAMES: tuple[str, ...] = (
+    "vav_chiller_boiler",
+    "doas_fcu",
+    "vrf_doas",
+    "wshp",
+)
+
+
+def _normalize_template_rooms(room_names: list[str] | None) -> list[str]:
+    cleaned: list[str] = []
+    for raw in room_names or []:
+        name = str(raw).strip()
+        if name and name not in cleaned:
+            cleaned.append(name)
+    return cleaned or ["Zone1"]
+
+
+def _build_template_draft(
+    template: str,
+    *,
+    display_name: str | None = None,
+    room_names: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build an editable Ironbug draft from a named HVAC system template preset."""
+    key = str(template).strip().lower()
+    if key not in IRONBUG_TEMPLATE_NAMES:
+        valid = ", ".join(IRONBUG_TEMPLATE_NAMES)
+        raise ValueError(f"Unknown Ironbug template {template!r}. Valid templates: {valid}.")
+
+    zones = _normalize_template_rooms(room_names)
+    draft = empty_draft(display_name=display_name or key, imported_only=False)
+    components: dict[str, dict[str, Any]] = {}
+    thermal_zones: list[dict[str, Any]] = []
+    air_loops: list[dict[str, Any]] = []
+    plant_loops: list[dict[str, Any]] = []
+    vrf_systems: list[dict[str, Any]] = []
+
+    if key == "vav_chiller_boiler":
+        components.update(
+            {
+                "oa_ctrl": {"type": "IB_ControllerOutdoorAir"},
+                "oa_sys": {"type": "IB_OutdoorAirSystem", "wiring": {"controller": "oa_ctrl"}},
+                "ahu_cc": {"type": "IB_CoilCoolingWater"},
+                "ahu_hc": {"type": "IB_CoilHeatingWater"},
+                "ahu_fan": {"type": "IB_FanVariableVolume"},
+                "ahu_spm": {"type": "IB_SetpointManagerScheduled", "ctor_args": [12.8]},
+                "ahu_am": {"type": "IB_AvailabilityManagerNightCycle"},
+                "chw_pump": {"type": "IB_PumpVariableSpeed", "fields": {"RatedFlowRate": "autosize"}},
+                "chiller": {
+                    "type": "IB_ChillerElectricEIR",
+                    "fields": {"ReferenceCapacity": "autosize", "ReferenceCOP": 5.5, "CondenserType": "WaterCooled"},
+                },
+                "cw_pump": {"type": "IB_PumpVariableSpeed", "fields": {"RatedFlowRate": "autosize"}},
+                "cooling_tower": {"type": "IB_CoolingTowerVariableSpeed"},
+                "hw_pump": {"type": "IB_PumpVariableSpeed", "fields": {"RatedFlowRate": "autosize"}},
+                "boiler": {
+                    "type": "IB_BoilerHotWater",
+                    "fields": {"FuelType": "NaturalGas", "NominalCapacity": "autosize", "NominalThermalEfficiency": 0.85},
+                },
+            }
+        )
+        hw_demand_branches: list[list[str]] = [["ahu_hc"]]
+        for idx, zname in enumerate(zones, 1):
+            rh_id = f"vav_rh_{idx}"
+            vav_id = f"vav_{idx}"
+            components[rh_id] = {"type": "IB_CoilHeatingWater"}
+            components[vav_id] = {"type": "IB_AirTerminalSingleDuctVAVReheat", "wiring": {"reheat_coil": rh_id}}
+            thermal_zones.append({"room_name": zname, "air_terminal": vav_id})
+            hw_demand_branches.append([rh_id])
+
+        air_loops.append(
+            {
+                "name": "VAV_AirLoop",
+                "availability_managers": ["ahu_am"],
+                "supply": ["oa_sys", "ahu_cc", "ahu_hc", "ahu_fan", "ahu_spm"],
+                "demand_zones": list(zones),
+            }
+        )
+        plant_loops.extend(
+            [
+                {
+                    "name": "ChilledWaterLoop",
+                    "loop_type": "Cooling",
+                    "design_loop_exit_temperature": 6.7,
+                    "loop_design_temperature_difference": 5.6,
+                    "supply": ["chw_pump"],
+                    "supply_branches": [["chiller"]],
+                    "bypass_pipes": True,
+                    "supply_setpoint": 6.7,
+                    "demand_branches": [["ahu_cc"]],
+                },
+                {
+                    "name": "CondenserWaterLoop",
+                    "loop_type": "Condenser",
+                    "design_loop_exit_temperature": 29.4,
+                    "loop_design_temperature_difference": 5.6,
+                    "supply": ["cw_pump"],
+                    "supply_branches": [["cooling_tower"]],
+                    "bypass_pipes": True,
+                    "supply_setpoint": 29.4,
+                    "demand_branches": [["chiller"]],
+                },
+                {
+                    "name": "HotWaterLoop",
+                    "loop_type": "Heating",
+                    "design_loop_exit_temperature": 82.0,
+                    "loop_design_temperature_difference": 11.0,
+                    "supply": ["hw_pump"],
+                    "supply_branches": [["boiler"]],
+                    "bypass_pipes": True,
+                    "supply_setpoint": 82.0,
+                    "demand_branches": hw_demand_branches,
+                },
+            ]
+        )
+
+    elif key == "doas_fcu":
+        components.update(
+            {
+                "doas_hx": {"type": "IB_HeatExchangerAirToAirSensibleAndLatent"},
+                "doas_oa_ctrl": {"type": "IB_ControllerOutdoorAir"},
+                "doas_oa": {
+                    "type": "IB_OutdoorAirSystem",
+                    "wiring": {"controller": "doas_oa_ctrl", "oa_stream_objs": ["doas_hx"]},
+                },
+                "doas_cc": {"type": "IB_CoilCoolingWater"},
+                "doas_hc": {"type": "IB_CoilHeatingWater"},
+                "doas_fan": {"type": "IB_FanConstantVolume"},
+                "doas_spm": {"type": "IB_SetpointManagerScheduled", "ctor_args": [18.0]},
+                "doas_sizing": {
+                    "type": "IB_SizingSystem",
+                    "fields": {
+                        "TypeofLoadtoSizeOn": "VentilationRequirement",
+                        "AllOutdoorAirinCooling": True,
+                        "AllOutdoorAirinHeating": True,
+                    },
+                },
+                "chw_pump": {"type": "IB_PumpVariableSpeed", "fields": {"RatedFlowRate": "autosize"}},
+                "chiller": {
+                    "type": "IB_ChillerElectricEIR",
+                    "fields": {"ReferenceCapacity": "autosize", "ReferenceCOP": 5.5, "CondenserType": "AirCooled"},
+                },
+                "hw_pump": {"type": "IB_PumpVariableSpeed", "fields": {"RatedFlowRate": "autosize"}},
+                "boiler": {
+                    "type": "IB_BoilerHotWater",
+                    "fields": {"FuelType": "NaturalGas", "NominalCapacity": "autosize", "NominalThermalEfficiency": 0.85},
+                },
+            }
+        )
+        chw_demand: list[list[str]] = [["doas_cc"]]
+        hw_demand: list[list[str]] = [["doas_hc"]]
+        for idx, zname in enumerate(zones, 1):
+            term_id = f"doas_term_{idx}"
+            fan_id = f"fcu_fan_{idx}"
+            cc_id = f"fcu_cc_{idx}"
+            hc_id = f"fcu_hc_{idx}"
+            fcu_id = f"fcu_{idx}"
+            components[term_id] = {"type": "IB_AirTerminalSingleDuctConstantVolumeNoReheat"}
+            components[fan_id] = {"type": "IB_FanOnOff"}
+            components[cc_id] = {"type": "IB_CoilCoolingWater"}
+            components[hc_id] = {"type": "IB_CoilHeatingWater"}
+            components[fcu_id] = {
+                "type": "IB_ZoneHVACFourPipeFanCoil",
+                "fields": {"CapacityControlMethod": "CyclingFan"},
+                "wiring": {"fan": fan_id, "cooling_coil": cc_id, "heating_coil": hc_id},
+            }
+            thermal_zones.append(
+                {
+                    "room_name": zname,
+                    "air_terminal": term_id,
+                    "zone_equipments": [fcu_id],
+                }
+            )
+            chw_demand.append([cc_id])
+            hw_demand.append([hc_id])
+
+        air_loops.append(
+            {
+                "name": "DOAS_AirLoop",
+                "sizing_system": "doas_sizing",
+                "supply": ["doas_oa", "doas_cc", "doas_hc", "doas_fan", "doas_spm"],
+                "demand_zones": list(zones),
+            }
+        )
+        plant_loops.extend(
+            [
+                {
+                    "name": "ChilledWaterLoop",
+                    "loop_type": "Cooling",
+                    "design_loop_exit_temperature": 6.7,
+                    "loop_design_temperature_difference": 5.6,
+                    "supply": ["chw_pump"],
+                    "supply_branches": [["chiller"]],
+                    "bypass_pipes": True,
+                    "supply_setpoint": 6.7,
+                    "demand_branches": chw_demand,
+                },
+                {
+                    "name": "HotWaterLoop",
+                    "loop_type": "Heating",
+                    "design_loop_exit_temperature": 82.0,
+                    "loop_design_temperature_difference": 11.0,
+                    "supply": ["hw_pump"],
+                    "supply_branches": [["boiler"]],
+                    "bypass_pipes": True,
+                    "supply_setpoint": 82.0,
+                    "demand_branches": hw_demand,
+                },
+            ]
+        )
+
+    elif key == "vrf_doas":
+        components.update(
+            {
+                "doas_hx": {"type": "IB_HeatExchangerAirToAirSensibleAndLatent"},
+                "doas_oa_ctrl": {"type": "IB_ControllerOutdoorAir"},
+                "doas_oa": {
+                    "type": "IB_OutdoorAirSystem",
+                    "wiring": {"controller": "doas_oa_ctrl", "oa_stream_objs": ["doas_hx"]},
+                },
+                "doas_cc": {"type": "IB_CoilCoolingDXSingleSpeed"},
+                "doas_hc": {"type": "IB_CoilHeatingElectric"},
+                "doas_fan": {"type": "IB_FanConstantVolume"},
+                "doas_spm": {"type": "IB_SetpointManagerScheduled", "ctor_args": [20.0]},
+                "doas_sizing": {
+                    "type": "IB_SizingSystem",
+                    "fields": {
+                        "TypeofLoadtoSizeOn": "VentilationRequirement",
+                        "AllOutdoorAirinCooling": True,
+                        "AllOutdoorAirinHeating": True,
+                    },
+                },
+                "vrf_outdoor": {"type": "IB_AirConditionerVariableRefrigerantFlow"},
+            }
+        )
+        vrf_terms: list[str] = []
+        for idx, zname in enumerate(zones, 1):
+            term_id = f"doas_term_{idx}"
+            cc_id = f"vrf_cc_{idx}"
+            hc_id = f"vrf_hc_{idx}"
+            fan_id = f"vrf_fan_{idx}"
+            vrf_t_id = f"vrf_term_{idx}"
+            components[term_id] = {"type": "IB_AirTerminalSingleDuctConstantVolumeNoReheat"}
+            components[cc_id] = {"type": "IB_CoilCoolingDXVariableRefrigerantFlow"}
+            components[hc_id] = {"type": "IB_CoilHeatingDXVariableRefrigerantFlow"}
+            components[fan_id] = {"type": "IB_FanOnOff"}
+            components[vrf_t_id] = {
+                "type": "IB_ZoneHVACTerminalUnitVariableRefrigerantFlow",
+                "ctor_args": [cc_id, hc_id, fan_id],
+            }
+            vrf_terms.append(vrf_t_id)
+            thermal_zones.append(
+                {
+                    "room_name": zname,
+                    "air_terminal": term_id,
+                    "zone_equipments": [vrf_t_id],
+                }
+            )
+
+        air_loops.append(
+            {
+                "name": "DOAS_AirLoop",
+                "sizing_system": "doas_sizing",
+                "supply": ["doas_oa", "doas_cc", "doas_hc", "doas_fan", "doas_spm"],
+                "demand_zones": list(zones),
+            }
+        )
+        vrf_systems.append({"vrf": "vrf_outdoor", "terminals": vrf_terms})
+
+    elif key == "wshp":
+        components.update(
+            {
+                "wshp_pump": {"type": "IB_PumpVariableSpeed", "fields": {"RatedFlowRate": "autosize"}},
+                "wshp_boiler": {
+                    "type": "IB_BoilerHotWater",
+                    "fields": {"FuelType": "NaturalGas", "NominalCapacity": "autosize", "NominalThermalEfficiency": 0.85},
+                },
+                "wshp_tower": {"type": "IB_CoolingTowerVariableSpeed"},
+                "wshp_spm": {"type": "IB_SetpointManagerScheduled", "ctor_args": [25.0]},
+            }
+        )
+        demand_branches: list[list[str]] = []
+        for idx, zname in enumerate(zones, 1):
+            fan_id = f"wshp_fan_{idx}"
+            hc_id = f"wshp_hc_{idx}"
+            cc_id = f"wshp_cc_{idx}"
+            supp_id = f"wshp_supp_{idx}"
+            wshp_id = f"wshp_{idx}"
+            components[fan_id] = {"type": "IB_FanOnOff"}
+            components[hc_id] = {"type": "IB_CoilHeatingWaterToAirHeatPumpEquationFit"}
+            components[cc_id] = {"type": "IB_CoilCoolingWaterToAirHeatPumpEquationFit"}
+            components[supp_id] = {"type": "IB_CoilHeatingElectric"}
+            components[wshp_id] = {
+                "type": "IB_ZoneHVACWaterToAirHeatPump",
+                "ctor_args": [fan_id, hc_id, cc_id, supp_id],
+            }
+            thermal_zones.append({"room_name": zname, "zone_equipments": [wshp_id]})
+            demand_branches.append([cc_id])
+            demand_branches.append([hc_id])
+
+        plant_loops.append(
+            {
+                "name": "WSHP_CondenserLoop",
+                "loop_type": "Condenser",
+                "design_loop_exit_temperature": 25.0,
+                "loop_design_temperature_difference": 5.6,
+                "supply": ["wshp_pump"],
+                "supply_branches": [["wshp_boiler"], ["wshp_tower"]],
+                "bypass_pipes": True,
+                "supply_setpoint_manager": "wshp_spm",
+                "demand_branches": demand_branches,
+            }
+        )
+
+    draft["components"] = components
+    draft["thermal_zones"] = thermal_zones
+    draft["air_loops"] = air_loops
+    draft["plant_loops"] = plant_loops
+    draft["vrf_systems"] = vrf_systems
+    return draft
+
+
 def create_ironbug_system(
     *,
     garden_root: str,
     identifier: str,
     display_name: str | None = None,
     specification: dict[str, Any] | str | None = None,
+    template: str | None = None,
+    editable: bool = False,
+    room_names: list[str] | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Create a Garden-managed official Ironbug IB_HVACSystem file."""
+    if specification is not None and template is not None:
+        raise ValueError("Pass either specification or template, not both.")
+
     root = _garden_root(garden_root)
     manifest = GardenManifest.read(root)
     clean_id = str(identifier).strip()
     if not clean_id:
         raise ValueError("identifier must not be empty.")
 
+    extra_warnings: list[str] = []
     try:
         client = get_bridge_client()
         if specification is not None:
@@ -253,11 +583,29 @@ def create_ironbug_system(
                 if isinstance(specification, str)
                 else json.dumps(specification, ensure_ascii=False)
             )
-            summary = client.call("inspect", {"specification_json": spec_json})
-            draft = empty_draft(
-                display_name=summary.get("display_name") or display_name,
-                imported_only=True,
+            if editable:
+                parsed = client.call("reverse_parse", {"specification_json": spec_json})
+                draft = dict(parsed["draft"])
+                draft["imported_only"] = False
+                if display_name is not None:
+                    draft["display_name"] = display_name
+                summary = dict(parsed["summary"])
+                extra_warnings.extend(str(w) for w in (parsed.get("warnings") or []) if w)
+            else:
+                summary = client.call("inspect", {"specification_json": spec_json})
+                draft = empty_draft(
+                    display_name=summary.get("display_name") or display_name,
+                    imported_only=True,
+                )
+        elif template is not None:
+            draft = _build_template_draft(
+                template,
+                display_name=display_name or clean_id,
+                room_names=room_names,
             )
+            built = client.call("build", draft)
+            spec_json = str(built["specification_json"])
+            summary = dict(built["summary"])
         else:
             draft = empty_draft(display_name=display_name or clean_id)
             built = client.call("build", draft)
@@ -274,6 +622,7 @@ def create_ironbug_system(
         draft=draft,
         overwrite=bool(overwrite),
     )
+    imported_only = bool(draft.get("imported_only", False))
     receipt = make_persistence_receipt(
         status="persisted",
         garden_id=manifest.garden_id,
@@ -283,7 +632,9 @@ def create_ironbug_system(
             "operation": "IB_Create_System",
             "identifier": clean_id,
             "draft_path": draft_rel,
-            "imported_only": bool(draft.get("imported_only", False)),
+            "imported_only": imported_only,
+            "editable": not imported_only,
+            "template": template,
         },
     )
     return {
@@ -295,13 +646,16 @@ def create_ironbug_system(
             "identifier": clean_id,
             "path": spec_rel,
             "draft_path": draft_rel,
-            "imported_only": bool(draft.get("imported_only", False)),
+            "imported_only": imported_only,
+            "editable": not imported_only,
+            "template": template,
             **summary,
         },
         "persistence_receipt": receipt,
         "report": make_report(
             status="ok",
             message=f"Created Ironbug HVAC system '{clean_id}' at {spec_rel}.",
+            warnings=extra_warnings,
         ),
     }
 
@@ -763,8 +1117,9 @@ def validate_ironbug_system(
     model_target: dict[str, Any] | None = None,
     model_family: str = "honeybee",
     room_identifiers: list[str] | None = None,
+    run_forward_translator: bool | None = None,
 ) -> dict[str, Any]:
-    """Validate an Ironbug system by compiling it in-memory against OpenStudio.Model via official C# SaveHVAC."""
+    """Validate an Ironbug system via official C# SaveHVAC, optional Honeybee OSM export, and ForwardTranslator."""
     family = str(model_family or "honeybee").strip().lower()
     if family not in ("honeybee", "dragonfly"):
         raise ValueError(f"Unsupported model_family: {model_family!r}. Use 'honeybee' or 'dragonfly'.")
@@ -776,22 +1131,63 @@ def validate_ironbug_system(
         identifier=identifier,
     )
     static_issues = _check_draft_static_issues(draft_dict)
+
+    hb_model: HoneybeeModel | None = None
+    df_model: Any | None = None
+    if family == "honeybee" and (model_target is not None or manifest.base_honeybee_model is not None):
+        _, resolved_hb = resolve_honeybee_model_target(root, model_target)
+        hb_model = load_honeybee_model(root, resolved_hb)
+    elif family == "dragonfly" and (model_target is not None or manifest.base_dragonfly_model is not None):
+        _, resolved_df = resolve_dragonfly_model_target(root, model_target)
+        df_model = load_dragonfly_model(root, resolved_df)
+
+    osm_issues: list[dict[str, Any]] = []
+    osm_warnings: list[str] = []
     try:
         client = get_bridge_client()
-        val = client.call(
-            "validate",
-            {
-                "specification_json": json.dumps(spec_dict, ensure_ascii=False),
-                "room_names": list(room_identifiers or []),
-            },
-        )
+        validate_payload: dict[str, Any] = {
+            "specification_json": json.dumps(spec_dict, ensure_ascii=False),
+            "room_names": list(room_identifiers or []),
+        }
+        if run_forward_translator is not None:
+            validate_payload["run_forward_translator"] = bool(run_forward_translator)
+
+        if hb_model is not None and hb_model.rooms:
+            with tempfile.TemporaryDirectory(prefix="ironbug_val_") as tmpdir:
+                try:
+                    from honeybee_openstudio.writer import model_to_osm
+
+                    hb_copy = hb_model.duplicate()
+                    for rm in hb_copy.rooms:
+                        if isinstance(rm.properties.energy.hvac, DetailedHVAC):
+                            rm.properties.energy.hvac = None
+                    osm_text = model_to_osm(hb_copy)
+                    osm_path = Path(tmpdir) / "validate_model.osm"
+                    osm_path.write_text(osm_text, encoding="utf-8")
+                    validate_payload["osm_path"] = str(osm_path)
+                    if run_forward_translator is None:
+                        validate_payload["run_forward_translator"] = True
+                except Exception as exc:
+                    osm_issues.append(
+                        {
+                            "code": "honeybee_osm_translation_error",
+                            "message": f"Failed to export Honeybee model to temporary OSM for Ironbug validation: {exc}",
+                        }
+                    )
+                val = client.call("validate", validate_payload)
+        else:
+            val = client.call("validate", validate_payload)
     except IronbugRuntimeUnavailable as exc:
         return _runtime_blocked_response(exc)
 
     os_valid = bool(val.get("valid"))
     os_errors = list(val.get("errors") or [])
-    errors = [*os_errors, *(issue["message"] for issue in static_issues)]
-    warnings = list(val.get("warnings") or [])
+    errors = [
+        *os_errors,
+        *(issue["message"] for issue in static_issues),
+        *(issue["message"] for issue in osm_issues),
+    ]
+    warnings = [*osm_warnings, *list(val.get("warnings") or [])]
     system_summary = val.get("system_summary") or {}
     system_zones = list(
         system_summary["thermal_zones"]
@@ -800,17 +1196,13 @@ def validate_ironbug_system(
     )
 
     room_check: dict[str, Any] | None = None
-    if family == "honeybee" and (model_target is not None or manifest.base_honeybee_model is not None):
-        _, resolved_hb = resolve_honeybee_model_target(root, model_target)
-        hb_model = load_honeybee_model(root, resolved_hb)
+    if hb_model is not None:
         room_check = _check_honeybee_room_preconditions(
             hb_model,
             room_identifiers=room_identifiers,
             system_zone_names=system_zones,
         )
-    elif family == "dragonfly" and (model_target is not None or manifest.base_dragonfly_model is not None):
-        _, resolved_df = resolve_dragonfly_model_target(root, model_target)
-        df_model = load_dragonfly_model(root, resolved_df)
+    elif df_model is not None:
         room_check = _check_dragonfly_room_preconditions(
             df_model,
             room_identifiers=room_identifiers,
@@ -823,13 +1215,27 @@ def validate_ironbug_system(
         for err in os_errors
     ]
     blocking_issues.extend(static_issues)
+    blocking_issues.extend(osm_issues)
     if room_check and not room_check["ready"]:
         blocking_issues.extend(room_check["issues"])
 
-    valid = os_valid and not static_issues
+    valid = os_valid and not static_issues and not osm_issues
     ready = valid and not blocking_issues
     status = "ok" if ready else "invalid"
-    return {
+    forward_translator = val.get("forward_translator")
+    summary_view: dict[str, Any] = {
+        "garden_target": manifest.target(),
+        "target": target,
+        "valid": valid,
+        "ready": ready,
+        "blocking_issue_count": len(blocking_issues),
+        "warning_count": len(warnings),
+        "openstudio_summary": val.get("openstudio_summary") or {},
+    }
+    if forward_translator is not None:
+        summary_view["forward_translator"] = forward_translator
+
+    payload: dict[str, Any] = {
         "valid": valid,
         "ready": ready,
         "target": target,
@@ -841,15 +1247,7 @@ def validate_ironbug_system(
         "openstudio_summary": val.get("openstudio_summary") or {},
         "system_summary": val.get("system_summary") or {},
         "room_check": room_check,
-        "summary_view": {
-            "garden_target": manifest.target(),
-            "target": target,
-            "valid": valid,
-            "ready": ready,
-            "blocking_issue_count": len(blocking_issues),
-            "warning_count": len(warnings),
-            "openstudio_summary": val.get("openstudio_summary") or {},
-        },
+        "summary_view": summary_view,
         "report": make_report(
             status=status,
             message=(
@@ -860,6 +1258,9 @@ def validate_ironbug_system(
             warnings=warnings,
         ),
     }
+    if forward_translator is not None:
+        payload["forward_translator"] = forward_translator
+    return payload
 
 
 def _select_honeybee_rooms(

@@ -89,7 +89,23 @@ ROOM2D_ATTRIBUTE_CATALOG = [
 SUPPORTED_ROOM2D_ATTRIBUTES = {
     record["name"]: record for record in ROOM2D_ATTRIBUTE_CATALOG
 }
-ATTRIBUTE_OPERATORS = {"equals", "contains", "gt", "lt", "gte", "lte"}
+ATTRIBUTE_OPERATOR_ALIASES = {
+    "equals": "equals",
+    "==": "equals",
+    "not_equals": "not_equals",
+    "!=": "not_equals",
+    "contains": "contains",
+    "in": "in",
+    "gt": "gt",
+    ">": "gt",
+    "lt": "lt",
+    "<": "lt",
+    "gte": "gte",
+    ">=": "gte",
+    "lte": "lte",
+    "<=": "lte",
+}
+ATTRIBUTE_OPERATORS = set(ATTRIBUTE_OPERATOR_ALIASES)
 
 
 def _garden_root(garden_root: str) -> Path:
@@ -191,16 +207,36 @@ def _coerce_compare_value(raw_value: Any, sample_value: Any) -> Any:
 def _matches_operator(value: Any, operator: str | None, expected: Any) -> bool:
     if operator is None:
         return True
-    op = operator.strip().lower()
-    if op not in ATTRIBUTE_OPERATORS:
-        raise ValueError("operator must be equals, contains, gt, lt, gte, or lte.")
+    raw_op = str(operator).strip().lower()
+    op = ATTRIBUTE_OPERATOR_ALIASES.get(raw_op)
+    if op is None:
+        raise ValueError(
+            "operator must be one of equals, ==, not_equals, !=, contains, in, "
+            "gt, >, lt, <, gte, >=, lte, or <=."
+        )
     if op == "contains":
+        if isinstance(value, (list, tuple, set)):
+            expected_lower = str(expected or "").lower()
+            return any(expected_lower in str(item).lower() for item in value)
         return str(expected or "").lower() in str(value or "").lower()
+    if op == "in":
+        if isinstance(expected, (list, tuple, set)):
+            return any(_matches_operator(value, "equals", item) for item in expected)
+        if isinstance(expected, str):
+            parts = [part.strip() for part in expected.split(",") if part.strip()]
+            if len(parts) > 1:
+                return any(_matches_operator(value, "equals", part) for part in parts)
+            return str(value or "").lower() in expected.lower()
+        return _matches_operator(value, "equals", expected)
     compare_value = _coerce_compare_value(expected, value)
     if op == "equals":
         if isinstance(value, str):
             return value.lower() == str(compare_value or "").lower()
         return value == compare_value
+    if op == "not_equals":
+        if isinstance(value, str):
+            return value.lower() != str(compare_value or "").lower()
+        return value != compare_value
     if value is None or compare_value is None:
         return False
     if op == "gt":
@@ -500,7 +536,7 @@ def list_dragonfly_room2d_attributes(
     garden_root: str,
     model_target: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """List compact Room2D attributes supported by DF_Room2Ds_By_Attribute."""
+    """List compact Room2D attributes supported by DF_Inspect_Model."""
     garden_root_path = _garden_root(garden_root)
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
     attributes = [dict(record) for record in ROOM2D_ATTRIBUTE_CATALOG]

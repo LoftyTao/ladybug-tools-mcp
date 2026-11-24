@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from honeybee_radiance_command.options.dcglare import DcglareOptions
+from honeybee_radiance_command.options.evalglare import EvalglareOptions
+from honeybee_radiance_command.options.rcontrib import RcontribOptions
 from honeybee_radiance_command.options.rfluxmtx import RfluxmtxOptions
 from honeybee_radiance_command.options.rpict import RpictOptions
 from honeybee_radiance_command.options.rtrace import RtraceOptions
@@ -51,6 +54,17 @@ RFLUXMTX = {
     "c": [1, 1, 1],
 }
 
+RCONTRIB = dict(RTRACE)
+
+DCGLARE: dict[str, list[Any]] = {
+    "b": [2000, 2000, 2000],
+    "l": [0.38, 0.38, 0.38],
+}
+
+EVALGLARE: dict[str, list[Any]] = {
+    "q": [0, 0, 1],
+}
+
 RECIPE_TYPES = {
     "0": "rtrace",
     "grid": "rtrace",
@@ -82,11 +96,36 @@ RECIPE_TYPES = {
     "annual": "rfluxmtx",
     "annual-daylight": "rfluxmtx",
     "annual_daylight": "rfluxmtx",
+    "annual-daylight-enhanced": "rfluxmtx",
+    "annual_daylight_enhanced": "rfluxmtx",
+    "direct-sun-hours": "rfluxmtx",
+    "direct_sun_hours": "rfluxmtx",
     "annual-irradiance": "rfluxmtx",
     "annual_irradiance": "rfluxmtx",
     "cumulative-radiation": "rfluxmtx",
     "cumulative_radiation": "rfluxmtx",
+    "leed-daylight-option-one": "rfluxmtx",
+    "leed_daylight_option_one": "rfluxmtx",
+    "leed-daylight-option-two": "rfluxmtx",
+    "leed_daylight_option_two": "rfluxmtx",
+    "annual-daylight-en17037": "rfluxmtx",
+    "annual_daylight_en17037": "rfluxmtx",
+    "well-daylight": "rfluxmtx",
+    "well_daylight": "rfluxmtx",
+    "breeam-daylight-4b": "rfluxmtx",
+    "breeam_daylight_4b": "rfluxmtx",
+    "imageless-annual-glare": "rfluxmtx",
+    "imageless_annual_glare": "rfluxmtx",
+    "pmv-comfort-map": "rfluxmtx",
+    "pmv_comfort_map": "rfluxmtx",
+    "utci-comfort-map": "rfluxmtx",
+    "utci_comfort_map": "rfluxmtx",
+    "adaptive-comfort-map": "rfluxmtx",
+    "adaptive_comfort_map": "rfluxmtx",
     "rfluxmtx": "rfluxmtx",
+    "rcontrib": "rcontrib",
+    "dcglare": "dcglare",
+    "evalglare": "evalglare",
 }
 
 DETAIL_LEVELS = {
@@ -135,6 +174,15 @@ def create_radiance_parameters(
     elif command_name == "rpict":
         option_dict = RPICT
         option_obj = RpictOptions()
+    elif command_name == "rcontrib":
+        option_dict = RCONTRIB
+        option_obj = RcontribOptions()
+    elif command_name == "dcglare":
+        option_dict = DCGLARE
+        option_obj = DcglareOptions()
+    elif command_name == "evalglare":
+        option_dict = EVALGLARE
+        option_obj = EvalglareOptions()
     else:
         option_dict = RFLUXMTX
         option_obj = RfluxmtxOptions()

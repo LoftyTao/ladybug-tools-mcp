@@ -193,7 +193,7 @@ Windows x86_64 优先完成原生验收；Linux x86_64 和 macOS Apple Silicon �
 
 Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.1` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NatLabRockies/OpenStudio/releases/tag/v3.11.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
+| `v1.2.1` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.10.0](https://github.com/NREL/OpenStudio/releases/tag/v3.10.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | [8.1.30 beta](https://windows-downloads.lbl.gov/software/therm/THERM8_1_30_SetupFull.exe) |
 
 使用 `LB_Get_Runtime_Config` 检查已安装引擎，并获取缺失运行环境的配置指引。
 
@@ -227,14 +227,10 @@ Web View 模式为建模过程提供本地 vtk.js 预览。
 代理通过 MCP 代码模式调用：
 
 ```text
-GD_Web_View_Start_Mode(garden_root, name="...")
+GD_Web_View_Start_Mode(garden_root, name="...", port=None)
 ```
 
-开启后，服务会在 Garden 中创建本地预览会话，并返回 `viewer.url`，例如：
-
-```text
-http://127.0.0.1:3127
-```
+开启后，服务会在 Garden 中创建本地预览会话，使用内置本地 `vtk.js`（由 `/vendor/vtk.js` 离线提供，无需访问外部 CDN）在 `127.0.0.1` 启动工作台并返回 `viewer.url`（例如 `http://127.0.0.1:<port>/`）。工作台支持 `steps[]` 时间轴滑块、图层/对象显隐开关、标准相机视角按钮（`Ax`、`Top`、`Front`、`Back`、`Left`、`Right`、`Fit`）、二维色标图例叠加层，以及 HTML/SVG 成果预览页签。
 
 打开返回的 `viewer.url` 即可显示预览。
 
@@ -262,10 +258,9 @@ Web View 模式下，Honeybee、Dragonfly、Fairyfly 和 VisualizationSet 的主
 
 预览页面会轮询 Garden 的会话状态，并自动加载最新的 `.vtkjs` 文件，无需手动刷新。
 这些自动预览用于当前会话，不属于用户明确要求导出的正式成果。
-如果需要长期保存和重复使用的成果，仍应让代理通过 `LB_Set_To_VTKJS` 导出可视化集。
+如果需要长期保存和重复使用的成果，仍应让代理通过 `LB_Export_Visualization_Set`（`export_format="vtkjs"`）导出可视化集。
 
-本地预览服务使用明确指定的端口。
-如果请求的端口已被占用，启动会明确报错，不会自动切换到其他端口或让浏览器继续显示旧 Garden。
+当省略 `port`（`None`）时，本地预览服务会自动绑定 `127.0.0.1` 的临时空闲端口（`0`）；当传入显式 `port` 且该端口已被占用时，启动会明确报错，不会静默切换到其他端口或让浏览器继续显示旧 Garden。
 
 ## 首次使用
 

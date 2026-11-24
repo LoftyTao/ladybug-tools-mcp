@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any
 
+from honeybee.aperture import Aperture
+from honeybee.door import Door
 from honeybee.model import Model
 from honeybee.room import Room
 from honeybee_energy.generator.loadcenter import ElectricLoadCenter
 from honeybee_energy.generator.pv import PVProperties
+from honeybee_energy.load.daylight import DaylightingControl
 from honeybee_energy.ventcool import afn
 from honeybee_energy.ventcool.control import VentilationControl
 from honeybee_energy.ventcool.fan import VentilationFan
 from honeybee_energy.ventcool.opening import VentilationOpening
 from honeybee_energy.ventcool.simulation import VentilationSimulationControl
+from ladybug_geometry.geometry3d.pointvector import Point3D
 
 from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
+from garden.energy.programtypes import _schedule_from_input
 from garden.honeybee_core.locate import find_object
 from garden.honeybee_core.model_io import (
     load_honeybee_model,
@@ -65,17 +71,87 @@ def _control_from_fields(
     min_outdoor_temperature: float = -100,
     max_outdoor_temperature: float = 100,
     delta_temperature: float = -100,
+    schedule: dict[str, Any] | str | None = None,
+    garden_root: str | None = None,
 ) -> VentilationControl:
+    schedule_obj = (
+        _schedule_from_input(schedule, field_name="schedule", garden_root=garden_root)
+        if schedule is not None
+        else None
+    )
+    kwargs: dict[str, Any] = {
+        "min_indoor_temperature": min_indoor_temperature,
+        "max_indoor_temperature": max_indoor_temperature,
+        "min_outdoor_temperature": min_outdoor_temperature,
+        "max_outdoor_temperature": max_outdoor_temperature,
+        "delta_temperature": delta_temperature,
+    }
+    if schedule_obj is not None:
+        kwargs["schedule"] = schedule_obj
     try:
-        return VentilationControl(
+        return VentilationControl(**kwargs)
+    except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
+        raise ValueError(f"Invalid VentilationControl input. {exc}") from exc
+
+
+def _control_from_input(
+    control: dict[str, Any] | None,
+    *,
+    min_indoor_temperature: float = -100,
+    max_indoor_temperature: float = 100,
+    min_outdoor_temperature: float = -100,
+    max_outdoor_temperature: float = 100,
+    delta_temperature: float = -100,
+    schedule: dict[str, Any] | str | None = None,
+    garden_root: str | None = None,
+) -> VentilationControl:
+    if control is None:
+        return _control_from_fields(
             min_indoor_temperature=min_indoor_temperature,
             max_indoor_temperature=max_indoor_temperature,
             min_outdoor_temperature=min_outdoor_temperature,
             max_outdoor_temperature=max_outdoor_temperature,
             delta_temperature=delta_temperature,
+            schedule=schedule,
+            garden_root=garden_root,
         )
-    except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
-        raise ValueError(f"Invalid VentilationControl input. {exc}") from exc
+    if not isinstance(control, dict):
+        raise ValueError("control must be a VentilationControl dictionary.")
+    ctrl_schedule = control.get("schedule")
+    if (
+        control.get("type") == "VentilationControl"
+        and (
+            ctrl_schedule is None
+            or (
+                isinstance(ctrl_schedule, dict)
+                and ctrl_schedule.get("type") in {"ScheduleRuleset", "ScheduleFixedInterval"}
+            )
+        )
+    ):
+        return VentilationControl.from_dict(control)
+    allowed = {
+        "type",
+        "min_indoor_temperature",
+        "max_indoor_temperature",
+        "min_outdoor_temperature",
+        "max_outdoor_temperature",
+        "delta_temperature",
+        "schedule",
+    }
+    unknown = sorted(set(control) - allowed)
+    if unknown:
+        raise ValueError(
+            f"Unsupported VentilationControl fields: {', '.join(unknown)}."
+        )
+    return _control_from_fields(
+        min_indoor_temperature=control.get("min_indoor_temperature", min_indoor_temperature),
+        max_indoor_temperature=control.get("max_indoor_temperature", max_indoor_temperature),
+        min_outdoor_temperature=control.get("min_outdoor_temperature", min_outdoor_temperature),
+        max_outdoor_temperature=control.get("max_outdoor_temperature", max_outdoor_temperature),
+        delta_temperature=control.get("delta_temperature", delta_temperature),
+        schedule=ctrl_schedule if ctrl_schedule is not None else schedule,
+        garden_root=garden_root,
+    )
 
 
 def _ventilation_opening_summary(opening: VentilationOpening) -> dict[str, Any]:
@@ -149,21 +225,21 @@ def create_zone_ventilation_fan(
     min_outdoor_temperature: float = -100,
     max_outdoor_temperature: float = 100,
     delta_temperature: float = -100,
+    schedule: dict[str, Any] | str | None = None,
     garden_root: str | None = None,
     return_object_dict: bool = True,
 ) -> dict[str, Any]:
     """Create a Honeybee Energy zone ventilation fan object."""
     try:
-        fan_control = (
-            VentilationControl.from_dict(control)
-            if control is not None
-            else _control_from_fields(
-                min_indoor_temperature=min_indoor_temperature,
-                max_indoor_temperature=max_indoor_temperature,
-                min_outdoor_temperature=min_outdoor_temperature,
-                max_outdoor_temperature=max_outdoor_temperature,
-                delta_temperature=delta_temperature,
-            )
+        fan_control = _control_from_input(
+            control,
+            min_indoor_temperature=min_indoor_temperature,
+            max_indoor_temperature=max_indoor_temperature,
+            min_outdoor_temperature=min_outdoor_temperature,
+            max_outdoor_temperature=max_outdoor_temperature,
+            delta_temperature=delta_temperature,
+            schedule=schedule,
+            garden_root=garden_root,
         )
         fan = VentilationFan(
             identifier,
@@ -320,12 +396,112 @@ def _save_model_change(
     }
 
 
+def _selected_openings(
+    model: Model,
+    rooms: list[Room],
+    *,
+    aperture_identifiers: list[str] | None = None,
+    aperture_targets: list[dict[str, Any]] | None = None,
+    door_identifiers: list[str] | None = None,
+    door_targets: list[dict[str, Any]] | None = None,
+    explicit_room_selection: bool = False,
+) -> tuple[list[Room], list[Aperture], list[Door], bool]:
+    has_filter = any(
+        item is not None
+        for item in (aperture_identifiers, aperture_targets, door_identifiers, door_targets)
+    )
+    if not has_filter:
+        return (
+            rooms,
+            [aperture for room in rooms for aperture in room.apertures],
+            [door for room in rooms for door in room.doors],
+            False,
+        )
+
+    aperture_owners = {
+        aperture.identifier: (room, aperture)
+        for room in rooms
+        for aperture in room.apertures
+    }
+    door_owners = {
+        door.identifier: (room, door)
+        for room in rooms
+        for door in room.doors
+    }
+
+    matched_apertures: list[Aperture] = []
+    seen_apertures: set[str] = set()
+    affected_rooms: list[Room] = list(rooms) if explicit_room_selection else []
+    seen_rooms: set[str] = {room.identifier for room in affected_rooms}
+
+    def _record_room(room: Room) -> None:
+        if room.identifier not in seen_rooms:
+            seen_rooms.add(room.identifier)
+            affected_rooms.append(room)
+
+    for target in aperture_targets or []:
+        normalized = normalize_honeybee_object_target(target)
+        obj = find_object(model, normalized)
+        if not isinstance(obj, Aperture):
+            raise ValueError("aperture_targets must contain Honeybee Aperture targets.")
+        if obj.identifier not in aperture_owners:
+            raise ValueError(f"Aperture {obj.identifier!r} does not belong to the selected rooms.")
+        room, aperture = aperture_owners[obj.identifier]
+        _record_room(room)
+        if aperture.identifier not in seen_apertures:
+            seen_apertures.add(aperture.identifier)
+            matched_apertures.append(aperture)
+
+    for identifier in aperture_identifiers or []:
+        if identifier not in aperture_owners:
+            raise ValueError(f"Aperture not found in selected rooms: {identifier}")
+        room, aperture = aperture_owners[identifier]
+        _record_room(room)
+        if aperture.identifier not in seen_apertures:
+            seen_apertures.add(aperture.identifier)
+            matched_apertures.append(aperture)
+
+    matched_doors: list[Door] = []
+    seen_doors: set[str] = set()
+
+    for target in door_targets or []:
+        normalized = normalize_honeybee_object_target(target)
+        obj = find_object(model, normalized)
+        if not isinstance(obj, Door):
+            raise ValueError("door_targets must contain Honeybee Door targets.")
+        if obj.identifier not in door_owners:
+            raise ValueError(f"Door {obj.identifier!r} does not belong to the selected rooms.")
+        room, door = door_owners[obj.identifier]
+        _record_room(room)
+        if door.identifier not in seen_doors:
+            seen_doors.add(door.identifier)
+            matched_doors.append(door)
+
+    for identifier in door_identifiers or []:
+        if identifier not in door_owners:
+            raise ValueError(f"Door not found in selected rooms: {identifier}")
+        room, door = door_owners[identifier]
+        _record_room(room)
+        if door.identifier not in seen_doors:
+            seen_doors.add(door.identifier)
+            matched_doors.append(door)
+
+    if not matched_apertures and not matched_doors:
+        raise ValueError("No matching apertures or doors were selected.")
+
+    return affected_rooms, matched_apertures, matched_doors, True
+
+
 def setup_simple_ventilation_properties(
     *,
     garden_root: str,
     model_target: dict[str, Any] | None = None,
     room_identifiers: list[str] | None = None,
     room_targets: list[dict[str, Any]] | None = None,
+    aperture_identifiers: list[str] | None = None,
+    aperture_targets: list[dict[str, Any]] | None = None,
+    door_identifiers: list[str] | None = None,
+    door_targets: list[dict[str, Any]] | None = None,
     fraction_area_operable: float = 0.5,
     fraction_height_operable: float = 1.0,
     discharge_coefficient: float = 0.45,
@@ -338,8 +514,10 @@ def setup_simple_ventilation_properties(
     min_outdoor_temperature: float = -100,
     max_outdoor_temperature: float = 100,
     delta_temperature: float = -100,
+    schedule: dict[str, Any] | str | None = None,
+    clear: bool = False,
 ) -> dict[str, Any]:
-    """Apply simple operable-window ventilation properties to selected Rooms."""
+    """Apply or clear simple operable-window ventilation properties on selected Rooms/openings."""
     root = Path(garden_root).expanduser().resolve()
     manifest, resolved_model_target = resolve_model_target(root, model_target)
     model = load_honeybee_model(root, resolved_model_target)
@@ -348,6 +526,56 @@ def setup_simple_ventilation_properties(
         room_identifiers=room_identifiers,
         room_targets=room_targets,
     )
+    affected_rooms, matched_apertures, matched_doors, has_opening_filter = _selected_openings(
+        model,
+        rooms,
+        aperture_identifiers=aperture_identifiers,
+        aperture_targets=aperture_targets,
+        door_identifiers=door_identifiers,
+        door_targets=door_targets,
+        explicit_room_selection=bool(room_identifiers or room_targets),
+    )
+
+    if clear:
+        cleared_apertures = 0
+        for aperture in matched_apertures:
+            if aperture.properties.energy.vent_opening is not None or aperture.is_operable:
+                cleared_apertures += 1
+            aperture.properties.energy.vent_opening = None
+            aperture.is_operable = False
+        cleared_doors = 0
+        for door in matched_doors:
+            if door.properties.energy.vent_opening is not None:
+                cleared_doors += 1
+            door.properties.energy.vent_opening = None
+        cleared_rooms = 0
+        for room in affected_rooms:
+            if not has_opening_filter or (
+                not any(ap.properties.energy.vent_opening is not None for ap in room.apertures)
+                and not any(d.properties.energy.vent_opening is not None for d in room.doors)
+            ):
+                if room.properties.energy.window_vent_control is not None:
+                    cleared_rooms += 1
+                room.properties.energy.window_vent_control = None
+        return _save_model_change(
+            garden_root=root,
+            manifest=manifest,
+            model_target=resolved_model_target,
+            model=model,
+            operation="clear_simple_ventilation_properties",
+            updated_fields=["window_vent_control", "vent_opening"],
+            summary_view={
+                "cleared": True,
+                "room_count": len(affected_rooms),
+                "cleared_room_count": cleared_rooms,
+                "aperture_count": len(matched_apertures),
+                "cleared_aperture_count": cleared_apertures,
+                "door_count": len(matched_doors),
+                "cleared_door_count": cleared_doors,
+            },
+            message=f"Cleared simple ventilation properties on {len(affected_rooms)} room(s).",
+        )
+
     try:
         opening = VentilationOpening(
             fraction_area_operable=fraction_area_operable,
@@ -364,20 +592,35 @@ def setup_simple_ventilation_properties(
             min_outdoor_temperature=min_outdoor_temperature,
             max_outdoor_temperature=max_outdoor_temperature,
             delta_temperature=delta_temperature,
+            schedule=schedule,
+            garden_root=garden_root,
         )
     except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
         raise ValueError(f"Invalid simple ventilation properties input. {exc}") from exc
 
-    aperture_count = 0
-    for room in rooms:
-        room.properties.energy.window_vent_control = control.duplicate()
-        room.properties.energy.assign_ventilation_opening(opening.duplicate())
-        for aperture in room.apertures:
+    if not has_opening_filter:
+        aperture_count = 0
+        door_count = 0
+        for room in rooms:
+            room.properties.energy.window_vent_control = control.duplicate()
+            room.properties.energy.assign_ventilation_opening(opening.duplicate())
+            for aperture in room.apertures:
+                aperture.is_operable = True
+                aperture.properties.energy.vent_opening = opening.duplicate()
+                aperture_count += 1
+            for door in room.doors:
+                door.properties.energy.vent_opening = opening.duplicate()
+                door_count += 1
+    else:
+        for room in affected_rooms:
+            room.properties.energy.window_vent_control = control.duplicate()
+        for aperture in matched_apertures:
             aperture.is_operable = True
             aperture.properties.energy.vent_opening = opening.duplicate()
-            aperture_count += 1
-        for door in room.doors:
+        for door in matched_doors:
             door.properties.energy.vent_opening = opening.duplicate()
+        aperture_count = len(matched_apertures)
+        door_count = len(matched_doors)
 
     return _save_model_change(
         garden_root=root,
@@ -387,12 +630,14 @@ def setup_simple_ventilation_properties(
         operation="setup_simple_ventilation_properties",
         updated_fields=["window_vent_control", "vent_opening"],
         summary_view={
-            "room_count": len(rooms),
+            "room_count": len(affected_rooms),
             "aperture_count": aperture_count,
+            "door_count": door_count,
+            "filtered_openings": has_opening_filter,
             "ventilation_opening": _ventilation_opening_summary(opening),
             "window_vent_control": _ventilation_control_summary(control),
         },
-        message=f"Applied simple ventilation properties to {len(rooms)} room(s).",
+        message=f"Applied simple ventilation properties to {len(affected_rooms)} room(s).",
     )
 
 
@@ -414,8 +659,9 @@ def setup_airflow_network(
     long_axis_angle: float = 0,
     aspect_ratio: float = 1,
     autocalculate_geometry_properties: bool = True,
+    clear: bool = False,
 ) -> dict[str, Any]:
-    """Generate an EnergyPlus AirflowNetwork on selected Honeybee Rooms."""
+    """Generate or clear an EnergyPlus AirflowNetwork on selected Honeybee Rooms."""
     root = Path(garden_root).expanduser().resolve()
     manifest, resolved_model_target = resolve_model_target(root, model_target)
     model = load_honeybee_model(root, resolved_model_target)
@@ -424,6 +670,37 @@ def setup_airflow_network(
         room_identifiers=room_identifiers,
         room_targets=room_targets,
     )
+    if clear:
+        cleared_face_cracks = 0
+        for room in rooms:
+            for face in room.faces:
+                if face.properties.energy.vent_crack is not None:
+                    cleared_face_cracks += 1
+                face.properties.energy.vent_crack = None
+        if (
+            (not room_identifiers and not room_targets)
+            or not any(
+                face.properties.energy.vent_crack is not None
+                for room in model.rooms
+                for face in room.faces
+            )
+        ):
+            model.properties.energy.ventilation_simulation_control = None
+        return _save_model_change(
+            garden_root=root,
+            manifest=manifest,
+            model_target=resolved_model_target,
+            model=model,
+            operation="clear_airflow_network",
+            updated_fields=["ventilation_simulation_control", "vent_crack"],
+            summary_view={
+                "cleared": True,
+                "room_count": len(rooms),
+                "cleared_face_crack_count": cleared_face_cracks,
+                "vent_control_type": model.properties.energy.ventilation_simulation_control.vent_control_type,
+            },
+            message=f"Cleared AirflowNetwork properties for {len(rooms)} room(s).",
+        )
     try:
         control = VentilationSimulationControl(
             vent_control_type=vent_control_type,
@@ -487,6 +764,28 @@ def _daylighting_control_summary(control: Any) -> dict[str, Any]:
     }
 
 
+def _point3d_from_input(value: Any) -> Point3D:
+    if isinstance(value, Point3D):
+        return value
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        if any(isinstance(coord, bool) for coord in value):
+            raise ValueError("sensor_position coordinates must be numeric [x, y, z].")
+        try:
+            return Point3D(float(value[0]), float(value[1]), float(value[2]))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"sensor_position must contain 3 numeric coordinates. {exc}") from exc
+    if isinstance(value, dict):
+        if all(key in value for key in ("x", "y", "z")):
+            coords = (value["x"], value["y"], value["z"])
+            if any(isinstance(coord, bool) for coord in coords):
+                raise ValueError("sensor_position coordinates must be numeric {x, y, z}.")
+            try:
+                return Point3D(float(coords[0]), float(coords[1]), float(coords[2]))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"sensor_position {value!r} has invalid coordinates. {exc}") from exc
+    raise ValueError("sensor_position must be [x, y, z] or {'x': ..., 'y': ..., 'z': ...}.")
+
+
 def setup_daylighting_control_to_center(
     *,
     garden_root: str,
@@ -494,14 +793,16 @@ def setup_daylighting_control_to_center(
     room_identifiers: list[str] | None = None,
     room_targets: list[dict[str, Any]] | None = None,
     distance_from_floor: float = 0.8,
+    sensor_position: list[float] | tuple[float, ...] | dict[str, Any] | None = None,
     illuminance_setpoint: float = 300,
     control_fraction: float = 1.0,
     min_power_input: float = 0.3,
     min_light_output: float = 0.2,
     off_at_minimum: bool = False,
     tolerance: float = 0.01,
+    clear: bool = False,
 ) -> dict[str, Any]:
-    """Assign Honeybee Energy daylighting controls near selected Room centers."""
+    """Assign or clear Honeybee Energy daylighting controls on selected Rooms."""
     root = Path(garden_root).expanduser().resolve()
     manifest, resolved_model_target = resolve_model_target(root, model_target)
     model = load_honeybee_model(root, resolved_model_target)
@@ -511,23 +812,62 @@ def setup_daylighting_control_to_center(
         room_targets=room_targets,
     )
 
+    if clear:
+        cleared_rooms = 0
+        for room in rooms:
+            if room.properties.energy.daylighting_control is not None:
+                cleared_rooms += 1
+            room.properties.energy.daylighting_control = None
+        return _save_model_change(
+            garden_root=root,
+            manifest=manifest,
+            model_target=resolved_model_target,
+            model=model,
+            operation="clear_daylighting_control",
+            updated_fields=["daylighting_control"],
+            summary_view={
+                "cleared": True,
+                "room_count": len(rooms),
+                "cleared_room_count": cleared_rooms,
+            },
+            message=f"Cleared daylighting controls on {len(rooms)} room(s).",
+        )
+
     controls: list[dict[str, Any]] = []
     skipped_rooms: list[str] = []
+    warnings: list[str] = []
     try:
+        custom_point = _point3d_from_input(sensor_position) if sensor_position is not None else None
         for room in rooms:
-            control = room.properties.energy.add_daylight_control_to_center(
-                distance_from_floor=distance_from_floor,
-                illuminance_setpoint=illuminance_setpoint,
-                control_fraction=control_fraction,
-                min_power_input=min_power_input,
-                min_light_output=min_light_output,
-                off_at_minimum=off_at_minimum,
-                tolerance=tolerance,
-            )
-            if control is None:
-                skipped_rooms.append(room.identifier)
-            else:
+            if custom_point is not None:
+                control = DaylightingControl(
+                    Point3D(custom_point.x, custom_point.y, custom_point.z),
+                    illuminance_setpoint=illuminance_setpoint,
+                    control_fraction=control_fraction,
+                    min_power_input=min_power_input,
+                    min_light_output=min_light_output,
+                    off_at_minimum=off_at_minimum,
+                )
+                room.properties.energy.daylighting_control = control
+                if not control.is_sensor_inside_parent:
+                    warnings.append(
+                        f"Daylighting sensor {sensor_position!r} lies outside Room {room.identifier!r}."
+                    )
                 controls.append({"room_identifier": room.identifier, **_daylighting_control_summary(control)})
+            else:
+                control = room.properties.energy.add_daylight_control_to_center(
+                    distance_from_floor=distance_from_floor,
+                    illuminance_setpoint=illuminance_setpoint,
+                    control_fraction=control_fraction,
+                    min_power_input=min_power_input,
+                    min_light_output=min_light_output,
+                    off_at_minimum=off_at_minimum,
+                    tolerance=tolerance,
+                )
+                if control is None:
+                    skipped_rooms.append(room.identifier)
+                else:
+                    controls.append({"room_identifier": room.identifier, **_daylighting_control_summary(control)})
     except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
         raise ValueError(f"Invalid daylighting control input. {exc}") from exc
 
@@ -537,18 +877,131 @@ def setup_daylighting_control_to_center(
             "and distance_from_floor."
         )
 
-    return _save_model_change(
+    result = _save_model_change(
         garden_root=root,
         manifest=manifest,
         model_target=resolved_model_target,
         model=model,
-        operation="setup_daylighting_control_to_center",
+        operation="setup_daylighting_control",
         updated_fields=["daylighting_control"],
         summary_view={
             "room_count": len(rooms),
             "control_count": len(controls),
             "controls": controls,
             "skipped_rooms": skipped_rooms,
+            "warnings": warnings,
         },
         message=f"Assigned daylighting controls to {len(controls)} room(s).",
+    )
+    if warnings:
+        result["report"] = make_report(
+            status="ok",
+            message=f"Assigned daylighting controls to {len(controls)} room(s).",
+            warnings=warnings,
+        )
+    return result
+
+
+def _validated_params(
+    params: dict[str, Any] | None,
+    fn: Any,
+    *,
+    excluded: set[str],
+    label: str,
+) -> dict[str, Any]:
+    if params is None:
+        return {}
+    if not isinstance(params, dict):
+        raise ValueError("params must be a dictionary.")
+    signature = inspect.signature(fn)
+    accepted = set(signature.parameters) - excluded
+    unknown = sorted(set(params) - accepted)
+    if unknown:
+        allowed = ", ".join(sorted(accepted))
+        raise ValueError(
+            f"Unsupported {label} params: {', '.join(unknown)}. Accepted params: {allowed}."
+        )
+    return dict(params)
+
+
+def create_pv_or_load_center(
+    *,
+    object_type: str,
+    identifier: str | None = None,
+    params: dict[str, Any] | None = None,
+    garden_root: str | None = None,
+    return_object_dict: bool = True,
+) -> dict[str, Any]:
+    """Create PVProperties or ElectricLoadCenter settings via object_type."""
+    normalized = str(object_type or "").strip().lower().replace("-", "_")
+    if normalized == "pv_properties":
+        if not identifier or not str(identifier).strip():
+            raise ValueError("identifier is required when object_type is 'pv_properties'.")
+        kwargs = _validated_params(
+            params,
+            create_pv_properties,
+            excluded={"identifier", "garden_root", "return_object_dict"},
+            label="pv_properties",
+        )
+        return create_pv_properties(
+            identifier=str(identifier),
+            garden_root=garden_root,
+            return_object_dict=return_object_dict,
+            **kwargs,
+        )
+    if normalized == "electric_load_center":
+        kwargs = _validated_params(
+            params,
+            create_electric_load_center,
+            excluded={"identifier", "garden_root", "return_object_dict"},
+            label="electric_load_center",
+        )
+        return create_electric_load_center(
+            identifier=str(identifier) if identifier else "electric_load_center",
+            garden_root=garden_root,
+            return_object_dict=return_object_dict,
+            **kwargs,
+        )
+    raise ValueError(
+        "object_type must be either 'pv_properties' or 'electric_load_center'."
+    )
+
+
+_ROOM_ENERGY_CONTROL_HANDLERS = {
+    "simple_ventilation": setup_simple_ventilation_properties,
+    "airflow_network": setup_airflow_network,
+    "daylighting_control": setup_daylighting_control_to_center,
+}
+
+
+def setup_room_energy_controls(
+    *,
+    control_type: str,
+    garden_root: str,
+    model_target: dict[str, Any] | None = None,
+    room_identifiers: list[str] | None = None,
+    room_targets: list[dict[str, Any]] | None = None,
+    clear: bool = False,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Configure or clear room-level simple ventilation, AirflowNetwork, or daylighting controls."""
+    normalized = str(control_type or "").strip().lower().replace("-", "_")
+    handler = _ROOM_ENERGY_CONTROL_HANDLERS.get(normalized)
+    if handler is None:
+        allowed = ", ".join(sorted(_ROOM_ENERGY_CONTROL_HANDLERS))
+        raise ValueError(f"control_type must be one of: {allowed}.")
+    kwargs = _validated_params(
+        params,
+        handler,
+        excluded={"garden_root", "model_target", "room_identifiers", "room_targets"},
+        label=normalized,
+    )
+    effective_clear = bool(clear or kwargs.pop("clear", False))
+    return handler(
+        garden_root=garden_root,
+        model_target=model_target,
+        room_identifiers=room_identifiers,
+        room_targets=room_targets,
+        clear=effective_clear,
+        **kwargs,
     )

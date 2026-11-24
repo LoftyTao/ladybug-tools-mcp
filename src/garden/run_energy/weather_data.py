@@ -7,7 +7,12 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from ladybug.analysisperiod import AnalysisPeriod
+from ladybug.datacollection import HourlyContinuousCollection
+from ladybug.datatype import temperature
 from ladybug.epw import EPW
+from ladybug.header import Header
+from ladybug.psychrometrics import wet_bulb_from_db_rh
 
 from ladybug_tools_mcp.contracts import make_report
 from garden.analysis_period import analysis_period_from_input, analysis_period_summary
@@ -37,15 +42,20 @@ _EPW_DATA_FIELDS = {
     "liquid_precipitation_quantity",
     "opaque_sky_cover",
     "precipitable_water",
+    "present_weather_codes",
+    "present_weather_observation",
     "relative_humidity",
     "sky_temperature",
     "snow_depth",
     "total_sky_cover",
     "visibility",
+    "wet_bulb_temperature",
     "wind_direction",
     "wind_speed",
+    "years",
     "zenith_luminance",
 }
+
 
 def _normalize_data_type(value: str) -> str:
     key = re.sub(r"[^a-zA-Z0-9]+", "_", value).strip("_").lower()
@@ -55,6 +65,40 @@ def _normalize_data_type(value: str) -> str:
             f"Unsupported EPW data_type: {value}. Allowed: {allowed}."
         )
     return key
+
+
+def _normalize_data_types(value: str | list[str] | tuple[str, ...]) -> tuple[list[str], bool]:
+    if isinstance(value, str):
+        return [_normalize_data_type(value)], False
+    if not isinstance(value, (list, tuple)) or not value:
+        raise ValueError("data_type must be an EPW field name or non-empty list of field names.")
+    fields: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("Every entry in data_type list must be a non-empty string.")
+        normalized = _normalize_data_type(item)
+        if normalized not in fields:
+            fields.append(normalized)
+    return fields, True
+
+
+def _epw_collection(epw: EPW, field_name: str) -> Any:
+    if field_name == "wet_bulb_temperature" and not hasattr(epw, "wet_bulb_temperature"):
+        header = Header(
+            data_type=temperature.WetBulbTemperature(),
+            unit="C",
+            analysis_period=AnalysisPeriod(is_leap_year=epw.is_leap_year),
+            metadata=dict(epw.metadata or {}),
+        )
+        db_values = epw.dry_bulb_temperature.values
+        rh_values = epw.relative_humidity.values
+        press_values = epw.atmospheric_station_pressure.values
+        wb_values = [
+            wet_bulb_from_db_rh(db, rh, press)
+            for db, rh, press in zip(db_values, rh_values, press_values)
+        ]
+        return HourlyContinuousCollection(header, wb_values)
+    return getattr(epw, field_name)
 
 
 def _resolve_garden_epw_path(
@@ -176,40 +220,24 @@ def _collection_summary(
     return summary
 
 
-def read_weather_file_data(
+def _extract_single_weather_field(
     *,
-    garden_root: str,
-    weather_target: dict[str, Any] | None = None,
-    epw_path: str | None = None,
-    data_type: str = "dry_bulb_temperature",
-    analysis_period: dict[str, Any] | str | None = None,
-    identifier: str | None = None,
-    include_values: bool = False,
-    max_values: int = 24,
-    return_data_collection: bool = False,
+    epw: EPW,
+    garden_root_path: Path,
+    resolved_epw_path: Path,
+    weather_file: dict[str, Any],
+    epw_data_type: str,
+    parsed_analysis_period: Any,
+    analysis_period: dict[str, Any] | str | None,
+    identifier: str | None,
+    include_values: bool,
+    max_values: int,
+    return_data_collection: bool,
 ) -> dict[str, Any]:
-    """Read a Garden EPW weather file field as a Ladybug DataCollection target."""
-    if max_values < 0:
-        raise ValueError("max_values must be zero or greater.")
-    garden_root_path = Path(garden_root).expanduser().resolve()
-    manifest = GardenManifest.read(garden_root_path)
-    epw_data_type = _normalize_data_type(data_type)
-    resolved_epw_path, weather_file = _resolve_garden_epw_path(
-        garden_root_path=garden_root_path,
-        manifest=manifest,
-        weather_target=weather_target,
-        epw_path=epw_path,
-    )
-
-    epw = EPW(str(resolved_epw_path))
-    collection = getattr(epw, epw_data_type)
+    collection = _epw_collection(epw, epw_data_type)
     if hasattr(collection, "duplicate"):
         collection = collection.duplicate()
 
-    parsed_analysis_period = analysis_period_from_input(
-        analysis_period,
-        field_name="analysis_period",
-    )
     if parsed_analysis_period is not None and not parsed_analysis_period.is_annual:
         collection = collection.filter_by_analysis_period(parsed_analysis_period)
 
@@ -251,18 +279,131 @@ def read_weather_file_data(
     )
     summary_view["data_collection_target"] = saved["target"]
 
-    result = {
+    item: dict[str, Any] = {
+        "data_type": epw_data_type,
         "target": saved["target"],
         "data_target": saved["target"],
         "data_collection_target": saved["target"],
         "artifact": saved["artifact"],
         "persistence_receipt": saved["persistence_receipt"],
         "summary_view": summary_view,
-        "report": make_report(
-            status="ok",
-            message="Weather file DataCollection persisted.",
-        ),
     }
     if return_data_collection:
-        result["data_collection"] = collection.to_dict()
-    return result
+        item["data_collection"] = collection.to_dict()
+    return item
+
+
+def read_weather_file_data(
+    *,
+    garden_root: str,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    data_type: str | list[str] = "dry_bulb_temperature",
+    analysis_period: dict[str, Any] | str | None = None,
+    identifier: str | None = None,
+    include_values: bool = False,
+    max_values: int = 24,
+    return_data_collection: bool = False,
+) -> dict[str, Any]:
+    """Read one or more Garden EPW weather file fields as Ladybug DataCollection targets."""
+    if max_values < 0:
+        raise ValueError("max_values must be zero or greater.")
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(garden_root_path)
+    epw_data_types, is_batch = _normalize_data_types(data_type)
+    resolved_epw_path, weather_file = _resolve_garden_epw_path(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
+        weather_target=weather_target,
+        epw_path=epw_path,
+    )
+
+    epw = EPW(str(resolved_epw_path))
+    parsed_analysis_period = analysis_period_from_input(
+        analysis_period,
+        field_name="analysis_period",
+    )
+
+    if not is_batch:
+        item = _extract_single_weather_field(
+            epw=epw,
+            garden_root_path=garden_root_path,
+            resolved_epw_path=resolved_epw_path,
+            weather_file=weather_file,
+            epw_data_type=epw_data_types[0],
+            parsed_analysis_period=parsed_analysis_period,
+            analysis_period=analysis_period,
+            identifier=identifier,
+            include_values=include_values,
+            max_values=max_values,
+            return_data_collection=return_data_collection,
+        )
+        result: dict[str, Any] = {
+            "target": item["target"],
+            "data_target": item["data_target"],
+            "data_collection_target": item["data_collection_target"],
+            "artifact": item["artifact"],
+            "persistence_receipt": item["persistence_receipt"],
+            "summary_view": item["summary_view"],
+            "report": make_report(
+                status="ok",
+                message="Weather file DataCollection persisted.",
+            ),
+        }
+        if return_data_collection:
+            result["data_collection"] = item["data_collection"]
+        return result
+
+    items: list[dict[str, Any]] = []
+    results_by_field: dict[str, dict[str, Any]] = {}
+    targets_by_field: dict[str, dict[str, Any]] = {}
+    for field_name in epw_data_types:
+        field_identifier = (
+            identifier
+            if (identifier and len(epw_data_types) == 1)
+            else (f"{identifier}_{field_name}" if identifier else None)
+        )
+        item = _extract_single_weather_field(
+            epw=epw,
+            garden_root_path=garden_root_path,
+            resolved_epw_path=resolved_epw_path,
+            weather_file=weather_file,
+            epw_data_type=field_name,
+            parsed_analysis_period=parsed_analysis_period,
+            analysis_period=analysis_period,
+            identifier=field_identifier,
+            include_values=include_values,
+            max_values=max_values,
+            return_data_collection=return_data_collection,
+        )
+        items.append(item)
+        results_by_field[field_name] = item
+        targets_by_field[field_name] = item["target"]
+
+    targets = [item["target"] for item in items]
+    return {
+        "target": targets[0],
+        "data_target": targets[0],
+        "data_collection_target": targets[0],
+        "data_collection_targets": targets,
+        "targets_by_field": targets_by_field,
+        "items": items,
+        "results_by_field": results_by_field,
+        "summary_view": {
+            "weather_file": weather_file,
+            "data_types": epw_data_types,
+            "collection_count": len(items),
+            "first_data_collection_target": targets[0],
+            "data_collection_targets": targets,
+            "targets_by_field": targets_by_field,
+            "summaries": [item["summary_view"] for item in items],
+            "summaries_by_field": {
+                item["data_type"]: item["summary_view"] for item in items
+            },
+            "analysis_period_input": analysis_period,
+        },
+        "report": make_report(
+            status="ok",
+            message=f"Persisted {len(items)} weather file DataCollection(s).",
+        ),
+    }

@@ -2,14 +2,70 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from collections.abc import Callable
 from typing import Any
 
-from fastmcp.experimental.transforms.code_mode import CodeMode, MontySandboxProvider
+from fastmcp.experimental.transforms.code_mode import (
+    CodeMode,
+    GetSchemas,
+    GetTags,
+    ListTools,
+    MontySandboxProvider,
+    Search,
+    _DEFAULT_LIMITS,
+    _UNSET,
+    _UnsetType,
+)
+
+DEFAULT_MAX_TOOL_CALLS = 100
+
+
+def _env_positive_int(name: str, default: int | None = None) -> int | None:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive integer, got {raw!r}.") from exc
+    if value < 1:
+        raise ValueError(f"{name} must be >= 1, got {value}.")
+    return value
+
+
+def _env_positive_float(name: str, default: float | None = None) -> float | None:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw.strip())
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive number, got {raw!r}.") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be > 0, got {value}.")
+    return value
+
+
+def resolve_sandbox_limits() -> dict[str, Any]:
+    """Build Monty sandbox ResourceLimits from defaults and environment overrides."""
+    limits: dict[str, Any] = dict(_DEFAULT_LIMITS)
+    max_duration = _env_positive_float("LBT_MCP_SANDBOX_MAX_DURATION_SECS")
+    if max_duration is not None:
+        limits["max_duration_secs"] = max_duration
+    max_memory = _env_positive_int("LBT_MCP_SANDBOX_MAX_MEMORY")
+    if max_memory is not None:
+        limits["max_memory"] = max_memory
+    return limits
 
 
 class PreviewMontySandboxProvider(MontySandboxProvider):
     """Record Web View previews after tools run through Code Mode."""
+
+    def __init__(self, *, limits: Any | _UnsetType = _UNSET) -> None:
+        resolved_limits = resolve_sandbox_limits() if isinstance(limits, _UnsetType) else limits
+        super().__init__(limits=resolved_limits)
 
     async def run(
         self,
@@ -18,32 +74,58 @@ class PreviewMontySandboxProvider(MontySandboxProvider):
         inputs: dict[str, Any] | None = None,
         external_functions: dict[str, Callable[..., Any]] | None = None,
     ) -> Any:
+        pending_previews: dict[str, tuple[str, Any, Any]] = {}
         if external_functions and "call_tool" in external_functions:
             call_tool = external_functions["call_tool"]
             external_functions = dict(external_functions)
 
             async def call_tool_with_preview(tool_name: str, arguments: Any) -> Any:
                 result = await call_tool(tool_name, arguments)
-                from web_view import maybe_record_code_mode_preview
+                try:
+                    from web_view import preview_event_garden_root
 
-                maybe_record_code_mode_preview(
-                    tool_name=tool_name,
-                    arguments=arguments,
-                    result=result,
-                )
+                    garden_key = preview_event_garden_root(
+                        arguments=arguments,
+                        result=result,
+                    )
+                except Exception:
+                    garden_key = None
+                if garden_key is not None:
+                    pending_previews[garden_key] = (tool_name, arguments, result)
                 return result
 
             external_functions["call_tool"] = call_tool_with_preview
 
-        return await super().run(
-            code,
-            inputs=inputs,
-            external_functions=external_functions,
-        )
+        try:
+            return await super().run(
+                code,
+                inputs=inputs,
+                external_functions=external_functions,
+            )
+        finally:
+            if pending_previews:
+                try:
+                    from web_view import maybe_record_code_mode_preview
+                except Exception:
+                    maybe_record_code_mode_preview = None
+                if maybe_record_code_mode_preview is not None:
+                    for tool_name, arguments, result in pending_previews.values():
+                        try:
+                            await asyncio.to_thread(
+                                maybe_record_code_mode_preview,
+                                tool_name=tool_name,
+                                arguments=arguments,
+                                result=result,
+                            )
+                        except Exception:
+                            continue
 
 
 def create_code_mode_transform() -> CodeMode:
-    """Create Code Mode with the Web View preview hook."""
+    """Create Code Mode with full discovery tools, env limits, and Web View preview hook."""
+    max_tool_calls = _env_positive_int("LBT_MCP_MAX_TOOL_CALLS", DEFAULT_MAX_TOOL_CALLS)
     return CodeMode(
+        discovery_tools=[Search(), GetSchemas(), GetTags(), ListTools()],
         sandbox_provider=PreviewMontySandboxProvider(),
+        max_tool_calls=max_tool_calls,
     )

@@ -409,7 +409,7 @@ def _blocked_response(
         "api_health_error": str(api_error) if api_error else None,
         "manual_recovery": (
             "Retry the same request when the weather service is reachable, or download "
-            "the EPW/ZIP object from object_url and import it with EP_Import_Local_Weather."
+            "the EPW/ZIP object from object_url and import it with LB_Manage_Weather (action='import')."
         ),
     }
     if object_key:

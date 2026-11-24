@@ -202,23 +202,106 @@ def _append_modifier(
     modifier_ids.add(modifier.identifier)
 
 
+_SUPPORTED_IMPORT_SUFFIXES = (
+    ".hbjson",
+    ".osm",
+    ".idf",
+    ".gbxml",
+    ".xml",
+    ".inp",
+    ".hbpkl",
+    ".stl",
+)
+
+
+def _load_imported_model(
+    source_path: Path,
+    *,
+    geometry_to_faces: bool = False,
+    units: str = "Meters",
+    tolerance: float | None = None,
+    angle_tolerance: float = 1.0,
+    reset_properties: bool = False,
+) -> tuple[Model, str]:
+    suffix = source_path.suffix.lower()
+    if suffix not in _SUPPORTED_IMPORT_SUFFIXES:
+        supported = ", ".join(_SUPPORTED_IMPORT_SUFFIXES)
+        raise ValueError(
+            f"Unsupported Honeybee model import format {suffix!r}. Supported: {supported}."
+        )
+    if suffix == ".hbjson":
+        return Model.from_hbjson(str(source_path), cleanup_irrational=False), "hbjson"
+    if suffix == ".osm":
+        from honeybee_openstudio.reader import model_from_osm_file
+
+        return model_from_osm_file(str(source_path), reset_properties=reset_properties), "osm"
+    if suffix == ".idf":
+        from honeybee_openstudio.reader import model_from_idf_file
+
+        return model_from_idf_file(str(source_path), reset_properties=reset_properties), "idf"
+    if suffix in {".gbxml", ".xml"}:
+        from shutil import copyfile
+        import tempfile
+        from honeybee_openstudio.reader import model_from_gbxml_file
+
+        # OpenStudio's XMLValidator requires a .xml extension when reading gbXML.
+        if suffix == ".gbxml":
+            with tempfile.TemporaryDirectory() as tmpdir:
+                xml_copy = Path(tmpdir) / f"{source_path.stem}.xml"
+                copyfile(source_path, xml_copy)
+                return model_from_gbxml_file(str(xml_copy), reset_properties=reset_properties), "gbxml"
+        return model_from_gbxml_file(str(source_path), reset_properties=reset_properties), "gbxml"
+    if suffix == ".inp":
+        from honeybee_doe2.reader import model_from_inp_file
+
+        return model_from_inp_file(str(source_path)), "inp"
+    if suffix == ".hbpkl":
+        return Model.from_hbpkl(str(source_path), cleanup_irrational=False), "hbpkl"
+    return (
+        Model.from_stl(
+            str(source_path),
+            geometry_to_faces=geometry_to_faces,
+            units=units,
+            tolerance=tolerance,
+            angle_tolerance=angle_tolerance,
+        ),
+        "stl",
+    )
+
+
 def import_honeybee_model_file(
     *,
     garden_root: str,
     file_path: str,
     identifier: str | None = None,
     set_base: bool = True,
+    geometry_to_faces: bool = False,
+    units: str = "Meters",
+    tolerance: float | None = None,
+    angle_tolerance: float = 1.0,
+    reset_properties: bool = False,
 ) -> dict[str, Any]:
-    """Import a Garden-local HBJSON file as Honeybee authoring truth."""
+    """Import a Garden-local Honeybee/energy/CAD model file as Honeybee authoring truth."""
     garden_root_path = require_garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     source_path = resolve_existing_garden_path(
-        garden_root_path, file_path, kind="file", suffix=".hbjson", label="Honeybee model file"
+        garden_root_path, file_path, kind="file", suffix=None, label="Honeybee model file"
     )
-    model = Model.from_hbjson(str(source_path), cleanup_irrational=False)
+    model, source_file_type = _load_imported_model(
+        source_path,
+        geometry_to_faces=geometry_to_faces,
+        units=units,
+        tolerance=tolerance,
+        angle_tolerance=angle_tolerance,
+        reset_properties=reset_properties,
+    )
     if identifier:
         model.identifier = clean_string(identifier, "honeybee model identifier")
         model.display_name = identifier
+    elif not getattr(model, "identifier", None):
+        fallback = clean_string(source_path.stem, "honeybee model identifier")
+        model.identifier = fallback
+        model.display_name = fallback
     model_target, persisted_path = save_honeybee_model(
         garden_root_path,
         manifest,
@@ -233,9 +316,13 @@ def import_honeybee_model_file(
         "model_target": model_target,
         "summary_view": {
             "source_path": source_relative_path,
+            "source_file_type": source_file_type,
             "model_identifier": model.identifier,
+            "units": model.units,
             "room_count": len(model.rooms),
+            "orphaned_face_count": len(model.orphaned_faces),
             "orphaned_shade_count": len(model.orphaned_shades),
+            "shade_mesh_count": len(model.shade_meshes),
             "base_honeybee_model_changed": bool(set_base),
         },
         "persistence_receipt": make_persistence_receipt(
@@ -247,10 +334,13 @@ def import_honeybee_model_file(
             change_summary={
                 "operation": "import_honeybee_model_file",
                 "source_path": source_relative_path,
-                "source_file_type": "hbjson",
+                "source_file_type": source_file_type,
             },
         ),
-        "report": make_report(status="ok", message="Imported Honeybee HBJSON model."),
+        "report": make_report(
+            status="ok",
+            message=f"Imported Honeybee {source_file_type.upper()} model.",
+        ),
     }
 
 

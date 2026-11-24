@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
+import tempfile
 from typing import Any
 
 from dragonfly.model import Model
 from honeybee.typing import clean_string
+from honeybee_openstudio.reader import (
+    model_from_gbxml_file,
+    model_from_idf_file,
+    model_from_osm_file,
+)
 from ladybug.location import Location
 from ladybug_geometry.geometry2d.pointvector import Point2D
 
@@ -54,10 +61,25 @@ def _validate_model_target_path(garden_root: Path, model_target: dict[str, Any])
         ) from exc
 
 
-def _normalize_file_type(file_type: str) -> str:
-    normalized = file_type.strip().lower()
-    if normalized not in {"dfjson", "geojson"}:
-        raise ValueError("file_type must be dfjson or geojson.")
+_IMPORT_FILE_TYPES = {"dfjson", "geojson", "dfpkl", "pomf", "osm", "idf", "gbxml"}
+_EXPORT_FILE_TYPES = {
+    "dfjson",
+    "geojson",
+    "dfpkl",
+    "osm",
+    "idf",
+    "gbxml",
+    "sdd",
+    "rad",
+    "rad_folder",
+}
+
+
+def _normalize_file_type(file_type: str, *, allowed: set[str] | None = None) -> str:
+    normalized = file_type.strip().lower().replace("-", "_")
+    valid = allowed or (_IMPORT_FILE_TYPES | _EXPORT_FILE_TYPES)
+    if normalized not in valid:
+        raise ValueError(f"file_type must be one of {', '.join(sorted(valid))}.")
     return normalized
 
 
@@ -138,15 +160,29 @@ def import_dragonfly_model_file(
     units: str = "Meters",
     tolerance: float | None = None,
     angle_tolerance: float = 1.0,
+    conversion_method: str = "AllRoom2D",
 ) -> dict[str, Any]:
-    """Import a Garden-local DFJSON or geoJSON file as a Dragonfly model target."""
+    """Import a Garden-local DFJSON, GeoJSON, DFPKL, POMF, OSM, IDF, or gbXML file."""
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     source_path = _resolve_garden_file(garden_root_path, file_path)
-    normalized_type = _normalize_file_type(file_type)
+    normalized_type = _normalize_file_type(file_type, allowed=_IMPORT_FILE_TYPES)
 
     if normalized_type == "dfjson":
         model = Model.from_dfjson(str(source_path), cleanup_irrational=False)
+    elif normalized_type == "dfpkl":
+        model = Model.from_dfpkl(str(source_path), cleanup_irrational=False)
+    elif normalized_type == "pomf":
+        model = Model.from_pomf(str(source_path), cleanup_irrational=False)
+    elif normalized_type == "osm":
+        hb_model = model_from_osm_file(str(source_path))
+        model = Model.from_honeybee(hb_model, conversion_method=conversion_method)
+    elif normalized_type == "idf":
+        hb_model = model_from_idf_file(str(source_path))
+        model = Model.from_honeybee(hb_model, conversion_method=conversion_method)
+    elif normalized_type == "gbxml":
+        hb_model = model_from_gbxml_file(str(source_path))
+        model = Model.from_honeybee(hb_model, conversion_method=conversion_method)
     else:
         model = Model.from_geojson(
             str(source_path),
@@ -214,12 +250,12 @@ def export_dragonfly_model_file(
     point: Point2D | list[float] | tuple[float, ...] | None = None,
     tolerance: float | None = None,
 ) -> dict[str, Any]:
-    """Export a Garden Dragonfly model as a Garden file artifact."""
+    """Export a Garden Dragonfly model as a Garden file or folder artifact."""
     garden_root_path = _garden_root(garden_root)
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
     _validate_model_target_path(garden_root_path, resolved_model_target)
     model = load_dragonfly_model(garden_root_path, resolved_model_target)
-    normalized_type = _normalize_file_type(file_type)
+    normalized_type = _normalize_file_type(file_type, allowed=_EXPORT_FILE_TYPES)
     if normalized_type == "geojson" and (location is None or point is None):
         raise ValueError("geojson export requires explicit location and point inputs.")
     stem = slugify_name(artifact_name or model.identifier)
@@ -227,10 +263,20 @@ def export_dragonfly_model_file(
     artifact_dir.relative_to(garden_root_path)
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
+    is_binary_or_dir = False
     if normalized_type == "dfjson":
         model.to_dfjson(name=stem, folder=str(artifact_dir), indent=2)
         output_path = artifact_dir / f"{stem}.dfjson"
-    else:
+    elif normalized_type == "dfpkl":
+        is_binary_or_dir = True
+        output_path = Path(
+            model.to_dfpkl(
+                name=stem,
+                folder=str(artifact_dir),
+                included_prop=["energy", "radiance", "uwg"],
+            )
+        ).resolve()
+    elif normalized_type == "geojson":
         sdk_output = Path(
             model.to_geojson(
                 _location_from_value(location),
@@ -240,6 +286,33 @@ def export_dragonfly_model_file(
             )
         ).resolve()
         output_path = _flatten_geojson_output(sdk_output, artifact_dir, stem)
+    else:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            dfjson_path = Path(model.to_dfjson(name=stem, folder=tmp_dir, indent=2))
+            if normalized_type in {"osm", "idf", "gbxml", "sdd"}:
+                det = importlib.import_module("dragonfly_energy.cli.translate")
+                if normalized_type == "osm":
+                    output_path = (artifact_dir / f"{stem}.osm").resolve()
+                    det.model_to_osm(str(dfjson_path), osm_file=str(output_path))
+                elif normalized_type == "idf":
+                    output_path = (artifact_dir / f"{stem}.idf").resolve()
+                    det.model_to_idf(str(dfjson_path), output_file=str(output_path))
+                elif normalized_type == "gbxml":
+                    output_path = (artifact_dir / f"{stem}.xml").resolve()
+                    det.model_to_gbxml(str(dfjson_path), output_file=str(output_path))
+                else:
+                    output_path = (artifact_dir / f"{stem}.sdd").resolve()
+                    det.model_to_sdd(str(dfjson_path), output_file=str(output_path))
+            elif normalized_type == "rad":
+                drt = importlib.import_module("dragonfly_radiance.cli.translate")
+                output_path = (artifact_dir / f"{stem}.rad").resolve()
+                drt.model_to_rad(str(dfjson_path), output_file=str(output_path))
+            else:
+                is_binary_or_dir = True
+                drt = importlib.import_module("dragonfly_radiance.cli.translate")
+                output_path = (artifact_dir / f"{stem}_rad").resolve()
+                output_path.mkdir(parents=True, exist_ok=True)
+                drt.model_to_rad_folder(str(dfjson_path), folder=str(output_path))
 
     artifact_path = to_posix_relative(output_path, garden_root_path)
     source = {
@@ -280,7 +353,17 @@ def export_dragonfly_model_file(
             message=f"Exported Dragonfly model as {normalized_type}.",
         ),
     }
-    if include_body:
-        result["file_body"] = json.loads(output_path.read_text(encoding="utf-8"))
+    if normalized_type == "rad_folder" and output_path.is_dir():
+        result["summary_view"]["files"] = sorted(
+            p.relative_to(output_path).as_posix()
+            for p in output_path.rglob("*")
+            if p.is_file()
+        )
+    if include_body and not is_binary_or_dir and output_path.is_file():
+        text = output_path.read_text(encoding="utf-8")
+        if normalized_type in {"dfjson", "geojson"}:
+            result["file_body"] = json.loads(text)
+        else:
+            result["file_body"] = text
         result["summary_view"]["body_returned"] = True
     return result

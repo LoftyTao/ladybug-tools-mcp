@@ -21,31 +21,49 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="GD_Web_View_Start_Mode",
         description=(
-            "Start the Garden-local vtk.js Web View sidebar viewer and return its "
-            "127.0.0.1 URL. Significant Honeybee, Dragonfly, Fairyfly, and "
-            "VisualizationSet edits in Code Mode automatically record session "
-            "previews; the viewer silently polls them and preserves its camera."
+            "Start the Garden-local offline vtk.js Web View workbench and return its "
+            "127.0.0.1 URL. Pass optional port (1-65535) to bind an explicit port (failing "
+            "clearly if occupied) or omit port to bind an ephemeral port. Significant Honeybee, "
+            "Dragonfly, Fairyfly, and VisualizationSet edits in Code Mode automatically record "
+            "session previews; the viewer silently polls them and preserves its camera."
         ),
         tags={"preview", "vtkjs", "web-view"},
         timeout=20,
     )
     def start_web_view_mode(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root'].")],
-        name: Annotated[str, Field(description="Human-readable viewer session name.")] = "Code Mode vtk.js Preview",
+        garden_root: Annotated[
+            str,
+            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
+        ],
+        name: Annotated[
+            str,
+            Field(description="Human-readable viewer session name."),
+        ] = "Code Mode vtk.js Preview",
         preview_kinds: Annotated[
             list[str] | None,
-            Field(description="Optional preview kinds such as object_edit, base_honeybee_model, base_dragonfly_model, search_highlight, or analysis_overlay."),
+            Field(
+                description="Optional preview kinds such as object_edit, base_honeybee_model, base_dragonfly_model, search_highlight, or analysis_overlay."
+            ),
+        ] = None,
+        port: Annotated[
+            int | None,
+            Field(
+                description="Optional local loopback port (1-65535). When omitted, binds an ephemeral port; when specified and already occupied, raises a port conflict error.",
+                ge=1,
+                le=65535,
+            ),
         ] = None,
     ) -> dict[str, Any]:
         """Enable local Web View Mode and return the sidebar viewer URL."""
+        viewer = start_preview_url_fallback(garden_root=garden_root, name=name, port=port)
         result = start_web_view_session(
             garden_root=garden_root,
             name=name,
             preview_kinds=preview_kinds,
         )
-        viewer = start_preview_url_fallback(garden_root=garden_root, name=name)
         result["viewer"] = viewer
         result["summary_view"]["viewer_url"] = viewer["url"]
+        result["summary_view"]["viewer_port"] = viewer["port"]
         return result
 
     @mcp.tool(
@@ -65,7 +83,10 @@ def register(mcp: FastMCP) -> None:
         timeout=20,
     )
     def stop_web_view_mode(
-        garden_root: Annotated[str, Field(description="Garden root path containing garden.json, usually GD_Create['garden_root'].")],
+        garden_root: Annotated[
+            str,
+            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
+        ],
     ) -> dict[str, Any]:
         """Disable Web View Mode for a Garden."""
         result = stop_web_view_session(garden_root=garden_root)

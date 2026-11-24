@@ -5,14 +5,38 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ladybug.datacollection import HourlyContinuousCollection
+from ladybug.datatype.rvalue import ClothingInsulation
+from ladybug.datatype.temperature import Temperature
+from ladybug.datatype.temperaturetime import CoolingDegreeTime
+from ladybug.epw import EPW
+from ladybug.header import Header
+from ladybug.location import Location
+
 from garden.data_collection import (
     DATA_COLLECTION_TARGET_TYPE,
+    collection_from_dict,
     data_collection_summary,
     load_data_collection,
     save_data_collection,
 )
 from garden.manifest import GardenManifest
+from garden.run_energy.config import resolve_garden_weather_epw
 from ladybug_tools_mcp.contracts import make_report
+
+
+_METRIC_ALIASES = {
+    "pmv": "predicted_mean_vote",
+    "ppd": "percentage_people_dissatisfied",
+    "set": "standard_effective_temperature",
+    "utci": "universal_thermal_climate_index",
+    "pet": "physiologic_equivalent_temperature",
+    "mrt": "mean_radiant_temperature",
+    "eleven_point": "thermal_condition_eleven_point",
+    "nine_point": "thermal_condition_nine_point",
+    "seven_point": "thermal_condition_seven_point",
+    "five_point": "thermal_condition_five_point",
+}
 
 
 def _load_required_collection(
@@ -23,17 +47,20 @@ def _load_required_collection(
 ) -> Any:
     if not isinstance(target, dict):
         raise ValueError(f"{field_name} must be a ladybug_data_collection target.")
-    if target.get("target_type") != DATA_COLLECTION_TARGET_TYPE:
+    if target.get("target_type") == DATA_COLLECTION_TARGET_TYPE:
+        try:
+            collection = load_data_collection(
+                garden_root=garden_root,
+                data_collection_target=target,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            raise ValueError(f"Could not load {field_name}: {exc}") from exc
+    elif "values" in target and "header" in target:
+        collection = collection_from_dict(target)
+    else:
         raise ValueError(
             f"{field_name}.target_type must be {DATA_COLLECTION_TARGET_TYPE!r}."
         )
-    try:
-        collection = load_data_collection(
-            garden_root=garden_root,
-            data_collection_target=target,
-        )
-    except (OSError, TypeError, ValueError) as exc:
-        raise ValueError(f"Could not load {field_name}: {exc}") from exc
     if not getattr(collection, "values", None):
         raise ValueError(f"{field_name} must contain at least one value.")
     return collection
@@ -71,15 +98,90 @@ def _load_parameter(
         return None
     if not isinstance(parameter, dict):
         raise ValueError(f"comfort_parameter must be a {expected_type} dictionary.")
-    if parameter.get("type") != expected_type:
+    data = dict(parameter)
+    if "type" not in data or data.get("type") is None:
+        data["type"] = expected_type
+    elif data.get("type") != expected_type:
         raise ValueError(
             f"comfort_parameter.type must be {expected_type!r}; "
-            f"got {parameter.get('type')!r}."
+            f"got {data.get('type')!r}."
         )
     try:
-        return parameter_cls.from_dict(parameter)
+        return parameter_cls.from_dict(data)
     except (AssertionError, TypeError, ValueError) as exc:
         raise ValueError(f"Invalid {expected_type}: {exc}") from exc
+
+
+def _resolve_epw_object(
+    *,
+    garden_root: str | Path,
+    weather_target: dict[str, Any] | None,
+    epw_path: str | None,
+) -> EPW:
+    root = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(root)
+    if weather_target is not None:
+        epw_file = resolve_garden_weather_epw(
+            garden_root=root,
+            manifest=manifest,
+            weather_target=weather_target,
+        )
+        return EPW(str(epw_file))
+    if epw_path:
+        raw = Path(epw_path).expanduser()
+        candidate = raw.resolve() if raw.is_absolute() else (root / raw).resolve()
+        candidate.relative_to(root)
+        if not candidate.is_file() or candidate.suffix.lower() != ".epw":
+            raise ValueError(f"epw_path must reference an existing .epw inside Garden: {epw_path}")
+        return EPW(str(candidate))
+    raise ValueError("Provide weather_target or epw_path.")
+
+
+def _resolve_metric_collection(comfort: Any, metric_name: str, comfort_model: str) -> Any:
+    attr_name = _METRIC_ALIASES.get(metric_name.strip().lower(), metric_name.strip())
+    if attr_name == "effective_radiant_field" and not hasattr(comfort, attr_name):
+        if hasattr(comfort, "shortwave_effective_radiant_field") and hasattr(
+            comfort, "longwave_effective_radiant_field"
+        ):
+            return comfort.shortwave_effective_radiant_field + comfort.longwave_effective_radiant_field
+    if not hasattr(comfort, attr_name):
+        raise ValueError(
+            f"Metric {metric_name!r} (resolved as {attr_name!r}) is not available on {comfort_model}."
+        )
+    return getattr(comfort, attr_name)
+
+
+def _comfort_percentages(comfort: Any, comfort_model: str) -> dict[str, Any]:
+    percentages: dict[str, Any] = {}
+    for key, attr in (
+        ("comfortable", "percent_comfortable"),
+        ("uncomfortable", "percent_uncomfortable"),
+        ("neutral", "percent_neutral"),
+        ("cold", "percent_cold"),
+        ("hot", "percent_hot"),
+    ):
+        try:
+            percentages[key] = getattr(comfort, attr)
+        except (AttributeError, NotImplementedError):
+            pass
+    if comfort_model == "UTCI":
+        for attr in (
+            "percent_extreme_cold_stress",
+            "percent_very_strong_cold_stress",
+            "percent_strong_cold_stress",
+            "percent_moderate_cold_stress",
+            "percent_slight_cold_stress",
+            "percent_slight_heat_stress",
+            "percent_moderate_heat_stress",
+            "percent_strong_heat_stress",
+            "percent_very_strong_heat_stress",
+            "percent_extreme_heat_stress",
+        ):
+            try:
+                percentages[attr.removeprefix("percent_")] = getattr(comfort, attr)
+            except (AttributeError, NotImplementedError):
+                pass
+    return percentages
 
 
 def _calculate(
@@ -93,153 +195,214 @@ def _calculate(
     parameter: Any,
     identifier: str | None,
     producer: str,
+    output_metrics: list[str] | None = None,
+    return_data_collection: bool = False,
 ) -> dict[str, Any]:
-    metric = getattr(comfort, metric_attribute)
-    header = getattr(metric, "header", None)
-    if header is not None:
-        header.metadata.update(
-            {
-                "source": "ladybug_comfort",
-                "comfort_model": comfort_model,
-                "comfort_metric": metric_name,
-            }
-        )
-
     parameter_dict = parameter.to_dict() if parameter is not None else None
-    result_identifier = identifier or f"{comfort_model.lower()}_{metric_name}"
-    saved = save_data_collection(
-        garden_root=garden_root,
-        data_collection=metric,
-        identifier=result_identifier,
-        source={
-            "producer": producer,
-            "comfort_model": comfort_model,
-            "comfort_metric": metric_name,
-            "input_targets": input_targets,
-            "comfort_parameter": parameter_dict,
-        },
-    )
-    result_summary = data_collection_summary(metric)
-    comfort_summary = {
-        "comfortable": comfort.percent_comfortable,
-        "uncomfortable": comfort.percent_uncomfortable,
-        "neutral": comfort.percent_neutral,
-        "cold": comfort.percent_cold,
-        "hot": comfort.percent_hot,
-    }
+    comfort_summary = _comfort_percentages(comfort, comfort_model)
+    garden_target = GardenManifest.read(Path(garden_root).resolve()).target()
+
+    requested_metrics = list(output_metrics) if output_metrics else [metric_attribute]
+    persisted_by_name: dict[str, dict[str, Any]] = {}
+    metric_summaries: dict[str, Any] = {}
+    metric_objects: dict[str, Any] = {}
+
+    for raw_metric in requested_metrics:
+        metric = _resolve_metric_collection(comfort, raw_metric, comfort_model)
+        if hasattr(metric, "duplicate"):
+            metric = metric.duplicate()
+        header = getattr(metric, "header", None)
+        if header is not None:
+            header.metadata.update(
+                {
+                    "source": "ladybug_comfort",
+                    "comfort_model": comfort_model,
+                    "comfort_metric": raw_metric,
+                }
+            )
+        base_id = identifier or f"{comfort_model.lower()}_{metric_name}"
+        result_identifier = (
+            base_id
+            if len(requested_metrics) == 1
+            else f"{base_id}_{raw_metric.strip().lower()}"
+        )
+        saved = save_data_collection(
+            garden_root=garden_root,
+            data_collection=metric,
+            identifier=result_identifier,
+            source={
+                "producer": producer,
+                "comfort_model": comfort_model,
+                "comfort_metric": raw_metric,
+                "input_targets": input_targets,
+                "comfort_parameter": parameter_dict,
+            },
+        )
+        persisted_by_name[raw_metric] = saved
+        metric_summaries[raw_metric] = data_collection_summary(metric)
+        metric_objects[raw_metric] = metric
+
+    primary_key = requested_metrics[0]
+    primary_saved = persisted_by_name[primary_key]
+    primary_summary = metric_summaries[primary_key]
+
     summary_view: dict[str, Any] = {
-        "garden_target": GardenManifest.read(Path(garden_root).resolve()).target(),
+        "garden_target": garden_target,
         "comfort_model": comfort_model,
-        "comfort_metric": metric_name,
+        "comfort_metric": metric_name if not output_metrics else primary_key,
         "input_targets": input_targets,
         "comfort_parameter": parameter_dict,
-        "data_collection": result_summary,
+        "data_collection": primary_summary,
         "percentages": comfort_summary,
     }
     if comfort_model == "PMV":
         summary_view["percentage_people_dissatisfied"] = data_collection_summary(
             comfort.percentage_people_dissatisfied
         )
-    return {
-        "target": saved["target"],
-        "data_target": saved["target"],
-        "data_collection_target": saved["target"],
-        "artifact": saved["artifact"],
-        "persistence_receipt": saved["persistence_receipt"],
+    if output_metrics:
+        summary_view["output_metrics"] = metric_summaries
+        summary_view["output_targets"] = {k: v["target"] for k, v in persisted_by_name.items()}
+
+    result: dict[str, Any] = {
+        "target": primary_saved["target"],
+        "data_target": primary_saved["target"],
+        "data_collection_target": primary_saved["target"],
+        "artifact": primary_saved["artifact"],
+        "persistence_receipt": primary_saved["persistence_receipt"],
         "summary_view": summary_view,
         "report": make_report(
             status="ok",
             message=f"{comfort_model} comfort DataCollection persisted.",
         ),
     }
+    if output_metrics:
+        targets_map = {k: v["target"] for k, v in persisted_by_name.items()}
+        result["targets"] = targets_map
+        result["data_collection_targets"] = targets_map
+        result["artifacts"] = {k: v["artifact"] for k, v in persisted_by_name.items()}
+        result["persistence_receipts"] = {
+            k: v["persistence_receipt"] for k, v in persisted_by_name.items()
+        }
+    if return_data_collection:
+        result["data_collection"] = metric_objects[primary_key].to_dict()
+        if output_metrics:
+            result["data_collections"] = {k: obj.to_dict() for k, obj in metric_objects.items()}
+    return result
 
 
 def calculate_utci(
     *,
     garden_root: str,
-    air_temperature_target: dict[str, Any],
-    relative_humidity_target: dict[str, Any],
+    air_temperature_target: dict[str, Any] | None = None,
+    relative_humidity_target: dict[str, Any] | None = None,
     mean_radiant_temperature_target: dict[str, Any] | None = None,
     wind_speed_target: dict[str, Any] | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    include_wind: bool = True,
+    include_sun: bool = True,
     comfort_parameter: dict[str, Any] | None = None,
+    output_metrics: list[str] | None = None,
     identifier: str | None = None,
     return_data_collection: bool = False,
 ) -> dict[str, Any]:
-    """Calculate UTCI from Garden DataCollection targets."""
+    """Calculate UTCI from Garden DataCollection targets or weather_target/epw_path."""
     from ladybug_comfort.collection.utci import UTCI
     from ladybug_comfort.parameter.utci import UTCIParameter
 
-    air_temperature = _load_required_collection(
-        garden_root=garden_root,
-        target=air_temperature_target,
-        field_name="air_temperature_target",
-    )
-    relative_humidity = _load_required_collection(
-        garden_root=garden_root,
-        target=relative_humidity_target,
-        field_name="relative_humidity_target",
-    )
-    rad_temperature = (
-        _load_required_collection(
-            garden_root=garden_root,
-            target=mean_radiant_temperature_target,
-            field_name="mean_radiant_temperature_target",
-        )
-        if mean_radiant_temperature_target is not None
-        else None
-    )
-    wind_speed = (
-        _load_required_collection(
-            garden_root=garden_root,
-            target=wind_speed_target,
-            field_name="wind_speed_target",
-        )
-        if wind_speed_target is not None
-        else None
-    )
     parameter = _load_parameter(
         comfort_parameter,
         expected_type="UTCIParameter",
         parameter_cls=UTCIParameter,
     )
-    try:
-        comfort = UTCI(
-            air_temperature,
-            relative_humidity,
-            rad_temperature=rad_temperature,
-            wind_speed=wind_speed,
-            comfort_parameter=parameter,
+    if weather_target is not None or epw_path is not None:
+        epw = _resolve_epw_object(
+            garden_root=garden_root,
+            weather_target=weather_target,
+            epw_path=epw_path,
         )
-    except (AssertionError, TypeError, ValueError) as exc:
-        raise ValueError(f"Could not calculate UTCI comfort: {exc}") from exc
-    result = _calculate(
+        comfort = UTCI.from_epw(
+            epw,
+            include_wind=include_wind,
+            include_sun=include_sun,
+            utci_parameter=parameter,
+        )
+        input_targets = {
+            "weather_target": weather_target,
+            "epw_path": epw_path,
+            "include_wind": include_wind,
+            "include_sun": include_sun,
+        }
+    else:
+        air_temperature = _load_required_collection(
+            garden_root=garden_root,
+            target=air_temperature_target,
+            field_name="air_temperature_target",
+        )
+        relative_humidity = _load_required_collection(
+            garden_root=garden_root,
+            target=relative_humidity_target,
+            field_name="relative_humidity_target",
+        )
+        rad_temperature = (
+            _load_required_collection(
+                garden_root=garden_root,
+                target=mean_radiant_temperature_target,
+                field_name="mean_radiant_temperature_target",
+            )
+            if mean_radiant_temperature_target is not None
+            else None
+        )
+        wind_speed = (
+            _load_required_collection(
+                garden_root=garden_root,
+                target=wind_speed_target,
+                field_name="wind_speed_target",
+            )
+            if wind_speed_target is not None
+            else None
+        )
+        try:
+            comfort = UTCI(
+                air_temperature,
+                relative_humidity,
+                rad_temperature=rad_temperature,
+                wind_speed=wind_speed,
+                comfort_parameter=parameter,
+            )
+        except (AssertionError, TypeError, ValueError) as exc:
+            raise ValueError(f"Could not calculate UTCI comfort: {exc}") from exc
+        input_targets = {
+            "air_temperature": air_temperature_target,
+            "relative_humidity": relative_humidity_target,
+            "mean_radiant_temperature": mean_radiant_temperature_target,
+            "wind_speed": wind_speed_target,
+        }
+    return _calculate(
         garden_root=garden_root,
         comfort_model="UTCI",
         metric_name="universal_thermal_climate_index",
         metric_attribute="universal_thermal_climate_index",
         comfort=comfort,
-        input_targets={
-            "air_temperature": air_temperature_target,
-            "relative_humidity": relative_humidity_target,
-            "mean_radiant_temperature": mean_radiant_temperature_target,
-            "wind_speed": wind_speed_target,
-        },
+        input_targets=input_targets,
         parameter=parameter,
         identifier=identifier,
-        producer="LB_Calculate_UTCI",
+        producer="LB_Calculate_Comfort",
+        output_metrics=output_metrics,
+        return_data_collection=return_data_collection,
     )
-    if return_data_collection:
-        result["data_collection"] = comfort.universal_thermal_climate_index.to_dict()
-    return result
 
 
 def calculate_adaptive(
     *,
     garden_root: str,
     outdoor_temperature_target: dict[str, Any],
-    operative_temperature_target: dict[str, Any],
+    operative_temperature_target: dict[str, Any] | None = None,
+    air_temperature_target: dict[str, Any] | None = None,
+    mean_radiant_temperature_target: dict[str, Any] | None = None,
     air_speed_target: dict[str, Any] | None = None,
     comfort_parameter: dict[str, Any] | None = None,
+    output_metrics: list[str] | None = None,
     identifier: str | None = None,
     return_data_collection: bool = False,
 ) -> dict[str, Any]:
@@ -251,11 +414,6 @@ def calculate_adaptive(
         garden_root=garden_root,
         target=outdoor_temperature_target,
         field_name="outdoor_temperature_target",
-    )
-    operative_temperature = _load_required_collection(
-        garden_root=garden_root,
-        target=operative_temperature_target,
-        field_name="operative_temperature_target",
     )
     air_speed = (
         _load_required_collection(
@@ -272,15 +430,47 @@ def calculate_adaptive(
         parameter_cls=AdaptiveParameter,
     )
     try:
-        comfort = Adaptive(
-            outdoor_temperature,
-            operative_temperature,
-            air_speed=air_speed,
-            comfort_parameter=parameter,
-        )
+        if operative_temperature_target is not None:
+            operative_temperature = _load_required_collection(
+                garden_root=garden_root,
+                target=operative_temperature_target,
+                field_name="operative_temperature_target",
+            )
+            comfort = Adaptive(
+                outdoor_temperature,
+                operative_temperature,
+                air_speed=air_speed,
+                comfort_parameter=parameter,
+            )
+        elif air_temperature_target is not None:
+            air_temp = _load_required_collection(
+                garden_root=garden_root,
+                target=air_temperature_target,
+                field_name="air_temperature_target",
+            )
+            rad_temp = (
+                _load_required_collection(
+                    garden_root=garden_root,
+                    target=mean_radiant_temperature_target,
+                    field_name="mean_radiant_temperature_target",
+                )
+                if mean_radiant_temperature_target is not None
+                else None
+            )
+            comfort = Adaptive.from_air_and_rad_temp(
+                outdoor_temperature,
+                air_temp,
+                rad_temperature=rad_temp,
+                air_speed=air_speed,
+                comfort_parameter=parameter,
+            )
+        else:
+            raise ValueError(
+                "Adaptive comfort requires operative_temperature_target or air_temperature_target."
+            )
     except (AssertionError, TypeError, ValueError) as exc:
         raise ValueError(f"Could not calculate Adaptive comfort: {exc}") from exc
-    result = _calculate(
+    return _calculate(
         garden_root=garden_root,
         comfort_model="Adaptive",
         metric_name="degrees_from_neutral",
@@ -289,59 +479,41 @@ def calculate_adaptive(
         input_targets={
             "outdoor_temperature": outdoor_temperature_target,
             "operative_temperature": operative_temperature_target,
+            "air_temperature": air_temperature_target,
+            "mean_radiant_temperature": mean_radiant_temperature_target,
             "air_speed": air_speed_target,
         },
         parameter=parameter,
         identifier=identifier,
-        producer="LB_Calculate_Adaptive",
+        producer="LB_Calculate_Comfort",
+        output_metrics=output_metrics,
+        return_data_collection=return_data_collection,
     )
-    if return_data_collection:
-        result["data_collection"] = comfort.degrees_from_neutral.to_dict()
-    return result
 
 
 def calculate_pmv(
     *,
     garden_root: str,
-    air_temperature_target: dict[str, Any],
-    relative_humidity_target: dict[str, Any],
+    air_temperature_target: dict[str, Any] | None = None,
+    relative_humidity_target: dict[str, Any] | None = None,
     mean_radiant_temperature_target: dict[str, Any] | None = None,
     air_speed: dict[str, Any] | float | int | None = None,
     met_rate: dict[str, Any] | float | int | None = None,
     clo_value: dict[str, Any] | float | int | None = None,
     external_work: dict[str, Any] | float | int | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    include_wind: bool = True,
+    include_sun: bool = True,
     comfort_parameter: dict[str, Any] | None = None,
+    output_metrics: list[str] | None = None,
     identifier: str | None = None,
     return_data_collection: bool = False,
 ) -> dict[str, Any]:
-    """Calculate PMV from Garden DataCollection targets and scalar inputs."""
+    """Calculate PMV from Garden DataCollection targets or weather_target/epw_path."""
     from ladybug_comfort.collection.pmv import PMV
     from ladybug_comfort.parameter.pmv import PMVParameter
 
-    air_temperature = _load_required_collection(
-        garden_root=garden_root,
-        target=air_temperature_target,
-        field_name="air_temperature_target",
-    )
-    relative_humidity = _load_required_collection(
-        garden_root=garden_root,
-        target=relative_humidity_target,
-        field_name="relative_humidity_target",
-    )
-    rad_temperature = (
-        _load_required_collection(
-            garden_root=garden_root,
-            target=mean_radiant_temperature_target,
-            field_name="mean_radiant_temperature_target",
-        )
-        if mean_radiant_temperature_target is not None
-        else None
-    )
-    resolved_air_speed = _load_optional_input(
-        garden_root=garden_root,
-        value=air_speed,
-        field_name="air_speed",
-    )
     resolved_met_rate = _load_optional_input(
         garden_root=garden_root,
         value=met_rate,
@@ -362,26 +534,69 @@ def calculate_pmv(
         expected_type="PMVParameter",
         parameter_cls=PMVParameter,
     )
-    try:
-        comfort = PMV(
-            air_temperature,
-            relative_humidity,
-            rad_temperature=rad_temperature,
-            air_speed=resolved_air_speed,
+    if weather_target is not None or epw_path is not None:
+        epw = _resolve_epw_object(
+            garden_root=garden_root,
+            weather_target=weather_target,
+            epw_path=epw_path,
+        )
+        comfort = PMV.from_epw(
+            epw,
+            include_wind=include_wind,
+            include_sun=include_sun,
             met_rate=resolved_met_rate,
             clo_value=resolved_clo_value,
             external_work=resolved_external_work,
-            comfort_parameter=parameter,
+            pmv_parameter=parameter,
         )
-    except (AssertionError, TypeError, ValueError) as exc:
-        raise ValueError(f"Could not calculate PMV comfort: {exc}") from exc
-    result = _calculate(
-        garden_root=garden_root,
-        comfort_model="PMV",
-        metric_name="predicted_mean_vote",
-        metric_attribute="predicted_mean_vote",
-        comfort=comfort,
-        input_targets={
+        input_targets = {
+            "weather_target": weather_target,
+            "epw_path": epw_path,
+            "include_wind": include_wind,
+            "include_sun": include_sun,
+            "met_rate": met_rate if isinstance(met_rate, dict) else None,
+            "clo_value": clo_value if isinstance(clo_value, dict) else None,
+            "external_work": external_work if isinstance(external_work, dict) else None,
+        }
+    else:
+        air_temperature = _load_required_collection(
+            garden_root=garden_root,
+            target=air_temperature_target,
+            field_name="air_temperature_target",
+        )
+        relative_humidity = _load_required_collection(
+            garden_root=garden_root,
+            target=relative_humidity_target,
+            field_name="relative_humidity_target",
+        )
+        rad_temperature = (
+            _load_required_collection(
+                garden_root=garden_root,
+                target=mean_radiant_temperature_target,
+                field_name="mean_radiant_temperature_target",
+            )
+            if mean_radiant_temperature_target is not None
+            else None
+        )
+        resolved_air_speed = _load_optional_input(
+            garden_root=garden_root,
+            value=air_speed,
+            field_name="air_speed",
+        )
+        try:
+            comfort = PMV(
+                air_temperature,
+                relative_humidity,
+                rad_temperature=rad_temperature,
+                air_speed=resolved_air_speed,
+                met_rate=resolved_met_rate,
+                clo_value=resolved_clo_value,
+                external_work=resolved_external_work,
+                comfort_parameter=parameter,
+            )
+        except (AssertionError, TypeError, ValueError) as exc:
+            raise ValueError(f"Could not calculate PMV comfort: {exc}") from exc
+        input_targets = {
             "air_temperature": air_temperature_target,
             "relative_humidity": relative_humidity_target,
             "mean_radiant_temperature": mean_radiant_temperature_target,
@@ -389,14 +604,1024 @@ def calculate_pmv(
             "met_rate": met_rate if isinstance(met_rate, dict) else None,
             "clo_value": clo_value if isinstance(clo_value, dict) else None,
             "external_work": external_work if isinstance(external_work, dict) else None,
+        }
+    return _calculate(
+        garden_root=garden_root,
+        comfort_model="PMV",
+        metric_name="predicted_mean_vote",
+        metric_attribute="predicted_mean_vote",
+        comfort=comfort,
+        input_targets=input_targets,
+        parameter=parameter,
+        identifier=identifier,
+        producer="LB_Calculate_Comfort",
+        output_metrics=output_metrics,
+        return_data_collection=return_data_collection,
+    )
+
+
+def calculate_pet(
+    *,
+    garden_root: str,
+    air_temperature_target: dict[str, Any] | None = None,
+    relative_humidity_target: dict[str, Any] | None = None,
+    mean_radiant_temperature_target: dict[str, Any] | None = None,
+    air_speed: dict[str, Any] | float | int | None = None,
+    barometric_pressure: dict[str, Any] | float | int | None = None,
+    met_rate: dict[str, Any] | float | int | None = None,
+    clo_value: dict[str, Any] | float | int | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    include_wind: bool = True,
+    include_sun: bool = True,
+    comfort_parameter: dict[str, Any] | None = None,
+    output_metrics: list[str] | None = None,
+    identifier: str | None = None,
+    return_data_collection: bool = False,
+) -> dict[str, Any]:
+    """Calculate Physiological Equivalent Temperature (PET) comfort."""
+    from ladybug_comfort.collection.pet import PET
+    from ladybug_comfort.parameter.pet import PETParameter
+
+    resolved_met_rate = _load_optional_input(garden_root=garden_root, value=met_rate, field_name="met_rate")
+    resolved_clo_value = _load_optional_input(garden_root=garden_root, value=clo_value, field_name="clo_value")
+    parameter = _load_parameter(
+        comfort_parameter,
+        expected_type="PETParameter",
+        parameter_cls=PETParameter,
+    )
+    if weather_target is not None or epw_path is not None:
+        epw = _resolve_epw_object(
+            garden_root=garden_root,
+            weather_target=weather_target,
+            epw_path=epw_path,
+        )
+        comfort = PET.from_epw(
+            epw,
+            include_wind=include_wind,
+            include_sun=include_sun,
+            met_rate=resolved_met_rate,
+            clo_value=resolved_clo_value,
+            body_parameter=parameter,
+        )
+        input_targets = {
+            "weather_target": weather_target,
+            "epw_path": epw_path,
+            "include_wind": include_wind,
+            "include_sun": include_sun,
+        }
+    else:
+        air_temperature = _load_required_collection(
+            garden_root=garden_root,
+            target=air_temperature_target,
+            field_name="air_temperature_target",
+        )
+        relative_humidity = _load_required_collection(
+            garden_root=garden_root,
+            target=relative_humidity_target,
+            field_name="relative_humidity_target",
+        )
+        rad_temperature = (
+            _load_required_collection(
+                garden_root=garden_root,
+                target=mean_radiant_temperature_target,
+                field_name="mean_radiant_temperature_target",
+            )
+            if mean_radiant_temperature_target is not None
+            else None
+        )
+        resolved_air_speed = _load_optional_input(garden_root=garden_root, value=air_speed, field_name="air_speed")
+        resolved_pressure = _load_optional_input(
+            garden_root=garden_root, value=barometric_pressure, field_name="barometric_pressure"
+        )
+        try:
+            comfort = PET(
+                air_temperature,
+                relative_humidity,
+                rad_temperature=rad_temperature,
+                air_speed=resolved_air_speed,
+                barometric_pressure=resolved_pressure,
+                met_rate=resolved_met_rate,
+                clo_value=resolved_clo_value,
+                body_parameter=parameter,
+            )
+        except (AssertionError, TypeError, ValueError) as exc:
+            raise ValueError(f"Could not calculate PET comfort: {exc}") from exc
+        input_targets = {
+            "air_temperature": air_temperature_target,
+            "relative_humidity": relative_humidity_target,
+            "mean_radiant_temperature": mean_radiant_temperature_target,
+        }
+    return _calculate(
+        garden_root=garden_root,
+        comfort_model="PET",
+        metric_name="physiologic_equivalent_temperature",
+        metric_attribute="physiologic_equivalent_temperature",
+        comfort=comfort,
+        input_targets=input_targets,
+        parameter=parameter,
+        identifier=identifier,
+        producer="LB_Calculate_Comfort",
+        output_metrics=output_metrics,
+        return_data_collection=return_data_collection,
+    )
+
+
+def calculate_solarcal(
+    *,
+    garden_root: str,
+    solarcal_type: str = "outdoor",
+    location: dict[str, Any] | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    direct_normal_solar_target: dict[str, Any] | None = None,
+    diffuse_horizontal_solar_target: dict[str, Any] | None = None,
+    direct_horizontal_solar_target: dict[str, Any] | None = None,
+    reflected_horizontal_solar_target: dict[str, Any] | None = None,
+    horizontal_infrared_target: dict[str, Any] | None = None,
+    surface_temperatures: dict[str, Any] | float | int | None = None,
+    longwave_mrt: dict[str, Any] | float | int | None = None,
+    fraction_body_exposed: dict[str, Any] | float | int | None = None,
+    sky_exposure: dict[str, Any] | float | int | None = None,
+    floor_reflectance: dict[str, Any] | float | int | None = None,
+    window_transmittance: dict[str, Any] | float | int | None = None,
+    comfort_parameter: dict[str, Any] | None = None,
+    output_metrics: list[str] | None = None,
+    identifier: str | None = None,
+    return_data_collection: bool = False,
+) -> dict[str, Any]:
+    """Calculate Outdoor, Indoor, Horizontal, or HorizontalRef SolarCal MRT deltas."""
+    from ladybug_comfort.collection.solarcal import (
+        HorizontalRefSolarCal,
+        HorizontalSolarCal,
+        IndoorSolarCal,
+        OutdoorSolarCal,
+    )
+    from ladybug_comfort.parameter.solarcal import SolarCalParameter
+
+    sc_kind = str(solarcal_type or "outdoor").strip().lower()
+    parameter = _load_parameter(
+        comfort_parameter,
+        expected_type="SolarCalParameter",
+        parameter_cls=SolarCalParameter,
+    )
+    epw_obj = (
+        _resolve_epw_object(garden_root=garden_root, weather_target=weather_target, epw_path=epw_path)
+        if (weather_target is not None or epw_path is not None)
+        else None
+    )
+    if location is not None:
+        loc_data = dict(location)
+        loc_data.setdefault("type", "Location")
+        loc_obj = Location.from_dict(loc_data)
+    elif epw_obj is not None:
+        loc_obj = epw_obj.location
+    else:
+        raise ValueError("SolarCal requires location or weather_target/epw_path.")
+
+    diff_solar = (
+        _load_required_collection(
+            garden_root=garden_root,
+            target=diffuse_horizontal_solar_target,
+            field_name="diffuse_horizontal_solar_target",
+        )
+        if diffuse_horizontal_solar_target is not None
+        else (epw_obj.diffuse_horizontal_radiation if epw_obj is not None else None)
+    )
+    if diff_solar is None:
+        raise ValueError("SolarCal requires diffuse_horizontal_solar_target or weather_target/epw_path.")
+
+    frac_exposed = _load_optional_input(
+        garden_root=garden_root, value=fraction_body_exposed, field_name="fraction_body_exposed"
+    )
+    sky_exp = _load_optional_input(garden_root=garden_root, value=sky_exposure, field_name="sky_exposure")
+    floor_ref = _load_optional_input(
+        garden_root=garden_root, value=floor_reflectance, field_name="floor_reflectance"
+    )
+
+    if sc_kind == "outdoor":
+        dir_solar = (
+            _load_required_collection(
+                garden_root=garden_root,
+                target=direct_normal_solar_target,
+                field_name="direct_normal_solar_target",
+            )
+            if direct_normal_solar_target is not None
+            else (epw_obj.direct_normal_radiation if epw_obj is not None else None)
+        )
+        horiz_ir = (
+            _load_required_collection(
+                garden_root=garden_root,
+                target=horizontal_infrared_target,
+                field_name="horizontal_infrared_target",
+            )
+            if horizontal_infrared_target is not None
+            else (epw_obj.horizontal_infrared_radiation_intensity if epw_obj is not None else None)
+        )
+        surf_temp = _load_optional_input(
+            garden_root=garden_root,
+            value=surface_temperatures if surface_temperatures is not None else longwave_mrt,
+            field_name="surface_temperatures",
+        )
+        if surf_temp is None and epw_obj is not None:
+            surf_temp = epw_obj.dry_bulb_temperature
+        if dir_solar is None or horiz_ir is None or surf_temp is None:
+            raise ValueError(
+                "OutdoorSolarCal requires direct_normal_solar_target, horizontal_infrared_target, "
+                "and surface_temperatures (or weather_target/epw_path)."
+            )
+        comfort = OutdoorSolarCal(
+            loc_obj,
+            dir_solar,
+            diff_solar,
+            horiz_ir,
+            surf_temp,
+            fraction_body_exposed=frac_exposed,
+            sky_exposure=sky_exp,
+            floor_reflectance=floor_ref,
+            solarcal_body_parameter=parameter,
+        )
+        model_label = "OutdoorSolarCal"
+    elif sc_kind == "indoor":
+        dir_solar = (
+            _load_required_collection(
+                garden_root=garden_root,
+                target=direct_normal_solar_target,
+                field_name="direct_normal_solar_target",
+            )
+            if direct_normal_solar_target is not None
+            else (epw_obj.direct_normal_radiation if epw_obj is not None else None)
+        )
+        lw_mrt = _load_optional_input(
+            garden_root=garden_root,
+            value=longwave_mrt if longwave_mrt is not None else surface_temperatures,
+            field_name="longwave_mrt",
+        )
+        if lw_mrt is None and epw_obj is not None:
+            lw_mrt = epw_obj.dry_bulb_temperature
+        win_trans = _load_optional_input(
+            garden_root=garden_root, value=window_transmittance, field_name="window_transmittance"
+        )
+        if dir_solar is None or lw_mrt is None:
+            raise ValueError("IndoorSolarCal requires direct_normal_solar_target and longwave_mrt.")
+        comfort = IndoorSolarCal(
+            loc_obj,
+            dir_solar,
+            diff_solar,
+            lw_mrt,
+            fraction_body_exposed=frac_exposed,
+            sky_exposure=sky_exp,
+            floor_reflectance=floor_ref,
+            window_transmittance=win_trans,
+            solarcal_body_parameter=parameter,
+        )
+        model_label = "IndoorSolarCal"
+    elif sc_kind in {"horizontal", "horizontal_ref"}:
+        dir_horiz = (
+            _load_required_collection(
+                garden_root=garden_root,
+                target=direct_horizontal_solar_target,
+                field_name="direct_horizontal_solar_target",
+            )
+            if direct_horizontal_solar_target is not None
+            else None
+        )
+        lw_mrt = _load_optional_input(
+            garden_root=garden_root,
+            value=longwave_mrt if longwave_mrt is not None else surface_temperatures,
+            field_name="longwave_mrt",
+        )
+        if lw_mrt is None and epw_obj is not None:
+            lw_mrt = epw_obj.dry_bulb_temperature
+        if dir_horiz is None or lw_mrt is None:
+            raise ValueError(
+                f"{sc_kind} SolarCal requires direct_horizontal_solar_target and longwave_mrt."
+            )
+        if sc_kind == "horizontal":
+            comfort = HorizontalSolarCal(
+                loc_obj,
+                dir_horiz,
+                diff_solar,
+                lw_mrt,
+                fraction_body_exposed=frac_exposed,
+                floor_reflectance=floor_ref,
+                solarcal_body_parameter=parameter,
+            )
+            model_label = "HorizontalSolarCal"
+        else:
+            ref_horiz = _load_required_collection(
+                garden_root=garden_root,
+                target=reflected_horizontal_solar_target,
+                field_name="reflected_horizontal_solar_target",
+            )
+            comfort = HorizontalRefSolarCal(
+                loc_obj,
+                dir_horiz,
+                diff_solar,
+                ref_horiz,
+                lw_mrt,
+                fraction_body_exposed=frac_exposed,
+                solarcal_body_parameter=parameter,
+            )
+            model_label = "HorizontalRefSolarCal"
+    else:
+        raise ValueError(
+            "solarcal_type must be one of: outdoor, indoor, horizontal, horizontal_ref."
+        )
+
+    return _calculate(
+        garden_root=garden_root,
+        comfort_model=model_label,
+        metric_name="mean_radiant_temperature",
+        metric_attribute="mean_radiant_temperature",
+        comfort=comfort,
+        input_targets={
+            "solarcal_type": sc_kind,
+            "weather_target": weather_target,
+            "location": loc_obj.to_dict(),
         },
         parameter=parameter,
         identifier=identifier,
-        producer="LB_Calculate_PMV",
+        producer="LB_Calculate_Comfort",
+        output_metrics=output_metrics,
+        return_data_collection=return_data_collection,
     )
+
+
+def _calculate_prevailing_temperature(
+    *,
+    garden_root: str,
+    outdoor_temperature_target: dict[str, Any] | None,
+    weather_target: dict[str, Any] | None,
+    epw_path: str | None,
+    avg_month: bool = True,
+    output_metrics: list[str] | None = None,
+    identifier: str | None = None,
+    return_data_collection: bool = False,
+) -> dict[str, Any]:
+    from ladybug_comfort.collection.adaptive import PrevailingTemperature
+
+    if outdoor_temperature_target is not None:
+        out_temp = _load_required_collection(
+            garden_root=garden_root,
+            target=outdoor_temperature_target,
+            field_name="outdoor_temperature_target",
+        )
+    elif weather_target is not None or epw_path is not None:
+        out_temp = _resolve_epw_object(
+            garden_root=garden_root, weather_target=weather_target, epw_path=epw_path
+        ).dry_bulb_temperature
+    else:
+        raise ValueError("prevailing_temperature requires outdoor_temperature_target or weather_target/epw_path.")
+
+    pt = PrevailingTemperature(out_temp, avg_month=avg_month)
+    return _calculate(
+        garden_root=garden_root,
+        comfort_model="PrevailingTemperature",
+        metric_name="hourly_prevailing_temperature",
+        metric_attribute="hourly_prevailing_temperature",
+        comfort=pt,
+        input_targets={"outdoor_temperature": outdoor_temperature_target, "avg_month": avg_month},
+        parameter=None,
+        identifier=identifier,
+        producer="LB_Calculate_Comfort",
+        output_metrics=output_metrics,
+        return_data_collection=return_data_collection,
+    )
+
+
+def _calculate_clo_schiavon(
+    *,
+    garden_root: str,
+    outdoor_temperature: dict[str, Any] | float | int | None,
+    outdoor_temperature_target: dict[str, Any] | None,
+    weather_target: dict[str, Any] | None,
+    epw_path: str | None,
+    max_clo: float = 1.0,
+    max_clo_temp: float = -5.0,
+    min_clo: float = 0.46,
+    min_clo_temp: float = 26.0,
+    identifier: str | None = None,
+    return_data_collection: bool = False,
+) -> dict[str, Any]:
+    from ladybug_comfort.clo import schiavon_clo
+
+    source_col = None
+    if outdoor_temperature_target is not None:
+        source_col = _load_required_collection(
+            garden_root=garden_root,
+            target=outdoor_temperature_target,
+            field_name="outdoor_temperature_target",
+        )
+    elif isinstance(outdoor_temperature, dict):
+        source_col = _load_required_collection(
+            garden_root=garden_root,
+            target=outdoor_temperature,
+            field_name="outdoor_temperature",
+        )
+    elif weather_target is not None or epw_path is not None:
+        source_col = _resolve_epw_object(
+            garden_root=garden_root, weather_target=weather_target, epw_path=epw_path
+        ).dry_bulb_temperature
+
+    if source_col is None:
+        if outdoor_temperature is None or isinstance(outdoor_temperature, bool):
+            raise ValueError(
+                "clo_schiavon requires outdoor_temperature (scalar/target), outdoor_temperature_target, or weather_target."
+            )
+        clo_val = float(
+            schiavon_clo(
+                float(outdoor_temperature),
+                max_clo=max_clo,
+                max_clo_temp=max_clo_temp,
+                min_clo=min_clo,
+                min_clo_temp=min_clo_temp,
+            )
+        )
+        return {
+            "clo_value": clo_val,
+            "summary_view": {
+                "comfort_model": "SchiavonClo",
+                "outdoor_temperature": float(outdoor_temperature),
+                "clo_value": clo_val,
+            },
+            "report": make_report(status="ok", message="Schiavon dynamic clothing computed."),
+        }
+
+    clo_vals = [
+        float(
+            schiavon_clo(
+                float(t),
+                max_clo=max_clo,
+                max_clo_temp=max_clo_temp,
+                min_clo=min_clo,
+                min_clo_temp=min_clo_temp,
+            )
+        )
+        for t in source_col.values
+    ]
+    meta = dict(source_col.header.metadata or {})
+    meta["comfort_model"] = "SchiavonClo"
+    hdr = Header(ClothingInsulation(), "clo", source_col.header.analysis_period, metadata=meta)
+    clo_col = (
+        HourlyContinuousCollection(hdr, clo_vals)
+        if isinstance(source_col, HourlyContinuousCollection)
+        else type(source_col)(hdr, clo_vals, source_col.datetimes)
+    )
+    saved = save_data_collection(
+        garden_root=garden_root,
+        data_collection=clo_col,
+        identifier=identifier or "clo_schiavon",
+        source={"producer": "LB_Calculate_Comfort", "comfort_model": "SchiavonClo"},
+    )
+    res: dict[str, Any] = {
+        "target": saved["target"],
+        "data_target": saved["target"],
+        "data_collection_target": saved["target"],
+        "artifact": saved["artifact"],
+        "persistence_receipt": saved["persistence_receipt"],
+        "summary_view": {
+            "garden_target": GardenManifest.read(Path(garden_root).resolve()).target(),
+            "comfort_model": "SchiavonClo",
+            "data_collection": saved["summary_view"],
+        },
+        "report": make_report(status="ok", message="Schiavon clo DataCollection persisted."),
+    }
     if return_data_collection:
-        result["data_collection"] = comfort.predicted_mean_vote.to_dict()
-    return result
+        res["data_collection"] = clo_col.to_dict()
+    return res
 
 
-__all__ = ["calculate_adaptive", "calculate_pmv", "calculate_utci"]
+def _calculate_local_discomfort(
+    *,
+    garden_root: str,
+    local_discomfort_type: str = "radiant_asymmetry_ppd",
+    radiant_temperature_difference: dict[str, Any] | float | int | None = None,
+    asymmetry_type: int | str = 0,
+    predicted_mean_vote: dict[str, Any] | float | int | None = None,
+    air_speed_at_ankle: dict[str, Any] | float | int | None = None,
+    identifier: str | None = None,
+    return_data_collection: bool = False,
+) -> dict[str, Any]:
+    from ladybug.datatype.thermalcondition import DiscomfortReason
+    from ladybug_comfort.local import ankle_draft_ppd, radiant_asymmetry_ppd
+
+    kind = str(local_discomfort_type or "radiant_asymmetry_ppd").strip().lower()
+    if kind == "radiant_asymmetry_ppd":
+        asym_map = {
+            "0": 0,
+            "warmceiling": 0,
+            "warm_ceiling": 0,
+            "1": 1,
+            "coolwall": 1,
+            "cool_wall": 1,
+            "2": 2,
+            "coolceiling": 2,
+            "cool_ceiling": 2,
+            "3": 3,
+            "warmwall": 3,
+            "warm_wall": 3,
+        }
+        asym_idx = (
+            asymmetry_type
+            if isinstance(asymmetry_type, int)
+            else asym_map.get(str(asymmetry_type).strip().lower())
+        )
+        if asym_idx is None:
+            raise ValueError("asymmetry_type must be 0..3 or warm_ceiling/cool_wall/cool_ceiling/warm_wall.")
+        inp = _load_optional_input(
+            garden_root=garden_root,
+            value=radiant_temperature_difference,
+            field_name="radiant_temperature_difference",
+        )
+        if inp is None:
+            raise ValueError("radiant_temperature_difference is required for radiant_asymmetry_ppd.")
+        if not hasattr(inp, "values"):
+            ppd_val = float(radiant_asymmetry_ppd(float(inp), asym_idx))
+            return {
+                "ppd": ppd_val,
+                "summary_view": {"comfort_model": kind, "asymmetry_type": asym_idx, "ppd": ppd_val},
+                "report": make_report(status="ok", message="Radiant asymmetry PPD computed."),
+            }
+        ppd_vals = [float(radiant_asymmetry_ppd(float(v), asym_idx)) for v in inp.values]
+        template_col = inp
+    elif kind == "ankle_draft_ppd":
+        pmv_in = _load_optional_input(
+            garden_root=garden_root, value=predicted_mean_vote, field_name="predicted_mean_vote"
+        )
+        vel_in = _load_optional_input(
+            garden_root=garden_root, value=air_speed_at_ankle, field_name="air_speed_at_ankle"
+        )
+        if pmv_in is None or vel_in is None:
+            raise ValueError("ankle_draft_ppd requires predicted_mean_vote and air_speed_at_ankle.")
+        if not hasattr(pmv_in, "values") and not hasattr(vel_in, "values"):
+            ppd_val = float(ankle_draft_ppd(float(pmv_in), float(vel_in)))
+            return {
+                "ppd": ppd_val,
+                "summary_view": {"comfort_model": kind, "ppd": ppd_val},
+                "report": make_report(status="ok", message="Ankle draft PPD computed."),
+            }
+        template_col = pmv_in if hasattr(pmv_in, "values") else vel_in
+        n = len(template_col)
+        pmv_seq = list(pmv_in.values) if hasattr(pmv_in, "values") else [float(pmv_in)] * n
+        vel_seq = list(vel_in.values) if hasattr(vel_in, "values") else [float(vel_in)] * n
+        ppd_vals = [float(ankle_draft_ppd(float(p), float(v))) for p, v in zip(pmv_seq, vel_seq)]
+    else:
+        raise ValueError("local_discomfort_type must be radiant_asymmetry_ppd or ankle_draft_ppd.")
+
+    from ladybug.datatype.fraction import PercentagePeopleDissatisfied
+
+    meta = dict(template_col.header.metadata or {})
+    meta["comfort_model"] = kind
+    hdr = Header(PercentagePeopleDissatisfied(), "%", template_col.header.analysis_period, metadata=meta)
+    out_col = (
+        HourlyContinuousCollection(hdr, ppd_vals)
+        if isinstance(template_col, HourlyContinuousCollection)
+        else type(template_col)(hdr, ppd_vals, template_col.datetimes)
+    )
+    saved = save_data_collection(
+        garden_root=garden_root,
+        data_collection=out_col,
+        identifier=identifier or kind,
+        source={"producer": "LB_Calculate_Comfort", "comfort_model": kind},
+    )
+    res: dict[str, Any] = {
+        "target": saved["target"],
+        "data_target": saved["target"],
+        "data_collection_target": saved["target"],
+        "artifact": saved["artifact"],
+        "persistence_receipt": saved["persistence_receipt"],
+        "summary_view": {
+            "garden_target": GardenManifest.read(Path(garden_root).resolve()).target(),
+            "comfort_model": kind,
+            "data_collection": saved["summary_view"],
+        },
+        "report": make_report(status="ok", message=f"Local discomfort '{kind}' persisted."),
+    }
+    if return_data_collection:
+        res["data_collection"] = out_col.to_dict()
+    return res
+
+
+def _calculate_heat_stress(
+    *,
+    garden_root: str,
+    heat_stress_index: str = "wbgt",
+    air_temperature_target: dict[str, Any] | float | int | None = None,
+    relative_humidity_target: dict[str, Any] | float | int | None = None,
+    mean_radiant_temperature_target: dict[str, Any] | float | int | None = None,
+    wind_speed_target: dict[str, Any] | float | int | None = None,
+    dew_point_temperature_target: dict[str, Any] | float | int | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    identifier: str | None = None,
+    return_data_collection: bool = False,
+) -> dict[str, Any]:
+    from ladybug.datatype.energyflux import Irradiance
+    from ladybug.datatype.temperature import (
+        HeatIndexTemperature,
+        WetBulbGlobeTemperature,
+        WindChillTemperature,
+    )
+    from ladybug.psychrometrics import dew_point_from_db_rh
+    from ladybug_comfort.at import apparent_temperature, apparent_temperature_warning_category
+    from ladybug_comfort.di import discomfort_index, discomfort_index_effect_category
+    from ladybug_comfort.hi import heat_index, heat_index_warning_category
+    from ladybug_comfort.humidex import humidex, humidex_degree_of_comfort
+    from ladybug_comfort.wbgt import wbgt_warning_category, wet_bulb_globe_temperature
+    from ladybug_comfort.wc import (
+        windchill_index,
+        windchill_index_effect_category,
+        windchill_temp,
+        windchill_temp_effect_category,
+    )
+
+    idx_name = str(heat_stress_index or "wbgt").strip().lower()
+    epw_obj = (
+        _resolve_epw_object(garden_root=garden_root, weather_target=weather_target, epw_path=epw_path)
+        if (weather_target is not None or epw_path is not None)
+        else None
+    )
+
+    ta_in = _load_optional_input(
+        garden_root=garden_root, value=air_temperature_target, field_name="air_temperature_target"
+    )
+    if ta_in is None and epw_obj is not None:
+        ta_in = epw_obj.dry_bulb_temperature
+    rh_in = _load_optional_input(
+        garden_root=garden_root, value=relative_humidity_target, field_name="relative_humidity_target"
+    )
+    if rh_in is None and epw_obj is not None:
+        rh_in = epw_obj.relative_humidity
+    mrt_in = _load_optional_input(
+        garden_root=garden_root,
+        value=mean_radiant_temperature_target,
+        field_name="mean_radiant_temperature_target",
+    )
+    ws_in = _load_optional_input(
+        garden_root=garden_root, value=wind_speed_target, field_name="wind_speed_target"
+    )
+    if ws_in is None and epw_obj is not None:
+        ws_in = epw_obj.wind_speed
+    dp_in = _load_optional_input(
+        garden_root=garden_root,
+        value=dew_point_temperature_target,
+        field_name="dew_point_temperature_target",
+    )
+    if dp_in is None and epw_obj is not None:
+        dp_in = epw_obj.dew_point_temperature
+
+    if ta_in is None:
+        raise ValueError(f"heat_stress ({idx_name}) requires air_temperature_target or weather_target/epw_path.")
+
+    collections = [v for v in (ta_in, rh_in, mrt_in, ws_in, dp_in) if hasattr(v, "values")]
+    template_col = collections[0] if collections else None
+
+    def _seq(val: Any, default: float | None = None) -> list[float]:
+        n = len(template_col) if template_col is not None else 1
+        if hasattr(val, "values"):
+            if len(val) != n:
+                raise ValueError("All heat_stress DataCollection inputs must have the same length.")
+            return [float(x) for x in val.values]
+        if val is None:
+            if default is None:
+                raise ValueError(f"Missing required input for heat_stress={idx_name!r}.")
+            return [default] * n
+        return [float(val)] * n
+
+    ta_seq = _seq(ta_in)
+    if idx_name == "wbgt":
+        rh_seq = _seq(rh_in)
+        mrt_seq = _seq(mrt_in) if mrt_in is not None else ta_seq
+        ws_seq = _seq(ws_in, default=0.5)
+        vals = [float(wet_bulb_globe_temperature(ta, mrt, ws, rh)) for ta, mrt, ws, rh in zip(ta_seq, mrt_seq, ws_seq, rh_seq)]
+        cats = [wbgt_warning_category(v) for v in vals]
+        dt_cls, unit_str = WetBulbGlobeTemperature, "C"
+    elif idx_name == "hi":
+        rh_seq = _seq(rh_in)
+        vals = [float(heat_index(ta, rh)) for ta, rh in zip(ta_seq, rh_seq)]
+        cats = [heat_index_warning_category(v) for v in vals]
+        dt_cls, unit_str = HeatIndexTemperature, "C"
+    elif idx_name == "humidex":
+        if dp_in is not None:
+            dp_seq = _seq(dp_in)
+        elif rh_in is not None:
+            rh_seq = _seq(rh_in)
+            dp_seq = [float(dew_point_from_db_rh(ta, rh)) for ta, rh in zip(ta_seq, rh_seq)]
+        else:
+            raise ValueError("humidex requires dew_point_temperature_target or relative_humidity_target.")
+        vals = [float(humidex(ta, dp)) for ta, dp in zip(ta_seq, dp_seq)]
+        cats = [humidex_degree_of_comfort(v) for v in vals]
+        dt_cls, unit_str = Temperature, "C"
+    elif idx_name in {"wc", "wc_temp", "wc_index"}:
+        ws_seq = _seq(ws_in, default=1.0)
+        if idx_name == "wc_index":
+            vals = [float(windchill_index(ta, ws)) for ta, ws in zip(ta_seq, ws_seq)]
+            cats = [windchill_index_effect_category(v) for v in vals]
+            dt_cls, unit_str = Irradiance, "W/m2"
+        else:
+            vals = [float(windchill_temp(ta, ws)) for ta, ws in zip(ta_seq, ws_seq)]
+            cats = [windchill_temp_effect_category(v) for v in vals]
+            dt_cls, unit_str = WindChillTemperature, "C"
+    elif idx_name == "at":
+        rh_seq = _seq(rh_in)
+        ws_unit = getattr(getattr(ws_in, "header", None), "unit", "m/s") if hasattr(ws_in, "values") else "m/s"
+        ws_seq = _seq(ws_in, default=0.5)
+        ws_kmh_seq = ws_seq if str(ws_unit).lower() == "km/h" else [w * 3.6 for w in ws_seq]
+        vals = [float(apparent_temperature(ta, rh, ws_kmh)) for ta, rh, ws_kmh in zip(ta_seq, rh_seq, ws_kmh_seq)]
+        cats = [apparent_temperature_warning_category(v) for v in vals]
+        dt_cls, unit_str = Temperature, "C"
+    elif idx_name == "di":
+        rh_seq = _seq(rh_in)
+        vals = [float(discomfort_index(ta, rh)) for ta, rh in zip(ta_seq, rh_seq)]
+        cats = [discomfort_index_effect_category(v) for v in vals]
+        dt_cls, unit_str = Temperature, "C"
+    else:
+        raise ValueError("heat_stress_index must be one of: wbgt, hi, humidex, wc, wc_index, at, di.")
+
+    if template_col is None:
+        return {
+            "value": vals[0],
+            "category": cats[0],
+            "summary_view": {
+                "comfort_model": f"heat_stress:{idx_name}",
+                "value": vals[0],
+                "category": cats[0],
+            },
+            "report": make_report(status="ok", message=f"Heat stress '{idx_name}' computed."),
+        }
+
+    meta = dict(template_col.header.metadata or {})
+    meta["comfort_model"] = f"heat_stress:{idx_name}"
+    hdr = Header(dt_cls(), unit_str, template_col.header.analysis_period, metadata=meta)
+    out_col = (
+        HourlyContinuousCollection(hdr, vals)
+        if isinstance(template_col, HourlyContinuousCollection)
+        else type(template_col)(hdr, vals, template_col.datetimes)
+    )
+    saved = save_data_collection(
+        garden_root=garden_root,
+        data_collection=out_col,
+        identifier=identifier or f"heat_stress_{idx_name}",
+        source={"producer": "LB_Calculate_Comfort", "comfort_model": f"heat_stress:{idx_name}"},
+    )
+    res: dict[str, Any] = {
+        "target": saved["target"],
+        "data_target": saved["target"],
+        "data_collection_target": saved["target"],
+        "artifact": saved["artifact"],
+        "persistence_receipt": saved["persistence_receipt"],
+        "summary_view": {
+            "garden_target": GardenManifest.read(Path(garden_root).resolve()).target(),
+            "comfort_model": f"heat_stress:{idx_name}",
+            "data_collection": saved["summary_view"],
+            "category_min": min(cats),
+            "category_max": max(cats),
+        },
+        "report": make_report(status="ok", message=f"Heat stress '{idx_name}' DataCollection persisted."),
+    }
+    if return_data_collection:
+        res["data_collection"] = out_col.to_dict()
+    return res
+
+
+def calculate_comfort(
+    *,
+    garden_root: str,
+    model: str,
+    air_temperature_target: dict[str, Any] | float | int | None = None,
+    relative_humidity_target: dict[str, Any] | float | int | None = None,
+    mean_radiant_temperature_target: dict[str, Any] | float | int | None = None,
+    wind_speed_target: dict[str, Any] | float | int | None = None,
+    outdoor_temperature_target: dict[str, Any] | None = None,
+    operative_temperature_target: dict[str, Any] | None = None,
+    air_speed_target: dict[str, Any] | None = None,
+    air_speed: dict[str, Any] | float | int | None = None,
+    met_rate: dict[str, Any] | float | int | None = None,
+    clo_value: dict[str, Any] | float | int | None = None,
+    external_work: dict[str, Any] | float | int | None = None,
+    barometric_pressure: dict[str, Any] | float | int | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
+    include_wind: bool = True,
+    include_sun: bool = True,
+    location: dict[str, Any] | None = None,
+    solarcal_type: str = "outdoor",
+    direct_normal_solar_target: dict[str, Any] | None = None,
+    diffuse_horizontal_solar_target: dict[str, Any] | None = None,
+    direct_horizontal_solar_target: dict[str, Any] | None = None,
+    reflected_horizontal_solar_target: dict[str, Any] | None = None,
+    horizontal_infrared_target: dict[str, Any] | None = None,
+    surface_temperatures: dict[str, Any] | float | int | None = None,
+    longwave_mrt: dict[str, Any] | float | int | None = None,
+    fraction_body_exposed: dict[str, Any] | float | int | None = None,
+    sky_exposure: dict[str, Any] | float | int | None = None,
+    floor_reflectance: dict[str, Any] | float | int | None = None,
+    window_transmittance: dict[str, Any] | float | int | None = None,
+    avg_month: bool = True,
+    outdoor_temperature: dict[str, Any] | float | int | None = None,
+    max_clo: float = 1.0,
+    max_clo_temp: float = -5.0,
+    min_clo: float = 0.46,
+    min_clo_temp: float = 26.0,
+    local_discomfort_type: str = "radiant_asymmetry_ppd",
+    radiant_temperature_difference: dict[str, Any] | float | int | None = None,
+    asymmetry_type: int | str = 0,
+    predicted_mean_vote: dict[str, Any] | float | int | None = None,
+    air_speed_at_ankle: dict[str, Any] | float | int | None = None,
+    heat_stress_index: str = "wbgt",
+    dew_point_temperature_target: dict[str, Any] | float | int | None = None,
+    comfort_parameter: dict[str, Any] | None = None,
+    output_metrics: list[str] | None = None,
+    identifier: str | None = None,
+    return_data_collection: bool = False,
+) -> dict[str, Any]:
+    """Calculate PMV, Adaptive, UTCI, PET, SolarCal, Prevailing, Clo, Local Discomfort, or Heat Stress."""
+    normalized_model = str(model).strip().lower()
+    if normalized_model == "pmv":
+        if weather_target is None and epw_path is None and (
+            air_temperature_target is None or relative_humidity_target is None
+        ):
+            raise ValueError(
+                "PMV comfort requires air_temperature_target and relative_humidity_target, "
+                "or weather_target/epw_path."
+            )
+        resolved_air_speed = air_speed if air_speed is not None else air_speed_target
+        return calculate_pmv(
+            garden_root=garden_root,
+            air_temperature_target=air_temperature_target if isinstance(air_temperature_target, dict) else None,
+            relative_humidity_target=relative_humidity_target if isinstance(relative_humidity_target, dict) else None,
+            mean_radiant_temperature_target=mean_radiant_temperature_target if isinstance(mean_radiant_temperature_target, dict) else None,
+            air_speed=resolved_air_speed,
+            met_rate=met_rate,
+            clo_value=clo_value,
+            external_work=external_work,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            include_wind=include_wind,
+            include_sun=include_sun,
+            comfort_parameter=comfort_parameter,
+            output_metrics=output_metrics,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+    if normalized_model == "adaptive":
+        if outdoor_temperature_target is None or (
+            operative_temperature_target is None and air_temperature_target is None
+        ):
+            raise ValueError(
+                "Adaptive comfort requires outdoor_temperature_target and operative_temperature_target "
+                "(or air_temperature_target + optional mean_radiant_temperature_target)."
+            )
+        resolved_air_speed_target = air_speed_target
+        if resolved_air_speed_target is None and isinstance(air_speed, dict):
+            resolved_air_speed_target = air_speed
+        return calculate_adaptive(
+            garden_root=garden_root,
+            outdoor_temperature_target=outdoor_temperature_target,
+            operative_temperature_target=operative_temperature_target,
+            air_temperature_target=air_temperature_target if isinstance(air_temperature_target, dict) else None,
+            mean_radiant_temperature_target=mean_radiant_temperature_target if isinstance(mean_radiant_temperature_target, dict) else None,
+            air_speed_target=resolved_air_speed_target,
+            comfort_parameter=comfort_parameter,
+            output_metrics=output_metrics,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+    if normalized_model == "utci":
+        if weather_target is None and epw_path is None and (
+            air_temperature_target is None or relative_humidity_target is None
+        ):
+            raise ValueError(
+                "UTCI comfort requires air_temperature_target and relative_humidity_target, "
+                "or weather_target/epw_path."
+            )
+        return calculate_utci(
+            garden_root=garden_root,
+            air_temperature_target=air_temperature_target if isinstance(air_temperature_target, dict) else None,
+            relative_humidity_target=relative_humidity_target if isinstance(relative_humidity_target, dict) else None,
+            mean_radiant_temperature_target=mean_radiant_temperature_target if isinstance(mean_radiant_temperature_target, dict) else None,
+            wind_speed_target=wind_speed_target if isinstance(wind_speed_target, dict) else None,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            include_wind=include_wind,
+            include_sun=include_sun,
+            comfort_parameter=comfort_parameter,
+            output_metrics=output_metrics,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+    if normalized_model == "pet":
+        if weather_target is None and epw_path is None and (
+            air_temperature_target is None or relative_humidity_target is None
+        ):
+            raise ValueError(
+                "PET comfort requires air_temperature_target and relative_humidity_target, "
+                "or weather_target/epw_path."
+            )
+        resolved_air_speed = air_speed if air_speed is not None else air_speed_target
+        return calculate_pet(
+            garden_root=garden_root,
+            air_temperature_target=air_temperature_target if isinstance(air_temperature_target, dict) else None,
+            relative_humidity_target=relative_humidity_target if isinstance(relative_humidity_target, dict) else None,
+            mean_radiant_temperature_target=mean_radiant_temperature_target if isinstance(mean_radiant_temperature_target, dict) else None,
+            air_speed=resolved_air_speed,
+            barometric_pressure=barometric_pressure,
+            met_rate=met_rate,
+            clo_value=clo_value,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            include_wind=include_wind,
+            include_sun=include_sun,
+            comfort_parameter=comfort_parameter,
+            output_metrics=output_metrics,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+    if normalized_model == "solarcal":
+        return calculate_solarcal(
+            garden_root=garden_root,
+            solarcal_type=solarcal_type,
+            location=location,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            direct_normal_solar_target=direct_normal_solar_target,
+            diffuse_horizontal_solar_target=diffuse_horizontal_solar_target,
+            direct_horizontal_solar_target=direct_horizontal_solar_target,
+            reflected_horizontal_solar_target=reflected_horizontal_solar_target,
+            horizontal_infrared_target=horizontal_infrared_target,
+            surface_temperatures=surface_temperatures,
+            longwave_mrt=longwave_mrt,
+            fraction_body_exposed=fraction_body_exposed,
+            sky_exposure=sky_exposure,
+            floor_reflectance=floor_reflectance,
+            window_transmittance=window_transmittance,
+            comfort_parameter=comfort_parameter,
+            output_metrics=output_metrics,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+    if normalized_model == "prevailing_temperature":
+        return _calculate_prevailing_temperature(
+            garden_root=garden_root,
+            outdoor_temperature_target=outdoor_temperature_target,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            avg_month=avg_month,
+            output_metrics=output_metrics,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+    if normalized_model == "clo_schiavon":
+        return _calculate_clo_schiavon(
+            garden_root=garden_root,
+            outdoor_temperature=outdoor_temperature,
+            outdoor_temperature_target=outdoor_temperature_target,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            max_clo=max_clo,
+            max_clo_temp=max_clo_temp,
+            min_clo=min_clo,
+            min_clo_temp=min_clo_temp,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+    if normalized_model == "local_discomfort":
+        return _calculate_local_discomfort(
+            garden_root=garden_root,
+            local_discomfort_type=local_discomfort_type,
+            radiant_temperature_difference=radiant_temperature_difference,
+            asymmetry_type=asymmetry_type,
+            predicted_mean_vote=predicted_mean_vote,
+            air_speed_at_ankle=air_speed_at_ankle,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+    if normalized_model == "heat_stress":
+        return _calculate_heat_stress(
+            garden_root=garden_root,
+            heat_stress_index=heat_stress_index,
+            air_temperature_target=air_temperature_target,
+            relative_humidity_target=relative_humidity_target,
+            mean_radiant_temperature_target=mean_radiant_temperature_target,
+            wind_speed_target=wind_speed_target,
+            dew_point_temperature_target=dew_point_temperature_target,
+            weather_target=weather_target,
+            epw_path=epw_path,
+            identifier=identifier,
+            return_data_collection=return_data_collection,
+        )
+    raise ValueError(
+        "model must be one of: pmv, adaptive, utci, pet, solarcal, "
+        "prevailing_temperature, clo_schiavon, local_discomfort, heat_stress."
+    )
+
+
+__all__ = [
+    "calculate_adaptive",
+    "calculate_comfort",
+    "calculate_pet",
+    "calculate_pmv",
+    "calculate_solarcal",
+    "calculate_utci",
+]

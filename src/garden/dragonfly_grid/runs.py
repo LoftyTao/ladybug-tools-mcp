@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+import os
 from pathlib import Path
 import shutil
+import time
 import traceback
 from typing import Any
 
 from dragonfly_energy.run import run_default_report as sdk_run_default_report
 from dragonfly_energy.run import run_reopt as sdk_run_reopt
 from dragonfly_energy.run import run_rnm as sdk_run_rnm
+
+from garden.background import submit_worker_process
 
 from garden.ladybug_tools_config import REQUIRED_RUNTIME_VERSIONS, urbanopt_runtime_env, write_urbanopt_bundle_config
 from garden.manifest import GardenManifest, utc_now_iso, write_json_file
@@ -74,9 +77,105 @@ _GRID_RUNS = RunManager(
     per_recipe_index=True,
     use_uuid_fallback=True,
     not_found_label="Dragonfly Grid",
-    ledger=RunLedger(lock="thread"),
+    public_fields=(
+        "run_id",
+        "target",
+        "recipe",
+        "status",
+        "runtime_status",
+        "created_at",
+        "started_at",
+        "completed_at",
+        "run_folder",
+        "worker_pid",
+        "feature_geojson_target",
+        "scenario_csv_target",
+        "preflight",
+        "outputs",
+        "error",
+    ),
+    ledger=RunLedger(lock="file", atomic=True, recover_trailing_json=True, empty_is_empty=True),
 )
-_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dragonfly-grid")
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def _worker_environment(
+    garden_root: Path,
+    run_dir: Path,
+    *,
+    extra: dict[str, str] | None = None,
+) -> dict[str, str]:
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    temp_dir = (garden_root / "tmp" / run_dir.name).resolve()
+    temp_dir.relative_to(garden_root)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    env["TEMP"] = str(temp_dir)
+    env["TMP"] = str(temp_dir)
+    if extra:
+        env.update(extra)
+    return env
+
+
+def _record_worker_pid(root: Path, recipe: str, run_id: str, proc: Any) -> None:
+    worker_pid = getattr(proc, "pid", None)
+    if worker_pid is None:
+        return
+    current = _GRID_RUNS.get(root, run_id, recipe=recipe)
+    if current is not None and current.get("worker_pid") is None:
+        current["worker_pid"] = worker_pid
+        _GRID_RUNS.upsert(root, current, recipe=recipe)
+
+
+def poll_grid_run(
+    *,
+    garden_root: str,
+    recipe: str,
+    run_target: dict[str, Any] | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Read one Dragonfly Electric Grid run ledger record."""
+    root = require_garden_root(garden_root)
+    manifest = GardenManifest.read(root)
+    resolved_id = _GRID_RUNS.resolve_run_id(run_target, run_id, recipe=recipe)
+    record = _GRID_RUNS.require(root, resolved_id, recipe=recipe)
+    return _result_from_record(root, manifest, record)
+
+
+def _wait_for_grid_run(
+    garden_root: str,
+    recipe: str,
+    result: dict[str, Any],
+    wait_seconds: float | None,
+    poll_interval: float,
+) -> dict[str, Any]:
+    requested_wait = max(float(wait_seconds or 0), 0.0)
+    if not requested_wait:
+        return result
+    applied_wait = min(requested_wait, 240.0)
+    interval = max(float(poll_interval or 2.0), 0.2)
+    deadline = time.monotonic() + applied_wait
+    while result.get("runtime_status") in {"queued", "running"} and time.monotonic() < deadline:
+        time.sleep(min(interval, max(deadline - time.monotonic(), 0.0)))
+        result = poll_grid_run(
+            garden_root=garden_root,
+            recipe=recipe,
+            run_target=result.get("run_target"),
+        )
+    summary_view = result.setdefault("summary_view", {})
+    summary_view["wait_seconds_requested"] = wait_seconds
+    summary_view["wait_seconds_applied"] = applied_wait
+    return result
 
 
 def start_rnm(
@@ -88,6 +187,8 @@ def start_rnm(
     underground_ratio: float = 0.9,
     lv_only: bool = True,
     nodes_per_building: int = 1,
+    wait_seconds: float | None = None,
+    poll_interval: float = 2.0,
 ) -> dict[str, Any]:
     """Start or block an RNM post-processing run."""
     root = require_garden_root(garden_root)
@@ -114,20 +215,34 @@ def start_rnm(
         preflight=_preflight_rnm_runtime(runtime),
     )
     if record["status"] == "running":
-        _BACKGROUND_EXECUTOR.submit(
-            _run_rnm_job,
-            garden_root=str(root),
-            run_id=normalized_run_id,
-            feature_geojson=str(feature_geojson),
-            scenario_csv=str(scenario_csv),
-            runtime=runtime,
-            underground_ratio=underground_ratio,
-            lv_only=lv_only,
-            nodes_per_building=nodes_per_building,
-            use_localhost=use_localhost,
-        )
+        run_dir = _GRID_RUNS.run_dir(root, normalized_run_id, recipe="rnm")
+        try:
+            proc = submit_worker_process(
+                garden_root=root,
+                run_dir=run_dir,
+                worker_module="garden.dragonfly_grid.runs:_run_rnm_job",
+                request=_json_safe(
+                    {
+                        "garden_root": str(root),
+                        "run_id": normalized_run_id,
+                        "feature_geojson": str(feature_geojson),
+                        "scenario_csv": str(scenario_csv),
+                        "runtime": runtime,
+                        "underground_ratio": underground_ratio,
+                        "lv_only": lv_only,
+                        "nodes_per_building": nodes_per_building,
+                        "use_localhost": use_localhost,
+                    }
+                ),
+                cwd=root,
+                environment=_worker_environment(root, run_dir),
+            )
+            _record_worker_pid(root, "rnm", normalized_run_id, proc)
+        except Exception as exc:
+            _complete_with_error(root, "rnm", normalized_run_id, str(exc))
     latest = _GRID_RUNS.get(root, normalized_run_id, recipe="rnm") or record
-    return _result_from_record(root, manifest, latest)
+    result = _result_from_record(root, manifest, latest)
+    return _wait_for_grid_run(garden_root, "rnm", result, wait_seconds, poll_interval)
 
 
 def start_opendss(
@@ -137,6 +252,8 @@ def start_opendss(
     scenario_csv_target: dict[str, Any],
     run_id: str | None = None,
     autosize: bool = False,
+    wait_seconds: float | None = None,
+    poll_interval: float = 2.0,
 ) -> dict[str, Any]:
     """Start or block an OpenDSS simulation run."""
     root = require_garden_root(garden_root)
@@ -156,17 +273,31 @@ def start_opendss(
         preflight=_preflight_opendss_runtime(runtime),
     )
     if record["status"] == "running":
-        _BACKGROUND_EXECUTOR.submit(
-            _run_opendss_job,
-            garden_root=str(root),
-            run_id=normalized_run_id,
-            feature_geojson=str(feature_geojson),
-            scenario_csv=str(scenario_csv),
-            runtime=runtime,
-            autosize=autosize,
-        )
+        run_dir = _GRID_RUNS.run_dir(root, normalized_run_id, recipe="opendss")
+        try:
+            proc = submit_worker_process(
+                garden_root=root,
+                run_dir=run_dir,
+                worker_module="garden.dragonfly_grid.runs:_run_opendss_job",
+                request=_json_safe(
+                    {
+                        "garden_root": str(root),
+                        "run_id": normalized_run_id,
+                        "feature_geojson": str(feature_geojson),
+                        "scenario_csv": str(scenario_csv),
+                        "runtime": runtime,
+                        "autosize": autosize,
+                    }
+                ),
+                cwd=root,
+                environment=_worker_environment(root, run_dir),
+            )
+            _record_worker_pid(root, "opendss", normalized_run_id, proc)
+        except Exception as exc:
+            _complete_with_error(root, "opendss", normalized_run_id, str(exc))
     latest = _GRID_RUNS.get(root, normalized_run_id, recipe="opendss") or record
-    return _result_from_record(root, manifest, latest)
+    result = _result_from_record(root, manifest, latest)
+    return _wait_for_grid_run(garden_root, "opendss", result, wait_seconds, poll_interval)
 
 
 def start_reopt(
@@ -175,14 +306,45 @@ def start_reopt(
     feature_geojson_target: dict[str, Any],
     scenario_csv_target: dict[str, Any],
     urdb_label: str,
+    financial_parameters_target: dict[str, Any] | None = None,
+    financial_parameters: dict[str, Any] | None = None,
+    reopt_parameter_target: dict[str, Any] | None = None,
+    reopt_parameter: dict[str, Any] | None = None,
     run_id: str | None = None,
     developer_key: str | None = None,
+    wait_seconds: float | None = None,
+    poll_interval: float = 2.0,
 ) -> dict[str, Any]:
-    """Start or block a REopt post-processing run."""
+    """Start or block a REopt post-processing run with financial and DER parameter support."""
+    from garden.dragonfly_grid.authoring import _object_to_dict, load_grid_object
+
     root = require_garden_root(garden_root)
     manifest = GardenManifest.read(root)
     feature_geojson = _resolve_artifact(root, manifest, feature_geojson_target, suffix=".geojson")
     scenario_csv = _resolve_artifact(root, manifest, scenario_csv_target, suffix=".csv")
+
+    resolved_fp: dict[str, Any] | None = None
+    if financial_parameters_target is not None:
+        fp_obj = load_grid_object(
+            garden_root=root,
+            target=financial_parameters_target,
+            expected_kind="financial_parameters",
+        )
+        resolved_fp = _object_to_dict(fp_obj)
+    elif isinstance(financial_parameters, dict):
+        resolved_fp = dict(financial_parameters)
+
+    resolved_reopt: dict[str, Any] | None = None
+    if reopt_parameter_target is not None:
+        rp_obj = load_grid_object(
+            garden_root=root,
+            target=reopt_parameter_target,
+            expected_kind="reopt_parameter",
+        )
+        resolved_reopt = _object_to_dict(rp_obj)
+    elif isinstance(reopt_parameter, dict):
+        resolved_reopt = dict(reopt_parameter)
+
     runtime = urbanopt_engine_config() or None
     normalized_run_id = _GRID_RUNS.normalize_run_id(run_id, prefix="reopt")
     use_localhost = _grid_local_service_ready("reopt", runtime)
@@ -197,23 +359,45 @@ def start_reopt(
             "operation": "run_reopt",
             "urdb_label": urdb_label,
             "use_localhost": use_localhost,
+            "has_financial_parameters": resolved_fp is not None,
+            "has_reopt_parameter": resolved_reopt is not None,
         },
         preflight=_preflight_reopt_runtime(runtime),
     )
     if record["status"] == "running":
-        _BACKGROUND_EXECUTOR.submit(
-            _run_reopt_job,
-            garden_root=str(root),
-            run_id=normalized_run_id,
-            feature_geojson=str(feature_geojson),
-            scenario_csv=str(scenario_csv),
-            runtime=runtime,
-            urdb_label=urdb_label,
-            developer_key=developer_key,
-            use_localhost=use_localhost,
+        run_dir = _GRID_RUNS.run_dir(root, normalized_run_id, recipe="reopt")
+        extra_env = (
+            {"LBT_MCP_REOPT_DEVELOPER_KEY": developer_key}
+            if developer_key
+            else None
         )
+        try:
+            proc = submit_worker_process(
+                garden_root=root,
+                run_dir=run_dir,
+                worker_module="garden.dragonfly_grid.runs:_run_reopt_job",
+                request=_json_safe(
+                    {
+                        "garden_root": str(root),
+                        "run_id": normalized_run_id,
+                        "feature_geojson": str(feature_geojson),
+                        "scenario_csv": str(scenario_csv),
+                        "runtime": runtime,
+                        "urdb_label": urdb_label,
+                        "use_localhost": use_localhost,
+                        "financial_parameter": resolved_fp,
+                        "reopt_parameter": resolved_reopt,
+                    }
+                ),
+                cwd=root,
+                environment=_worker_environment(root, run_dir, extra=extra_env),
+            )
+            _record_worker_pid(root, "reopt", normalized_run_id, proc)
+        except Exception as exc:
+            _complete_with_error(root, "reopt", normalized_run_id, str(exc))
     latest = _GRID_RUNS.get(root, normalized_run_id, recipe="reopt") or record
-    return _result_from_record(root, manifest, latest)
+    result = _result_from_record(root, manifest, latest)
+    return _wait_for_grid_run(garden_root, "reopt", result, wait_seconds, poll_interval)
 
 
 def _resolve_artifact(root: Path, manifest: GardenManifest, target: dict[str, Any], *, suffix: str) -> Path:
@@ -376,16 +560,17 @@ def _start_record(
 ) -> dict[str, Any]:
     target = _GRID_RUNS.make_target(manifest.garden_id, run_id, recipe=recipe)
     run_dir = _GRID_RUNS.run_dir(garden_root, run_id, recipe=recipe)
-    write_json_file(
-        run_dir / "background_request.json",
-        {
-            **request,
-            "feature_geojson_target": feature_geojson_target,
-            "scenario_csv_target": scenario_csv_target,
-        },
-        ensure_ascii=False,
-    )
     status = "blocked" if preflight.get("runtime_status") == "blocked" else "running"
+    if status == "blocked":
+        write_json_file(
+            run_dir / "background_request.json",
+            {
+                **request,
+                "feature_geojson_target": feature_geojson_target,
+                "scenario_csv_target": scenario_csv_target,
+            },
+            ensure_ascii=False,
+        )
     record = {
         "run_id": run_id,
         "target": target,
@@ -410,6 +595,8 @@ def _complete_with_error(root: Path, recipe: str, run_id: str, message: str) -> 
     record = _GRID_RUNS.get(root, run_id, recipe=recipe)
     if record is None:
         return
+    if record.get("worker_pid") is None:
+        record["worker_pid"] = os.getpid()
     record.update(_GRID_RUNS.failure_fields(message))
     _GRID_RUNS.upsert(root, record, recipe=recipe)
 
@@ -452,9 +639,14 @@ def _run_rnm_job(**kwargs: Any) -> None:
 
 
 def _run_reopt_job(**kwargs: Any) -> None:
+    from garden.urbanopt_cli import _coerce_reopt_parameters
+
     root = Path(kwargs["garden_root"])
     run_id = kwargs["run_id"]
     feature_geojson = Path(kwargs["feature_geojson"])
+    developer_key = kwargs.get("developer_key") or os.environ.get("LBT_MCP_REOPT_DEVELOPER_KEY")
+    reopt_param_input = kwargs.get("reopt_parameter")
+    financial_param_input = kwargs.get("financial_parameter")
     try:
         runtime = kwargs.get("runtime")
         write_urbanopt_bundle_config(feature_geojson.parent, runtime)
@@ -469,17 +661,24 @@ def _run_reopt_job(**kwargs: Any) -> None:
                 scenario_csv=kwargs["scenario_csv"],
                 runtime=runtime,
                 urdb_label=kwargs["urdb_label"],
-                developer_key=kwargs["developer_key"],
+                developer_key=developer_key,
                 use_localhost=kwargs.get("use_localhost", False),
+                reopt_parameter=reopt_param_input,
+                financial_parameter=financial_param_input,
             )
         else:
+            reopt_obj, has_custom = _coerce_reopt_parameters(
+                reopt_param_input,
+                financial_param_input,
+            )
             with urbanopt_runtime_env(runtime):
                 sdk_run_default_report(str(feature_geojson), kwargs["scenario_csv"])
                 outputs = sdk_run_reopt(
                     str(feature_geojson),
                     kwargs["scenario_csv"],
                     kwargs["urdb_label"],
-                    developer_key=kwargs["developer_key"],
+                    reopt_parameters=reopt_obj if has_custom else None,
+                    developer_key=developer_key,
                 )
         _complete_success(root, "reopt", run_id, outputs, feature_geojson.parent)
     except Exception:  # pragma: no cover - external runtime diagnostics vary
@@ -514,6 +713,8 @@ def _complete_success(
     record = _GRID_RUNS.get(root, run_id, recipe=recipe)
     if record is None:
         return
+    if record.get("worker_pid") is None:
+        record["worker_pid"] = os.getpid()
     outputs = (
         []
         if recipe == "opendss"
@@ -600,13 +801,9 @@ def _result_from_record(root: Path, manifest: GardenManifest, record: dict[str, 
     runtime_diagnostics = preflight.get("runtime_diagnostics") if isinstance(preflight, dict) else None
     recommended_value = preflight.get("recommended_next_tools") if isinstance(preflight, dict) else None
     recommended = list(recommended_value or ([CONFIG_NEXT_TOOL] if status == "blocked" else []))
-    start_tool = {
-        "rnm": "DF_Grid_Start_RNM",
-        "opendss": "DF_Grid_Start_OpenDSS",
-        "reopt": "DF_Grid_Start_REopt",
-    }.get(str(record.get("recipe") or ""))
     poll_next = {
-        "tool": start_tool if status == "blocked" else None,
+        "tool": "GD_Poll_Run",
+        "arguments": {"garden_root": str(root), "run_target": record["target"]},
         "run_target": record["target"],
         "run_id": record["run_id"],
     }
@@ -617,6 +814,7 @@ def _result_from_record(root: Path, manifest: GardenManifest, record: dict[str, 
             "recipe": record["recipe"],
             "status": record.get("status"),
             "runtime_status": status,
+            "worker_pid": record.get("worker_pid"),
         },
         "recommended_next_tools": recommended,
         "output_count": len(record.get("outputs", [])),
@@ -626,10 +824,12 @@ def _result_from_record(root: Path, manifest: GardenManifest, record: dict[str, 
         "error": record.get("error"),
         "recommended_next_tools": recommended,
     }
+    if status == "blocked":
+        report_details["retry_tool"] = "DF_Grid_Start_Simulation"
     if runtime_diagnostics:
         summary_view["runtime_diagnostics"] = runtime_diagnostics
         report_details["runtime_diagnostics"] = runtime_diagnostics
-    return {
+    result: dict[str, Any] = {
         "target": record["target"],
         "run_target": record["target"],
         "runtime_status": status,
@@ -641,3 +841,7 @@ def _result_from_record(root: Path, manifest: GardenManifest, record: dict[str, 
             details=report_details,
         ),
     }
+    if record.get("worker_pid") is not None:
+        summary_view["worker_pid"] = record["worker_pid"]
+        result["worker_pid"] = record["worker_pid"]
+    return result

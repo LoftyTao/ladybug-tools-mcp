@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from dragonfly_energy.des.connector import HorizontalPipeParameter, ThermalConnector
+from dragonfly_energy.des.ets import HeatExchangerETS, HeatPumpETS
 from dragonfly_energy.des.ghe import (
     BoreholeParameter,
     FluidParameter,
@@ -19,6 +20,9 @@ from dragonfly_energy.des.loop import (
     FourthGenThermalLoop,
     GHEThermalLoop,
 )
+from dragonfly_energy.des.plant import CoolingPlant, HeatingPlant
+from ladybug.location import Location
+from ladybug_geometry.geometry2d.pointvector import Point2D
 
 from garden.model_io import (
     load_typed_object,
@@ -30,6 +34,7 @@ from garden.model_io import (
     points3d_list,
     save_typed_object,
 )
+from garden.paths import require_garden_root, resolve_existing_garden_path
 from ladybug_tools_mcp.contracts import make_report
 
 DES_OBJECT_TARGET_TYPE = "dragonfly_des_object"
@@ -45,6 +50,10 @@ KIND_TO_CLASS = {
     "ghe_borehole_parameter": BoreholeParameter,
     "ghe_design_parameter": GHEDesignParameter,
     "ground_heat_exchanger": GroundHeatExchanger,
+    "heating_plant": HeatingPlant,
+    "cooling_plant": CoolingPlant,
+    "heat_exchanger_ets": HeatExchangerETS,
+    "heat_pump_ets": HeatPumpETS,
     "fourth_gen_thermal_loop": FourthGenThermalLoop,
     "fifth_gen_thermal_loop": FifthGenThermalLoop,
     "ghe_thermal_loop": GHEThermalLoop,
@@ -457,20 +466,220 @@ def create_ground_heat_exchanger(
     )
 
 
+def create_heating_plant(
+    *,
+    garden_root: str,
+    identifier: str,
+    hw_setpoint: float = 55,
+    heating_limit: float = 5000,
+    hw_mass_flow: float = 1.0,
+    hw_valve_pressure_drop: float = 6000,
+    include_body: bool = False,
+) -> dict[str, Any]:
+    """Create and persist a HeatingPlant."""
+    obj = HeatingPlant(
+        hw_setpoint=hw_setpoint,
+        heating_limit=heating_limit,
+        hw_mass_flow=hw_mass_flow,
+        hw_valve_pressure_drop=hw_valve_pressure_drop,
+    )
+    saved = save_des_object(
+        garden_root=garden_root,
+        kind="heating_plant",
+        identifier=identifier,
+        obj=obj,
+        include_body=include_body,
+    )
+    return _finish(saved, extra_summary={"hw_setpoint": obj.hw_setpoint, "heating_limit": obj.heating_limit})
+
+
+def create_cooling_plant(
+    *,
+    garden_root: str,
+    identifier: str,
+    chw_setpoint: float = 6,
+    cooling_limit: float = 8000,
+    chw_mass_flow: float = 10,
+    min_chw_mass_flow: float = 10,
+    cw_mass_flow: float = 10,
+    chw_pump_head: float = 250000,
+    cw_pump_head: float = 175000,
+    chw_pressure_drop: float = 55000,
+    cw_pressure_drop: float = 80000,
+    pressure_drop_setpoint: float = 50000,
+    chw_valve_pressure_drop: float = 6000,
+    cw_valve_pressure_drop: float = 6000,
+    cooling_tower_fan_power: float = 5000,
+    cooling_tower_delta_temperature: float = 7,
+    approach_delta_temperature: float = 3,
+    cw_inlet_temperature: float = 35,
+    outdoor_wb_temperature: float = 25,
+    include_body: bool = False,
+) -> dict[str, Any]:
+    """Create and persist a CoolingPlant."""
+    obj = CoolingPlant(
+        chw_setpoint=chw_setpoint,
+        cooling_limit=cooling_limit,
+        chw_mass_flow=chw_mass_flow,
+        min_chw_mass_flow=min_chw_mass_flow,
+        cw_mass_flow=cw_mass_flow,
+        chw_pump_head=chw_pump_head,
+        cw_pump_head=cw_pump_head,
+        chw_pressure_drop=chw_pressure_drop,
+        cw_pressure_drop=cw_pressure_drop,
+        pressure_drop_setpoint=pressure_drop_setpoint,
+        chw_valve_pressure_drop=chw_valve_pressure_drop,
+        cw_valve_pressure_drop=cw_valve_pressure_drop,
+        cooling_tower_fan_power=cooling_tower_fan_power,
+        cooling_tower_delta_temperature=cooling_tower_delta_temperature,
+        approach_delta_temperature=approach_delta_temperature,
+        cw_inlet_temperature=cw_inlet_temperature,
+        outdoor_wb_temperature=outdoor_wb_temperature,
+    )
+    saved = save_des_object(
+        garden_root=garden_root,
+        kind="cooling_plant",
+        identifier=identifier,
+        obj=obj,
+        include_body=include_body,
+    )
+    return _finish(saved, extra_summary={"chw_setpoint": obj.chw_setpoint, "cooling_limit": obj.cooling_limit})
+
+
+def create_heat_exchanger_ets(
+    *,
+    garden_root: str,
+    identifier: str,
+    cooling_supply_temp: float = 7,
+    heating_supply_temp: float = 50,
+    exchanger_efficiency: float = 0.8,
+    primary_pressure_drop: float = 500,
+    secondary_pressure_drop: float = 500,
+    include_body: bool = False,
+) -> dict[str, Any]:
+    """Create and persist a HeatExchangerETS."""
+    obj = HeatExchangerETS(
+        cooling_supply_temp=cooling_supply_temp,
+        heating_supply_temp=heating_supply_temp,
+        exchanger_efficiency=exchanger_efficiency,
+        primary_pressure_drop=primary_pressure_drop,
+        secondary_pressure_drop=secondary_pressure_drop,
+    )
+    saved = save_des_object(
+        garden_root=garden_root,
+        kind="heat_exchanger_ets",
+        identifier=identifier,
+        obj=obj,
+        include_body=include_body,
+    )
+    return _finish(
+        saved,
+        extra_summary={
+            "cooling_supply_temp": obj.cooling_supply_temp,
+            "heating_supply_temp": obj.heating_supply_temp,
+            "exchanger_efficiency": obj.exchanger_efficiency,
+        },
+    )
+
+
+def create_heat_pump_ets(
+    *,
+    garden_root: str,
+    identifier: str,
+    cooling_supply_temp: float = 5,
+    heating_supply_temp: float = 50,
+    shw_supply_temp: float = 50,
+    cop_cooling: float = 3.5,
+    cop_heating: float = 2.5,
+    cop_shw: float = 2.5,
+    pump_head: float = 10000,
+    include_body: bool = False,
+) -> dict[str, Any]:
+    """Create and persist a HeatPumpETS."""
+    obj = HeatPumpETS(
+        cooling_supply_temp=cooling_supply_temp,
+        heating_supply_temp=heating_supply_temp,
+        shw_supply_temp=shw_supply_temp,
+        cop_cooling=cop_cooling,
+        cop_heating=cop_heating,
+        cop_shw=cop_shw,
+        pump_head=pump_head,
+    )
+    saved = save_des_object(
+        garden_root=garden_root,
+        kind="heat_pump_ets",
+        identifier=identifier,
+        obj=obj,
+        include_body=include_body,
+    )
+    return _finish(
+        saved,
+        extra_summary={
+            "cop_cooling": obj.cop_cooling,
+            "cop_heating": obj.cop_heating,
+            "cop_shw": obj.cop_shw,
+        },
+    )
+
+
+def _location_and_point(location: dict[str, Any] | None, point: list[float] | None) -> tuple[Location | None, Point2D]:
+    loc = None
+    if location is not None:
+        loc = Location(
+            city=location.get("city"),
+            state=location.get("state"),
+            country=location.get("country"),
+            latitude=float(location.get("latitude", 0)),
+            longitude=float(location.get("longitude", 0)),
+            time_zone=location.get("time_zone"),
+            elevation=float(location.get("elevation", 0)),
+        )
+    pt = Point2D(float(point[0]), float(point[1])) if point and len(point) >= 2 else Point2D(0, 0)
+    return loc, pt
+
+
 def create_fourth_gen_thermal_loop(
     *,
     garden_root: str,
     identifier: str,
+    cooling_plant_target: dict[str, Any] | None = None,
+    cooling_plant: dict[str, Any] | None = None,
+    heating_plant_target: dict[str, Any] | None = None,
+    heating_plant: dict[str, Any] | None = None,
     economizer_type: str = "None",
     heating_type: str = "NaturalGas",
+    heat_recovery_chiller: bool = False,
     display_name: str | None = None,
     include_body: bool = False,
 ) -> dict[str, Any]:
-    """Create and persist a FourthGenThermalLoop without plant target binding."""
+    """Create and persist a FourthGenThermalLoop with optional CoolingPlant and HeatingPlant."""
+    c_plant = _coerce_des_parameter(
+        garden_root,
+        _pick_des_parameter_input(
+            target_value=cooling_plant_target,
+            inline_value=cooling_plant,
+            target_name="cooling_plant_target",
+            inline_name="cooling_plant",
+        ),
+        expected_kind="cooling_plant",
+    )
+    h_plant = _coerce_des_parameter(
+        garden_root,
+        _pick_des_parameter_input(
+            target_value=heating_plant_target,
+            inline_value=heating_plant,
+            target_name="heating_plant_target",
+            inline_name="heating_plant",
+        ),
+        expected_kind="heating_plant",
+    )
     obj = FourthGenThermalLoop(
         identifier,
+        cooling_plant=c_plant,
+        heating_plant=h_plant,
         economizer_type=economizer_type,
         heating_type=heating_type,
+        heat_recovery_chiller=heat_recovery_chiller,
     )
     _set_display_name(obj, display_name)
     saved = save_des_object(
@@ -480,69 +689,146 @@ def create_fourth_gen_thermal_loop(
         obj=obj,
         include_body=include_body,
     )
-    warnings = ["Cooling/heating plant targets are not yet implemented for DES authoring Slice 1."]
     return _finish(
         saved,
         extra_summary={
             "display_name": getattr(obj, "display_name", identifier),
             "economizer_type": economizer_type,
             "heating_type": heating_type,
-            "plant_targets_supported": False,
+            "heat_recovery_chiller": heat_recovery_chiller,
+            "plant_targets_supported": True,
+            "has_cooling_plant": c_plant is not None,
+            "has_heating_plant": h_plant is not None,
         },
         report=make_report(
             status="ok",
             message=f"Saved fourth-generation thermal loop: {identifier}",
-            warnings=warnings,
         ),
     )
+
+
+def _coerce_des_parameter(
+    garden_root: str,
+    value: Any,
+    *,
+    expected_kind: str,
+) -> Any:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError(f"{expected_kind} must be a target dict or inline parameter dict.")
+    if value.get("target_type") == DES_OBJECT_TARGET_TYPE:
+        return load_des_object(
+            garden_root=garden_root,
+            target=value,
+            expected_kind=expected_kind,
+        )
+    cls = KIND_TO_CLASS[expected_kind]
+    if "type" in value:
+        if value.get("type") != cls.__name__:
+            raise ValueError(
+                f"Inline {expected_kind} dict type must be {cls.__name__!r}; "
+                f"got {value.get('type')!r}."
+            )
+        return cls.from_dict(value)
+    return cls(**_without_none(value))
+
+
+def _pick_des_parameter_input(
+    *,
+    target_value: dict[str, Any] | None,
+    inline_value: dict[str, Any] | None,
+    target_name: str,
+    inline_name: str,
+) -> dict[str, Any] | None:
+    if target_value is not None and inline_value is not None:
+        raise ValueError(f"Provide either {target_name} or {inline_name}, not both.")
+    return target_value if target_value is not None else inline_value
 
 
 def create_fifth_gen_thermal_loop(
     *,
     garden_root: str,
     identifier: str,
-    connector_targets: list[dict[str, Any]],
+    connector_targets: list[dict[str, Any]] | None = None,
+    geojson_file_path: str | None = None,
+    location: dict[str, Any] | None = None,
+    point: list[float] | None = None,
+    units: str = "Meters",
     clockwise_flow: bool = False,
     soil_parameter_target: dict[str, Any] | None = None,
+    soil_parameter: dict[str, Any] | None = None,
     horizontal_pipe_parameter_target: dict[str, Any] | None = None,
+    horizontal_pipe_parameter: dict[str, Any] | None = None,
     heat_rejection_type: str = "CoolingTower",
     supplemental_heat_type: str = "Electricity",
     display_name: str | None = None,
     include_body: bool = False,
 ) -> dict[str, Any]:
-    """Create and persist a FifthGenThermalLoop."""
-    connectors = load_des_objects(
-        garden_root=garden_root,
-        targets=connector_targets,
-        expected_kind="thermal_connector",
+    """Create and persist a FifthGenThermalLoop from connectors or a GeoJSON file."""
+    soil = _coerce_des_parameter(
+        garden_root,
+        _pick_des_parameter_input(
+            target_value=soil_parameter_target,
+            inline_value=soil_parameter,
+            target_name="soil_parameter_target",
+            inline_name="soil_parameter",
+        ),
+        expected_kind="ghe_soil_parameter",
     )
-    soil = (
-        load_des_object(
-            garden_root=garden_root,
-            target=soil_parameter_target,
-            expected_kind="ghe_soil_parameter",
+    hpipe = _coerce_des_parameter(
+        garden_root,
+        _pick_des_parameter_input(
+            target_value=horizontal_pipe_parameter_target,
+            inline_value=horizontal_pipe_parameter,
+            target_name="horizontal_pipe_parameter_target",
+            inline_name="horizontal_pipe_parameter",
+        ),
+        expected_kind="horizontal_pipe_parameter",
+    )
+    if geojson_file_path is not None:
+        garden_root_path = require_garden_root(garden_root)
+        geo_path = resolve_existing_garden_path(
+            garden_root_path,
+            geojson_file_path,
+            kind="file",
+            label="5G GeoJSON file",
         )
-        if soil_parameter_target
-        else None
-    )
-    hpipe = (
-        load_des_object(
-            garden_root=garden_root,
-            target=horizontal_pipe_parameter_target,
-            expected_kind="horizontal_pipe_parameter",
+        loc, pt = _location_and_point(location, point)
+        obj = FifthGenThermalLoop.from_geojson(
+            str(geo_path),
+            location=loc,
+            point=pt,
+            units=units,
+            clockwise_flow=clockwise_flow,
         )
-        if horizontal_pipe_parameter_target
-        else None
-    )
-    obj = FifthGenThermalLoop(
-        identifier,
-        connectors,
-        clockwise_flow=clockwise_flow,
-        soil_parameters=soil,
-        horizontal_pipe_parameters=hpipe,
-        heat_rejection_type=heat_rejection_type,
-        supplemental_heat_type=supplemental_heat_type,
-    )
+        obj.identifier = identifier
+        if soil is not None:
+            obj.soil_parameters = soil
+        if hpipe is not None:
+            obj.horizontal_pipe_parameters = hpipe
+        obj.heat_rejection_type = heat_rejection_type
+        obj.supplemental_heat_type = supplemental_heat_type
+        connectors = list(obj.connectors)
+    else:
+        if not connector_targets:
+            raise ValueError(
+                "create_fifth_gen_thermal_loop requires connector_targets or geojson_file_path."
+            )
+        connectors = load_des_objects(
+            garden_root=garden_root,
+            targets=connector_targets,
+            expected_kind="thermal_connector",
+        )
+        obj = FifthGenThermalLoop(
+            identifier,
+            connectors,
+            clockwise_flow=clockwise_flow,
+            soil_parameters=soil,
+            horizontal_pipe_parameters=hpipe,
+            heat_rejection_type=heat_rejection_type,
+            supplemental_heat_type=supplemental_heat_type,
+        )
     _set_display_name(obj, display_name)
     saved = save_des_object(
         garden_root=garden_root,
@@ -557,10 +843,11 @@ def create_fifth_gen_thermal_loop(
             "display_name": getattr(obj, "display_name", identifier),
             "connector_count": len(connectors),
             "clockwise_flow": clockwise_flow,
-            "has_soil_parameters": soil is not None,
-            "has_horizontal_pipe_parameters": hpipe is not None,
+            "has_soil_parameters": obj.soil_parameters is not None,
+            "has_horizontal_pipe_parameters": obj.horizontal_pipe_parameters is not None,
             "heat_rejection_type": heat_rejection_type,
             "supplemental_heat_type": supplemental_heat_type,
+            "source": "geojson" if geojson_file_path is not None else "connectors",
         },
     )
 
@@ -569,63 +856,140 @@ def create_ghe_thermal_loop(
     *,
     garden_root: str,
     identifier: str,
-    ground_heat_exchanger_targets: list[dict[str, Any]],
-    connector_targets: list[dict[str, Any]],
+    ground_heat_exchanger_targets: list[dict[str, Any]] | None = None,
+    connector_targets: list[dict[str, Any]] | None = None,
+    geojson_file_path: str | None = None,
+    location: dict[str, Any] | None = None,
+    point: list[float] | None = None,
+    units: str = "Meters",
     clockwise_flow: bool = False,
     soil_parameter_target: dict[str, Any] | None = None,
+    soil_parameter: dict[str, Any] | None = None,
     fluid_parameter_target: dict[str, Any] | None = None,
+    fluid_parameter: dict[str, Any] | None = None,
     pipe_parameter_target: dict[str, Any] | None = None,
+    pipe_parameter: dict[str, Any] | None = None,
     borehole_parameter_target: dict[str, Any] | None = None,
+    borehole_parameter: dict[str, Any] | None = None,
     design_parameter_target: dict[str, Any] | None = None,
+    design_parameter: dict[str, Any] | None = None,
     horizontal_pipe_parameter_target: dict[str, Any] | None = None,
+    horizontal_pipe_parameter: dict[str, Any] | None = None,
     heat_rejection_type: str = "CoolingTower",
     supplemental_heat_type: str = "Electricity",
     display_name: str | None = None,
     include_body: bool = False,
 ) -> dict[str, Any]:
-    """Create and persist a GHEThermalLoop."""
-    ghes = load_des_objects(
-        garden_root=garden_root,
-        targets=ground_heat_exchanger_targets,
-        expected_kind="ground_heat_exchanger",
-    )
-    connectors = load_des_objects(
-        garden_root=garden_root,
-        targets=connector_targets,
-        expected_kind="thermal_connector",
-    )
+    """Create and persist a GHEThermalLoop from targets or a GeoJSON file."""
     optional_targets = {
-        "soil_parameters": ("ghe_soil_parameter", soil_parameter_target),
-        "fluid_parameters": ("ghe_fluid_parameter", fluid_parameter_target),
-        "pipe_parameters": ("ghe_pipe_parameter", pipe_parameter_target),
-        "borehole_parameters": ("ghe_borehole_parameter", borehole_parameter_target),
-        "design_parameters": ("ghe_design_parameter", design_parameter_target),
+        "soil_parameters": (
+            "ghe_soil_parameter",
+            _pick_des_parameter_input(
+                target_value=soil_parameter_target,
+                inline_value=soil_parameter,
+                target_name="soil_parameter_target",
+                inline_name="soil_parameter",
+            ),
+        ),
+        "fluid_parameters": (
+            "ghe_fluid_parameter",
+            _pick_des_parameter_input(
+                target_value=fluid_parameter_target,
+                inline_value=fluid_parameter,
+                target_name="fluid_parameter_target",
+                inline_name="fluid_parameter",
+            ),
+        ),
+        "pipe_parameters": (
+            "ghe_pipe_parameter",
+            _pick_des_parameter_input(
+                target_value=pipe_parameter_target,
+                inline_value=pipe_parameter,
+                target_name="pipe_parameter_target",
+                inline_name="pipe_parameter",
+            ),
+        ),
+        "borehole_parameters": (
+            "ghe_borehole_parameter",
+            _pick_des_parameter_input(
+                target_value=borehole_parameter_target,
+                inline_value=borehole_parameter,
+                target_name="borehole_parameter_target",
+                inline_name="borehole_parameter",
+            ),
+        ),
+        "design_parameters": (
+            "ghe_design_parameter",
+            _pick_des_parameter_input(
+                target_value=design_parameter_target,
+                inline_value=design_parameter,
+                target_name="design_parameter_target",
+                inline_name="design_parameter",
+            ),
+        ),
         "horizontal_pipe_parameters": (
             "horizontal_pipe_parameter",
-            horizontal_pipe_parameter_target,
+            _pick_des_parameter_input(
+                target_value=horizontal_pipe_parameter_target,
+                inline_value=horizontal_pipe_parameter,
+                target_name="horizontal_pipe_parameter_target",
+                inline_name="horizontal_pipe_parameter",
+            ),
         ),
     }
     loaded = {
-        field: (
-            load_des_object(
-                garden_root=garden_root,
-                target=target,
-                expected_kind=kind,
-            )
-            if target
-            else None
-        )
+        field: _coerce_des_parameter(garden_root, target, expected_kind=kind)
         for field, (kind, target) in optional_targets.items()
     }
-    obj = GHEThermalLoop(
-        identifier,
-        ghes,
-        connectors,
-        clockwise_flow=clockwise_flow,
-        heat_rejection_type=heat_rejection_type,
-        supplemental_heat_type=supplemental_heat_type,
-        **loaded,
-    )
+    if geojson_file_path is not None:
+        garden_root_path = require_garden_root(garden_root)
+        geo_path = resolve_existing_garden_path(
+            garden_root_path,
+            geojson_file_path,
+            kind="file",
+            label="GHE GeoJSON file",
+        )
+        loc, pt = _location_and_point(location, point)
+        obj = GHEThermalLoop.from_geojson(
+            str(geo_path),
+            location=loc,
+            point=pt,
+            units=units,
+            clockwise_flow=clockwise_flow,
+        )
+        obj.identifier = identifier
+        for field, param_obj in loaded.items():
+            if param_obj is not None:
+                setattr(obj, field, param_obj)
+        obj.heat_rejection_type = heat_rejection_type
+        obj.supplemental_heat_type = supplemental_heat_type
+        ghes = list(obj.ground_heat_exchangers)
+        connectors = list(obj.connectors)
+    else:
+        if not ground_heat_exchanger_targets or not connector_targets:
+            raise ValueError(
+                "create_ghe_thermal_loop requires ground_heat_exchanger_targets and "
+                "connector_targets, or geojson_file_path."
+            )
+        ghes = load_des_objects(
+            garden_root=garden_root,
+            targets=ground_heat_exchanger_targets,
+            expected_kind="ground_heat_exchanger",
+        )
+        connectors = load_des_objects(
+            garden_root=garden_root,
+            targets=connector_targets,
+            expected_kind="thermal_connector",
+        )
+        obj = GHEThermalLoop(
+            identifier,
+            ghes,
+            connectors,
+            clockwise_flow=clockwise_flow,
+            heat_rejection_type=heat_rejection_type,
+            supplemental_heat_type=supplemental_heat_type,
+            **loaded,
+        )
     _set_display_name(obj, display_name)
     saved = save_des_object(
         garden_root=garden_root,
@@ -649,5 +1013,50 @@ def create_ghe_thermal_loop(
             "has_horizontal_pipe_parameters": loaded["horizontal_pipe_parameters"] is not None,
             "heat_rejection_type": heat_rejection_type,
             "supplemental_heat_type": supplemental_heat_type,
+            "source": "geojson" if geojson_file_path is not None else "targets",
         },
     )
+
+
+_CREATE_BY_KIND = {
+    "thermal_connector": create_thermal_connector,
+    "horizontal_pipe_parameter": create_horizontal_pipe_parameter,
+    "ghe_soil_parameter": create_ghe_soil_parameter,
+    "ghe_fluid_parameter": create_ghe_fluid_parameter,
+    "ghe_pipe_parameter": create_ghe_pipe_parameter,
+    "ghe_borehole_parameter": create_ghe_borehole_parameter,
+    "ghe_design_parameter": create_ghe_design_parameter,
+    "ground_heat_exchanger": create_ground_heat_exchanger,
+    "heating_plant": create_heating_plant,
+    "cooling_plant": create_cooling_plant,
+    "heat_exchanger_ets": create_heat_exchanger_ets,
+    "heat_pump_ets": create_heat_pump_ets,
+    "fourth_gen_thermal_loop": create_fourth_gen_thermal_loop,
+    "fifth_gen_thermal_loop": create_fifth_gen_thermal_loop,
+    "ghe_thermal_loop": create_ghe_thermal_loop,
+}
+
+
+def create_des_object(
+    *,
+    garden_root: str,
+    kind: str,
+    identifier: str,
+    params: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Create and persist any Dragonfly DES authoring object by kind."""
+    normalized_kind = kind.strip().lower().replace("-", "_")
+    creator = _CREATE_BY_KIND.get(normalized_kind)
+    if creator is None:
+        allowed = ", ".join(sorted(_CREATE_BY_KIND))
+        raise ValueError(f"Unsupported DES object kind: {kind}. Allowed: {allowed}.")
+    merged: dict[str, Any] = {}
+    if params is not None:
+        if not isinstance(params, dict):
+            raise ValueError("params must be a dictionary.")
+        merged.update(params)
+    for key, val in kwargs.items():
+        if val is not None and key not in merged:
+            merged[key] = val
+    return creator(garden_root=garden_root, identifier=identifier, **merged)

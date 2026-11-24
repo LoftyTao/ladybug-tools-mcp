@@ -2,171 +2,101 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import Field
+
+
+def _as_spec_list(value: list[dict[str, Any]] | dict[str, Any] | None) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return [value]
+    return list(value)
+
+
+def _resolve_fairyfly_material(material: Any) -> dict[str, Any]:
+    if isinstance(material, str):
+        from garden.fairyfly.model import coerce_fairyfly_material
+
+        return dict(coerce_fairyfly_material(material).to_dict())
+    if not isinstance(material, dict):
+        raise ValueError("Each shape's material must be a dictionary or material name string.")
+    if isinstance(material.get("object_dict"), dict):
+        material = material["object_dict"]
+    if material.get("type") and material.get("identifier"):
+        return material
+    if (
+        "material_name" in material
+        or "cavity_model" in material
+        or material.get("kind") == "cavity"
+        or "energy_material" in material
+        or "hb_material_name" in material
+        or "hb_material_target" in material
+    ):
+        return material
+    if "conductivity" not in material:
+        raise ValueError(
+            "Inline Fairyfly shape material requires a Fairyfly material dict, material_name, "
+            "'conductivity' (SolidMaterial), 'cavity_model' (CavityMaterial), or HB-Energy source."
+        )
+    from garden.fairyfly.model import create_fairyfly_solid_material
+
+    created = create_fairyfly_solid_material(
+        name=str(material.get("name") or material.get("display_name") or "SolidMaterial"),
+        conductivity=float(material["conductivity"]),
+        emissivity=float(material.get("emissivity", 0.9)),
+        emissivity_back=(
+            float(material["emissivity_back"])
+            if material.get("emissivity_back") is not None
+            else None
+        ),
+        density=(
+            float(material["density"])
+            if material.get("density") is not None
+            else None
+        ),
+        porosity=(
+            float(material["porosity"])
+            if material.get("porosity") is not None
+            else None
+        ),
+        specific_heat=(
+            float(material["specific_heat"])
+            if material.get("specific_heat") is not None
+            else None
+        ),
+        vapor_diffusion_resistance=(
+            float(material["vapor_diffusion_resistance"])
+            if material.get("vapor_diffusion_resistance") is not None
+            else None
+        ),
+        reflectance=(
+            float(material["reflectance"])
+            if material.get("reflectance") is not None
+            else None
+        ),
+        transmittance=(
+            float(material["transmittance"])
+            if material.get("transmittance") is not None
+            else None
+        ),
+        rgb_color=material.get("rgb_color"),
+    )
+    return dict(created["object_dict"])
 
 
 def register(mcp: FastMCP) -> None:
     """Register fairyfly tools."""
 
     @mcp.tool(
-        name="FF_Add_Boundary_To_Model",
-        description=(
-            "Add a Fairyfly Boundary to a Garden-backed Fairyfly Model from Ladybug "
-            "Geometry 2D line segment input. The boundary is saved into the model, "
-            "not as a separate target. Use THERM run/result tools after exporting or "
-            "running the two-dimensional section."
-        ),
-        tags={"fairyfly", "therm", "model", "geometry", "boundary", "2d"},
-        timeout=20,
-    )
-    def add_fairyfly_boundary_to_model(
-        garden_root: Annotated[
-            str,
-            Field(description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."),
-        ],
-        line_segments_2d: Annotated[
-            list[list[list[float]]],
-            Field(description="Fairyfly Boundary line segments as [[[x1, y1], [x2, y2]], ...] in model units."),
-        ],
-        temperature: Annotated[
-            float,
-            Field(description="Steady-state boundary temperature in degrees Celsius."),
-        ],
-        film_coefficient: Annotated[
-            float,
-            Field(description="Boundary film coefficient in W/m2-K."),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Fairyfly Model target dict, usually FF_Create_Model['target']; "
-                    "defaults to the Garden base Fairyfly Model."
-                )
-            ),
-        ] = None,
-        name: Annotated[
-            str | None,
-            Field(description="Optional display name for the Boundary and its condition."),
-        ] = None,
-        emissivity: Annotated[
-            float,
-            Field(description="Radiant environment emissivity."),
-        ] = 1.0,
-        radiant_temperature: Annotated[
-            float | None,
-            Field(description="Optional radiant temperature in degrees Celsius."),
-        ] = None,
-        heat_flux: Annotated[
-            float,
-            Field(description="Optional heat flux in W/m2."),
-        ] = 0,
-        relative_humidity: Annotated[
-            float,
-            Field(description="Boundary relative humidity from 0 to 1."),
-        ] = 0.5,
-        u_factor_tag: Annotated[
-            str | None,
-            Field(description="Optional THERM U-Factor tag such as Frame or Edge."),
-        ] = None,
-        rgb_color: Annotated[
-            list[int] | None,
-            Field(description="Optional RGB color as [r, g, b]."),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Add a Fairyfly Boundary to a model."""
-        from garden.fairyfly.model import add_fairyfly_boundary_to_model as service
-
-        return service(
-            garden_root=garden_root,
-            line_segments_2d=line_segments_2d,
-            temperature=temperature,
-            film_coefficient=film_coefficient,
-            model_target=model_target,
-            name=name,
-            emissivity=emissivity,
-            radiant_temperature=radiant_temperature,
-            heat_flux=heat_flux,
-            relative_humidity=relative_humidity,
-            u_factor_tag=u_factor_tag,
-            rgb_color=rgb_color,
-        )
-
-    @mcp.tool(
-        name="FF_Add_Shape_To_Model",
-        description=(
-            'Add a Fairyfly Shape to a Garden-backed Fairyfly Model from Ladybug Geometry 2D '
-            'polygon input and a THERM material object_dict. The shape is saved into the model, '
-            'not as a separate target.'
-        ),
-        tags={"fairyfly", "therm", "model", "geometry", "shape", "2d"},
-        timeout=20,
-    )
-    def add_fairyfly_shape_to_model(
-        garden_root: Annotated[
-            str,
-            Field(description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."),
-        ],
-        vertices_2d: Annotated[
-            list[list[float]],
-            Field(description="Fairyfly Shape polygon vertices as [[x, y], ...] in two-dimensional model units."),
-        ],
-        material: Annotated[
-            dict[str, Any],
-            Field(description='Fairyfly THERM material object_dict, such as FF_Create_Solid_Material.object_dict.'),
-        ],
-        model_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Fairyfly Model target dict, usually FF_Create_Model['target']; "
-                    "defaults to the Garden base Fairyfly Model."
-                )
-            ),
-        ] = None,
-        name: Annotated[
-            str | None,
-            Field(description="Optional display name for the Shape."),
-        ] = None,
-        holes_2d: Annotated[
-            list[list[list[float]]] | None,
-            Field(description="Optional hole polygons as [[[x, y], ...], ...]."),
-        ] = None,
-        rgb_color: Annotated[
-            list[int] | None,
-            Field(description="Optional RGB color as [r, g, b]."),
-        ] = None,
-        tolerance: Annotated[
-            float | None,
-            Field(description="Optional cleanup tolerance for duplicate and colinear vertices."),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Add a Fairyfly Shape to a model."""
-        from garden.fairyfly.model import add_fairyfly_shape_to_model as service
-
-        return service(
-            garden_root=garden_root,
-            vertices_2d=vertices_2d,
-            material=material,
-            model_target=model_target,
-            name=name,
-            holes_2d=holes_2d,
-            rgb_color=rgb_color,
-            tolerance=tolerance,
-        )
-
-    @mcp.tool(
         name="FF_Create_Model",
         description=(
-            'Create an empty Fairyfly two-dimensional heat-transfer model in a Garden and '
-            'optionally set it as the base Fairyfly model. Fairyfly SDK model identifiers are '
-            "UUIDs; this tool's identifier is the stable Garden model identifier and FFJSON file "
-            'name. Use this for a create Fairyfly two dimensional heat transfer model request '
-            'before adding Shapes, Boundaries, writing THMZ, or running THERM. Returns target and '
-            'model_target for downstream Fairyfly tools.'
+            "Create a Fairyfly two-dimensional heat-transfer model in a Garden (empty, from 1D "
+            "layers via Model.from_layers, or imported from FFJSON/FFpkl) and optionally set it as "
+            "the base Fairyfly model. Use this before editing with FF_Edit_Model, writing THMZ, or "
+            "running THERM with FF_Start_Simulation. Returns target and model_target."
         ),
         tags={"fairyfly", "therm", "model", "author", "2d"},
         timeout=20,
@@ -200,6 +130,36 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional user-facing model display name."),
         ] = None,
+        plane: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description=(
+                    "Optional 3D Plane spec ({origin: [x,y,z], normal: [x,y,z], x_axis?: [x,y,z]}) "
+                    "used as base_plane when creating from layers."
+                )
+            ),
+        ] = None,
+        layers: Annotated[
+            list[dict[str, Any]] | None,
+            Field(
+                description=(
+                    "Optional list of layer dicts ({thickness, material, name?, rgb_color?}) "
+                    "to build a stratified wall/roof section via Model.from_layers."
+                )
+            ),
+        ] = None,
+        layer_height: Annotated[
+            float,
+            Field(description="Height of extruded layer section when layers is supplied."),
+        ] = 200.0,
+        source_file: Annotated[
+            str | None,
+            Field(description="Optional path to an existing FFJSON or FFpkl file to import."),
+        ] = None,
+        file_format: Annotated[
+            Literal["auto", "ffjson", "ffpkl"],
+            Field(description="Format of source_file ('auto', 'ffjson', or 'ffpkl')."),
+        ] = "auto",
         save_back: Annotated[
             bool,
             Field(description="Whether to save the Fairyfly Model into the Garden and return a Fairyfly model target."),
@@ -223,98 +183,35 @@ def register(mcp: FastMCP) -> None:
             tolerance=tolerance,
             angle_tolerance=angle_tolerance,
             display_name=display_name,
+            plane=plane,
+            layers=layers,
+            layer_height=layer_height,
+            source_file=source_file,
+            file_format=file_format,
             save_back=save_back,
             set_base=set_base,
             include_body=include_body,
         )
 
     @mcp.tool(
-        name="FF_Create_Solid_Material",
+        name="FF_Edit_Model",
         description=(
-            "Create a Fairyfly THERM SolidMaterial payload for use with "
-            "FF_Add_Shape_To_Model. This returns an inline object_dict, not a "
-            "Garden target, and it does not attach the material to a model by itself."
+            "Edit a Garden-backed Fairyfly Model: add or modify Shapes (supporting SolidMaterial, "
+            "CavityMaterial with CEN/NFRC/ISO15099/ISO15099Ventilated and Gas/PureGas, built-in "
+            "library names, HB-Energy material conversion) and SteadyState Boundaries (inline or "
+            "built-in condition_name), delete shapes/boundaries, intersect adjacencies, transform "
+            "(move/rotate/rotate_xy/scale), convert units, import THERM XML libraries, or export "
+            "FFJSON/FFpkl/THERM XML."
         ),
-        tags={"fairyfly", "therm", "material", "author", "thermal"},
-        timeout=20,
+        tags={"fairyfly", "therm", "model", "geometry", "shape", "boundary", "material", "2d"},
+        timeout=30,
     )
-    def create_fairyfly_solid_material(
-        name: Annotated[
-            str,
-            Field(description="Required display name for the Fairyfly/THERM solid material object_dict."),
-        ],
-        conductivity: Annotated[
-            float,
-            Field(description="Thermal conductivity in W/m-K."),
-        ],
-        emissivity: Annotated[
-            float,
-            Field(description="Front-side infrared hemispherical emissivity."),
-        ] = 0.9,
-        emissivity_back: Annotated[
-            float | None,
-            Field(description="Optional back-side emissivity. Defaults to emissivity."),
-        ] = None,
-        density: Annotated[
-            float | None,
-            Field(description="Optional density in kg/m3."),
-        ] = None,
-        porosity: Annotated[
-            float | None,
-            Field(description="Optional porosity from 0 to 1."),
-        ] = None,
-        specific_heat: Annotated[
-            float | None,
-            Field(description="Optional specific heat in J/kg-K."),
-        ] = None,
-        vapor_diffusion_resistance: Annotated[
-            float | None,
-            Field(description="Optional vapor diffusion resistance factor."),
-        ] = None,
-        reflectance: Annotated[
-            float | None,
-            Field(description="Optional solar reflectance from 0 to 1."),
-        ] = None,
-        transmittance: Annotated[
-            float | None,
-            Field(description="Optional solar transmittance from 0 to 1."),
-        ] = None,
-        rgb_color: Annotated[
-            list[int] | None,
-            Field(description="Optional RGB color as [r, g, b]."),
-        ] = None,
-    ) -> dict:
-        """Create a Fairyfly SolidMaterial payload."""
-        from garden.fairyfly.model import create_fairyfly_solid_material as service
-
-        return service(
-            name=name,
-            conductivity=conductivity,
-            emissivity=emissivity,
-            emissivity_back=emissivity_back,
-            density=density,
-            porosity=porosity,
-            specific_heat=specific_heat,
-            vapor_diffusion_resistance=vapor_diffusion_resistance,
-            reflectance=reflectance,
-            transmittance=transmittance,
-            rgb_color=rgb_color,
-        )
-
-    @mcp.tool(
-        name="FF_Model_To_Visualization_Set",
-        description=(
-            'Create a Ladybug Display VisualizationSet from a Garden Fairyfly model. Set '
-            'return_visualization_set=false to save a compact visualization_set_target for '
-            'LB_Set_To_HTML, SVG, or vtk.js export.'
-        ),
-        tags={"fairyfly", "therm", "visualization-set", "model", "visualize", "preview"},
-        timeout=20,
-    )
-    def fairyfly_model_to_visualization_set(
+    def edit_fairyfly_model(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."),
+            Field(
+                description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."
+            ),
         ],
         model_target: Annotated[
             dict[str, Any] | None,
@@ -325,347 +222,183 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = None,
-        color_by: Annotated[
-            str,
-            Field(description="Model coloring mode. Supported: material, none."),
-        ] = "material",
-        include_boundaries: Annotated[
-            bool,
-            Field(description="Whether to include Fairyfly Boundary line geometry."),
-        ] = True,
-        name: Annotated[
-            str | None,
-            Field(description="Optional VisualizationSet identifier and artifact name."),
-        ] = None,
-        return_visualization_set: Annotated[
-            bool,
-            Field(description="Return the full VisualizationSet dict. False saves and returns a compact visualization_set_target for export tools."),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Create a Fairyfly model VisualizationSet."""
-        from garden.fairyfly.model import fairyfly_model_to_visualization_set as service
-
-        return service(
-            garden_root=garden_root,
-            model_target=model_target,
-            color_by=color_by,
-            include_boundaries=include_boundaries,
-            name=name,
-            return_visualization_set=return_visualization_set,
-        )
-
-    @mcp.tool(
-        name="FF_Result_To_Visualization_Set",
-        description=(
-            'Create a Ladybug Display VisualizationSet from Fairyfly THERM temperature or '
-            'heat-flux results. Poll FF_Poll_Simulation before visualizing results from a '
-            'run_target. If the THMZ has no result arrays, returns no_results instead of creating '
-            'an empty view. Returns visualization_set_target when saved.'
-        ),
-        tags={"fairyfly", "therm", "visualization-set", "result", "visualize", "preview"},
-        annotations={"readOnlyHint": True},
-        timeout=60,
-    )
-    def fairyfly_therm_result_to_visualization_set(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
-        ],
-        thmz_target: Annotated[
-            dict[str, Any] | None,
-            Field(description='Optional fairyfly_thmz target returned by FF_Write_Model_To_THMZ.'),
-        ] = None,
-        run_target: Annotated[
-            dict[str, Any] | None,
-            Field(description='Optional completed fairyfly_therm_run target returned by FF_Start_Simulation. Poll before visualizing results.'),
-        ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional run identifier when thmz_target/run_target are omitted."),
-        ] = None,
-        data_type: Annotated[
-            str,
-            Field(description="Result data type to visualize: temperature or heat_flux."),
-        ] = "temperature",
-        name: Annotated[
-            str | None,
-            Field(description="Optional VisualizationSet identifier/name."),
-        ] = None,
-        return_visualization_set: Annotated[
-            bool,
+        shapes: Annotated[
+            list[dict[str, Any]] | dict[str, Any] | None,
             Field(
-                description="Whether to return the VisualizationSet body. Set false to save a Garden VisualizationSet target."
-            ),
-        ] = True,
-    ) -> dict[str, Any]:
-        """Create a VisualizationSet from a Fairyfly THERM result."""
-        from garden.fairyfly.model import fairyfly_therm_result_to_visualization_set as service
-
-        return service(
-            garden_root=garden_root,
-            thmz_target=thmz_target,
-            run_target=run_target,
-            run_id=run_id,
-            data_type=data_type,
-            name=name,
-            return_visualization_set=return_visualization_set,
-        )
-
-    @mcp.tool(
-        name="FF_Get_Base_Model",
-        description=(
-            'Read the Garden base Fairyfly model target and minimal context. Use '
-            'FF_Validate_Model for model validation and THERM tools after a model exists.'
-        ),
-        tags={"fairyfly", "therm", "model", "summary", "garden"},
-        annotations={"readOnlyHint": True},
-        timeout=10,
-    )
-    def get_base_fairyfly_model(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
-        ],
-    ) -> dict[str, Any]:
-        """Return the Garden base Fairyfly model target."""
-        from garden.store import get_base_fairyfly_model as service
-
-        return service(garden_root=garden_root)
-
-    @mcp.tool(
-        name="FF_Poll_Simulation",
-        description=(
-            "Get one Garden Fairyfly THERM run record by fairyfly_therm_run "
-            "target or run_id. Use this after starting a THERM run to inspect "
-            "runtime_status without returning large result data. Returns "
-            "runtime_status, poll_next, summary_view, and report. Treat a "
-            "failed runtime_status as requiring report review before reading THERM "
-            "or U-factor results."
-        ),
-        tags={"fairyfly", "therm", "runtime", "poll", "ledger"},
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def get_fairyfly_therm_run(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
-        ],
-        run_target: Annotated[
-            dict[str, Any] | None,
-            Field(
-                description='Optional fairyfly_therm_run target returned by FF_Start_Simulation.'
+                description=(
+                    "Shape spec or list of shape specs to add. Each needs vertices_2d and material "
+                    "(Fairyfly dict, material_name, conductivity, cavity_model+gas, or "
+                    "energy_material/hb_material_name), plus optional name, holes_2d, plane, rgb_color."
+                )
             ),
         ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional THERM run identifier when run_target is not supplied."),
+        boundaries: Annotated[
+            list[dict[str, Any]] | dict[str, Any] | None,
+            Field(
+                description=(
+                    "Boundary spec or list of boundary specs to add. Each needs line_segments_2d "
+                    "and either (temperature + film_coefficient), condition_name, or condition dict."
+                )
+            ),
         ] = None,
-    ) -> dict[str, Any]:
-        """Get one Fairyfly THERM run record."""
-        from garden.fairyfly.therm import get_fairyfly_therm_run as service
-
-        return service(garden_root=garden_root, run_target=run_target, run_id=run_id)
-
-    @mcp.tool(
-        name="FF_List_Runs",
-        description=(
-            "List Fairyfly THERM run records stored in a Garden. Returns compact "
-            "ledger entries, runtime_status values in summary_view, and report "
-            "for two-dimensional heat-transfer runs. Use FF_Poll_Simulation on a "
-            "specific run before result reads."
-        ),
-        tags={"fairyfly", "therm", "runtime", "search", "ledger"},
-        annotations={"readOnlyHint": True},
-        timeout=20,
-    )
-    def list_fairyfly_therm_runs(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
-        ],
-        status: Annotated[
-            str | None,
-            Field(description="Optional runtime_status or readiness_status filter for Garden THERM run ledger records, such as completed, failed, or blocked."),
+        edit_shapes: Annotated[
+            list[dict[str, Any]] | dict[str, Any] | None,
+            Field(
+                description=(
+                    "Existing shape updates ({identifier or name, new_name?, material?, "
+                    "vertices_2d?, holes_2d?, plane?, rgb_color?})."
+                )
+            ),
         ] = None,
-    ) -> dict[str, Any]:
-        """List Fairyfly THERM runs."""
-        from garden.fairyfly.therm import list_fairyfly_therm_runs as service
-
-        return service(garden_root=garden_root, status=status)
-
-    @mcp.tool(
-        name="FF_Read_Result",
-        description=(
-            'Read compact temperature or heat-flux statistics from a Fairyfly THERM THMZ file. '
-            'Poll FF_Poll_Simulation before reading THERM results from a run_target. If the THMZ '
-            'has no result arrays, returns status no_results with a diagnostic. Returns '
-            'therm_result_target, summary_view, and report when values exist.'
-        ),
-        tags={"fairyfly", "therm", "result", "data-collection", "temperature"},
-        annotations={"readOnlyHint": True},
-        timeout=30,
-    )
-    def read_fairyfly_therm_result(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
-        ],
-        thmz_target: Annotated[
-            dict[str, Any] | None,
-            Field(description='Optional fairyfly_thmz target returned by FF_Write_Model_To_THMZ.'),
+        edit_boundaries: Annotated[
+            list[dict[str, Any]] | dict[str, Any] | None,
+            Field(
+                description=(
+                    "Existing boundary updates ({identifier or name, new_name?, condition_name?, "
+                    "temperature?, film_coefficient?, u_factor_tag?, line_segments_2d?, plane?})."
+                )
+            ),
         ] = None,
-        run_target: Annotated[
-            dict[str, Any] | None,
-            Field(description='Optional completed fairyfly_therm_run target returned by FF_Start_Simulation. Poll before reading result data.'),
+        remove_shape_identifiers: Annotated[
+            list[str] | None,
+            Field(description="Optional list of Shape identifiers or display_names to remove."),
         ] = None,
-        run_id: Annotated[
-            str | None,
-            Field(description="Optional run identifier when thmz_target/run_target are omitted."),
+        remove_boundary_identifiers: Annotated[
+            list[str] | None,
+            Field(description="Optional list of Boundary identifiers or display_names to remove."),
         ] = None,
-        data_type: Annotated[
-            str,
-            Field(description="Result data type: temperature or heat_flux."),
-        ] = "temperature",
-        include_values: Annotated[
-            bool,
-            Field(description="Whether to include raw numeric values in the tool response."),
+        intersect_adjacency: Annotated[
+            bool | dict[str, Any],
+            Field(description="Intersect adjacent shapes (pass true or {tolerance, plane?})."),
         ] = False,
-    ) -> dict[str, Any]:
-        """Read Fairyfly THERM temperature or heat-flux result statistics."""
-        from garden.fairyfly.therm import read_fairyfly_therm_result as service
-
-        return service(
-            garden_root=garden_root,
-            thmz_target=thmz_target,
-            run_target=run_target,
-            run_id=run_id,
-            data_type=data_type,
-            include_values=include_values,
-        )
-
-    @mcp.tool(
-        name="FF_Read_U_Factor",
-        description=(
-            "Read U-Factor summaries from a Fairyfly THERM THMZ file. Use this "
-            "after assigning U-Factor tags, running THERM, and polling "
-            "FF_Poll_Simulation before reading from a run_target. If results "
-            "are missing, returns no_results with a tag/runtime diagnostic. Returns "
-            "u_factor_result_target, summary_view, and report when values exist; use "
-            "FF_Read_Result for temperature or heat-flux statistics."
-        ),
-        tags={"fairyfly", "therm", "u-factor", "result", "summary"},
-        annotations={"readOnlyHint": True},
-        timeout=30,
-    )
-    def read_fairyfly_u_factor_result(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
-        ],
-        thmz_target: Annotated[
-            dict[str, Any] | None,
-            Field(description='Optional fairyfly_thmz target returned by FF_Write_Model_To_THMZ.'),
+        transforms: Annotated[
+            list[dict[str, Any]] | dict[str, Any] | None,
+            Field(description="Optional model transforms: move, rotate, rotate_xy, or scale."),
         ] = None,
-        run_target: Annotated[
-            dict[str, Any] | None,
-            Field(description='Optional completed fairyfly_therm_run target returned by FF_Start_Simulation. Poll before reading U-factor results.'),
-        ] = None,
-        run_id: Annotated[
+        convert_units: Annotated[
             str | None,
-            Field(description="Optional run identifier when thmz_target/run_target are omitted."),
+            Field(description="Optional target unit string to convert model geometry via convert_to_units."),
         ] = None,
-    ) -> dict[str, Any]:
-        """Read Fairyfly THERM U-Factor result summaries."""
-        from garden.fairyfly.therm import read_fairyfly_u_factor_result as service
-
-        return service(
-            garden_root=garden_root,
-            thmz_target=thmz_target,
-            run_target=run_target,
-            run_id=run_id,
-        )
-
-    @mcp.tool(
-        name="FF_Set_Base_Model",
-        description=(
-            'Register or select an existing Fairyfly model target as the Garden base Fairyfly '
-            'model. Returns target, summary_view, and report for downstream Fairyfly tools.'
-        ),
-        tags={"fairyfly", "therm", "model", "garden", "base-model"},
-        timeout=10,
-    )
-    def set_base_fairyfly_model(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
-        ],
-        model_target: Annotated[
-            dict[str, Any],
-            Field(description="Fairyfly model target with target_type=fairyfly_model to set as the Garden base Fairyfly model."),
-        ],
-    ) -> dict[str, Any]:
-        """Set the Garden base Fairyfly model."""
-        from garden.store import set_domain_base_model
-
-        return set_domain_base_model(
-            garden_root=garden_root,
-            model_target=model_target,
-            domain="fairyfly",
-        )
-
-    @mcp.tool(
-        name="FF_Start_Simulation",
-        description=(
-            'Start a Fairyfly THERM two-dimensional heat-transfer run for a Garden Fairyfly model '
-            'and return a fairyfly_therm_run target. Use this for a start Fairyfly THERM run '
-            'request. THERM execution is Windows-only; when the THERM executable is unavailable, '
-            'the tool saves readiness_status=blocked with intervention_reason=missing_runtime. '
-            'Returns run_target, runtime_status, poll_next, and report; poll before reading THERM '
-            'or U-factor results. Treat a failed runtime_status as requiring report review.'
-        ),
-        tags={"fairyfly", "therm", "simulate", "u-factor", "runtime", "start"},
-        timeout=120,
-    )
-    def start_fairyfly_therm_run(
-        garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
-        ],
-        model_target: Annotated[
+        plane: Annotated[
             dict[str, Any] | None,
-            Field(
-                description=(
-                    "Optional Fairyfly Model target dict, usually FF_Create_Model['target']; "
-                    "defaults to the Garden base Fairyfly Model."
-                )
-            ),
+            Field(description="Optional default 3D Plane applied to new/edited 2D shapes & boundaries."),
         ] = None,
-        run_id: Annotated[
+        import_therm_xml_path: Annotated[
             str | None,
-            Field(description="Optional stable THERM run identifier for the Garden run ledger. Omit to generate one."),
+            Field(description="Optional THERM XML path to extract materials, gases, and conditions from."),
         ] = None,
-        silent: Annotated[
-            bool,
-            Field(description="Run THERM silently when the runtime supports it."),
-        ] = True,
+        export_format: Annotated[
+            Literal["ffjson", "ffpkl", "therm_xml"] | None,
+            Field(description="Optional format ('ffjson', 'ffpkl', or 'therm_xml') to export the model."),
+        ] = None,
+        export_path: Annotated[
+            str | None,
+            Field(description="Optional Garden-relative output path when export_format is set."),
+        ] = None,
+        export_name: Annotated[
+            str | None,
+            Field(description="Optional output stem when export_format is set."),
+        ] = None,
     ) -> dict[str, Any]:
-        """Start a Fairyfly THERM run and return a run target."""
-        from garden.fairyfly.therm import start_fairyfly_therm_run as service
-
-        return service(
-            garden_root=garden_root,
-            model_target=model_target,
-            run_id=run_id,
-            silent=silent,
+        """Edit Shapes, Boundaries, geometry, units, XML materials, or export a Fairyfly model."""
+        shape_specs = _as_spec_list(shapes)
+        boundary_specs = _as_spec_list(boundaries)
+        edit_shape_specs = _as_spec_list(edit_shapes)
+        edit_boundary_specs = _as_spec_list(edit_boundaries)
+        transform_specs = _as_spec_list(transforms)
+        has_model_edits = any(
+            [
+                shape_specs,
+                boundary_specs,
+                edit_shape_specs,
+                edit_boundary_specs,
+                remove_shape_identifiers,
+                remove_boundary_identifiers,
+                bool(intersect_adjacency),
+                transform_specs,
+                bool(convert_units),
+            ]
         )
+        if not has_model_edits and not import_therm_xml_path and not export_format:
+            raise ValueError(
+                "Provide model edits (shapes, boundaries, edits, removals, intersect_adjacency, "
+                "transforms, convert_units), import_therm_xml_path, or export_format."
+            )
+
+        from garden.fairyfly.model import (
+            edit_fairyfly_model_entities,
+            export_fairyfly_model_file,
+            import_fairyfly_therm_xml,
+        )
+
+        resolved_shapes: list[dict[str, Any]] = []
+        for spec in shape_specs:
+            if not isinstance(spec, dict):
+                raise ValueError("Each shape entry must be a dictionary.")
+            copied = dict(spec)
+            copied["material"] = _resolve_fairyfly_material(spec["material"])
+            resolved_shapes.append(copied)
+
+        resolved_edit_shapes: list[dict[str, Any]] = []
+        for spec in edit_shape_specs:
+            if not isinstance(spec, dict):
+                raise ValueError("Each edit_shapes entry must be a dictionary.")
+            copied = dict(spec)
+            if spec.get("material") is not None:
+                copied["material"] = _resolve_fairyfly_material(spec["material"])
+            resolved_edit_shapes.append(copied)
+
+        result: dict[str, Any] | None = None
+        if has_model_edits:
+            result = edit_fairyfly_model_entities(
+                garden_root=garden_root,
+                model_target=model_target,
+                shapes=resolved_shapes or None,
+                boundaries=boundary_specs or None,
+                edit_shapes=resolved_edit_shapes or None,
+                edit_boundaries=edit_boundary_specs or None,
+                remove_shape_identifiers=remove_shape_identifiers,
+                remove_boundary_identifiers=remove_boundary_identifiers,
+                intersect_adjacency=intersect_adjacency,
+                transforms=transform_specs or None,
+                convert_units=convert_units,
+                plane=plane,
+            )
+
+        current_target = result["model_target"] if result is not None else model_target
+        if import_therm_xml_path:
+            imported = import_fairyfly_therm_xml(
+                garden_root=garden_root,
+                xml_path=import_therm_xml_path,
+                include_objects=True,
+            )
+            if result is None:
+                return imported
+            result["imported_therm_xml"] = imported
+            result["summary_view"]["imported_therm_xml"] = imported["summary_view"]
+
+        if export_format:
+            exported = export_fairyfly_model_file(
+                garden_root=garden_root,
+                model_target=current_target,
+                file_format=export_format,
+                output_path=export_path,
+                name=export_name,
+            )
+            if result is None:
+                return exported
+            result["export"] = exported
+            result["summary_view"]["exported_file"] = exported["summary_view"]
+
+        assert result is not None
+        return result
 
     @mcp.tool(
         name="FF_Validate_Model",
         description=(
-            'Validate a Garden-backed Fairyfly Model with Fairyfly SDK checks. Returns '
-            'validation_status through summary_view/report, compact issues, object counts, and '
-            'report.'
+            "Validate a Garden-backed Fairyfly Model with Fairyfly SDK checks. Returns "
+            "validation_status through summary_view/report, compact issues, object counts, and "
+            "report."
         ),
         tags={"fairyfly", "therm", "model", "validate", "check"},
         timeout=20,
@@ -691,18 +424,19 @@ def register(mcp: FastMCP) -> None:
         return service(garden_root=garden_root, model_target=model_target)
 
     @mcp.tool(
-        name="FF_Write_Model_To_THMZ",
+        name="FF_Start_Simulation",
         description=(
-            "Write a Garden Fairyfly two-dimensional heat-transfer model to a "
-            "THERM THMZ artifact without starting THERM. Use this when a user "
-            "needs an inspectable THERM input file, or before a separate "
-            'FF_Start_Simulation call. Returns thmz_target, artifact_target, '
-            "and report; result arrays appear only after a THERM run."
+            "Start an asynchronous Fairyfly THERM two-dimensional heat-transfer run for a Garden "
+            "Fairyfly model (or set export_only=true to write an inspectable THMZ artifact without "
+            "executing THERM). Accepts optional simulation_parameter (MeshControl and ModelExposure) "
+            "and optional wait_seconds blocking poll. THERM execution is Windows-only; returns "
+            "run_target (or thmz_target when export_only=true), runtime_status, poll_next "
+            "(GD_Poll_Run), and report."
         ),
-        tags={"fairyfly", "therm", "export", "artifact", "thmz"},
-        timeout=60,
+        tags={"fairyfly", "therm", "simulate", "u-factor", "runtime", "start", "thmz"},
+        timeout=330,
     )
-    def write_fairyfly_model_to_thmz(
+    def start_fairyfly_therm_run(
         garden_root: Annotated[
             str,
             Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
@@ -718,19 +452,288 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         run_id: Annotated[
             str | None,
-            Field(description="Optional stable run or artifact identifier. Omit to generate one."),
+            Field(description="Optional stable THERM run or THMZ export identifier. Omit to generate one."),
         ] = None,
+        silent: Annotated[
+            bool,
+            Field(description="Run THERM silently when the runtime supports it."),
+        ] = True,
+        export_only: Annotated[
+            bool,
+            Field(description="If true, write the .thmz artifact without running THERM."),
+        ] = False,
         name: Annotated[
             str | None,
-            Field(description="Optional THMZ artifact file stem. Defaults to model."),
+            Field(description="Optional THMZ file stem when export_only=true (defaults to model)."),
         ] = None,
+        simulation_parameter: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description=(
+                    "Optional SimulationParameter dict ({mesh: {mesh_type, parameter, "
+                    "run_error_estimator, max_error_percent, max_iterations}, exposure: "
+                    "{model_type, cross_section_type, gravity_orientation, wind_orientation}})."
+                )
+            ),
+        ] = None,
+        wait_seconds: Annotated[
+            float | None,
+            Field(description="Optional blocking wait (seconds, up to 300) for async completion."),
+        ] = None,
+        poll_interval: Annotated[
+            float,
+            Field(description="Polling interval in seconds when wait_seconds is specified."),
+        ] = 2.0,
     ) -> dict[str, Any]:
-        """Write a Fairyfly model to a THMZ artifact."""
-        from garden.fairyfly.therm import write_fairyfly_model_to_thmz as service
+        """Start a Fairyfly THERM run or export a THMZ file."""
+        from garden.fairyfly.therm import start_fairyfly_therm_run as service
 
         return service(
             garden_root=garden_root,
             model_target=model_target,
             run_id=run_id,
+            silent=silent,
+            export_only=export_only,
             name=name,
+            simulation_parameter=simulation_parameter,
+            wait_seconds=wait_seconds,
+            poll_interval=poll_interval,
+        )
+
+    @mcp.tool(
+        name="FF_Read_Results",
+        description=(
+            "Read U-Factor summaries, temperature, heat-flux magnitudes, heat-flux vectors, "
+            "condensation risk (min surface temperature, dew point, f_Rsi, RH margin), or "
+            "thermal-bridge Psi-factor (Psi = L_2D - sum(U_i * l_i)) from a Fairyfly THERM THMZ "
+            "file. Poll GD_Poll_Run after FF_Start_Simulation before reading from a run_target."
+        ),
+        tags={"fairyfly", "therm", "result", "u-factor", "temperature", "data-collection"},
+        annotations={"readOnlyHint": True},
+        timeout=30,
+    )
+    def read_fairyfly_results(
+        garden_root: Annotated[
+            str,
+            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
+        ],
+        thmz_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional fairyfly_thmz target returned by FF_Start_Simulation(export_only=true)."),
+        ] = None,
+        run_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional completed fairyfly_therm_run target returned by FF_Start_Simulation. Poll GD_Poll_Run before reading."),
+        ] = None,
+        run_id: Annotated[
+            str | None,
+            Field(description="Optional run identifier when thmz_target/run_target are omitted."),
+        ] = None,
+        data_type: Annotated[
+            Literal[
+                "temperature",
+                "heat_flux",
+                "heat_flux_vectors",
+                "u_factor",
+                "condensation_risk",
+                "psi_factor",
+            ],
+            Field(
+                description=(
+                    "Result data type: 'u_factor' (default), 'temperature', 'heat_flux', "
+                    "'heat_flux_vectors', 'condensation_risk', or 'psi_factor'."
+                )
+            ),
+        ] = "u_factor",
+        include_values: Annotated[
+            bool,
+            Field(description="For temperature/heat_flux/heat_flux_vectors: include raw values in response."),
+        ] = False,
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="Optional Fairyfly model target for boundary-aware condensation_risk analysis."),
+        ] = None,
+        interior_temp_c: Annotated[
+            float | None,
+            Field(description="For condensation_risk: interior air dry-bulb temperature (C)."),
+        ] = None,
+        interior_rh: Annotated[
+            float | None,
+            Field(description="For condensation_risk: interior relative humidity (0..1 fraction or 0..100%)."),
+        ] = None,
+        exterior_temp_c: Annotated[
+            float | None,
+            Field(description="For condensation_risk: exterior boundary temperature (C)."),
+        ] = None,
+        interior_surface_temp_c: Annotated[
+            float | None,
+            Field(description="For condensation_risk: optional explicit interior surface temperature (C)."),
+        ] = None,
+        clear_field_u_values: Annotated[
+            list[dict[str, Any]] | None,
+            Field(description="For psi_factor: clear-field segments [{u_value, length, name?}]."),
+        ] = None,
+        u_factor_name: Annotated[
+            str | None,
+            Field(description="For psi_factor: optional U-factor tag name to select."),
+        ] = None,
+        projection: Annotated[
+            Literal["total", "projected_x", "projected_y", "projected_in_glass_plane", "custom_rotation", "auto"],
+            Field(description="For psi_factor: UFactor projection used to compute L_2D."),
+        ] = "total",
+        l_2d_w_per_mk: Annotated[
+            float | None,
+            Field(description="For psi_factor: optional explicit L_2D coupling coefficient (W/m-K)."),
+        ] = None,
+        length_unit: Annotated[
+            str,
+            Field(description="For psi_factor: unit of clear_field_u_values lengths (default Meters)."),
+        ] = "Meters",
+        therm_length_unit: Annotated[
+            str,
+            Field(description="For psi_factor: unit of THERM UFactor lengths (default Millimeters)."),
+        ] = "Millimeters",
+    ) -> dict[str, Any]:
+        """Read Fairyfly THERM U-Factors, field statistics/vectors, condensation risk, or Psi-factor."""
+        if data_type == "u_factor":
+            from garden.fairyfly.therm import read_fairyfly_u_factor_result as service
+
+            return service(
+                garden_root=garden_root,
+                thmz_target=thmz_target,
+                run_target=run_target,
+                run_id=run_id,
+            )
+        if data_type == "condensation_risk":
+            from garden.fairyfly.therm import read_fairyfly_condensation_risk as service
+
+            return service(
+                garden_root=garden_root,
+                thmz_target=thmz_target,
+                run_target=run_target,
+                run_id=run_id,
+                model_target=model_target,
+                interior_temp_c=interior_temp_c,
+                interior_rh=interior_rh,
+                exterior_temp_c=exterior_temp_c,
+                interior_surface_temp_c=interior_surface_temp_c,
+            )
+        if data_type == "psi_factor":
+            from garden.fairyfly.therm import read_fairyfly_psi_factor as service
+
+            return service(
+                garden_root=garden_root,
+                thmz_target=thmz_target,
+                run_target=run_target,
+                run_id=run_id,
+                clear_field_u_values=clear_field_u_values or [],
+                u_factor_name=u_factor_name,
+                projection=projection,
+                l_2d_w_per_mk=l_2d_w_per_mk,
+                length_unit=length_unit,
+                therm_length_unit=therm_length_unit,
+            )
+        from garden.fairyfly.therm import read_fairyfly_therm_result as service
+
+        return service(
+            garden_root=garden_root,
+            thmz_target=thmz_target,
+            run_target=run_target,
+            run_id=run_id,
+            data_type=data_type,
+            include_values=include_values,
+        )
+
+    @mcp.tool(
+        name="FF_To_Visualization_Set",
+        description=(
+            "Create a Ladybug Display VisualizationSet from a Garden Fairyfly model "
+            "(source_kind='model') or completed THERM temperature/heat-flux results "
+            "(source_kind='result'). Poll GD_Poll_Run before visualizing results from a run_target. "
+            "Set return_visualization_set=false to save a compact visualization_set_target for "
+            "LB_Export_Visualization_Set."
+        ),
+        tags={"fairyfly", "therm", "visualization-set", "model", "result", "visualize", "preview"},
+        timeout=60,
+    )
+    def fairyfly_to_visualization_set(
+        garden_root: Annotated[
+            str,
+            Field(description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."),
+        ],
+        source_kind: Annotated[
+            Literal["model", "result"],
+            Field(description="Visualization source: 'model' (default) or 'result'."),
+        ] = "model",
+        model_target: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description=(
+                    "For source_kind='model': optional Fairyfly Model target dict, usually "
+                    "FF_Create_Model['target']; defaults to the Garden base Fairyfly Model."
+                )
+            ),
+        ] = None,
+        color_by: Annotated[
+            Literal["material", "none"],
+            Field(description="For source_kind='model': coloring mode ('material' or 'none')."),
+        ] = "material",
+        include_boundaries: Annotated[
+            bool,
+            Field(description="For source_kind='model': whether to include Fairyfly Boundary line geometry."),
+        ] = True,
+        thmz_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="For source_kind='result': optional fairyfly_thmz target."),
+        ] = None,
+        run_target: Annotated[
+            dict[str, Any] | None,
+            Field(description="For source_kind='result': optional completed fairyfly_therm_run target."),
+        ] = None,
+        run_id: Annotated[
+            str | None,
+            Field(description="For source_kind='result': optional run identifier when targets are omitted."),
+        ] = None,
+        data_type: Annotated[
+            Literal["temperature", "heat_flux"],
+            Field(description="For source_kind='result': result field to visualize ('temperature' or 'heat_flux')."),
+        ] = "temperature",
+        name: Annotated[
+            str | None,
+            Field(description="Optional VisualizationSet identifier and artifact name."),
+        ] = None,
+        return_visualization_set: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Return the full VisualizationSet dict. Set false to save and return a compact "
+                    "visualization_set_target for LB_Export_Visualization_Set."
+                )
+            ),
+        ] = True,
+    ) -> dict[str, Any]:
+        """Create a VisualizationSet from a Fairyfly model or THERM result."""
+        if source_kind == "result":
+            from garden.fairyfly.model import (
+                fairyfly_therm_result_to_visualization_set as service,
+            )
+
+            return service(
+                garden_root=garden_root,
+                thmz_target=thmz_target,
+                run_target=run_target,
+                run_id=run_id,
+                data_type=data_type,
+                name=name,
+                return_visualization_set=return_visualization_set,
+            )
+        from garden.fairyfly.model import fairyfly_model_to_visualization_set as service
+
+        return service(
+            garden_root=garden_root,
+            model_target=model_target,
+            color_by=color_by,
+            include_boundaries=include_boundaries,
+            name=name,
+            return_visualization_set=return_visualization_set,
         )

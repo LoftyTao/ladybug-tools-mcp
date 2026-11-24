@@ -17,9 +17,14 @@ from ladybug_tools_mcp.contracts import make_artifact_receipt, make_report
 from garden.data_collection import collection_from_dict, load_data_collection
 from garden.manifest import GardenManifest
 from garden.paths import slugify_name, to_posix_relative
-from garden.visualize.artifacts import _register_artifact, _resolve_output_dir
-from garden.visualize.artifacts import save_visualization_set
+from garden.visualize.artifacts import (
+    _register_artifact,
+    _resolve_output_dir,
+    coerce_legend_parameter,
+    save_visualization_set,
+)
 
+DATA_COLLECTION_HOURLY_PLOT_HTML_ARTIFACT_TYPE = "data_collection_hourly_plot_html"
 DATA_COLLECTION_MONTHLY_CHART_HTML_ARTIFACT_TYPE = "data_collection_monthly_chart_html"
 MONTHLY_CHART_DEFAULT_X_DIM = 10.0
 MONTHLY_PER_HOUR_DEFAULT_X_DIM = 50.0
@@ -325,8 +330,12 @@ def data_collection_hourly_plot_to_visualization_set(
     data_collection: dict[str, Any] | None = None,
     data_collection_target: dict[str, Any] | None = None,
     garden_root: str | None = None,
+    legend_parameter: dict[str, Any] | None = None,
     x_dim: float | int | None = None,
     y_dim: float | int | None = None,
+    z_dim: float | int = 0.0,
+    reverse_y: bool = False,
+    custom_hours: list[int] | tuple[int, ...] | None = None,
     name: str = "data_collection_hourly_plot",
     return_visualization_set: bool = True,
 ) -> dict[str, Any]:
@@ -340,7 +349,17 @@ def data_collection_hourly_plot_to_visualization_set(
     if _collection_time_interval(collection) != "hourly":
         raise ValueError("HourlyPlot requires an hourly DataCollection.")
     chart_dimensions = _hourly_plot_dimensions(x_dim=x_dim, y_dim=y_dim)
-    vis_set = hourly_plot_to_vis_set(HourlyPlot(collection, **chart_dimensions))
+    resolved_hours = tuple(custom_hours) if custom_hours is not None else (0, 3, 6, 9, 12, 15, 18, 21, 24)
+    vis_set = hourly_plot_to_vis_set(
+        HourlyPlot(
+            collection,
+            legend_parameters=coerce_legend_parameter(legend_parameter),
+            z_dim=float(z_dim),
+            reverse_y=bool(reverse_y),
+            **chart_dimensions,
+        ),
+        custom_hours=resolved_hours,
+    )
     _set_visualization_set_name(vis_set, name)
     vis_set_dict = vis_set.to_dict()
     summary = _collection_summary(
@@ -353,7 +372,8 @@ def data_collection_hourly_plot_to_visualization_set(
         "summary_view": {
             "visualization_set": _visualization_set_summary(vis_set_dict),
             "data_collection": summary,
-            "chart_dimensions": chart_dimensions,
+            "chart_dimensions": {**chart_dimensions, "z_dim": float(z_dim), "reverse_y": bool(reverse_y)},
+            "custom_hours": list(resolved_hours),
         },
         "report": make_report(
             status="ok",
@@ -380,6 +400,113 @@ def data_collection_hourly_plot_to_visualization_set(
     return result
 
 
+def data_collection_hourly_plot_to_html(
+    *,
+    garden_root: str,
+    data_collection: dict[str, Any] | None = None,
+    data_collection_target: dict[str, Any] | None = None,
+    legend_parameter: dict[str, Any] | None = None,
+    x_dim: float | int | None = None,
+    y_dim: float | int | None = None,
+    z_dim: float | int = 0.0,
+    reverse_y: bool = False,
+    custom_hours: list[int] | tuple[int, ...] | None = None,
+    name: str = "data_collection_hourly_plot",
+    output_subdir: str = "artifacts/visualization/datacollections/html",
+) -> dict[str, Any]:
+    """Export one hourly Ladybug DataCollection as an HourlyPlot HTML artifact."""
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(garden_root_path)
+    collection, source = _resolve_collection_input(
+        data_collection=data_collection,
+        data_collection_target=data_collection_target,
+        garden_root=str(garden_root_path),
+        field_name="data_collection_hourly_plot_to_html",
+    )
+    if _collection_time_interval(collection) != "hourly":
+        raise ValueError("HourlyPlot requires an hourly DataCollection.")
+    chart_dimensions = _hourly_plot_dimensions(x_dim=x_dim, y_dim=y_dim)
+    resolved_hours = tuple(custom_hours) if custom_hours is not None else (0, 3, 6, 9, 12, 15, 18, 21, 24)
+    output_dir = _resolve_output_dir(garden_root_path, output_subdir)
+    safe_name = slugify_name(name)
+    vis_set = hourly_plot_to_vis_set(
+        HourlyPlot(
+            collection,
+            legend_parameters=coerce_legend_parameter(legend_parameter),
+            z_dim=float(z_dim),
+            reverse_y=bool(reverse_y),
+            **chart_dimensions,
+        ),
+        custom_hours=resolved_hours,
+    )
+    _set_visualization_set_name(vis_set, name)
+    html_path = Path(
+        vis_set.to_html(
+            output_folder=str(output_dir),
+            file_name=safe_name,
+            open=False,
+        )
+    ).resolve()
+    html_path.relative_to(garden_root_path)
+    artifact_path = to_posix_relative(html_path, garden_root_path)
+    summary = _collection_summary(
+        collection,
+        label=_collection_name(collection, name),
+        source=source,
+    )
+    artifact_source = {
+        "data_collection": summary,
+        "chart_dimensions": {**chart_dimensions, "z_dim": float(z_dim), "reverse_y": bool(reverse_y)},
+    }
+    artifact = _register_artifact(
+        manifest,
+        artifact_type=DATA_COLLECTION_HOURLY_PLOT_HTML_ARTIFACT_TYPE,
+        name=safe_name,
+        path=artifact_path,
+        source=artifact_source,
+    )
+    manifest.write(garden_root_path)
+    return {
+        "artifact_receipt": make_artifact_receipt(
+            status="persisted",
+            garden_id=manifest.garden_id,
+            artifact_type=DATA_COLLECTION_HOURLY_PLOT_HTML_ARTIFACT_TYPE,
+            artifact_path=artifact_path,
+            absolute_path=str(html_path),
+            source=artifact_source,
+        ),
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "artifact": artifact,
+            "exists": html_path.is_file(),
+            "chart_dimensions": chart_dimensions,
+            "data_collection": summary,
+        },
+        "report": make_report(
+            status="ok",
+            message="DataCollection hourly plot HTML artifact exported.",
+        ),
+    }
+
+
+def _apply_monthly_chart_bounds(
+    chart: MonthlyChart,
+    *,
+    y_axis_min: list[float | None] | float | None,
+    y_axis_max: list[float | None] | float | None,
+) -> None:
+    if y_axis_min is not None:
+        mins = y_axis_min if isinstance(y_axis_min, (list, tuple)) else [y_axis_min]
+        for idx, val in enumerate(mins):
+            if val is not None:
+                chart.set_minimum_by_index(float(val), idx)
+    if y_axis_max is not None:
+        maxs = y_axis_max if isinstance(y_axis_max, (list, tuple)) else [y_axis_max]
+        for idx, val in enumerate(maxs):
+            if val is not None:
+                chart.set_maximum_by_index(float(val), idx)
+
+
 def data_collection_monthly_chart_to_visualization_set(
     *,
     series: list[dict[str, Any]],
@@ -390,6 +517,9 @@ def data_collection_monthly_chart_to_visualization_set(
     stack: bool = False,
     percentile: float = 34,
     time_marks: bool = False,
+    y_axis_min: list[float | None] | float | None = None,
+    y_axis_max: list[float | None] | float | None = None,
+    legend_parameter: dict[str, Any] | None = None,
     x_dim: float | int | None = None,
     y_dim: float | int | None = None,
     name: str = "data_collection_monthly_chart",
@@ -413,10 +543,12 @@ def data_collection_monthly_chart_to_visualization_set(
     )
     chart = MonthlyChart(
         collections,
+        legend_parameters=coerce_legend_parameter(legend_parameter),
         stack=stack,
         percentile=percentile,
         **chart_dimensions,
     )
+    _apply_monthly_chart_bounds(chart, y_axis_min=y_axis_min, y_axis_max=y_axis_max)
     vis_set = monthly_chart_to_vis_set(
         chart,
         time_marks=resolved_time_marks,
@@ -473,6 +605,9 @@ def data_collection_monthly_chart_to_html(
     stack: bool = False,
     percentile: float = 34,
     time_marks: bool = False,
+    y_axis_min: list[float | None] | float | None = None,
+    y_axis_max: list[float | None] | float | None = None,
+    legend_parameter: dict[str, Any] | None = None,
     x_dim: float | int | None = None,
     y_dim: float | int | None = None,
     name: str = "data_collection_monthly_chart",
@@ -500,10 +635,12 @@ def data_collection_monthly_chart_to_html(
     safe_name = slugify_name(name)
     chart = MonthlyChart(
         collections,
+        legend_parameters=coerce_legend_parameter(legend_parameter),
         stack=stack,
         percentile=percentile,
         **chart_dimensions,
     )
+    _apply_monthly_chart_bounds(chart, y_axis_min=y_axis_min, y_axis_max=y_axis_max)
     vis_set = monthly_chart_to_vis_set(
         chart,
         time_marks=resolved_time_marks,

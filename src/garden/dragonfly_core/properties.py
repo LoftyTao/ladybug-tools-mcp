@@ -14,9 +14,31 @@ from dragonfly_radiance.gridpar import (
     RoomGridParameter,
     RoomRadialGridParameter,
 )
+from honeybee_energy.construction.dictutil import dict_to_construction
+from honeybee_energy.construction.shade import ShadeConstruction
+from honeybee_energy.constructionset import ConstructionSet
+from honeybee_energy.hvac import HVAC_TYPES_DICT
+from honeybee_energy.hvac.idealair import IdealAirSystem
+from honeybee_energy.lib.constructions import (
+    opaque_construction_by_identifier,
+    shade_construction_by_identifier,
+)
 from honeybee_energy.lib.constructionsets import construction_set_by_identifier
 from honeybee_energy.lib.programtypes import program_type_by_identifier
+from honeybee_energy.lib.schedules import schedule_by_identifier
+from honeybee_energy.load.daylight import DaylightingControl
+from honeybee_energy.load.process import Process
+from honeybee_energy.programtype import ProgramType
+from honeybee_energy.schedule.dictutil import dict_to_schedule
+from honeybee_energy.shw import SHWSystem
+from honeybee_energy.ventcool.control import VentilationControl
+from honeybee_energy.ventcool.fan import VentilationFan
+from honeybee_energy.ventcool.opening import VentilationOpening
+from honeybee_radiance.dictutil import dict_to_object as dict_to_radiance_object
+from honeybee_radiance.lib.modifiers import modifier_by_identifier
 from honeybee_radiance.lib.modifiersets import modifier_set_by_identifier
+from honeybee_radiance.modifier.modifierbase import Modifier
+from honeybee_radiance.modifierset import ModifierSet
 from ladybug_geometry.geometry3d import Vector3D
 
 from garden.dragonfly_core.model_io import (
@@ -25,6 +47,10 @@ from garden.dragonfly_core.model_io import (
     save_dragonfly_model,
 )
 from garden.dragonfly_core.targets import normalize_dragonfly_object_target
+from garden.libraries.properties import (
+    get_garden_properties_library_object,
+    search_garden_properties_library_objects,
+)
 from ladybug_tools_mcp.contracts import make_persistence_receipt, make_report
 
 
@@ -77,6 +103,8 @@ def get_dragonfly_properties_summary(
                     )
                 )
 
+    context_shades = [_host_summary(shade) for shade in model.context_shades]
+
     summary_view = {
         "garden_target": manifest.target(),
         "model_target": resolved_model_target,
@@ -84,10 +112,12 @@ def get_dragonfly_properties_summary(
         "buildings": buildings,
         "stories": stories,
         "room2ds": room2ds,
+        "context_shades": context_shades,
         "counts": {
             "buildings": len(buildings),
             "stories": len(stories),
             "room2ds": len(room2ds),
+            "context_shades": len(context_shades),
         },
     }
     return {
@@ -100,67 +130,457 @@ def get_dragonfly_properties_summary(
     }
 
 
+def _resolve_custom_or_standards(
+    garden_root: str,
+    value: Any,
+    *,
+    domain: str,
+    object_family: str,
+    standards_lookup: Any,
+    dict_loader: Any,
+) -> Any:
+    if isinstance(value, dict):
+        if value.get("target_type") == "garden_properties_library_object":
+            loaded = get_garden_properties_library_object(
+                garden_root=garden_root,
+                target=value,
+            )
+            return dict_loader(loaded["object_dict"])
+        return dict_loader(value)
+    if isinstance(value, str):
+        if standards_lookup is not None:
+            try:
+                return standards_lookup(value)
+            except Exception:
+                pass
+        search_res = search_garden_properties_library_objects(
+            garden_root=garden_root,
+            query=value,
+            domain=domain,
+            object_family=object_family,
+            limit=50,
+        )
+        for item in search_res.get("matches", []):
+            if item.get("identifier") == value and isinstance(item.get("target"), dict):
+                loaded = get_garden_properties_library_object(
+                    garden_root=garden_root,
+                    target=item["target"],
+                )
+                return dict_loader(loaded["object_dict"])
+        if standards_lookup is not None:
+            return standards_lookup(value)
+        raise ValueError(
+            f"Could not resolve {domain}:{object_family} '{value}' in standards or Garden library."
+        )
+    raise ValueError(f"Expected identifier, dict, or Garden Properties Library target for {object_family}.")
+
+
+def _load_hvac_dict(data: dict[str, Any]) -> Any:
+    hvac_type = data.get("type")
+    cls = HVAC_TYPES_DICT.get(str(hvac_type or ""))
+    if cls is None:
+        raise ValueError(f"Unsupported Honeybee Energy HVAC type: {hvac_type}")
+    return cls.from_dict(data)
+
+
+def _resolve_hvac(garden_root: str, value: Any) -> Any:
+    if isinstance(value, str) and value.strip().lower() in {"idealair", "idealairsystem", "ideal_air"}:
+        return IdealAirSystem(identifier="IdealAirSystem")
+    return _resolve_custom_or_standards(
+        garden_root,
+        value,
+        domain="honeybee_energy",
+        object_family="hvac",
+        standards_lookup=None,
+        dict_loader=_load_hvac_dict,
+    )
+
+
+def _load_modifier_object(data: dict[str, Any]) -> Modifier:
+    obj = dict_to_radiance_object(data)
+    if not isinstance(obj, Modifier) or isinstance(obj, ModifierSet):
+        raise ValueError("Expected Radiance Modifier dictionary.")
+    return obj
+
+
+def _load_modifier_set_object(data: dict[str, Any]) -> ModifierSet:
+    obj = dict_to_radiance_object(data)
+    if not isinstance(obj, ModifierSet):
+        raise ValueError("Expected Radiance ModifierSet dictionary.")
+    return obj
+
+
+def _coerce_daylighting_control(data: dict[str, Any], room: Any) -> DaylightingControl:
+    payload = dict(data)
+    payload.setdefault("type", "DaylightingControl")
+    if payload.get("sensor_position") is None:
+        center = room.floor_geometry.center
+        payload["sensor_position"] = [float(center.x), float(center.y), float(room.floor_height) + 0.8]
+    return DaylightingControl.from_dict(payload)
+
+
+def _coerce_ventilation_control(data: dict[str, Any]) -> VentilationControl:
+    payload = dict(data)
+    payload.setdefault("type", "VentilationControl")
+    for alias, canonical in (
+        ("min_indoor_temp", "min_indoor_temperature"),
+        ("max_indoor_temp", "max_indoor_temperature"),
+        ("min_outdoor_temp", "min_outdoor_temperature"),
+        ("max_outdoor_temp", "max_outdoor_temperature"),
+        ("delta_temp", "delta_temperature"),
+    ):
+        if alias in payload and canonical not in payload:
+            payload[canonical] = payload.pop(alias)
+    return VentilationControl.from_dict(payload)
+
+
+def _coerce_ventilation_opening(data: dict[str, Any]) -> VentilationOpening:
+    payload = dict(data)
+    payload.setdefault("type", "VentilationOpening")
+    return VentilationOpening.from_dict(payload)
+
+
+def _load_fan_dict(data: dict[str, Any]) -> VentilationFan:
+    payload = dict(data)
+    payload.setdefault("type", "VentilationFan")
+    if "name" in payload and "identifier" not in payload:
+        payload["identifier"] = payload.pop("name")
+    if "motor_efficiency" in payload and "efficiency" not in payload:
+        payload["efficiency"] = payload.pop("motor_efficiency")
+    if isinstance(payload.get("control"), dict):
+        ctrl_dict = dict(payload["control"])
+        ctrl_dict.setdefault("type", "VentilationControl")
+        payload["control"] = ctrl_dict
+    return VentilationFan.from_dict(payload)
+
+
+def _load_process_dict(data: dict[str, Any]) -> Process:
+    payload = dict(data)
+    payload.setdefault("type", "Process")
+    if "name" in payload and "identifier" not in payload:
+        payload["identifier"] = payload.pop("name")
+    return Process.from_dict(payload)
+
+
+def _load_shw_dict(data: dict[str, Any]) -> SHWSystem:
+    payload = dict(data)
+    payload.setdefault("type", "SHWSystem")
+    return SHWSystem.from_dict(payload)
+
+
+def _load_shade_construction_dict(data: dict[str, Any]) -> ShadeConstruction:
+    payload = dict(data)
+    payload.setdefault("type", "ShadeConstruction")
+    return ShadeConstruction.from_dict(payload)
+
+
+def _target_rooms(host: Any, host_type: str) -> list[Any]:
+    if host_type == "room2d":
+        return [host]
+    if host_type == "story":
+        return list(host.room_2ds)
+    if host_type == "building":
+        return list(host.unique_room_2ds)
+    if host_type == "model":
+        return list(host.room_2ds)
+    return []
+
+
 def apply_dragonfly_energy_properties(
     *,
     garden_root: str,
-    host_target: dict[str, Any],
+    host_target: dict[str, Any] | None = None,
     model_target: dict[str, Any] | None = None,
     program_type_identifier: str | None = None,
     construction_set_identifier: str | None = None,
+    program_type: Any = None,
+    construction_set: Any = None,
+    hvac: Any = None,
+    shw: Any = None,
+    person_count: float | None = None,
+    lighting_watts: float | None = None,
+    electric_equipment_watts: float | None = None,
+    gas_equipment_watts: float | None = None,
+    hot_water_flow: float | None = None,
+    infiltration_ach: float | None = None,
+    daylighting_control: dict[str, Any] | None = None,
+    daylight_center: dict[str, Any] | None = None,
+    window_vent_control: dict[str, Any] | None = None,
+    window_vent_opening: dict[str, Any] | None = None,
+    fans: list[Any] | None = None,
+    remove_existing_fans: bool = False,
+    process_loads: list[Any] | None = None,
+    remove_existing_process_loads: bool = False,
+    diversify: dict[str, Any] | bool | None = None,
+    ceiling_plenum_construction: Any = None,
+    floor_plenum_construction: Any = None,
+    construction: Any = None,
+    transmittance_schedule: Any = None,
 ) -> dict[str, Any]:
-    """Apply narrow SDK-backed Dragonfly Energy properties to an object host."""
+    """Apply Energy properties (standards, Garden library, HVAC, loads, plenums, shade) to a host."""
+    resolved_prog_in = program_type if program_type is not None else program_type_identifier
+    resolved_cset_in = (
+        construction_set if construction_set is not None else construction_set_identifier
+    )
     updated_fields: list[str] = []
-    if program_type_identifier is not None:
-        updated_fields.append("program_type")
-    if construction_set_identifier is not None:
-        updated_fields.append("construction_set")
+    field_checks = (
+        ("program_type", resolved_prog_in is not None),
+        ("construction_set", resolved_cset_in is not None),
+        ("hvac", hvac is not None),
+        ("shw", shw is not None),
+        ("person_count", person_count is not None),
+        ("lighting_watts", lighting_watts is not None),
+        ("electric_equipment_watts", electric_equipment_watts is not None),
+        ("gas_equipment_watts", gas_equipment_watts is not None),
+        ("hot_water_flow", hot_water_flow is not None),
+        ("infiltration_ach", infiltration_ach is not None),
+        ("daylighting_control", daylighting_control is not None or daylight_center is not None),
+        ("window_vent_control", window_vent_control is not None),
+        ("window_vent_opening", window_vent_opening is not None),
+        ("fans", fans is not None or remove_existing_fans),
+        ("process_loads", process_loads is not None or remove_existing_process_loads),
+        ("diversify", bool(diversify)),
+        ("ceiling_plenum_construction", ceiling_plenum_construction is not None),
+        ("floor_plenum_construction", floor_plenum_construction is not None),
+        ("construction", construction is not None),
+        ("transmittance_schedule", transmittance_schedule is not None),
+    )
+    for field_name, active in field_checks:
+        if active:
+            updated_fields.append(field_name)
     if not updated_fields:
         raise ValueError(
-            "apply_dragonfly_energy_properties requires at least one supported "
-            "Energy property input."
+            "apply_dragonfly_energy_properties requires at least one Energy property input."
         )
 
-    normalized_target = normalize_dragonfly_object_target(host_target)
-    host_type = normalized_target["object_type"]
-    if host_type not in {"room2d", "story", "building"}:
-        raise ValueError(
-            "apply_dragonfly_energy_properties supports room2d, story, and "
-            "building targets."
-        )
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
     model = load_dragonfly_model(garden_root_path, resolved_model_target)
-    host = _host_from_target(model, normalized_target)
+    if host_target is None or host_target.get("target_type") == "dragonfly_model":
+        normalized_target = dict(resolved_model_target)
+        host_type = "model"
+        host = model
+    else:
+        normalized_target = normalize_dragonfly_object_target(host_target)
+        host_type = normalized_target["object_type"]
+        if host_type not in {"room2d", "story", "building", "context_shade"}:
+            raise ValueError(
+                "apply_dragonfly_energy_properties supports room2d, story, "
+                "building, context_shade, and model targets."
+            )
+        host = _host_from_target(model, normalized_target)
 
-    program_type = (
-        program_type_by_identifier(program_type_identifier)
-        if program_type_identifier is not None
+    prog_obj = (
+        _resolve_custom_or_standards(
+            garden_root,
+            resolved_prog_in,
+            domain="honeybee_energy",
+            object_family="program_type",
+            standards_lookup=program_type_by_identifier,
+            dict_loader=ProgramType.from_dict,
+        )
+        if resolved_prog_in is not None
         else None
     )
-    construction_set = (
-        construction_set_by_identifier(construction_set_identifier)
-        if construction_set_identifier is not None
+    cset_obj = (
+        _resolve_custom_or_standards(
+            garden_root,
+            resolved_cset_in,
+            domain="honeybee_energy",
+            object_family="construction_set",
+            standards_lookup=construction_set_by_identifier,
+            dict_loader=ConstructionSet.from_dict,
+        )
+        if resolved_cset_in is not None
         else None
     )
+    hvac_obj = _resolve_hvac(garden_root, hvac) if hvac is not None else None
+    shw_obj = (
+        _resolve_custom_or_standards(
+            garden_root,
+            shw,
+            domain="honeybee_energy",
+            object_family="shw_system",
+            standards_lookup=None,
+            dict_loader=_load_shw_dict,
+        )
+        if shw is not None
+        else None
+    )
+
     affected_room2d_count = 0
-    if host_type == "room2d":
-        if program_type is not None:
-            host.properties.energy.program_type = program_type
-            affected_room2d_count = 1
-        if construction_set is not None:
-            host.properties.energy.construction_set = construction_set
-    elif host_type == "story":
-        if program_type is not None:
-            host.properties.energy.set_all_room_2d_program_type(program_type)
-            affected_room2d_count = len(host.room_2ds)
-        if construction_set is not None:
-            host.properties.energy.construction_set = construction_set
-    elif host_type == "building":
-        if program_type is not None:
-            host.properties.energy.set_all_room_2d_program_type(program_type)
-            affected_room2d_count = len(host.unique_room_2ds)
-        if construction_set is not None:
-            host.properties.energy.construction_set = construction_set
+    if host_type == "context_shade":
+        if construction is not None:
+            host.properties.energy.construction = _resolve_custom_or_standards(
+                garden_root,
+                construction,
+                domain="honeybee_energy",
+                object_family="construction",
+                standards_lookup=shade_construction_by_identifier,
+                dict_loader=_load_shade_construction_dict,
+            )
+        if transmittance_schedule is not None:
+            host.properties.energy.transmittance_schedule = _resolve_custom_or_standards(
+                garden_root,
+                transmittance_schedule,
+                domain="honeybee_energy",
+                object_family="schedule",
+                standards_lookup=schedule_by_identifier,
+                dict_loader=dict_to_schedule,
+            )
+    else:
+        rooms = _target_rooms(host, host_type)
+        if prog_obj is not None:
+            if host_type == "room2d":
+                host.properties.energy.program_type = prog_obj
+                affected_room2d_count = 1
+            elif host_type in {"story", "building"}:
+                host.properties.energy.set_all_room_2d_program_type(prog_obj)
+                affected_room2d_count = len(rooms)
+            else:
+                for room in rooms:
+                    room.properties.energy.program_type = prog_obj
+                affected_room2d_count = len(rooms)
+        if cset_obj is not None:
+            if host_type in {"room2d", "story", "building"}:
+                host.properties.energy.construction_set = cset_obj
+            else:
+                for bldg in model.buildings:
+                    bldg.properties.energy.construction_set = cset_obj
+        if hvac_obj is not None:
+            if host_type == "building":
+                host.properties.energy.set_all_room_2d_hvac(hvac_obj)
+            else:
+                for room in rooms:
+                    room.properties.energy.hvac = hvac_obj.duplicate()
+            affected_room2d_count = max(affected_room2d_count, len(rooms))
+        if shw_obj is not None:
+            if host_type == "building":
+                host.properties.energy.set_all_room_2d_shw(shw_obj)
+            else:
+                for room in rooms:
+                    room.properties.energy.shw = shw_obj.duplicate()
+            affected_room2d_count = max(affected_room2d_count, len(rooms))
+        if ceiling_plenum_construction is not None or floor_plenum_construction is not None:
+            target_buildings = (
+                [host]
+                if host_type == "building"
+                else (list(model.buildings) if host_type == "model" else [])
+            )
+            if not target_buildings:
+                raise ValueError(
+                    "ceiling_plenum_construction / floor_plenum_construction require building or model target."
+                )
+            if ceiling_plenum_construction is not None:
+                c_plenum = _resolve_custom_or_standards(
+                    garden_root,
+                    ceiling_plenum_construction,
+                    domain="honeybee_energy",
+                    object_family="construction",
+                    standards_lookup=opaque_construction_by_identifier,
+                    dict_loader=dict_to_construction,
+                )
+                for bldg in target_buildings:
+                    bldg.properties.energy.ceiling_plenum_construction = c_plenum
+            if floor_plenum_construction is not None:
+                f_plenum = _resolve_custom_or_standards(
+                    garden_root,
+                    floor_plenum_construction,
+                    domain="honeybee_energy",
+                    object_family="construction",
+                    standards_lookup=opaque_construction_by_identifier,
+                    dict_loader=dict_to_construction,
+                )
+                for bldg in target_buildings:
+                    bldg.properties.energy.floor_plenum_construction = f_plenum
+
+        for room in rooms:
+            re = room.properties.energy
+            if person_count is not None:
+                re.person_count = float(person_count)
+            if lighting_watts is not None:
+                re.lighting_watts = float(lighting_watts)
+            if electric_equipment_watts is not None:
+                re.electric_equipment_watts = float(electric_equipment_watts)
+            if gas_equipment_watts is not None:
+                re.gas_equipment_watts = float(gas_equipment_watts)
+            if hot_water_flow is not None:
+                re.hot_water_flow = float(hot_water_flow)
+            if infiltration_ach is not None:
+                re.infiltration_ach = float(infiltration_ach)
+            if daylighting_control is not None:
+                re.daylighting_control = _coerce_daylighting_control(daylighting_control, room)
+            elif daylight_center is not None:
+                re.add_daylight_control_to_center(
+                    float(daylight_center["distance_from_floor"]),
+                    illuminance_setpoint=float(daylight_center.get("illuminance_setpoint", 300)),
+                    control_fraction=float(daylight_center.get("control_fraction", 1)),
+                    min_power_input=float(daylight_center.get("min_power_input", 0.3)),
+                    min_light_output=float(daylight_center.get("min_light_output", 0.2)),
+                    off_at_minimum=bool(daylight_center.get("off_at_minimum", False)),
+                    tolerance=float(daylight_center.get("tolerance", 0.01)),
+                )
+            if window_vent_control is not None:
+                re.window_vent_control = _coerce_ventilation_control(window_vent_control)
+            if window_vent_opening is not None:
+                re.window_vent_opening = _coerce_ventilation_opening(window_vent_opening)
+            if remove_existing_fans:
+                re.remove_fans()
+            if fans is not None:
+                for fan_item in fans:
+                    fan_obj = _resolve_custom_or_standards(
+                        garden_root,
+                        fan_item,
+                        domain="honeybee_energy",
+                        object_family="zone_ventilation_fan",
+                        standards_lookup=None,
+                        dict_loader=_load_fan_dict,
+                    )
+                    re.add_fan(fan_obj)
+            if remove_existing_process_loads:
+                re.remove_process_loads()
+            if process_loads is not None:
+                for proc_item in process_loads:
+                    proc_obj = _resolve_custom_or_standards(
+                        garden_root,
+                        proc_item,
+                        domain="honeybee_energy",
+                        object_family="process",
+                        standards_lookup=None,
+                        dict_loader=_load_process_dict,
+                    )
+                    re.add_process_load(proc_obj)
+        if any(
+            val is not None
+            for val in (
+                person_count,
+                lighting_watts,
+                electric_equipment_watts,
+                gas_equipment_watts,
+                hot_water_flow,
+                infiltration_ach,
+                daylighting_control,
+                daylight_center,
+                window_vent_control,
+                window_vent_opening,
+                fans,
+                process_loads,
+            )
+        ) or remove_existing_fans or remove_existing_process_loads:
+            affected_room2d_count = max(affected_room2d_count, len(rooms))
+
+        if diversify:
+            div_kwargs = dict(diversify) if isinstance(diversify, dict) else {}
+            target_buildings = (
+                [host]
+                if host_type == "building"
+                else (list(model.buildings) if host_type == "model" else [])
+            )
+            if not target_buildings:
+                raise ValueError("diversify requires a building or model target.")
+            for bldg in target_buildings:
+                bldg.properties.energy.diversify(**div_kwargs)
+                affected_room2d_count = max(affected_room2d_count, len(bldg.unique_room_2ds))
 
     updated_model_target, persisted_path = save_dragonfly_model(
         garden_root_path,
@@ -174,10 +594,10 @@ def apply_dragonfly_energy_properties(
         "target": normalized_target,
         "model_target": updated_model_target,
         "host_type": host_type,
-        "identifier": normalized_target["object_identifier"],
+        "identifier": normalized_target.get("object_identifier") or model.identifier,
         "updated_fields": updated_fields,
-        "program_type_identifier": program_type_identifier,
-        "construction_set_identifier": construction_set_identifier,
+        "program_type_identifier": program_type_identifier or getattr(prog_obj, "identifier", None),
+        "construction_set_identifier": construction_set_identifier or getattr(cset_obj, "identifier", None),
         "affected_room2d_count": affected_room2d_count,
     }
     return {
@@ -201,7 +621,7 @@ def apply_dragonfly_energy_properties(
             status="ok",
             message=(
                 "Applied Dragonfly Energy properties to "
-                f"{host_type}: {normalized_target['object_identifier']}"
+                f"{host_type}: {summary_view['identifier']}"
             ),
         ),
     }
@@ -213,6 +633,8 @@ def apply_dragonfly_radiance_properties(
     host_target: dict[str, Any],
     model_target: dict[str, Any] | None = None,
     modifier_set_identifier: str | None = None,
+    modifier_set: Any = None,
+    modifier: Any = None,
     grid_parameter_type: str | None = None,
     grid_dimension: float | None = None,
     grid_offset: float | None = None,
@@ -226,10 +648,13 @@ def apply_dragonfly_radiance_properties(
     include_mesh: bool = True,
     remove_existing_grid_parameters: bool = False,
 ) -> dict[str, Any]:
-    """Apply narrow SDK-backed Dragonfly Radiance properties to an object host."""
+    """Apply Radiance properties (standards/Garden library ModifierSet, grids, shade modifier)."""
+    resolved_mset_in = modifier_set if modifier_set is not None else modifier_set_identifier
     updated_fields: list[str] = []
-    if modifier_set_identifier is not None:
+    if resolved_mset_in is not None:
         updated_fields.append("modifier_set")
+    if modifier is not None:
+        updated_fields.append("modifier")
     if grid_parameter_type is not None:
         updated_fields.append("grid_parameter")
     if remove_existing_grid_parameters:
@@ -242,17 +667,17 @@ def apply_dragonfly_radiance_properties(
 
     normalized_target = normalize_dragonfly_object_target(host_target)
     host_type = normalized_target["object_type"]
-    if host_type not in {"room2d", "story", "building"}:
+    if host_type not in {"room2d", "story", "building", "context_shade"}:
         raise ValueError(
-            "apply_dragonfly_radiance_properties supports room2d, story, and "
-            "building targets."
+            "apply_dragonfly_radiance_properties supports room2d, story, "
+            "building, and context_shade targets."
         )
     if (grid_parameter_type is not None or remove_existing_grid_parameters) and (
         host_type not in {"room2d", "building"}
     ):
         raise ValueError(
             "Dragonfly Radiance grid parameters can be applied to room2d or "
-            "building targets, not story targets."
+            "building targets."
         )
 
     garden_root_path = Path(garden_root).expanduser().resolve()
@@ -260,9 +685,28 @@ def apply_dragonfly_radiance_properties(
     model = load_dragonfly_model(garden_root_path, resolved_model_target)
     host = _host_from_target(model, normalized_target)
 
-    modifier_set = (
-        modifier_set_by_identifier(modifier_set_identifier)
-        if modifier_set_identifier is not None
+    resolved_modifier_set = (
+        _resolve_custom_or_standards(
+            garden_root,
+            resolved_mset_in,
+            domain="honeybee_radiance",
+            object_family="modifier_set",
+            standards_lookup=modifier_set_by_identifier,
+            dict_loader=_load_modifier_set_object,
+        )
+        if resolved_mset_in is not None
+        else None
+    )
+    resolved_modifier = (
+        _resolve_custom_or_standards(
+            garden_root,
+            modifier,
+            domain="honeybee_radiance",
+            object_family="modifier",
+            standards_lookup=modifier_by_identifier,
+            dict_loader=_load_modifier_object,
+        )
+        if modifier is not None
         else None
     )
     grid_parameter = _grid_parameter_from_input(
@@ -280,19 +724,23 @@ def apply_dragonfly_radiance_properties(
     )
 
     affected_room2d_count = 0
-    if modifier_set is not None:
-        host.properties.radiance.modifier_set = modifier_set
-    if remove_existing_grid_parameters:
-        if host_type == "room2d":
-            host.properties.radiance.remove_grid_parameters()
-            affected_room2d_count = 1
-        elif host_type == "building":
-            for room in host.unique_room_2ds:
-                room.properties.radiance.remove_grid_parameters()
-            affected_room2d_count = len(host.unique_room_2ds)
-    if grid_parameter is not None:
-        host.properties.radiance.add_grid_parameter(grid_parameter)
-        affected_room2d_count = 1 if host_type == "room2d" else len(host.unique_room_2ds)
+    if host_type == "context_shade":
+        if resolved_modifier is not None:
+            host.properties.radiance.modifier = resolved_modifier
+    else:
+        if resolved_modifier_set is not None:
+            host.properties.radiance.modifier_set = resolved_modifier_set
+        if remove_existing_grid_parameters:
+            if host_type == "room2d":
+                host.properties.radiance.remove_grid_parameters()
+                affected_room2d_count = 1
+            elif host_type == "building":
+                for room in host.unique_room_2ds:
+                    room.properties.radiance.remove_grid_parameters()
+                affected_room2d_count = len(host.unique_room_2ds)
+        if grid_parameter is not None:
+            host.properties.radiance.add_grid_parameter(grid_parameter)
+            affected_room2d_count = 1 if host_type == "room2d" else len(host.unique_room_2ds)
 
     updated_model_target, persisted_path = save_dragonfly_model(
         garden_root_path,
@@ -308,7 +756,8 @@ def apply_dragonfly_radiance_properties(
         "host_type": host_type,
         "identifier": normalized_target["object_identifier"],
         "updated_fields": updated_fields,
-        "modifier_set_identifier": modifier_set_identifier,
+        "modifier_set_identifier": modifier_set_identifier or getattr(resolved_modifier_set, "identifier", None),
+        "modifier_identifier": getattr(resolved_modifier, "identifier", None),
         "grid_parameter": grid_parameter.to_dict() if grid_parameter is not None else None,
         "remove_existing_grid_parameters": remove_existing_grid_parameters,
         "affected_room2d_count": affected_room2d_count,
@@ -372,6 +821,12 @@ def _host_from_target(model: Any, target: dict[str, Any]) -> Any:
             model.buildings_by_identifier([identifier]),
             identifier,
             "Building",
+        )
+    if object_type == "context_shade":
+        return _one_by_identifier(
+            model.context_shade_by_identifier([identifier]),
+            identifier,
+            "ContextShade",
         )
     raise ValueError(f"Unsupported Dragonfly Energy host type: {object_type}.")
 
@@ -484,6 +939,9 @@ def _compact_fields(data: dict[str, Any]) -> dict[str, Any]:
         "hvac",
         "shw",
         "modifier_set",
+        "modifier",
+        "construction",
+        "transmittance_schedule",
         "ceiling_plenum_construction",
         "floor_plenum_construction",
     ):
@@ -491,6 +949,23 @@ def _compact_fields(data: dict[str, Any]) -> dict[str, Any]:
         identifier = _identifier(value)
         if identifier is not None:
             fields[key] = identifier
+    for scalar_key in (
+        "person_count",
+        "lighting_watts",
+        "electric_equipment_watts",
+        "gas_equipment_watts",
+        "hot_water_flow",
+        "infiltration_ach",
+    ):
+        if data.get(scalar_key) is not None:
+            fields[scalar_key] = data[scalar_key]
+    for opt_key in ("daylighting_control", "window_vent_control", "window_vent_opening"):
+        if data.get(opt_key) is not None:
+            fields[opt_key] = data[opt_key]
+    if isinstance(data.get("fans"), list):
+        fields["fan_count"] = len(data["fans"])
+    if isinstance(data.get("process_loads"), list):
+        fields["process_load_count"] = len(data["process_loads"])
     if isinstance(data.get("grid_parameters"), list):
         fields["grid_parameters"] = [
             _compact_grid_parameter(item)

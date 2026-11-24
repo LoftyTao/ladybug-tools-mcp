@@ -38,13 +38,17 @@ internal sealed class CatalogInspector
         "IB_OutputVariable",
     };
 
+    private static readonly HashSet<string> EmsWiringMethodNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "AddEMSSensors",
+        "AddEMSInternalVariables",
+        "AddEMSActuators",
+    };
+
     private static readonly HashSet<string> BasePlumbingMethods = new(StringComparer.OrdinalIgnoreCase)
     {
         "AddCustomAttribute",
         "AddOutputVariables",
-        "AddEMSSensors",
-        "AddEMSInternalVariables",
-        "AddEMSActuators",
         "Set",
         "SetTrackingID",
         "SetRefObject",
@@ -398,11 +402,13 @@ internal sealed class CatalogInspector
         int depth = 0;
         while (cursor != null && depth++ < 32)
         {
-            if (cursor.Name is "Object" or "IB_ModelObject" or "IB_HVACObject")
+            if (cursor.Name is "Object" or "IB_HVACObject")
                 break;
 
             foreach (var m in cursor.DeclaredWiringMethods)
             {
+                if (cursor.Name == "IB_ModelObject" && !EmsWiringMethodNames.Contains(m.Name))
+                    continue;
                 var key = m.Name + "(" + string.Join(",", m.Parameters.Select(p => p.RawTypeName)) + ")";
                 if (!seenWiring.Add(key)) continue;
                 wiringMethods.Add(new Dictionary<string, object?>
@@ -416,6 +422,9 @@ internal sealed class CatalogInspector
                     }).ToList(),
                 });
             }
+
+            if (cursor.Name == "IB_ModelObject")
+                break;
 
             cursor = meta.ResolveBase(cursor);
         }
@@ -919,7 +928,8 @@ internal sealed class CatalogInspector
         {
             if (m.IsSpecialName) continue;
             if (m.DeclaringType == typeof(object)) continue;
-            if (m.DeclaringType?.Name is "IB_ModelObject" or "IB_HVACObject") continue;
+            if (m.DeclaringType?.Name is "IB_HVACObject") continue;
+            if (m.DeclaringType?.Name is "IB_ModelObject" && !EmsWiringMethodNames.Contains(m.Name)) continue;
             if (BasePlumbingMethods.Contains(m.Name) || m.Name.StartsWith("ShouldSerialize", StringComparison.Ordinal) || m.Name.StartsWith("ToOS", StringComparison.Ordinal))
                 continue;
             if (!(m.Name.StartsWith("Set", StringComparison.Ordinal) || m.Name.StartsWith("Add", StringComparison.Ordinal)))

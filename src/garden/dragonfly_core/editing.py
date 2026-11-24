@@ -318,6 +318,7 @@ def edit_dragonfly_model(
     model_target: dict[str, Any] | None = None,
     display_name: str | None = None,
     units: str | None = None,
+    convert_geometry: bool = True,
     tolerance: float | None = None,
     angle_tolerance: float | None = None,
 ) -> dict[str, Any]:
@@ -340,7 +341,10 @@ def edit_dragonfly_model(
     if display_name is not None:
         model.display_name = display_name
     if units is not None:
-        model.units = units
+        if convert_geometry:
+            model.convert_to_units(units)
+        else:
+            model.units = units
     if tolerance is not None:
         model.tolerance = tolerance
     if angle_tolerance is not None:
@@ -453,6 +457,7 @@ def edit_dragonfly_building(
     model_target: dict[str, Any] | None = None,
     display_name: str | None = None,
     sort_stories: bool = False,
+    separate_top_bottom_floors: bool = False,
 ) -> dict[str, Any]:
     """Edit an embedded Dragonfly Building using public SDK properties/methods."""
     updated_fields: list[str] = []
@@ -460,6 +465,8 @@ def edit_dragonfly_building(
         updated_fields.append("display_name")
     if sort_stories:
         updated_fields.append("sort_stories")
+    if separate_top_bottom_floors:
+        updated_fields.append("separate_top_bottom_floors")
     _require_edit(updated_fields, "building")
 
     garden_root_path, manifest, resolved_model_target, model = _load_target_model(
@@ -471,6 +478,7 @@ def edit_dragonfly_building(
         building.display_name = display_name
     if sort_stories:
         building.sort_stories()
+    if separate_top_bottom_floors:
         separate_building_top_bottom_stories(building)
 
     updated_model_target, persisted_path = _save_changed_model(
@@ -613,6 +621,7 @@ def add_dragonfly_stories_to_building(
     story_targets: list[dict[str, Any]] | None = None,
     model_target: dict[str, Any] | None = None,
     story_identifiers: list[str] | None = None,
+    separate_top_bottom_floors: bool = False,
 ) -> dict[str, Any]:
     """Add Story draft objects to an existing Building with Building.add_stories."""
     garden_root_path, manifest, resolved_model_target, model = _load_target_model(
@@ -645,7 +654,8 @@ def add_dragonfly_stories_to_building(
     ]
     building.add_stories(stories, add_duplicate_ids=False)
     building.sort_stories()
-    separate_building_top_bottom_stories(building)
+    if separate_top_bottom_floors:
+        separate_building_top_bottom_stories(building)
     updated_model_target, persisted_path = _save_changed_model(
         garden_root_path,
         manifest,
@@ -691,6 +701,7 @@ def remove_dragonfly_stories_from_building(
     building_identifier: str,
     story_identifiers: list[str],
     model_target: dict[str, Any] | None = None,
+    separate_top_bottom_floors: bool = False,
 ) -> dict[str, Any]:
     """Remove Stories from a Building with Building.remove_stories_by_identifier."""
     if not story_identifiers:
@@ -733,7 +744,8 @@ def remove_dragonfly_stories_from_building(
             "Keep at least one Story or 3D Room."
         )
     building.sort_stories()
-    separate_building_top_bottom_stories(building)
+    if separate_top_bottom_floors:
+        separate_building_top_bottom_stories(building)
     updated_model_target, persisted_path = _save_changed_model(
         garden_root_path,
         manifest,
@@ -952,3 +964,231 @@ def remove_dragonfly_context_shades(
         removed_identifiers=removed_identifiers,
         relationship_cleanup={},
     )
+
+
+def _infer_edit_object_type(
+    *,
+    object_type: str | None,
+    target: dict[str, Any] | None,
+    room2d_target: dict[str, Any] | None,
+    room_identifier: str | None,
+    story_target: dict[str, Any] | None,
+    story_identifier: str | None,
+    building_identifier: str | None,
+    vertices: list[list[float]] | None,
+    zone: str | None,
+    is_ground_contact: bool | None,
+    is_top_exposed: bool | None,
+    floor_to_ceiling_height: float | None,
+    floor_to_floor_height: float | None,
+    multiplier: int | None,
+    sort_stories: bool,
+    units: str | None,
+    tolerance: float | None,
+    angle_tolerance: float | None,
+) -> str:
+    if object_type is not None:
+        normalized = object_type.strip().lower().replace("-", "_")
+        if normalized not in {"model", "building", "story", "room2d"}:
+            raise ValueError("object_type must be model, building, story, or room2d.")
+        return normalized
+    if isinstance(target, dict):
+        if target.get("target_type") == "dragonfly_model":
+            return "model"
+        target_object_type = str(target.get("object_type") or "").strip().lower()
+        if target_object_type in {"building", "story", "room2d"}:
+            return target_object_type
+    if room2d_target is not None or room_identifier is not None or any(
+        item is not None
+        for item in (vertices, zone, is_ground_contact, is_top_exposed, floor_to_ceiling_height)
+    ):
+        return "room2d"
+    if story_target is not None or story_identifier is not None or any(
+        item is not None for item in (floor_to_floor_height, multiplier)
+    ):
+        return "story"
+    if building_identifier is not None or sort_stories:
+        return "building"
+    if any(item is not None for item in (units, tolerance, angle_tolerance)):
+        return "model"
+    return "model"
+
+
+def edit_dragonfly_object(
+    *,
+    garden_root: str,
+    object_type: str | None = None,
+    target: dict[str, Any] | None = None,
+    model_target: dict[str, Any] | None = None,
+    building_identifier: str | None = None,
+    story_target: dict[str, Any] | None = None,
+    story_identifier: str | None = None,
+    room2d_target: dict[str, Any] | None = None,
+    room_identifier: str | None = None,
+    display_name: str | None = None,
+    units: str | None = None,
+    tolerance: float | None = None,
+    angle_tolerance: float | None = None,
+    sort_stories: bool = False,
+    separate_top_bottom_floors: bool = False,
+    convert_geometry: bool = True,
+    floor_height: float | None = None,
+    floor_to_floor_height: float | None = None,
+    multiplier: int | None = None,
+    vertices: list[list[float]] | None = None,
+    floor_to_ceiling_height: float | None = None,
+    zone: str | None = None,
+    is_ground_contact: bool | None = None,
+    is_top_exposed: bool | None = None,
+    projection_distance: float = 0,
+) -> dict[str, Any]:
+    """Dispatch Dragonfly model, building, story, or room2d edits."""
+    resolved_type = _infer_edit_object_type(
+        object_type=object_type,
+        target=target,
+        room2d_target=room2d_target,
+        room_identifier=room_identifier,
+        story_target=story_target,
+        story_identifier=story_identifier,
+        building_identifier=building_identifier,
+        vertices=vertices,
+        zone=zone,
+        is_ground_contact=is_ground_contact,
+        is_top_exposed=is_top_exposed,
+        floor_to_ceiling_height=floor_to_ceiling_height,
+        floor_to_floor_height=floor_to_floor_height,
+        multiplier=multiplier,
+        sort_stories=sort_stories or separate_top_bottom_floors,
+        units=units,
+        tolerance=tolerance,
+        angle_tolerance=angle_tolerance,
+    )
+    if resolved_type == "model":
+        resolved_model_target = model_target or (
+            target if isinstance(target, dict) and target.get("target_type") == "dragonfly_model" else None
+        )
+        return edit_dragonfly_model(
+            garden_root=garden_root,
+            model_target=resolved_model_target,
+            display_name=display_name,
+            units=units,
+            convert_geometry=convert_geometry,
+            tolerance=tolerance,
+            angle_tolerance=angle_tolerance,
+        )
+    if resolved_type == "building":
+        resolved_building_id = building_identifier
+        if resolved_building_id is None and isinstance(target, dict):
+            normalized = normalize_dragonfly_object_target(target, expected_type="building")
+            resolved_building_id = str(normalized["object_identifier"])
+        if not resolved_building_id:
+            raise ValueError("DF_Edit_Object with object_type='building' requires building_identifier or target.")
+        return edit_dragonfly_building(
+            garden_root=garden_root,
+            building_identifier=resolved_building_id,
+            model_target=model_target,
+            display_name=display_name,
+            sort_stories=sort_stories,
+            separate_top_bottom_floors=separate_top_bottom_floors,
+        )
+    if resolved_type == "story":
+        resolved_story_target = story_target or (
+            target if isinstance(target, dict) and target.get("object_type") == "story" else None
+        )
+        return edit_dragonfly_story(
+            garden_root=garden_root,
+            story_target=resolved_story_target,
+            story_identifier=story_identifier,
+            model_target=model_target,
+            display_name=display_name,
+            floor_height=floor_height,
+            floor_to_floor_height=floor_to_floor_height,
+            multiplier=multiplier,
+        )
+    resolved_room_target = room2d_target or (
+        target if isinstance(target, dict) and target.get("object_type") == "room2d" else None
+    )
+    if resolved_room_target is None and room_identifier is None:
+        raise ValueError("DF_Edit_Object with object_type='room2d' requires room2d_target, target, or room_identifier.")
+    return edit_dragonfly_room2d(
+        garden_root=garden_root,
+        room2d_target=resolved_room_target,
+        room_identifier=room_identifier,
+        model_target=model_target,
+        vertices=vertices,
+        floor_height=floor_height,
+        floor_to_ceiling_height=floor_to_ceiling_height,
+        display_name=display_name,
+        zone=zone,
+        is_ground_contact=is_ground_contact,
+        is_top_exposed=is_top_exposed,
+        projection_distance=projection_distance,
+    )
+
+
+def remove_dragonfly_objects(
+    *,
+    garden_root: str,
+    object_type: str | None = None,
+    object_targets: list[dict[str, Any]] | None = None,
+    identifiers: list[str] | None = None,
+    building_identifier: str | None = None,
+    story_identifiers: list[str] | None = None,
+    building_identifiers: list[str] | None = None,
+    room2d_identifiers: list[str] | None = None,
+    context_shade_identifiers: list[str] | None = None,
+    model_target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Dispatch removal of Buildings, Stories from a Building, Room2Ds, or ContextShades."""
+    resolved_type = object_type.strip().lower().replace("-", "_") if object_type else None
+    if resolved_type is None:
+        if object_targets:
+            resolved_type = str(normalize_dragonfly_object_target(object_targets[0])["object_type"])
+        elif building_identifier is not None or story_identifiers is not None:
+            resolved_type = "story"
+        elif building_identifiers is not None:
+            resolved_type = "building"
+        elif room2d_identifiers is not None:
+            resolved_type = "room2d"
+        elif context_shade_identifiers is not None:
+            resolved_type = "context_shade"
+        else:
+            raise ValueError(
+                "Provide object_type or typed object_targets / identifier list."
+            )
+    if resolved_type == "building":
+        return remove_dragonfly_buildings(
+            garden_root=garden_root,
+            object_targets=object_targets,
+            building_identifiers=building_identifiers or identifiers,
+            model_target=model_target,
+        )
+    if resolved_type in {"story", "stories_from_building"}:
+        if not building_identifier:
+            raise ValueError("Removing stories requires building_identifier.")
+        resolved_story_ids = list(story_identifiers or identifiers or [])
+        if object_targets:
+            for item in object_targets:
+                normalized = normalize_dragonfly_object_target(item, expected_type="story")
+                resolved_story_ids.append(str(normalized["object_identifier"]))
+        return remove_dragonfly_stories_from_building(
+            garden_root=garden_root,
+            building_identifier=building_identifier,
+            story_identifiers=resolved_story_ids,
+            model_target=model_target,
+        )
+    if resolved_type == "room2d":
+        return remove_dragonfly_room2ds(
+            garden_root=garden_root,
+            object_targets=object_targets,
+            room2d_identifiers=room2d_identifiers or identifiers,
+            model_target=model_target,
+        )
+    if resolved_type == "context_shade":
+        return remove_dragonfly_context_shades(
+            garden_root=garden_root,
+            object_targets=object_targets,
+            context_shade_identifiers=context_shade_identifiers or identifiers,
+            model_target=model_target,
+        )
+    raise ValueError("object_type must be building, story, room2d, or context_shade.")
