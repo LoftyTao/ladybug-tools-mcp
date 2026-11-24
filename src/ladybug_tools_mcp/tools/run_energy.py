@@ -37,7 +37,7 @@ def register(mcp: FastMCP) -> None:
         description=(
             "Manage Garden weather_file targets and EPW weather DataCollections via action: "
             "search (search registered Garden weather_file targets under imports/weather), import "
-            "(copy bundled weather://files/<station> or local EPW/DDY/STAT files into the Garden "
+            "(copy local EPW/DDY/STAT files into the Garden "
             "and register a weather_file target), download (search and download one public EPW/ZIP "
             "weather file from epwapi/epwfile into the Garden), or read_data (read an EPW field "
             "such as dry_bulb_temperature, relative_humidity, wind_speed, or radiation into a "
@@ -62,7 +62,7 @@ def register(mcp: FastMCP) -> None:
         source_path: Annotated[
             str | None,
             Field(
-                description="For action='import': bundled weather://files/<station> URI or absolute local .epw file/folder path."
+                description="For action='import': absolute local .epw file/folder path."
             ),
         ] = None,
         identifier: Annotated[

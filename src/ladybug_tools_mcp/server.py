@@ -9,7 +9,6 @@ from fastmcp.server.transforms.visibility import Visibility
 from ladybug_tools_mcp import __version__
 from ladybug_tools_mcp.code_mode import create_code_mode_transform
 from ladybug_tools_mcp.registry import register_tools
-from ladybug_tools_mcp.weather_resources import register_weather_resources
 
 SKILL_PATH = Path(__file__).resolve().parent / "resources" / "skills" / "ladybug-tools-mcp-use"
 if not SKILL_PATH.is_dir():
@@ -40,7 +39,6 @@ def create_mcp() -> FastMCP:
         mask_error_details=False,
     )
     register_tools(mcp)
-    register_weather_resources(mcp)
     return mcp
 
 

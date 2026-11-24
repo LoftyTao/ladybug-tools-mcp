@@ -377,9 +377,6 @@ def runtime_details(python: Path) -> dict:
     details = json.loads(completed.stdout)
     if details["version"] != __version__:
         raise ValueError("Installed MCP version does not match the installer.")
-    resources = Path(details["resources"])
-    if not any((resources / "weather").glob("*/*.epw")):
-        raise ValueError("Installed wheel is missing weather resources.")
     return details
 
 

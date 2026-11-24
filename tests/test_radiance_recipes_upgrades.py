@@ -33,16 +33,18 @@ from garden.recipes import runner as rec_runner
 from garden.runs_control import poll_run
 from garden.store import create_garden
 from ladybug_tools_mcp.registry import register_tools
-from ladybug_tools_mcp.weather_resources import WEATHER_RESOURCE_ROOT
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_WEATHER_ASSETS = _REPO_ROOT / "resources" / "ladybug" / "tests" / "assets"
 
 
 def _sample_weather_files() -> tuple[Path, Path, Path]:
-    epws = sorted(Path(WEATHER_RESOURCE_ROOT).rglob("*.epw"))
-    assert epws, "Expected bundled EPW files under WEATHER_RESOURCE_ROOT."
-    epw = epws[0]
-    ddy = epw.with_suffix(".ddy")
-    stat = epw.with_suffix(".stat")
-    assert ddy.is_file() and stat.is_file()
+    epw = _WEATHER_ASSETS / "epw" / "chicago.epw"
+    ddy = _WEATHER_ASSETS / "ddy" / "chicago.ddy"
+    stat = _WEATHER_ASSETS / "stat" / "chicago.stat"
+    assert epw.is_file() and ddy.is_file() and stat.is_file(), (
+        "Expected Chicago weather assets under resources/ladybug/tests/assets."
+    )
     return epw, ddy, stat
 
 

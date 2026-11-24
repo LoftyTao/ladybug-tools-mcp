@@ -29,11 +29,6 @@ where = ["src"]
 exclude = ["grasshopper_components*", "ironbug_bridge*", "pyhygrothermfem_native*"]
 
 [tool.setuptools.package-data]
-ladybug_tools_mcp = [
-  "resources/weather/*/*.epw",
-  "resources/weather/*/*.ddy",
-  "resources/weather/*/*.stat",
-]
 fairyfly_next_therm = [
   "_templates/*.xml",
   "config.json",

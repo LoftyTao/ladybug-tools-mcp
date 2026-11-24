@@ -10,7 +10,6 @@ from typing import Any
 
 from honeybee_energy.config import folders as energy_folders
 from ladybug_tools_mcp.contracts import make_report
-from ladybug_tools_mcp.weather_resources import resolve_weather_source
 from garden.manifest import GardenManifest
 from garden.paths import to_posix_relative
 
@@ -73,7 +72,6 @@ def get_energy_simulation_config() -> dict[str, Any]:
         "managed_by": "garden",
         "weather_dir": "imports/weather",
         "target_type": WEATHER_TARGET_TYPE,
-        "bundled_catalog_uri": "weather://catalog",
         "external_source_url": "https://climate.onebuilding.org/",
     }
     return {
@@ -229,7 +227,7 @@ def import_local_weather_folder(
     """Copy a local EPW/DDY/STAT folder into a Garden and register it."""
     garden_root_path = Path(garden_root).expanduser().resolve()
     manifest = GardenManifest.read(garden_root_path)
-    source = resolve_weather_source(source_path)
+    source = Path(source_path).expanduser().resolve()
     if not source.exists():
         raise ValueError(f"Local weather source not found: {source_path}")
     epw_path, ddy_path, stat_path = _find_weather_siblings(source)
@@ -269,14 +267,11 @@ def import_local_weather_folder(
     if stat_path is not None:
         copied_stat = destination / stat_path.name
         shutil.copy2(stat_path, copied_stat)
-    is_bundled = source_path.startswith("weather://")
     source_metadata = {
-        "source": "bundled_ladybug_tools_weather" if is_bundled else "local_weather",
-        "source_path": source_path if is_bundled else str(source),
+        "source": "local_weather",
+        "source_path": str(source),
         "search_terms": [weather_identifier, epw_path.stem],
     }
-    if is_bundled:
-        source_metadata["source_url"] = "https://climate.onebuilding.org/"
     target = make_garden_weather_target(
         garden_root=garden_root_path,
         manifest=manifest,

@@ -7,6 +7,7 @@ import importlib
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -32,7 +33,6 @@ from garden.run_uwg import _UWG_RUNS
 from ladybug_tools_mcp.code_mode import PreviewMontySandboxProvider
 from ladybug_tools_mcp.registry import _TOOL_FAMILIES, register_tools
 from ladybug_tools_mcp.server import create_mcp
-from ladybug_tools_mcp.weather_resources import WEATHER_RESOURCE_ROOT
 
 EXPECTED_MODULE_COUNTS: dict[str, int] = {
     "config": 1,
@@ -91,11 +91,20 @@ async def _call(client: Client, name: str, args: dict[str, Any]) -> dict[str, An
     return _parse_tool_result(res)
 
 
-def _bundled_weather_uri() -> str:
-    """Return one deterministic bundled weather://files/<station> URI."""
-    stations = sorted(p.name for p in WEATHER_RESOURCE_ROOT.iterdir() if p.is_dir())
-    assert stations, f"No bundled weather stations found under {WEATHER_RESOURCE_ROOT}"
-    return f"weather://files/{stations[0]}"
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_WEATHER_ASSETS = _REPO_ROOT / "resources" / "ladybug" / "tests" / "assets"
+
+
+def _weather_source_folder(tmp_path: Path) -> str:
+    """Copy the repository's Chicago EPW/DDY/STAT assets into a local source folder."""
+    folder = tmp_path / "weather_source"
+    folder.mkdir(parents=True, exist_ok=True)
+    for subdir, suffix in (("epw", ".epw"), ("ddy", ".ddy"), ("stat", ".stat")):
+        shutil.copy2(
+            _WEATHER_ASSETS / subdir / f"chicago{suffix}",
+            folder / f"chicago{suffix}",
+        )
+    return str(folder)
 
 
 def _make_raw_mcp() -> FastMCP:
@@ -1421,7 +1430,7 @@ def test_energy_consolidation_and_mocked_simulation(tmp_path: Path, raw_mcp: Fas
             w_imp = await _call(
                 client,
                 "LB_Manage_Weather",
-                {"garden_root": gr, "action": "import", "source_path": _bundled_weather_uri()},
+                {"garden_root": gr, "action": "import", "source_path": _weather_source_folder(tmp_path)},
             )
             w_target = w_imp["target"]
             assert w_target["target_type"] == "weather_file"
@@ -1963,7 +1972,7 @@ def test_dragonfly_des_grid_uwg_and_mocked_workers(tmp_path: Path, raw_mcp: Fast
             w_imp = await _call(
                 client,
                 "LB_Manage_Weather",
-                {"garden_root": gr, "action": "import", "source_path": _bundled_weather_uri()},
+                {"garden_root": gr, "action": "import", "source_path": _weather_source_folder(tmp_path)},
             )
             mock_dir = g_path / "artifacts" / "mock_uo"
             mock_dir.mkdir(parents=True, exist_ok=True)
@@ -2112,7 +2121,7 @@ def test_comfort_and_visualization_consolidation(tmp_path: Path, raw_mcp: FastMC
             w_imp = await _call(
                 client,
                 "LB_Manage_Weather",
-                {"garden_root": gr, "action": "import", "source_path": _bundled_weather_uri()},
+                {"garden_root": gr, "action": "import", "source_path": _weather_source_folder(tmp_path)},
             )
             w_target = w_imp["target"]
 
