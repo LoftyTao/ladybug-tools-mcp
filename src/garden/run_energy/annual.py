@@ -977,6 +977,30 @@ def _derive_stage_statuses(
     }
 
 
+def _expand_objects_diagnostics(err_path: Path, garden_root: Path) -> dict[str, Any] | None:
+    log_path = err_path.with_name("expandedidf.err")
+    if not log_path.is_file():
+        return None
+    severe_errors = []
+    fatal_errors = []
+    with log_path.open(encoding="utf-8", errors="replace") as log:
+        for line in log:
+            diagnostic = line.strip()
+            level = diagnostic.lower()
+            if level.startswith("expandobjects: severe:"):
+                severe_errors.append(diagnostic)
+            elif level.startswith("expandobjects: fatal:"):
+                fatal_errors.append(diagnostic)
+    return {
+        "path": to_posix_relative(log_path, garden_root),
+        "status": "failed" if severe_errors or fatal_errors else "no_errors_reported",
+        "severe_count": len(severe_errors),
+        "fatal_count": len(fatal_errors),
+        "severe_errors": severe_errors[:5],
+        "fatal_errors": fatal_errors[:5],
+    }
+
+
 def _err_summary(
     *,
     garden_root: Path,
@@ -1021,6 +1045,7 @@ def _err_summary(
         "last_severe_error": last_severe_error,
         "severe_errors": severe_errors,
         "fatal_errors": fatal_errors,
+        "expand_objects": _expand_objects_diagnostics(err_path, garden_root),
     }
 
 
@@ -1076,6 +1101,8 @@ def _energy_run_result_evidence(
     rep_failed = stage_statuses.get("reporting_measures", {}).get("status") == "failed"
     severe_count = int((err_summary or {}).get("severe_count") or 0)
     fatal_count = int((err_summary or {}).get("fatal_count") or 0)
+    expand_objects = (err_summary or {}).get("expand_objects") or {}
+    expansion_failed = expand_objects.get("status") == "failed"
     completed_with_diagnostics = bool(
         (status == "completed" or ep_succeeded) and eui_exists and err_exists and sql_exists
     )
@@ -1084,6 +1111,7 @@ def _energy_run_result_evidence(
         and completed_with_diagnostics
         and not severe_count
         and not fatal_count
+        and not expansion_failed
     )
     if status in {"queued", "running"}:
         recommended_next_tools = ["GD_Poll_Run"]
@@ -1094,6 +1122,12 @@ def _energy_run_result_evidence(
         recommended_next_tools = ["EP_Summarize_Results", GARDEN_VERSION_NEXT_TOOL]
         final_answer_guidance = (
             "Energy simulation completed with EUI, SQL, and clean ERR outputs available via EP_Summarize_Results."
+        )
+    elif completed_with_diagnostics and expansion_failed:
+        recommended_next_tools = ["EP_Read_Errors", "EP_Summarize_Results"]
+        final_answer_guidance = (
+            "EUI and SQL are available, but preprocessing reported ExpandObjects errors. "
+            "Read the separate preprocessing log via EP_Read_Errors before treating the run as validated."
         )
     elif ep_succeeded and rep_failed and eui_exists and err_exists and sql_exists:
         recommended_next_tools = ["EP_Summarize_Results", "EP_Read_Errors"]
@@ -2496,9 +2530,11 @@ def read_energy_eui(
         }
     severe_count = int((err_summary or {}).get("severe_count") or 0)
     fatal_count = int((err_summary or {}).get("fatal_count") or 0)
+    expand_objects = (err_summary or {}).get("expand_objects") or {}
+    expansion_failed = expand_objects.get("status") == "failed"
     completed_with_diagnostics = bool(eui and err_exists and sql_exists)
     final_answer_ready = bool(
-        completed_with_diagnostics and not severe_count and not fatal_count
+        completed_with_diagnostics and not severe_count and not fatal_count and not expansion_failed
     )
     recommended_next_tools = [GARDEN_VERSION_NEXT_TOOL] if final_answer_ready else [
         "GD_Poll_Run",
@@ -2507,6 +2543,11 @@ def read_energy_eui(
     if final_answer_ready:
         final_answer_guidance = (
             "EUI, SQL, and clean ERR outputs are available."
+        )
+    elif completed_with_diagnostics and expansion_failed:
+        final_answer_guidance = (
+            "EUI and SQL are available, but ExpandObjects reported preprocessing errors. "
+            "Read the diagnostics with EP_Read_Errors."
         )
     elif completed_with_diagnostics:
         final_answer_guidance = (
@@ -2654,6 +2695,7 @@ def read_energy_errors(
     fatal_errors = list(err_summary["fatal_errors"])
     repair_hints = _err_repair_hints(visible_text)
     err_path = garden_root_path / str(err_summary["path"])
+    expand_objects = err_summary["expand_objects"]
     report_status = "blocked" if severe_count or fatal_count else "ok"
     message = f"Energy ERR returned for run {resolved_run_id}."
     energy_blocker: dict[str, Any] | None = None
@@ -2681,6 +2723,15 @@ def read_energy_errors(
         message = blocker_message
         if repair_hints:
             energy_blocker["repair_hints"] = repair_hints
+    elif expand_objects and expand_objects["status"] == "failed":
+        report_status = "blocked"
+        message = f"ExpandObjects preprocessing reported errors for run {resolved_run_id}."
+        energy_blocker = {
+            **expand_objects,
+            "status": "expand_objects_failed",
+            "message": message,
+            "run_id": resolved_run_id,
+        }
     return {
         "text": visible_text,
         "path": to_posix_relative(err_path, garden_root_path),
@@ -2704,6 +2755,7 @@ def read_energy_errors(
             "last_severe_error": last_severe_error,
             "severe_errors": severe_errors,
             "fatal_errors": fatal_errors,
+            "expand_objects": expand_objects,
             "repair_hints": repair_hints,
             "energy_blocker": energy_blocker,
         },

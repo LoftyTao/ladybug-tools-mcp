@@ -19,6 +19,7 @@ from ladybug_display.visualization import AnalysisGeometry, VisualizationData, V
 from ladybug_geometry.geometry3d import Mesh3D, Point3D
 import pytest
 
+from garden.analysis_period import analysis_period_from_input, analysis_period_summary
 from garden.manifest import GardenManifest
 from garden.visualize.artifacts import (
     coerce_legend_parameter_dict,
@@ -31,6 +32,27 @@ from ladybug_tools_mcp.server import create_mcp
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHICAGO_EPW = REPO_ROOT / "resources" / "ladybug" / "tests" / "assets" / "epw" / "chicago.epw"
+
+
+def test_analysis_period_accepts_nested_summary_bounds() -> None:
+    period = AnalysisPeriod(st_month=6, end_month=8)
+    nested = analysis_period_summary(period)
+    parsed = analysis_period_from_input(nested)
+    assert parsed is not None
+    assert len(parsed.datetimes) == 2208
+    assert parsed == analysis_period_from_input(period.to_dict())
+    with pytest.raises(ValueError, match="start.month conflicts"):
+        analysis_period_from_input({**nested, "st_month": 1})
+
+
+def test_climate_tools_are_discoverable_under_comfort_tag() -> None:
+    async def verify() -> None:
+        async with Client(create_mcp()) as client:
+            for tool in ("LB_Climate_Calc", "LB_Analyze_Data_Collection"):
+                result = await client.call_tool("search", {"query": tool, "tags": ["comfort"]})
+                assert f"- {tool}:" in str(result.data)
+
+    asyncio.run(verify())
 
 
 def _init_garden(tmp_path: Path, name: str = "comfort_viz_test") -> Path:

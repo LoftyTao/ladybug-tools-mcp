@@ -496,6 +496,38 @@ def test_weather_tls_retries_remote_search_ambiguity_and_sha256(tmp_path: Path) 
 # ===========================================================================
 
 
+def test_expand_objects_errors_block_clean_simulation_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    GardenManifest.new("ExpandObjects diagnostics").write(tmp_path)
+    (tmp_path / "eplusout.err").write_text("EnergyPlus Completed Successfully-- 0 Severe Errors\n", encoding="utf-8")
+    (tmp_path / "expandedidf.err").write_text(
+        "ExpandObjects: SEVERE: Too many fields for Chiller:Electric:EIR\n", encoding="utf-8"
+    )
+    (tmp_path / "eui.json").write_text('{"eui":42.0}', encoding="utf-8")
+    record = {
+        "status": "completed",
+        "stage_statuses": {"energyplus": {"status": "completed"}},
+        "outputs": [
+            {"name": name, "path": path, "exists": True}
+            for name, path in (("err", "eplusout.err"), ("eui", "eui.json"), ("sql", "eplusout.sql"))
+        ],
+    }
+    monkeypatch.setattr(annual, "_run_record_by_id", lambda *_: record)
+    errors = asyncio.run(_call(_make_raw_mcp(), "EP_Read_Errors", {
+        "garden_root": str(tmp_path), "run_id": "run_with_preprocessing_errors",
+    }))
+    assert errors["report"]["status"] == "blocked"
+    assert errors["summary_view"]["severe_count"] == 0
+    assert errors["summary_view"]["expand_objects"]["severe_count"] == 1
+    assert errors["summary_view"]["expand_objects"]["path"] == "expandedidf.err"
+
+    evidence = annual._energy_run_result_evidence(
+        garden_root=tmp_path, run_id="run_with_preprocessing_errors", record=record,
+    )
+    assert evidence["energyplus_succeeded"] is True
+    assert evidence["final_answer_ready"] is False
+    assert "ExpandObjects" in evidence["final_answer_guidance"]
+
+
 def test_energyplus_run_id_isolation_and_stage_statuses(tmp_path: Path) -> None:
     """Verify run_id isolates run directories on the same model and stage_statuses distinguishes ReportingMeasures failure."""
     g_path, model_target, weather_target = _setup_box_garden(tmp_path, "ep_iso_g")

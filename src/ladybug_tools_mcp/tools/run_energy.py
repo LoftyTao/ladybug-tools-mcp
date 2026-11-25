@@ -1042,7 +1042,9 @@ def register(mcp: FastMCP) -> None:
             "Read a bounded EnergyPlus ERR text output for one Garden energy_run target and "
             "summarize warning/severe/fatal counts. If the ERR contains Severe or Fatal errors, "
             "returns report.status blocked with energy_blocker, last_severe_error, severe_errors, "
-            "and fatal_errors. If the ERR file is missing, returns a missing_err_output blocker "
+            "and fatal_errors. ExpandObjects preprocessing errors are reported separately in "
+            "summary_view.expand_objects and also return a blocked report. "
+            "If the ERR file is missing, returns a missing_err_output blocker "
             "with recommended_next_tools (GD_Poll_Run, GD_Read_Run_Logs)."
         ),
         tags={"energy", "result", "err", "diagnostics"},

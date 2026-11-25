@@ -400,6 +400,7 @@ def register(mcp: FastMCP) -> None:
             "Import, create, inspect, filter, aggregate, or run math/degree_days on Garden DataCollections "
             "(action='degree_days' or operation='degree_days' under aggregate/math)."
         ),
+        tags={"ladybug", "comfort", "data-collection", "degree-days"},
     )
     def analyze_data_collection(
         garden_root: Annotated[
@@ -628,6 +629,7 @@ def register(mcp: FastMCP) -> None:
             "Pure-Python Ladybug weather, sunpath, psychrometrics, sky radiation estimation, "
             "wind profile, and magnetic declination calculations."
         ),
+        tags={"ladybug", "comfort", "weather", "climate", "psychrometrics", "sunpath", "wind"},
     )
     def climate_calc(
         garden_root: Annotated[
