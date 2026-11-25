@@ -1,4 +1,3 @@
-# coding=utf-8
 """Create the baseline THMZ mesh with Rhino's native quad remesher."""
 import math
 import xml.etree.ElementTree as ET
@@ -9,10 +8,10 @@ from ladybug_geometry.geometry2d import Point2D, Polygon2D
 def _finite(text, field):
     try:
         value = float(text)
-    except (TypeError, ValueError):
-        raise ValueError('{} must be a finite number'.format(field))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f'{field} must be a finite number') from exc
     if math.isnan(value) or math.isinf(value):
-        raise ValueError('{} must be a finite number'.format(field))
+        raise ValueError(f'{field} must be a finite number')
     return value
 
 
@@ -20,8 +19,8 @@ def _quad_remesh(model_xml, target_quad_count):
     """Remesh joined material faces while retaining their shared boundaries."""
     try:
         import Rhino
-    except ImportError:
-        raise RuntimeError('rhino_mesh=True requires RhinoCommon.')
+    except ImportError as exc:
+        raise RuntimeError('rhino_mesh=True requires RhinoCommon.') from exc
 
     polygons = model_xml.findall('Polygons/Polygon')
     if not polygons or any(p.findtext('Type') != 'Material' for p in polygons):
@@ -101,7 +100,7 @@ def _condition_values(boundary_conditions, name):
     matches = [item for item in boundary_conditions.findall('BoundaryCondition')
                if item.findtext('Name') == name]
     if len(matches) != 1:
-        raise ValueError('Boundary {} must map to one steady condition.'.format(name))
+        raise ValueError(f'Boundary {name} must map to one steady condition.')
     condition = matches[0]
     simple = condition.find('Simplified')
     if simple is not None:
@@ -109,7 +108,7 @@ def _condition_values(boundary_conditions, name):
                 _finite(simple.findtext('Temperature'), 'Temperature'))
     convection = condition.find('Comprehensive/Convection')
     if convection is None:
-        raise ValueError('Boundary {} has no convection condition.'.format(name))
+        raise ValueError(f'Boundary {name} has no convection condition.')
     return (_finite(convection.findtext('FilmCoefficient'), 'FilmCoefficient'),
             _finite(convection.findtext('Temperature'), 'Temperature'))
 
@@ -123,6 +122,30 @@ def _point_on_segment(point, start, end, tolerance=1e-3):
     projection = (px * dx + py * dy) / length
     distance = abs(px * dy - py * dx) / length
     return distance <= tolerance and -tolerance <= projection <= length + tolerance
+
+
+def _covered_length(boundary, segments, tolerance=1e-3):
+    """Return (expected_length, covered_length) along a boundary segment."""
+    start, end = boundary
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length = math.hypot(dx, dy)
+    if length <= 1e-12:
+        return 0.0, 0.0
+    intervals = []
+    for first, second in segments:
+        values = [((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / length
+                  for point in (first, second)]
+        low = max(0.0, min(values))
+        high = min(length, max(values))
+        if high > low:
+            intervals.append((low, high))
+    merged = []
+    for low, high in sorted(intervals):
+        if not merged or low > merged[-1][1] + tolerance:
+            merged.append([low, high])
+        else:
+            merged[-1][1] = max(merged[-1][1], high)
+    return length, sum(high - low for low, high in merged)
 
 
 def _covered(boundary, segments, tolerance=1e-3):
@@ -172,7 +195,7 @@ def _transient_boundary_value(condition, name):
             humidity = condition.imposed_humidity
         if humidity is None:
             raise ValueError(
-                'Transient boundary {} needs a humidity value.'.format(name))
+                f'Transient boundary {name} needs a humidity value.')
         return ('temperature', 0.0, None)
     if condition.bc_model == 'Dirichlet' or condition.use_temperature:
         value = _transient_step_value(condition, 'surface_temperature')
@@ -180,8 +203,7 @@ def _transient_boundary_value(condition, name):
             value = condition.imposed_temperature
         if value is None:
             raise ValueError(
-                'Transient boundary {} needs an imposed temperature.'.format(
-                    name))
+                f'Transient boundary {name} needs an imposed temperature.')
         return ('temperature', float(value), None)
     if condition.use_heat_flux:
         value = _transient_step_value(condition, 'heat_flux')
@@ -189,7 +211,7 @@ def _transient_boundary_value(condition, name):
             value = condition.heat_flux
         if value is None:
             raise ValueError(
-                'Transient boundary {} needs a heat flux.'.format(name))
+                f'Transient boundary {name} needs a heat flux.')
         return ('flux', float(value), float(value))
     # Neumann convection; dynamic film models carry a 0 placeholder because
     # Mesh.xml has no per-step storage and the kernel recomputes the film.
@@ -203,7 +225,7 @@ def _transient_boundary_value(condition, name):
         temperature = _transient_step_value(condition, 'temperature')
     if temperature is None:
         raise ValueError(
-            'Transient boundary {} needs a temperature.'.format(name))
+            f'Transient boundary {name} needs a temperature.')
     return ('convection', float(film), float(temperature))
 
 
@@ -291,8 +313,7 @@ def mesh_to_xml(model_xml, boundary_conditions, mesh,
             face = (face[0], face[3], face[2], face[1])
             cross_products = [-cross for cross in reversed(cross_products)]
         if not all(cross > 0 for cross in cross_products):
-            raise ValueError('Rhino face {} is degenerate or not a convex Q4.'.format(
-                index))
+            raise ValueError(f'Rhino face {index} is degenerate or not a convex Q4.')
         oriented.append(face)
     faces = oriented
 
@@ -382,7 +403,7 @@ def mesh_to_xml(model_xml, boundary_conditions, mesh,
         element = ET.SubElement(elements_xml, 'Element')
         ET.SubElement(element, 'index').text = str(index)
         for i, node_index in enumerate(face, 1):
-            ET.SubElement(element, 'node{}'.format(i)).text = str(node_index)
+            ET.SubElement(element, f'node{i}').text = str(node_index)
         ET.SubElement(element, 'materialID').text = str(region_materials[region])
 
     bc_segments = ET.SubElement(case, 'BCSegments')
@@ -410,7 +431,8 @@ def mesh_to_xml(model_xml, boundary_conditions, mesh,
                    _point_on_segment(second, *value[1])]
         if len(matches) != 1:
             raise ValueError(
-                'Mesh exterior edge does not match exactly one model boundary.')
+                f'FEM/Gmsh mesh exterior edge ({first[0]:.3f}, {first[1]:.3f})->({second[0]:.3f}, {second[1]:.3f}) '
+                f'does not match exactly one model boundary (matched ids: {matches}).')
         boundary_id = matches[0]
         name, segment, value = boundaries[boundary_id]
         covered[boundary_id].append((first, second))
@@ -444,8 +466,8 @@ def mesh_to_xml(model_xml, boundary_conditions, mesh,
             else:  # transient convection
                 film, temperature = value_a, value_b
                 if film < 0:
-                    raise ValueError('Boundary {} has a negative film '
-                                     'coefficient.'.format(name))
+                    raise ValueError(f'Boundary {name} has a negative film '
+                                     'coefficient.')
                 convection = ET.SubElement(convections, 'Convection')
                 ET.SubElement(convection, 'index').text = str(index)
                 ET.SubElement(convection, 'node1').text = \
@@ -461,7 +483,7 @@ def mesh_to_xml(model_xml, boundary_conditions, mesh,
             continue
         film, temperature = value
         if film < 0:
-            raise ValueError('Boundary {} has a negative film coefficient.'.format(name))
+            raise ValueError(f'Boundary {name} has a negative film coefficient.')
         convection = ET.SubElement(convections, 'Convection')
         ET.SubElement(convection, 'index').text = str(index)
         ET.SubElement(convection, 'node1').text = str(oriented_edges[edge][0])
@@ -475,9 +497,22 @@ def mesh_to_xml(model_xml, boundary_conditions, mesh,
             bc_segments.insert(0, fluxes)
         if len(temperatures):
             bc_segments.insert(1 if len(fluxes) else 0, temperatures)
-    if any(not _covered(value[1], covered[boundary_id])
-           for boundary_id, value in boundaries.items()):
-        raise ValueError('Rhino mesh does not cover every exported boundary.')
+    uncovered = []
+    for boundary_id, value in boundaries.items():
+        name, segment, _ = value
+        if not _covered(segment, covered[boundary_id]):
+            expected_len, covered_len = _covered_length(segment, covered[boundary_id])
+            start_pt, end_pt = segment
+            uncovered.append(
+                f'id={boundary_id} (display_name="{name}"): expected_length={expected_len:.3f}, '
+                f'covered_length={covered_len:.3f}, segment=({start_pt[0]:.3f}, {start_pt[1]:.3f})->({end_pt[0]:.3f}, {end_pt[1]:.3f})'
+            )
+    if uncovered:
+        raise ValueError(
+            'FEM/Gmsh mesh does not cover every exported boundary: {}'.format(
+                '; '.join(uncovered)
+            )
+        )
     return mesh_xml
 
 

@@ -370,9 +370,16 @@ def register(mcp: FastMCP) -> None:
         )
 
         resolved_shapes: list[dict[str, Any]] = []
-        for spec in shape_specs:
+        for idx, spec in enumerate(shape_specs):
             if not isinstance(spec, dict):
-                raise ValueError("Each shape entry must be a dictionary.")
+                raise ValueError(f"Each shape entry must be a dictionary (index {idx}).")
+            if "material" not in spec or spec.get("material") is None:
+                raise ValueError(
+                    f"Shape entry at index {idx} is missing required 'material' field. "
+                    "Accepted shape fields: vertices_2d (required), material (required: Fairyfly dict, "
+                    "material_name, conductivity, cavity_model+gas, or HB-Energy source), "
+                    "plus optional name/display_name, holes_2d, plane, tolerance, rgb_color."
+                )
             copied = dict(spec)
             copied["material"] = _resolve_fairyfly_material(spec["material"])
             resolved_shapes.append(copied)
@@ -796,9 +803,10 @@ def register(mcp: FastMCP) -> None:
         description=(
             "Create a Ladybug Display VisualizationSet from a Garden Fairyfly model "
             "(source_kind='model') or completed steady-state/transient temperature, heat-flux, "
-            "relative humidity, or water-content results (source_kind='result'). Poll GD_Poll_Run "
-            "before visualizing results from a run_target. Set return_visualization_set=false to "
-            "save a compact visualization_set_target for LB_Export_Visualization_Set."
+            "heat-flux vectors, relative humidity, or water-content results (source_kind='result'). "
+            "Poll GD_Poll_Run before visualizing results from a run_target. Set "
+            "return_visualization_set=false to save a compact visualization_set_target for "
+            "LB_Export_Visualization_Set."
         ),
         tags={"fairyfly", "therm", "visualization-set", "model", "result", "visualize", "preview"},
         timeout=60,
@@ -842,11 +850,11 @@ def register(mcp: FastMCP) -> None:
             Field(description="For source_kind='result': optional run identifier when targets are omitted."),
         ] = None,
         data_type: Annotated[
-            Literal["temperature", "heat_flux", "humidity", "water_content"],
+            Literal["temperature", "heat_flux", "heat_flux_vectors", "humidity", "water_content"],
             Field(
                 description=(
                     "For source_kind='result': result field to visualize ('temperature', "
-                    "'heat_flux', 'humidity', or 'water_content')."
+                    "'heat_flux', 'heat_flux_vectors', 'humidity', or 'water_content')."
                 )
             ),
         ] = "temperature",

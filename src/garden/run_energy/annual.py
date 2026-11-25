@@ -24,6 +24,7 @@ from garden.paths import (
     resolve_existing_garden_path,
     simulation_folder_name,
     to_posix_relative,
+    validate_portable_file_name,
 )
 from garden.run_ledger import RunManager, serialized_run_start
 from garden.honeybee_core.model_io import resolve_model_target
@@ -32,6 +33,7 @@ from garden.ironbug.runtime import (
     resolve_ironbug_dir,
     resolve_openstudio_csharp_dir,
 )
+from garden.run_energy._schemas import normalize_simulation_units
 from garden.run_energy.output_requests import (
     simulation_parameter_with_output_request,
 )
@@ -172,6 +174,7 @@ ENERGY_RUN_PUBLIC_FIELDS = (
     "run_input_path",
     "expand_objects",
     "worker_pid",
+    "stage_statuses",
 )
 
 _ENERGY_RUNS = RunManager(
@@ -181,6 +184,7 @@ _ENERGY_RUNS = RunManager(
     default_recipe=ENERGY_RUN_RECIPE,
     allowed_recipes=ENERGY_RUN_RECIPES,
     run_id_prefix="energy",
+    use_uuid_fallback=True,
     target_run_id_required=False,
     not_found_label="Energy",
     public_fields=ENERGY_RUN_PUBLIC_FIELDS,
@@ -344,13 +348,43 @@ def _model_path_from_target(garden_root: Path, model_target: dict[str, Any]) -> 
     return model_path
 
 
+_OUTPUT_FALLBACK_REL_PATHS: dict[str, tuple[str, ...]] = {
+    "eio": ("openstudio/run/eplusout.eio", "run/eplusout.eio", "eplusout.eio"),
+    "err": ("openstudio/run/eplusout.err", "run/eplusout.err", "eplusout.err"),
+    "eui": ("openstudio/eui.json", "eui.json"),
+    "html": ("openstudio/run/eplustbl.htm", "run/eplustbl.htm", "eplustbl.htm"),
+    "osw": ("openstudio/out.osw", "openstudio/workflow.osw", "out.osw", "workflow.osw"),
+    "rdd": ("openstudio/run/eplusout.rdd", "run/eplusout.rdd", "eplusout.rdd"),
+    "result-report": ("openstudio/reports/openstudio_results_report.html",),
+    "sql": ("openstudio/run/eplusout.sql", "run/eplusout.sql", "eplusout.sql"),
+    "visual-report": ("openstudio/reports/view_data_report.html",),
+    "zsz": ("openstudio/run/epluszsz.csv", "run/epluszsz.csv", "epluszsz.csv"),
+}
+
+
 def _run_dir_from_record(garden_root: Path, record: dict[str, Any]) -> Path:
-    run_folder = record.get("run_folder")
-    if not isinstance(run_folder, str) or not run_folder:
-        raise ValueError(f"Energy run has no valid run folder: {record.get('run_id')}")
-    run_dir = (garden_root / run_folder).resolve()
-    run_dir.relative_to(garden_root)
-    return run_dir
+    run_folder = record.get("run_folder") or record.get("run_dir")
+    if isinstance(run_folder, str) and run_folder:
+        run_dir = (garden_root / run_folder).resolve()
+        run_dir.relative_to(garden_root)
+        return run_dir
+
+    run_id = str(record.get("run_id") or "").strip()
+    candidates: list[Path] = []
+    if run_id:
+        candidates.append((garden_root / ENERGY_RUNS_DIR / run_id).resolve())
+    model_display_name = record.get("model_display_name")
+    if isinstance(model_display_name, str) and model_display_name.strip():
+        candidates.append(
+            (
+                garden_root / ENERGY_RUNS_DIR / simulation_folder_name(model_display_name)
+            ).resolve()
+        )
+    for candidate in candidates:
+        candidate.relative_to(garden_root)
+        if candidate.exists():
+            return candidate
+    raise ValueError(f"Energy run has no valid run folder: {record.get('run_id')}")
 
 
 def _record_path(
@@ -544,18 +578,403 @@ def _absolute_output_path(
     garden_root: Path, record: dict[str, Any], output_name: str
 ) -> Path:
     output = _outputs_map(record).get(output_name)
+    if output and output.get("path"):
+        path = (garden_root / str(output["path"])).resolve()
+        path.relative_to(garden_root)
+        if path.is_file():
+            return path
+    rel_candidates = _OUTPUT_FALLBACK_REL_PATHS.get(output_name, ())
+    if rel_candidates:
+        try:
+            run_dir = _run_dir_from_record(garden_root, record)
+        except ValueError:
+            run_dir = None
+        if run_dir is not None:
+            for rel in rel_candidates:
+                candidate = (run_dir / rel).resolve()
+                try:
+                    candidate.relative_to(garden_root)
+                except ValueError:
+                    continue
+                if candidate.is_file():
+                    return candidate
     if not output or not output.get("path"):
         raise ValueError(f"Energy run has no {output_name} output.")
-    path = (garden_root / str(output["path"])).resolve()
-    path.relative_to(garden_root)
-    if not path.is_file():
-        raise ValueError(f"Energy run {output_name} output file is missing.")
-    return path
+    raise ValueError(f"Energy run {output_name} output file is missing.")
 
 
 def _output_exists(record: dict[str, Any], output_name: str) -> bool:
     output = _outputs_map(record).get(output_name)
     return bool(output and output.get("exists") and output.get("path"))
+
+
+def _err_text_stats(err_path: Path) -> dict[str, Any]:
+    text = err_path.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+    lower_lines = [line.lower() for line in lines]
+    normalized_lines = [" ".join(line.split()) for line in lower_lines]
+    warning_count = sum("** warning **" in line for line in normalized_lines)
+    severe_count = sum("** severe" in line for line in normalized_lines)
+    fatal_count = sum("** fatal" in line for line in normalized_lines)
+    fatal_errors = [
+        lines[index].strip()
+        for index, line in enumerate(normalized_lines)
+        if "** fatal" in line
+    ]
+    lower_text = text.lower()
+    return {
+        "warning_count": warning_count,
+        "severe_count": severe_count,
+        "fatal_count": fatal_count,
+        "fatal_errors": fatal_errors,
+        "completed_successfully": "energyplus completed successfully" in lower_text,
+        "terminated": "energyplus terminated" in lower_text,
+    }
+
+
+def _classify_osw_measure_type(
+    measure_dir_name: str,
+    result: dict[str, Any],
+    configured_types: dict[str, str],
+) -> str | None:
+    explicit = result.get("measure_type")
+    if isinstance(explicit, str) and explicit:
+        return explicit
+    if measure_dir_name in configured_types:
+        return configured_types[measure_dir_name]
+    if measure_dir_name in {
+        "from_honeybee_model",
+        "from_honeybee_simulation_parameter",
+        "honeybee_efficiency_standard",
+    }:
+        return "ModelMeasure"
+    if measure_dir_name == "inject_idf":
+        return "EnergyPlusMeasure"
+    if measure_dir_name in {"openstudio_results", "view_data"}:
+        return "ReportingMeasure"
+    return None
+
+
+def _derive_stage_statuses(
+    *,
+    garden_root: Path,
+    record: dict[str, Any],
+    run_dir: Path | None = None,
+    simulate_status: int | None = None,
+    eui_status: int | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Derive explicit osm_load, forward_translator, energyplus, and reporting_measures statuses."""
+    if run_dir is None:
+        try:
+            run_dir = _run_dir_from_record(garden_root, record)
+        except ValueError:
+            run_dir = None
+
+    recipe = str(record.get("recipe") or ENERGY_RUN_RECIPE)
+    run_status = str(record.get("status") or "unknown")
+    measures_only = bool(record.get("measures_only", False))
+    preflight_failed = (record.get("preflight") or {}).get("status") == "failed"
+
+    if recipe == "energyplus_idf":
+        sim_dir = run_dir
+        osw_dir = None
+    elif recipe == "openstudio_osm":
+        sim_dir = run_dir
+        osw_dir = run_dir.parent if run_dir is not None else None
+    else:
+        osw_dir = (run_dir / "openstudio") if run_dir is not None else None
+        sim_dir = (osw_dir / "run") if osw_dir is not None else None
+
+    in_osm = False
+    if osw_dir is not None:
+        in_osm = (osw_dir / "in.osm").is_file() or (
+            sim_dir is not None and (sim_dir / "in.osm").is_file()
+        )
+    in_idf = False
+    if sim_dir is not None:
+        in_idf = (sim_dir / "in.idf").is_file() or (sim_dir / "pre-preprocess.idf").is_file()
+
+    err_path = (sim_dir / "eplusout.err") if sim_dir is not None else None
+    if (err_path is None or not err_path.is_file()) and _output_exists(record, "err"):
+        try:
+            err_path = _absolute_output_path(garden_root, record, "err")
+        except ValueError:
+            err_path = None
+    sql_path = (sim_dir / "eplusout.sql") if sim_dir is not None else None
+    if (sql_path is None or not sql_path.is_file()) and _output_exists(record, "sql"):
+        try:
+            sql_path = _absolute_output_path(garden_root, record, "sql")
+        except ValueError:
+            sql_path = None
+    eui_path = (osw_dir / "eui.json") if osw_dir is not None else None
+    if (eui_path is None or not eui_path.is_file()) and _output_exists(record, "eui"):
+        try:
+            eui_path = _absolute_output_path(garden_root, record, "eui")
+        except ValueError:
+            eui_path = None
+
+    err_exists = bool(err_path is not None and err_path.is_file())
+    sql_exists = bool(sql_path is not None and sql_path.is_file())
+    eui_exists = bool(eui_path is not None and eui_path.is_file())
+    report_html_exists = bool(
+        osw_dir is not None
+        and (
+            (osw_dir / "reports" / "openstudio_results_report.html").is_file()
+            or (osw_dir / "reports" / "view_data_report.html").is_file()
+        )
+    )
+
+    configured_types: dict[str, str] = {}
+    for item in list(record.get("measures") or []):
+        if isinstance(item, dict) and item.get("type"):
+            m_type = str(item["type"])
+            if item.get("identifier"):
+                configured_types[str(item["identifier"])] = m_type
+            if item.get("folder"):
+                configured_types[Path(str(item["folder"])).name] = m_type
+
+    osw_data: dict[str, Any] = {}
+    if osw_dir is not None:
+        for candidate_name in ("out.osw", "workflow.osw"):
+            candidate = osw_dir / candidate_name
+            if candidate.is_file():
+                try:
+                    loaded = json.loads(candidate.read_text(encoding="utf-8", errors="replace"))
+                    if isinstance(loaded, dict):
+                        osw_data = loaded
+                        break
+                except (OSError, json.JSONDecodeError, TypeError):
+                    pass
+    if not osw_data and _output_exists(record, "osw"):
+        try:
+            loaded = json.loads(
+                _absolute_output_path(garden_root, record, "osw").read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            )
+            if isinstance(loaded, dict):
+                osw_data = loaded
+        except (OSError, ValueError, json.JSONDecodeError, TypeError):
+            pass
+
+    osw_completed_status = osw_data.get("completed_status")
+    model_steps: list[dict[str, Any]] = []
+    ep_measure_steps: list[dict[str, Any]] = []
+    reporting_steps: list[dict[str, Any]] = []
+    unknown_failed_steps: list[dict[str, Any]] = []
+    for step in list(osw_data.get("steps") or []):
+        if not isinstance(step, dict):
+            continue
+        measure_dir = str(step.get("measure_dir_name") or "")
+        res = step.get("result") if isinstance(step.get("result"), dict) else {}
+        step_info = {
+            "measure_dir_name": measure_dir,
+            "step_result": res.get("step_result"),
+            "step_errors": list(res.get("step_errors") or []),
+            "step_warnings": list(res.get("step_warnings") or []),
+        }
+        m_type = _classify_osw_measure_type(measure_dir, res, configured_types)
+        if m_type == "ModelMeasure":
+            model_steps.append(step_info)
+        elif m_type == "EnergyPlusMeasure":
+            ep_measure_steps.append(step_info)
+        elif m_type == "ReportingMeasure":
+            reporting_steps.append(step_info)
+        elif step_info["step_result"] == "Fail" or step_info["step_errors"]:
+            unknown_failed_steps.append(step_info)
+
+    err_stats = _err_text_stats(err_path) if err_exists and err_path is not None else None
+    ep_clean_from_err = bool(
+        err_stats is not None
+        and err_stats["fatal_count"] == 0
+        and (
+            err_stats["completed_successfully"]
+            or (sql_exists and not err_stats["terminated"])
+        )
+    )
+
+    if unknown_failed_steps:
+        if ep_clean_from_err or sql_exists:
+            reporting_steps.extend(unknown_failed_steps)
+        elif in_idf:
+            ep_measure_steps.extend(unknown_failed_steps)
+        else:
+            model_steps.extend(unknown_failed_steps)
+
+    # 1. osm_load stage
+    failed_model_steps = [
+        s for s in model_steps if s["step_result"] == "Fail" or s["step_errors"]
+    ]
+    if recipe == "energyplus_idf":
+        osm_stage: dict[str, Any] = {"status": "skipped", "detail": "Direct IDF simulation."}
+    elif preflight_failed:
+        osm_stage = {"status": "not_started", "detail": "Preflight checks failed."}
+    elif failed_model_steps:
+        osm_stage = {
+            "status": "failed",
+            "failed_measures": [s["measure_dir_name"] for s in failed_model_steps],
+            "errors": [err for s in failed_model_steps for err in s["step_errors"]][:5],
+        }
+    elif (
+        in_osm
+        or in_idf
+        or sql_exists
+        or err_exists
+        or (model_steps and all(s["step_result"] == "Success" for s in model_steps))
+        or (run_status == "completed" and eui_exists)
+    ):
+        osm_stage = {"status": "completed"}
+    elif run_status in {"queued", "running"}:
+        osm_stage = {
+            "status": "running" if (osw_dir is not None and osw_dir.exists()) else "not_started"
+        }
+    else:
+        osm_stage = {
+            "status": "failed",
+            "detail": "Model translation / OSM load failed before generating in.osm.",
+        }
+
+    # 2. forward_translator stage
+    failed_ep_steps = [
+        s for s in ep_measure_steps if s["step_result"] == "Fail" or s["step_errors"]
+    ]
+    if recipe == "energyplus_idf" or measures_only:
+        ft_stage: dict[str, Any] = {
+            "status": "skipped",
+            "detail": "Direct IDF simulation." if recipe == "energyplus_idf" else "Skipped because measures_only=True.",
+        }
+    elif osm_stage["status"] in {"failed", "not_started"}:
+        ft_stage = {"status": "not_started"}
+    elif failed_ep_steps:
+        ft_stage = {
+            "status": "failed",
+            "failed_measures": [s["measure_dir_name"] for s in failed_ep_steps],
+            "errors": [err for s in failed_ep_steps for err in s["step_errors"]][:5],
+        }
+    elif in_idf or sql_exists or err_exists or (run_status == "completed" and eui_exists):
+        ft_stage = {"status": "completed"}
+    elif run_status in {"queued", "running"}:
+        ft_stage = {
+            "status": "running" if osm_stage["status"] == "completed" else "not_started"
+        }
+    else:
+        ft_stage = {
+            "status": "failed",
+            "detail": "OpenStudio ForwardTranslator failed before producing in.idf.",
+        }
+
+    # 3. energyplus stage
+    if measures_only:
+        ep_stage: dict[str, Any] = {
+            "status": "skipped",
+            "detail": "Skipped because measures_only=True.",
+        }
+    elif ft_stage["status"] in {"failed", "not_started"}:
+        ep_stage = {"status": "not_started"}
+    elif err_stats is not None:
+        if ep_clean_from_err:
+            ep_stage = {
+                "status": "completed",
+                "fatal_count": err_stats["fatal_count"],
+                "severe_count": err_stats["severe_count"],
+                "warning_count": err_stats["warning_count"],
+                "sql_exists": sql_exists,
+            }
+        else:
+            ep_stage = {
+                "status": "failed",
+                "fatal_count": err_stats["fatal_count"],
+                "severe_count": err_stats["severe_count"],
+                "warning_count": err_stats["warning_count"],
+                "fatal_errors": err_stats["fatal_errors"][:5],
+                "sql_exists": sql_exists,
+            }
+    elif sql_exists or (run_status == "completed" and eui_exists):
+        ep_stage = {"status": "completed", "sql_exists": sql_exists}
+    elif run_status in {"queued", "running"}:
+        ep_stage = {"status": "running" if in_idf else "not_started"}
+    else:
+        ep_stage = {
+            "status": "failed",
+            "detail": "EnergyPlus did not produce eplusout.err or eplusout.sql.",
+        }
+
+    # 4. reporting_measures stage
+    failed_reporting_steps = [
+        s for s in reporting_steps if s["step_result"] == "Fail" or s["step_errors"]
+    ]
+    if recipe == "energyplus_idf" or (measures_only and not reporting_steps):
+        rep_stage: dict[str, Any] = {
+            "status": "skipped",
+            "detail": "Direct IDF simulation." if recipe == "energyplus_idf" else "Skipped because measures_only=True.",
+        }
+    elif failed_reporting_steps:
+        rep_stage = {
+            "status": "failed",
+            "failed_measures": [s["measure_dir_name"] for s in failed_reporting_steps],
+            "errors": [err for s in failed_reporting_steps for err in s["step_errors"]][:5],
+        }
+    elif not measures_only and ep_stage["status"] in {"failed", "not_started"}:
+        rep_stage = {"status": "not_started"}
+    elif reporting_steps and all(
+        s["step_result"] in {"Success", "Skip"} for s in reporting_steps
+    ):
+        if (eui_status is not None and eui_status != 0) or (
+            not measures_only and ep_stage["status"] == "completed" and not eui_exists
+        ):
+            rep_stage = {
+                "status": "failed",
+                "detail": "Reporting measures succeeded, but EUI output extraction failed.",
+            }
+        else:
+            rep_stage = {
+                "status": "completed",
+                "measures": [s["measure_dir_name"] for s in reporting_steps],
+            }
+    elif ep_stage["status"] == "completed":
+        if osw_completed_status == "Fail":
+            rep_stage = {
+                "status": "failed",
+                "detail": "OpenStudio reporting measures failed after EnergyPlus completed.",
+            }
+        elif eui_status is not None and eui_status != 0:
+            rep_stage = {
+                "status": "failed",
+                "detail": f"EUI extraction failed with exit code {eui_status} after EnergyPlus completed.",
+            }
+        elif simulate_status is not None and simulate_status != 0:
+            rep_stage = {
+                "status": "failed",
+                "detail": "OpenStudio workflow failed after EnergyPlus completed.",
+            }
+        elif run_status == "failed":
+            rep_stage = {
+                "status": "failed",
+                "detail": "Post-simulation reporting failed after EnergyPlus completed.",
+            }
+        elif report_html_exists or eui_exists or run_status == "completed":
+            rep_stage = {"status": "completed"}
+        elif run_status in {"queued", "running"}:
+            rep_stage = {"status": "running"}
+        else:
+            rep_stage = {"status": "not_started"}
+    elif run_status in {"queued", "running"}:
+        rep_stage = {
+            "status": (
+                "running"
+                if (measures_only and osm_stage["status"] == "completed")
+                else "not_started"
+            )
+        }
+    else:
+        rep_stage = {"status": "not_started"}
+
+    return {
+        "osm_load": osm_stage,
+        "forward_translator": ft_stage,
+        "energyplus": ep_stage,
+        "reporting_measures": rep_stage,
+    }
 
 
 def _err_summary(
@@ -647,13 +1066,24 @@ def _energy_run_result_evidence(
             for key, value in _err_summary(garden_root=garden_root, record=record).items()
             if key != "text"
         }
+    stage_statuses = (
+        dict(record["stage_statuses"])
+        if status in {"completed", "failed", "cancelled"}
+        and isinstance(record.get("stage_statuses"), dict)
+        else _derive_stage_statuses(garden_root=garden_root, record=record)
+    )
+    ep_succeeded = stage_statuses.get("energyplus", {}).get("status") == "completed"
+    rep_failed = stage_statuses.get("reporting_measures", {}).get("status") == "failed"
     severe_count = int((err_summary or {}).get("severe_count") or 0)
     fatal_count = int((err_summary or {}).get("fatal_count") or 0)
     completed_with_diagnostics = bool(
-        status == "completed" and eui_exists and err_exists and sql_exists
+        (status == "completed" or ep_succeeded) and eui_exists and err_exists and sql_exists
     )
     final_answer_ready = bool(
-        completed_with_diagnostics and not severe_count and not fatal_count
+        status == "completed"
+        and completed_with_diagnostics
+        and not severe_count
+        and not fatal_count
     )
     if status in {"queued", "running"}:
         recommended_next_tools = ["GD_Poll_Run"]
@@ -664,6 +1094,12 @@ def _energy_run_result_evidence(
         recommended_next_tools = ["EP_Summarize_Results", GARDEN_VERSION_NEXT_TOOL]
         final_answer_guidance = (
             "Energy simulation completed with EUI, SQL, and clean ERR outputs available via EP_Summarize_Results."
+        )
+    elif ep_succeeded and rep_failed and eui_exists and err_exists and sql_exists:
+        recommended_next_tools = ["EP_Summarize_Results", "EP_Read_Errors"]
+        final_answer_guidance = (
+            "EnergyPlus simulation succeeded with EUI, SQL, and ERR outputs, while "
+            "OpenStudio reporting_measures failed; read results via EP_Summarize_Results."
         )
     elif completed_with_diagnostics:
         recommended_next_tools = ["EP_Summarize_Results", "EP_Read_Errors"]
@@ -683,6 +1119,8 @@ def _energy_run_result_evidence(
     return {
         "run_id": run_id,
         "run_status": status,
+        "energyplus_succeeded": ep_succeeded,
+        "stage_statuses": stage_statuses,
         "eui_exists": eui_exists,
         "err_exists": err_exists,
         "sql_exists": sql_exists,
@@ -711,10 +1149,17 @@ def _completed_reload_response(
     run_id = str(record["run_id"])
     target = record.get("target") or _run_target(manifest.garden_id, run_id)
     poll_arguments = {"garden_root": str(garden_root), "run_target": target}
+    evidence = _energy_run_result_evidence(
+        garden_root=garden_root,
+        run_id=run_id,
+        record=record,
+    )
+    stage_statuses = evidence["stage_statuses"]
     return {
         "target": target,
         "energy_run_target": target,
         "run_target": target,
+        "stage_statuses": stage_statuses,
         "summary_view": {
             "garden_target": manifest.target(),
             "target": target,
@@ -723,25 +1168,18 @@ def _completed_reload_response(
             "recipe": record.get("recipe", ENERGY_RUN_RECIPE),
             "run_folder": record.get("run_folder"),
             "outputs": _outputs_map(record),
+            "stage_statuses": stage_statuses,
             "preflight": record.get("preflight"),
             "simulation_parameter_target": record.get("simulation_parameter_target"),
             "design_day_resolution": record.get("design_day_resolution"),
             "reloaded": True,
-            "result_evidence": _energy_run_result_evidence(
-                garden_root=garden_root,
-                run_id=run_id,
-                record=record,
-            ),
+            "result_evidence": evidence,
             "poll_next": {
                 "tool": "GD_Poll_Run",
                 "arguments": poll_arguments,
             },
         },
-        "result_evidence": _energy_run_result_evidence(
-            garden_root=garden_root,
-            run_id=run_id,
-            record=record,
-        ),
+        "result_evidence": evidence,
         "report": make_report(
             status="ok",
             message="Existing completed annual energy-use simulation returned.",
@@ -763,6 +1201,7 @@ def _existing_run_response(
         run_id=run_id,
         record=record,
     )
+    stage_statuses = evidence["stage_statuses"]
     poll_arguments = {"garden_root": str(garden_root), "run_target": target}
     return {
         "target": target,
@@ -770,6 +1209,7 @@ def _existing_run_response(
         "run_target": target,
         "status": status,
         "run_id": run_id,
+        "stage_statuses": stage_statuses,
         "result_evidence": evidence,
         "summary_view": {
             "garden_target": manifest.target(),
@@ -779,6 +1219,7 @@ def _existing_run_response(
             "recipe": record.get("recipe", ENERGY_RUN_RECIPE),
             "run_folder": record.get("run_folder"),
             "outputs": _outputs_map(record),
+            "stage_statuses": stage_statuses,
             "preflight": record.get("preflight"),
             "simulation_parameter_target": record.get("simulation_parameter_target"),
             "design_day_resolution": record.get("design_day_resolution"),
@@ -1176,6 +1617,7 @@ def _energy_response(
         str(record["run_id"]),
         recipe=str(record.get("recipe") or ENERGY_RUN_RECIPE),
     )
+    stage_statuses = record.get("stage_statuses")
     summary_view: dict[str, Any] = {
         "garden_target": manifest.target(),
         "target": target,
@@ -1188,6 +1630,8 @@ def _energy_response(
         "simulation_parameter_target": record.get("simulation_parameter_target"),
         "design_day_resolution": record.get("design_day_resolution"),
     }
+    if stage_statuses is not None:
+        summary_view["stage_statuses"] = stage_statuses
     if record.get("worker_pid") is not None:
         summary_view["worker_pid"] = record["worker_pid"]
     result: dict[str, Any] = {
@@ -1203,6 +1647,8 @@ def _energy_response(
             warnings=warnings or list(record.get("warnings") or []),
         ),
     }
+    if stage_statuses is not None:
+        result["stage_statuses"] = stage_statuses
     if record.get("worker_pid") is not None:
         result["worker_pid"] = record["worker_pid"]
     return result
@@ -1224,6 +1670,7 @@ def _mark_energy_failed(
             "warnings": warnings,
         }
     )
+    run_dir: Path | None = None
     try:
         run_dir = _run_dir_from_record(garden_root, record)
         record["outputs"] = _recipe_outputs(
@@ -1233,6 +1680,11 @@ def _mark_energy_failed(
         )
     except (OSError, ValueError):
         record["outputs"] = _missing_outputs()
+    record["stage_statuses"] = _derive_stage_statuses(
+        garden_root=garden_root,
+        record=record,
+        run_dir=run_dir,
+    )
     _upsert_record(garden_root, record)
     return record
 
@@ -1335,14 +1787,11 @@ def _prepare_annual_energy_run(
         measures,
         validate_required=True,
     )
-    units = units.lower().strip()
-    if units not in {"si", "ip"}:
-        raise ValueError("units must be either 'si' or 'ip'.")
+    units = normalize_simulation_units(units)
 
     run_id = normalized_run_id
-    run_dir = (
-        garden_root_path / ENERGY_RUNS_DIR / simulation_folder_name(model_display_name)
-    ).resolve()
+    validate_portable_file_name(run_id, label="Run folder name")
+    run_dir = (garden_root_path / ENERGY_RUNS_DIR / run_id).resolve()
     run_dir.relative_to(garden_root_path)
     if additional_idf_path is not None and additional_idf_text is not None:
         raise ValueError("Provide either additional_idf_path or additional_idf_text, not both.")
@@ -1464,6 +1913,11 @@ def _prepare_annual_energy_run(
         record["simulation_parameter_target"] = resolved_parameter_target
     if resolved_output_request_target is not None:
         record["output_request_target"] = resolved_output_request_target
+    record["stage_statuses"] = _derive_stage_statuses(
+        garden_root=garden_root_path,
+        record=record,
+        run_dir=run_dir,
+    )
     _upsert_record(garden_root_path, record)
     return {"manifest": manifest, "record": record, "reused": False}
 
@@ -1475,7 +1929,6 @@ def _execute_annual_energy_run(
 ) -> dict[str, Any]:
     """Execute an already registered annual run without preparing its folder."""
     manifest = GardenManifest.read(garden_root)
-    run_id = str(record["run_id"])
     warnings = list(record.get("warnings") or [])
     run_dir = _run_dir_from_record(garden_root, record)
     model_path = _record_path(
@@ -1538,6 +1991,11 @@ def _execute_annual_energy_run(
                     ),
                     "warnings": warnings,
                 }
+            )
+            record["stage_statuses"] = _derive_stage_statuses(
+                garden_root=garden_root,
+                record=record,
+                run_dir=run_dir,
             )
             _upsert_record(garden_root, record)
             return _energy_response(
@@ -1602,7 +2060,31 @@ def _execute_annual_energy_run(
             "warnings": warnings,
         }
     )
+    stage_statuses = _derive_stage_statuses(
+        garden_root=garden_root,
+        record=record,
+        run_dir=run_dir,
+        simulate_status=simulate_status,
+        eui_status=eui_status,
+    )
+    if (
+        stage_statuses.get("energyplus", {}).get("status") == "completed"
+        and stage_statuses.get("reporting_measures", {}).get("status") == "failed"
+    ):
+        note = (
+            "EnergyPlus simulation completed, while OpenStudio reporting_measures failed; "
+            "SQL/ERR/EUI outputs may still be readable."
+        )
+        if note not in warnings:
+            warnings.append(note)
+    record["stage_statuses"] = stage_statuses
+    record["warnings"] = warnings
     _upsert_record(garden_root, record)
+    ep_ok_rep_failed = (
+        status != "completed"
+        and stage_statuses.get("energyplus", {}).get("status") == "completed"
+        and stage_statuses.get("reporting_measures", {}).get("status") == "failed"
+    )
     return _energy_response(
         manifest=manifest,
         record=record,
@@ -1611,6 +2093,8 @@ def _execute_annual_energy_run(
             if (status == "completed" and measures_only)
             else "Annual energy-use simulation completed."
             if status == "completed"
+            else "Annual EnergyPlus simulation completed, while reporting_measures failed; run record was saved."
+            if ep_ok_rep_failed
             else "Annual energy-use simulation failed; run record was saved."
         ),
         warnings=warnings,
@@ -1860,18 +2344,22 @@ def get_energy_run(
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     resolved_run_id = _run_id_from_target_or_value(run_target=run_target, run_id=run_id)
-    record = _public_run(_run_record_by_id(garden_root_path, resolved_run_id))
+    raw_record = _run_record_by_id(garden_root_path, resolved_run_id)
+    record = _public_run(raw_record)
     outputs = list(record.get("outputs", []))
     status = record.get("status")
     evidence = _energy_run_result_evidence(
         garden_root=garden_root_path,
         run_id=resolved_run_id,
-        record=record,
+        record=raw_record,
     )
+    stage_statuses = evidence["stage_statuses"]
+    record["stage_statuses"] = stage_statuses
     return {
         "status": status,
         "run_id": resolved_run_id,
         "outputs": outputs,
+        "stage_statuses": stage_statuses,
         "result_evidence": evidence,
         "final_answer_ready": evidence["final_answer_ready"],
         "summary_view": {
@@ -1880,6 +2368,7 @@ def get_energy_run(
             "run_id": resolved_run_id,
             "status": status,
             "outputs": outputs,
+            "stage_statuses": stage_statuses,
             "result_evidence": evidence,
             "final_answer_ready": evidence["final_answer_ready"],
             "should_start_another_run": False,
@@ -1935,11 +2424,16 @@ def read_energy_eui(
     output_map = _outputs_map(record)
     eui_output = output_map.get("eui")
     eui_path: Path | None = None
-    if eui_output and eui_output.get("path"):
-        candidate = (garden_root_path / str(eui_output["path"])).resolve()
-        candidate.relative_to(garden_root_path)
-        if candidate.is_file():
-            eui_path = candidate
+    try:
+        eui_path = _absolute_output_path(garden_root_path, record, "eui")
+    except ValueError:
+        eui_path = None
+    stage_statuses = (
+        dict(record["stage_statuses"])
+        if record.get("status") in {"completed", "failed", "cancelled"}
+        and isinstance(record.get("stage_statuses"), dict)
+        else _derive_stage_statuses(garden_root=garden_root_path, record=record)
+    )
     if eui_path is None:
         existing_output_names = [
             str(output.get("name"))
@@ -1950,6 +2444,7 @@ def read_energy_eui(
         details = {
             "run_id": resolved_run_id,
             "run_status": record.get("status"),
+            "stage_statuses": stage_statuses,
             "missing_output": "eui",
             "missing_path": missing_path,
             "available_output_names": existing_output_names,
@@ -1965,6 +2460,7 @@ def read_energy_eui(
         return {
             "eui": None,
             "path": None,
+            "stage_statuses": stage_statuses,
             "energy_blocker": {
                 "status": "missing_eui_output",
                 "message": message,
@@ -1974,6 +2470,7 @@ def read_energy_eui(
                 "garden_target": manifest.target(),
                 "run_id": resolved_run_id,
                 "run_status": record.get("status"),
+                "stage_statuses": stage_statuses,
                 "eui": None,
                 "path": None,
                 "available_outputs": outputs,
@@ -2022,6 +2519,7 @@ def read_energy_eui(
     result_evidence = {
         "run_id": resolved_run_id,
         "run_status": record.get("status"),
+        "stage_statuses": stage_statuses,
         "eui_exists": True,
         "err_exists": err_exists,
         "sql_exists": sql_exists,
@@ -2038,6 +2536,7 @@ def read_energy_eui(
     return {
         "eui": eui,
         "path": to_posix_relative(eui_path, garden_root_path),
+        "stage_statuses": stage_statuses,
         "result_evidence": result_evidence,
         "outputs": outputs,
         "files": outputs,
@@ -2051,6 +2550,7 @@ def read_energy_eui(
             "garden_target": manifest.target(),
             "run_id": resolved_run_id,
             "run_status": record.get("status"),
+            "stage_statuses": stage_statuses,
             "eui": eui,
             "path": to_posix_relative(eui_path, garden_root_path),
             "err_exists": err_exists,

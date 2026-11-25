@@ -7,10 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from honeybee.aperture import Aperture
-from honeybee.boundarycondition import Outdoors, Surface, boundary_conditions
+from honeybee.boundarycondition import (
+    Outdoors,
+    Surface,
+    boundary_conditions,
+)
 from honeybee.door import Door
-from honeybee.face import Face
-from honeybee.facetype import Floor, RoofCeiling
+from honeybee.face import Face, get_type_from_normal
+from honeybee.facetype import AirBoundary, Floor, RoofCeiling, face_types
 from honeybee.model import Model
 from honeybee.room import Room
 from honeybee.shade import Shade
@@ -127,10 +131,209 @@ def _normalize_origin(origin: list[float] | dict[str, Any] | None) -> list[float
     return [float(value) for value in origin]
 
 
+_FACE_TYPE_ALIASES = {
+    "wall": "Wall",
+    "floor": "Floor",
+    "roofceiling": "RoofCeiling",
+    "roof": "RoofCeiling",
+    "airboundary": "AirBoundary",
+}
+
+
+def _normalize_face_type_name(value: str) -> str:
+    cleaned = value.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+    if cleaned in _FACE_TYPE_ALIASES:
+        return _FACE_TYPE_ALIASES[cleaned]
+    try:
+        return face_types.by_name(cleaned).name
+    except Exception as exc:
+        raise ValueError(
+            f"Unsupported Honeybee face_type {value!r}; use Wall, Floor, RoofCeiling, or AirBoundary."
+        ) from exc
+
+
+def _normalize_face3d_dict(data: Any) -> Any:
+    if not isinstance(data, dict):
+        return data
+    geom = dict(data)
+    if geom.get("type") is None and ("boundary" in geom or "vertices" in geom):
+        geom["type"] = "Face3D"
+    return geom
+
+
+def _normalize_boundary_condition_dict(bc: Any) -> Any:
+    if bc is None:
+        return {"type": "Outdoors"}
+    if isinstance(bc, str):
+        norm = bc.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+        if norm == "surface":
+            raise ValueError(
+                "Surface boundary_condition requires a dict with 'boundary_condition_objects' "
+                "(or omit boundary_condition and run HB_Relate_Model)."
+            )
+        try:
+            return boundary_conditions.by_name(norm).to_dict()
+        except Exception as exc:
+            raise ValueError(
+                f"Invalid Honeybee boundary_condition {bc!r}; expected Outdoors, Ground, or Adiabatic."
+            ) from exc
+    if isinstance(bc, dict):
+        normalized = dict(bc)
+        raw_type = normalized.get("type")
+        if isinstance(raw_type, str):
+            norm = raw_type.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+            if norm in {"outdoors", "ground", "adiabatic"}:
+                normalized["type"] = boundary_conditions.by_name(norm).to_dict()["type"]
+            elif norm == "surface":
+                normalized["type"] = "Surface"
+            elif norm == "othersidetemperature":
+                normalized["type"] = "OtherSideTemperature"
+        return normalized
+    return bc
+
+
+def _normalize_subface_or_shade_dict(raw_item: Any, *, kind: str) -> Any:
+    if not isinstance(raw_item, dict):
+        return raw_item
+    item = dict(raw_item)
+    prop_type_map = {
+        "Aperture": "ApertureProperties",
+        "Door": "DoorProperties",
+        "Shade": "ShadeProperties",
+    }
+    if item.get("type") is None:
+        item["type"] = kind
+    if "geometry" not in item and ("boundary" in item or "vertices" in item):
+        boundary_val = item.pop("boundary") if "boundary" in item else item.pop("vertices")
+        item["geometry"] = {"type": "Face3D", "boundary": boundary_val}
+    elif isinstance(item.get("geometry"), dict):
+        item["geometry"] = face3d_from_dict(_normalize_face3d_dict(item["geometry"])).to_dict()
+    prop_type = prop_type_map[kind]
+    if item.get("properties") is None:
+        item["properties"] = {"type": prop_type}
+    elif isinstance(item["properties"], dict) and "type" not in item["properties"]:
+        item["properties"] = {"type": prop_type, **item["properties"]}
+    if kind in {"Aperture", "Door"}:
+        item["boundary_condition"] = _normalize_boundary_condition_dict(
+            item.get("boundary_condition")
+        )
+    return item
+
+
+def _normalize_face_dict(
+    raw_face: Any,
+    *,
+    room_identifier: str | None = None,
+    index: int = 0,
+) -> dict[str, Any]:
+    if not isinstance(raw_face, dict):
+        raise ValueError(f"faces[{index}] must be a Honeybee Face dictionary.")
+    face = dict(raw_face)
+    if "geometry" not in face and ("boundary" in face or "vertices" in face):
+        boundary_val = face.pop("boundary") if "boundary" in face else face.pop("vertices")
+        face["geometry"] = {"type": "Face3D", "boundary": boundary_val}
+    face3d_obj: Face3D | None = None
+    if isinstance(face.get("geometry"), dict):
+        face3d_obj = face3d_from_dict(_normalize_face3d_dict(face["geometry"]))
+        face["geometry"] = face3d_obj.to_dict()
+    if face.get("face_type") is None:
+        raw_type = face.get("type")
+        if (
+            isinstance(raw_type, str)
+            and raw_type.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+            in _FACE_TYPE_ALIASES
+        ):
+            face["face_type"] = _normalize_face_type_name(raw_type)
+            face["type"] = "Face"
+        elif face3d_obj is not None:
+            face["face_type"] = get_type_from_normal(face3d_obj.normal).name
+    elif isinstance(face["face_type"], str):
+        face["face_type"] = _normalize_face_type_name(face["face_type"])
+    if face.get("type") is None:
+        face["type"] = "Face"
+    if not isinstance(face.get("identifier"), str) or not face["identifier"].strip():
+        face["identifier"] = (
+            f"{room_identifier}_Face_{index + 1}"
+            if room_identifier
+            else f"Face_{index + 1}"
+        )
+    face["boundary_condition"] = _normalize_boundary_condition_dict(
+        face.get("boundary_condition")
+    )
+    if face.get("properties") is None:
+        face["properties"] = {"type": "FaceProperties"}
+    elif isinstance(face["properties"], dict) and "type" not in face["properties"]:
+        face["properties"] = {"type": "FaceProperties", **face["properties"]}
+    for list_key, sub_kind in (
+        ("apertures", "Aperture"),
+        ("doors", "Door"),
+        ("indoor_shades", "Shade"),
+        ("outdoor_shades", "Shade"),
+    ):
+        if isinstance(face.get(list_key), list):
+            face[list_key] = [
+                _normalize_subface_or_shade_dict(entry, kind=sub_kind)
+                for entry in face[list_key]
+            ]
+    return face
+
+
+def normalize_honeybee_add_object(raw_obj: Any) -> Any:
+    """Normalize shorthand Room/Face/Aperture/Door/Shade dicts for add_objects."""
+    if not isinstance(raw_obj, dict):
+        return raw_obj
+    obj = dict(raw_obj)
+    if "faces" in obj and obj.get("type") in {None, "Room"}:
+        obj["type"] = "Room"
+        if obj.get("properties") is None:
+            obj["properties"] = {"type": "RoomProperties"}
+        elif isinstance(obj["properties"], dict) and "type" not in obj["properties"]:
+            obj["properties"] = {"type": "RoomProperties", **obj["properties"]}
+        if isinstance(obj.get("faces"), list):
+            room_id = obj.get("identifier") if isinstance(obj.get("identifier"), str) else None
+            obj["faces"] = [
+                _normalize_face_dict(face, room_identifier=room_id, index=idx)
+                for idx, face in enumerate(obj["faces"])
+            ]
+        return obj
+    raw_type = obj.get("type")
+    if (
+        raw_type in {None, "Face"}
+        or (
+            isinstance(raw_type, str)
+            and raw_type.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+            in _FACE_TYPE_ALIASES
+        )
+    ) and ("geometry" in obj or "boundary" in obj or "vertices" in obj):
+        return _normalize_face_dict(obj)
+    if raw_type in {"Aperture", "Door", "Shade"}:
+        return _normalize_subface_or_shade_dict(obj, kind=str(raw_type))
+    return obj
+
+
+def _resolve_aperture_generation_mode(
+    generation_mode: str | None,
+    *,
+    ratio: float | None,
+    aperture_width: float | None,
+    aperture_height: float | None,
+) -> str:
+    mode_value = (generation_mode or "by_ratio").strip()
+    if (
+        mode_value == "by_ratio"
+        and ratio is None
+        and aperture_width is not None
+        and aperture_height is not None
+    ):
+        return "by_width_height"
+    return mode_value
+
+
 def create_honeybee_model(
     *,
     garden_root: str,
     identifier: str,
+    display_name: str | None = None,
     units: str = "Meters",
     tolerance: float | None = None,
     angle_tolerance: float = 1.0,
@@ -149,7 +352,14 @@ def create_honeybee_model(
         tolerance=tolerance,
         angle_tolerance=angle_tolerance,
     )
-    add_summary = add_objects_to_model(model, add_objects)
+    if display_name is not None:
+        model.display_name = display_name
+    normalized_add_objects = (
+        [normalize_honeybee_add_object(item) for item in add_objects]
+        if add_objects
+        else add_objects
+    )
+    add_summary = add_objects_to_model(model, normalized_add_objects)
     postprocess: dict[str, Any] = {}
     receipt: dict[str, Any] | None = None
     if save_back:
@@ -186,6 +396,7 @@ def create_honeybee_model(
         "model_target": model_target,
         "summary_view": {
             "model_identifier": identifier,
+            **({"display_name": model.display_name} if model.display_name is not None else {}),
             "units": units,
             "saved": save_back,
             "base_honeybee_model_changed": bool(save_back and set_base),
@@ -205,6 +416,7 @@ def import_honeybee_model_with_postprocess(
     garden_root: str,
     file_path: str,
     identifier: str | None = None,
+    display_name: str | None = None,
     set_base: bool = True,
     postprocess_strategy: str | None = None,
 ) -> dict[str, Any]:
@@ -215,7 +427,7 @@ def import_honeybee_model_with_postprocess(
         identifier=identifier,
         set_base=set_base,
     )
-    if postprocess_strategy is None:
+    if postprocess_strategy is None and display_name is None:
         return result
 
     garden_root_path = _garden_root(garden_root)
@@ -223,20 +435,25 @@ def import_honeybee_model_with_postprocess(
         garden_root_path,
         result["model_target"],
     )
-    if postprocess_strategy == "none":
+    if postprocess_strategy == "none" and display_name is None:
         model = Model("placeholder")
     else:
         model = load_honeybee_model(garden_root_path, model_target)
-    model, postprocess = apply_honeybee_postprocess(
-        model=model,
-        garden_id=manifest.garden_id,
-        model_identifier=str(model_target["model_identifier"]),
-        operation="import_honeybee_model_file",
-        target=model_target,
-        object_type="model",
-        strategy=postprocess_strategy,
-    )
-    if postprocess_strategy in {
+    if display_name is not None:
+        model.display_name = display_name
+        result.setdefault("summary_view", {})["display_name"] = display_name
+    postprocess: dict[str, Any] = {}
+    if postprocess_strategy is not None:
+        model, postprocess = apply_honeybee_postprocess(
+            model=model,
+            garden_id=manifest.garden_id,
+            model_identifier=str(model_target["model_identifier"]),
+            operation="import_honeybee_model_file",
+            target=model_target,
+            object_type="model",
+            strategy=postprocess_strategy,
+        )
+    if display_name is not None or postprocess_strategy in {
         "auto_relate_existing_geometry",
         "auto_relate_intersect_clone_single",
     }:
@@ -292,6 +509,7 @@ def _add_room_in_model(
     model_identifier: str,
     *,
     identifier: str,
+    display_name: str | None = None,
     faces: list[dict[str, Any]] | None = None,
     room_geometry: dict[str, Any] | None = None,
     x_dim: float | None = None,
@@ -315,7 +533,11 @@ def _add_room_in_model(
 
     _ensure_unique_object_identifier(model, identifier)
     if faces is not None:
-        room = Room(identifier, [Face.from_dict(face) for face in faces])
+        normalized_faces = [
+            _normalize_face_dict(face, room_identifier=identifier, index=idx)
+            for idx, face in enumerate(faces)
+        ]
+        room = Room(identifier, [Face.from_dict(face) for face in normalized_faces])
     elif room_geometry is not None:
         room = Room.from_polyface3d(identifier, polyface3d_from_dict(room_geometry))
     else:
@@ -327,6 +549,8 @@ def _add_room_in_model(
             height=float(height),
             origin=origin_point,
         )
+    if display_name is not None:
+        room.display_name = display_name
     validate_honeybee_room(room)
     model.add_room(room)
     target = make_honeybee_object_target(
@@ -345,9 +569,12 @@ def _add_face_in_model(
     *,
     identifier: str,
     geometry: dict[str, Any],
+    display_name: str | None = None,
 ) -> tuple[Face, dict[str, Any]]:
     _ensure_unique_object_identifier(model, identifier)
-    face = Face(identifier, face3d_from_dict(geometry))
+    face = Face(identifier, face3d_from_dict(_normalize_face3d_dict(geometry)))
+    if display_name is not None:
+        face.display_name = display_name
     validate_honeybee_face(face)
     model.add_face(face)
     target = make_honeybee_object_target(
@@ -359,6 +586,28 @@ def _add_face_in_model(
     return face, target
 
 
+def _air_boundary_door_error(
+    *,
+    door_identifier: str,
+    host: Face,
+    adjacent_face: Face | None = None,
+) -> ValueError:
+    if adjacent_face is not None:
+        return ValueError(
+            f"Cannot place Door '{door_identifier}' on AirBoundary host face "
+            f"'{host.identifier}' (adjacent face: '{adjacent_face.identifier}'). "
+            "Honeybee AirBoundary faces cannot host Doors or Apertures. "
+            "Fix: split the shared wall into a solid Wall segment (face_type='Wall') "
+            "for the Door and an AirBoundary segment for the open opening."
+        )
+    return ValueError(
+        f"Cannot place Door '{door_identifier}' on AirBoundary host face "
+        f"'{host.identifier}'. Honeybee AirBoundary faces cannot host Doors or Apertures. "
+        "Fix: change the host face face_type to 'Wall' via HB_Edit_Objects or split the "
+        "wall into a solid Wall segment for the Door and an AirBoundary segment."
+    )
+
+
 def _add_door_in_model(
     model: Model,
     manifest: GardenManifest,
@@ -367,6 +616,7 @@ def _add_door_in_model(
     identifier: str,
     host_target: dict[str, Any],
     geometry: dict[str, Any] | None = None,
+    display_name: str | None = None,
     is_glass: bool = False,
     door_width: float | None = None,
     door_height: float = 2.1,
@@ -376,6 +626,34 @@ def _add_door_in_model(
     _ensure_unique_object_identifier(model, identifier)
     resolved_host_target = _resolve_object_target_for_model(host_target)
     host = ensure_face_host(find_object(model, resolved_host_target))
+    adjacent_face = _adjacent_surface_face(model, host)
+    if adjacent_face is not None:
+        adj_bc = adjacent_face.boundary_condition
+        if (
+            not isinstance(adj_bc, Surface)
+            or adj_bc.boundary_condition_objects[0] != host.identifier
+        ):
+            raise ValueError(
+                f"Mismatched Surface adjacency when placing Door '{identifier}' on host face "
+                f"'{host.identifier}' (adjacent face: '{adjacent_face.identifier}' has "
+                f"boundary_condition {adj_bc}). Fix: run HB_Relate_Model with overwrite=True "
+                "so the shared wall faces reference each other consistently."
+            )
+    if isinstance(host.type, AirBoundary) or (
+        adjacent_face is not None and isinstance(adjacent_face.type, AirBoundary)
+    ):
+        raise _air_boundary_door_error(
+            door_identifier=identifier,
+            host=host,
+            adjacent_face=adjacent_face,
+        )
+    if adjacent_face is None and not isinstance(host.boundary_condition, Outdoors):
+        raise ValueError(
+            f"Cannot place Door '{identifier}' on host face '{host.identifier}' with "
+            f"{host.boundary_condition} boundary condition. Doors require an Outdoors or "
+            "paired Surface face. Fix: run HB_Relate_Model if this is an interior wall, "
+            "or update boundary_condition to 'Outdoors' via HB_Edit_Objects."
+        )
     if geometry is None:
         geometry = _rectangular_door_geometry_from_host(
             host,
@@ -385,7 +663,13 @@ def _add_door_in_model(
             placement=placement,
             tolerance=model.tolerance,
         )
-    door = Door(identifier, face3d_from_dict(geometry), is_glass=is_glass)
+    door = Door(
+        identifier,
+        face3d_from_dict(_normalize_face3d_dict(geometry)),
+        is_glass=is_glass,
+    )
+    if display_name is not None:
+        door.display_name = display_name
     validate_honeybee_door(door)
     target = make_honeybee_object_target(
         garden_id=manifest.garden_id,
@@ -396,10 +680,15 @@ def _add_door_in_model(
     )
     created_doors = [door]
     adjacent_target: dict[str, Any] | None = None
-    adjacent_face = _adjacent_surface_face(model, host)
     if adjacent_face is None:
-        host.add_door(door)
-        validate_face_sub_faces(host)
+        try:
+            host.add_door(door)
+            validate_face_sub_faces(host)
+        except Exception as exc:
+            raise ValueError(
+                f"Could not place Door '{identifier}' on host face '{host.identifier}': {exc} "
+                "Fix: ensure the door fits inside the Wall boundary without overlapping other sub-faces."
+            ) from exc
     else:
         adjacent_door = door.duplicate()
         adjacent_door.identifier = _unique_subface_identifier(
@@ -408,21 +697,31 @@ def _add_door_in_model(
         )
         host.boundary_condition = boundary_conditions.outdoors
         adjacent_face.boundary_condition = boundary_conditions.outdoors
-        host.add_door(door)
-        if not _project_subface_to_face(
-            adjacent_door,
-            host,
-            adjacent_face,
-            tolerance=model.tolerance,
-            angle_tolerance=model.angle_tolerance,
-        ):
+        try:
+            host.add_door(door)
+            if not _project_subface_to_face(
+                adjacent_door,
+                host,
+                adjacent_face,
+                tolerance=model.tolerance,
+                angle_tolerance=model.angle_tolerance,
+            ):
+                raise ValueError(
+                    f"Could not project interior Door '{identifier}' from host face "
+                    f"'{host.identifier}' onto adjacent face '{adjacent_face.identifier}' "
+                    "(door geometry may lie outside the paired face)."
+                )
+            validate_face_sub_faces(host)
+            validate_face_sub_faces(adjacent_face)
+            host.set_adjacency(adjacent_face, tolerance=model.tolerance)
+            validate_model_adjacency(model)
+        except Exception as exc:
             raise ValueError(
-                "Could not project the interior door geometry onto the adjacent "
-                f"face: {adjacent_face.identifier}."
-            )
-        validate_face_sub_faces(host)
-        validate_face_sub_faces(adjacent_face)
-        host.set_adjacency(adjacent_face, tolerance=model.tolerance)
+                f"Door '{identifier}' placement failed between host face '{host.identifier}' "
+                f"and adjacent face '{adjacent_face.identifier}': {exc} "
+                "Fix: run HB_Relate_Model with intersect=True to split/align the shared wall "
+                "faces, or provide explicit Door geometry within their shared overlap."
+            ) from exc
         created_doors.append(adjacent_door)
         adjacent_target = make_honeybee_object_target(
             garden_id=manifest.garden_id,
@@ -452,7 +751,7 @@ def _add_aperture_geometry_in_model(
     host = ensure_face_host(find_object(model, resolved_host_target))
     aperture = Aperture(
         identifier,
-        face3d_from_dict(geometry),
+        face3d_from_dict(_normalize_face3d_dict(geometry)),
         is_operable=is_operable,
     )
     validate_honeybee_aperture(aperture)
@@ -482,7 +781,7 @@ def _add_shade_geometry_in_model(
     if host_target is not None:
         host_target = normalize_honeybee_object_target(host_target)
     _ensure_unique_object_identifier(model, identifier)
-    shade = Shade(identifier, face3d_from_dict(geometry), is_detached=is_detached)
+    shade = Shade(identifier, face3d_from_dict(_normalize_face3d_dict(geometry)), is_detached=is_detached)
     validate_honeybee_shade(shade)
     parent: dict[str, str] = {}
     if host_target is None:
@@ -654,6 +953,7 @@ def create_honeybee_room(
     *,
     garden_root: str,
     identifier: str,
+    display_name: str | None = None,
     faces: list[dict[str, Any]] | None = None,
     room_geometry: dict[str, Any] | None = None,
     x_dim: float | None = None,
@@ -674,6 +974,7 @@ def create_honeybee_room(
         manifest,
         model_identifier,
         identifier=identifier,
+        display_name=display_name,
         faces=faces,
         room_geometry=room_geometry,
         x_dim=x_dim,
@@ -714,6 +1015,7 @@ def create_honeybee_face(
     garden_root: str,
     identifier: str,
     geometry: dict[str, Any],
+    display_name: str | None = None,
     model_target: dict[str, Any] | None = None,
     postprocess_strategy: str | None = None,
 ) -> dict[str, Any]:
@@ -729,6 +1031,7 @@ def create_honeybee_face(
         model_identifier,
         identifier=identifier,
         geometry=geometry,
+        display_name=display_name,
     )
     model, postprocess = apply_honeybee_postprocess(
         model=model,
@@ -764,6 +1067,7 @@ def create_honeybee_objects_batch(
     items: list[dict[str, Any]],
     model_target: dict[str, Any] | None = None,
     default_host_target: dict[str, Any] | None = None,
+    default_display_name: str | None = None,
     postprocess_strategy: str | None = None,
 ) -> dict[str, Any]:
     """Create multiple Honeybee Rooms, Faces, or Doors in one model save."""
@@ -788,12 +1092,16 @@ def create_honeybee_objects_batch(
     for index, item in enumerate(validated_items):
         item_identifier = item.identifier
         try:
+            item_display_name = (
+                item.display_name if item.display_name is not None else default_display_name
+            )
             if isinstance(item, RoomBatchItemSpec):
                 room, target = _add_room_in_model(
                     working_model,
                     manifest,
                     model_identifier,
                     identifier=item_identifier,
+                    display_name=item_display_name,
                     faces=item.faces,
                     room_geometry=item.room_geometry,
                     x_dim=item.x_dim,
@@ -811,6 +1119,7 @@ def create_honeybee_objects_batch(
                     model_identifier,
                     identifier=item_identifier,
                     geometry=item.geometry,
+                    display_name=item_display_name,
                 )
                 created_targets.append(target)
                 created_identifiers.append(face.identifier)
@@ -831,6 +1140,7 @@ def create_honeybee_objects_batch(
                     identifier=item_identifier,
                     host_target=item_host,
                     geometry=item.geometry,
+                    display_name=item_display_name,
                     is_glass=item.is_glass,
                     door_width=item.door_width,
                     door_height=item.door_height,
@@ -1090,6 +1400,13 @@ def create_honeybee_apertures_by_parameters(
         if _skylight_mode
         else "create_honeybee_apertures_by_parameters"
     )
+    if not _skylight_mode:
+        generation_mode = _resolve_aperture_generation_mode(
+            generation_mode,
+            ratio=ratio,
+            aperture_width=aperture_width,
+            aperture_height=aperture_height,
+        )
     object_label = "skylight" if _skylight_mode else "aperture"
     garden_root_path, manifest, resolved_model_target, model = _load_target_model(
         garden_root,
@@ -1294,7 +1611,7 @@ def _guide_surfaces_on_host(
 
     for index, guide_surface in enumerate(guide_surfaces):
         try:
-            guide_geometry = face3d_from_dict(guide_surface)
+            guide_geometry = face3d_from_dict(_normalize_face3d_dict(guide_surface))
             guide_aperture = Aperture(f"{prefix}_{index + 1}", guide_geometry)
             validate_honeybee_aperture(guide_aperture)
         except Exception as exc:
@@ -1509,7 +1826,8 @@ def create_honeybee_apertures_batch(
         if not isinstance(host_targets, list) or not host_targets:
             raise ValueError("host_targets must be a non-empty list.")
         specs = validate_honeybee_aperture_batch_items(
-            [{"host_target": ht} for ht in host_targets]
+            [{"host_target": ht} for ht in host_targets],
+            expected_mode=mode,
         )
     else:
         if not isinstance(items, list) or not items:
@@ -1517,6 +1835,7 @@ def create_honeybee_apertures_batch(
         specs = validate_honeybee_aperture_batch_items(
             items,
             default_host_target=host_target,
+            expected_mode=mode,
         )
 
     garden_root_path, manifest, resolved_model_target, model = _load_target_model(
@@ -1562,7 +1881,7 @@ def create_honeybee_apertures_batch(
                 )
             aperture = Aperture(
                 item_id,
-                face3d_from_dict(item_geom),
+                face3d_from_dict(_normalize_face3d_dict(item_geom)),
                 is_operable=bool(spec.get("is_operable", is_operable)),
             )
             validate_honeybee_aperture(aperture)
@@ -1582,19 +1901,27 @@ def create_honeybee_apertures_batch(
 
         elif mode in {"parameters", "skylight_ratio"}:
             is_skylight = mode == "skylight_ratio"
+            item_ratio = spec.get("ratio", ratio)
+            item_width = spec.get("aperture_width", aperture_width)
+            item_height = spec.get("aperture_height", aperture_height)
             item_gen_mode = (
                 "by_ratio"
                 if is_skylight
-                else str(spec.get("generation_mode", generation_mode) or "by_ratio")
+                else _resolve_aperture_generation_mode(
+                    spec.get("generation_mode", generation_mode),
+                    ratio=item_ratio,
+                    aperture_width=item_width,
+                    aperture_height=item_height,
+                )
             )
             try:
                 created_on_host, existing_on_host, _ = (
                     _generate_parametric_apertures_on_host(
                         host,
                         generation_mode=item_gen_mode,
-                        ratio=spec.get("ratio", ratio),
-                        aperture_width=spec.get("aperture_width", aperture_width),
-                        aperture_height=spec.get("aperture_height", aperture_height),
+                        ratio=item_ratio,
+                        aperture_width=item_width,
+                        aperture_height=item_height,
                         sill_height=float(spec.get("sill_height", sill_height)),
                         aperture_identifier=spec.get(
                             "aperture_identifier", aperture_identifier
@@ -2001,6 +2328,7 @@ def create_honeybee_door(
     identifier: str,
     host_target: dict[str, Any],
     geometry: dict[str, Any] | None = None,
+    display_name: str | None = None,
     model_target: dict[str, Any] | None = None,
     is_glass: bool = False,
     door_width: float | None = None,
@@ -2022,6 +2350,7 @@ def create_honeybee_door(
         identifier=identifier,
         host_target=host_target,
         geometry=geometry,
+        display_name=display_name,
         is_glass=is_glass,
         door_width=door_width,
         door_height=door_height,
@@ -2232,9 +2561,9 @@ def _adjacent_surface_face(model: Model, host: Face) -> Face | None:
             if face.identifier == adjacent_face_identifier:
                 return face
     raise ValueError(
-        "The host face has a Surface boundary condition but its adjacent face "
-        f"could not be found: {adjacent_face_identifier} in "
-        f"{adjacent_room_identifier}."
+        f"Host face '{host.identifier}' has a Surface boundary condition pointing to missing "
+        f"adjacent face '{adjacent_face_identifier}' in room '{adjacent_room_identifier}'. "
+        "Fix: run HB_Relate_Model with overwrite=True to re-solve model adjacencies."
     )
 
 

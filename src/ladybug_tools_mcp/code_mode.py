@@ -75,12 +75,22 @@ class PreviewMontySandboxProvider(MontySandboxProvider):
         external_functions: dict[str, Callable[..., Any]] | None = None,
     ) -> Any:
         pending_previews: dict[str, tuple[str, Any, Any]] = {}
+        last_tool_error: tuple[str, BaseException] | None = None
         if external_functions and "call_tool" in external_functions:
             call_tool = external_functions["call_tool"]
             external_functions = dict(external_functions)
 
-            async def call_tool_with_preview(tool_name: str, arguments: Any) -> Any:
-                result = await call_tool(tool_name, arguments)
+            async def call_tool_with_preview(
+                tool_name: str, arguments: Any = None
+            ) -> Any:
+                nonlocal last_tool_error
+                last_tool_error = None
+                try:
+                    result = await call_tool(tool_name, arguments)
+                except BaseException as exc:
+                    # Preserve the inner tool error in case Monty fails to serialize a multiline StackFrame.
+                    last_tool_error = (tool_name, exc)
+                    raise
                 try:
                     from web_view import preview_event_garden_root
 
@@ -97,11 +107,23 @@ class PreviewMontySandboxProvider(MontySandboxProvider):
             external_functions["call_tool"] = call_tool_with_preview
 
         try:
-            return await super().run(
-                code,
-                inputs=inputs,
-                external_functions=external_functions,
-            )
+            try:
+                return await super().run(
+                    code,
+                    inputs=inputs,
+                    external_functions=external_functions,
+                )
+            except RuntimeError as exc:
+                if (
+                    last_tool_error is not None
+                    and "monty worker protocol error: invalid exception payload"
+                    in str(exc)
+                ):
+                    failed_tool, inner_exc = last_tool_error
+                    raise RuntimeError(
+                        f"Error calling tool '{failed_tool}': {inner_exc}"
+                    ) from inner_exc
+                raise
         finally:
             if pending_previews:
                 try:

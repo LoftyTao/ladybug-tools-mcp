@@ -15,7 +15,6 @@ from ladybug_tools_mcp.contracts import (
     BuildingObjectTargetRef,
     DataCollectionTargetRef,
     MutationResultModel,
-    RunTargetRef,
     SkyTargetRef,
     WeatherTargetRef,
     dump_input,
@@ -271,6 +270,11 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="LB_Chart_To_Visualization_Set",
+        description=(
+            "Build HourlyPlot, MonthlyChart, PsychrometricChart, AdaptiveChart, or WindRose "
+            "VisualizationSet or HTML. Use return_visualization_set=False for compact summary/target; "
+            "use LB_Export_Visualization_Set for SVG/PNG/VTK/pixel sizing."
+        ),
         tags={"ladybug", "visualization", "visualization-set", "chart", "hourly-plot", "monthly-chart", "psychrometric", "windrose", "html", "legend"},
         timeout=45,
     )
@@ -283,292 +287,387 @@ def register(mcp: FastMCP) -> None:
                 "adaptive_chart",
                 "windrose",
             ],
-            Field(description="Chart type: hourly_plot, monthly_chart, psychrometric_chart, adaptive_chart, or windrose."),
+            Field(description="Chart type."),
         ],
         export_format: Annotated[
             Literal["visualization_set", "html"],
-            Field(description="Output format: 'visualization_set' or 'html'."),
+            Field(description="Output format."),
         ] = "visualization_set",
         garden_root: Annotated[
-            str | None,
-            Field(description="Garden root path (required when resolving targets or exporting HTML)."),
+            Any,
+            Field(description="Garden root path."),
         ] = None,
         legend_parameter: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional Ladybug LegendParameter overrides dictionary."),
+            Any,
+            Field(description="LegendParameters overrides dict."),
         ] = None,
         x_dim: Annotated[
-            float | None,
-            Field(gt=0.0, description="Chart X-axis dimension override."),
+            Any,
+            Field(description="Model X dimension."),
         ] = None,
         y_dim: Annotated[
-            float | None,
-            Field(gt=0.0, description="Chart Y-axis dimension override."),
+            Any,
+            Field(description="Model Y dimension."),
+        ] = None,
+        width: Annotated[
+            Any,
+            Field(description="Width px (see LB_Export_Visualization_Set)."),
+        ] = None,
+        height: Annotated[
+            Any,
+            Field(description="Height px (see LB_Export_Visualization_Set)."),
         ] = None,
         name: Annotated[
-            str | None,
-            Field(description="Base output name for the chart artifact or VisualizationSet."),
+            Any,
+            Field(description="Output name."),
         ] = None,
         output_subdir: Annotated[
-            str | None,
-            Field(description="Relative Garden subdirectory for HTML exports."),
+            Any,
+            Field(description="HTML subdir."),
         ] = None,
         return_visualization_set: Annotated[
             bool,
-            Field(description="Include the full VisualizationSet dictionary in the response."),
+            Field(description="Return VisualizationSet JSON (False recommended)."),
         ] = True,
-        # Energy SQL input options (hourly_plot / monthly_chart)
         energy_run_target: Annotated[
-            RunTargetRef | None,
-            Field(description="EnergyPlus run target for SQL chart extraction."),
+            Any,
+            Field(description="SQL run target."),
         ] = None,
         run_id: Annotated[
-            str | None,
-            Field(description="EnergyPlus run identifier when energy_run_target is omitted."),
+            Any,
+            Field(description="SQL run_id."),
         ] = None,
         output_name: Annotated[
-            str | None,
-            Field(description="EnergyPlus SQL output variable or meter name."),
+            Any,
+            Field(description="SQL output."),
         ] = None,
         collection_index: Annotated[
             int,
-            Field(ge=0, description="Zero-based SQL DataCollection index when multiple series match."),
+            Field(description="SQL index."),
         ] = 0,
         run_period_index: Annotated[
-            int | None,
-            Field(ge=0, description="Optional SQL run period index filter."),
+            Any,
+            Field(description="Run period idx."),
         ] = None,
-        # Hourly plot / Monthly chart DataCollection inputs
         data_collection: Annotated[
-            dict[str, Any] | None,
-            Field(description="Inline Ladybug DataCollection dictionary for hourly_plot."),
+            Any,
+            Field(description="DataCollection dict."),
         ] = None,
         data_collection_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Garden target for the DataCollection plotted in hourly_plot."),
+            Any,
+            Field(description="DataCollection target."),
         ] = None,
         series: Annotated[
-            list[dict[str, Any]] | None,
-            Field(description="List of series dicts for monthly_chart (DataCollection, target, or SQL output_name)."),
+            Any,
+            Field(description="Series list."),
         ] = None,
         time_interval: Annotated[
-            Literal[
-                "as_is",
-                "hourly",
-                "daily",
-                "monthly",
-                "monthly_per_hour",
-                "total_daily",
-                "total_monthly",
-                "total_monthly_per_hour",
-            ],
-            Field(description="Resampling interval for monthly_chart series."),
+            str,
+            Field(description="as_is, hourly, daily, monthly, total_*."),
         ] = "as_is",
         chart_title: Annotated[
-            str | None,
-            Field(description="Optional chart title text."),
+            Any,
+            Field(description="Chart title."),
         ] = None,
         y_axis_title: Annotated[
-            str | None,
-            Field(description="Optional Y-axis label text."),
+            Any,
+            Field(description="Y-axis label."),
         ] = None,
         stack: Annotated[
             bool,
-            Field(description="Stack monthly_chart bar/line series vertically."),
+            Field(description="Stack series."),
         ] = False,
         percentile: Annotated[
             float,
-            Field(ge=0.0, le=100.0, description="Percentile band (0-100) for monthly_per_hour range plots."),
+            Field(description="Percentile 0-100."),
         ] = 34,
         time_marks: Annotated[
             bool,
-            Field(description="Draw hour tick marks on monthly_per_hour sub-charts."),
+            Field(description="Hour marks."),
         ] = False,
-        # Psychrometric chart options
         temperature_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Garden target for dry-bulb air temperature (C) on psychrometric/adaptive charts."),
+            Any,
+            Field(description="Air temp target."),
         ] = None,
         relative_humidity_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Garden target for relative humidity (%) on psychrometric/adaptive charts."),
+            Any,
+            Field(description="RH % target."),
         ] = None,
         strategy_layers: Annotated[
-            list[dict[str, Any]] | None,
-            Field(description="Extra strategy polygon or overlay specs for psychrometric/adaptive charts."),
+            Any,
+            Field(description="Overlay specs."),
         ] = None,
         average_pressure: Annotated[
             float,
-            Field(gt=0.0, description="Mean atmospheric pressure (Pa) for psychrometric calculations."),
+            Field(description="Pressure Pa."),
         ] = 101325,
         base_point: Annotated[
-            dict[str, Any] | list[float] | None,
-            Field(description="3D origin Point3D (dict or [x,y,z]) for chart placement."),
+            Any,
+            Field(description="Origin point."),
         ] = None,
         min_temperature: Annotated[
             float,
-            Field(description="Minimum X-axis dry-bulb temperature on psychrometric chart."),
+            Field(description="Min temp C."),
         ] = -20,
         max_temperature: Annotated[
             float,
-            Field(description="Maximum X-axis dry-bulb temperature on psychrometric chart."),
+            Field(description="Max temp C."),
         ] = 50,
         max_humidity_ratio: Annotated[
             float,
-            Field(gt=0.0, description="Maximum Y-axis humidity ratio (kg/kg) on psychrometric chart."),
+            Field(description="Max hum ratio."),
         ] = 0.03,
         use_ip: Annotated[
             bool,
-            Field(description="Display psychrometric/adaptive chart axes in IP (F) units."),
+            Field(description="IP units."),
         ] = False,
         z: Annotated[
             float,
-            Field(description="Z-coordinate elevation for hourly/psychrometric/adaptive geometry."),
+            Field(description="Z elevation."),
         ] = 0,
         plot_wet_bulb: Annotated[
             bool,
-            Field(description="Plot wet-bulb temperature lines instead of enthalpy lines."),
+            Field(description="Wet-bulb lines."),
         ] = False,
-        # Windrose options
         direction_data_collection: Annotated[
-            dict[str, Any] | None,
-            Field(description="Inline DataCollection dictionary for wind directions (degrees)."),
+            Any,
+            Field(description="Wind dir dict."),
         ] = None,
         direction_data_collection_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Garden target for wind direction DataCollection (degrees)."),
+            Any,
+            Field(description="Wind dir target."),
         ] = None,
         analysis_data_collection: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional inline DataCollection binned onto windrose petals."),
+            Any,
+            Field(description="Petal dict."),
         ] = None,
         analysis_data_collection_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Optional Garden target binned onto windrose petals (e.g., wind speed)."),
+            Any,
+            Field(description="Petal target."),
         ] = None,
         direction_count: Annotated[
             int,
-            Field(ge=3, description="Number of compass rose direction bins."),
+            Field(description="Bins >=3."),
         ] = 36,
         calm_threshold: Annotated[
             float,
-            Field(ge=0.0, description="Threshold below which wind data is classified as calm."),
+            Field(description="Calm thresh."),
         ] = 1e-10,
         analysis_period: Annotated[
-            dict[str, Any] | str | None,
-            Field(description="Optional AnalysisPeriod dict or string filter."),
+            Any,
+            Field(description="AnalysisPeriod."),
         ] = None,
         north: Annotated[
             float,
-            Field(description="Counterclockwise north angle (degrees) for windrose orientation."),
+            Field(description="North deg."),
         ] = 0.0,
         show_zeros: Annotated[
             bool,
-            Field(description="Show calm/zero values in windrose stacks."),
+            Field(description="Show zeros."),
         ] = False,
         frequency_labels: Annotated[
             bool,
-            Field(description="Draw frequency percentage rings on windrose."),
+            Field(description="Freq rings."),
         ] = True,
-        # HourlyPlot & MonthlyChart upgrades
         z_dim: Annotated[
             float,
-            Field(description="Z-extrusion scale for 3D hourly_plot mesh."),
+            Field(description="3D Z scale."),
         ] = 0.0,
         reverse_y: Annotated[
             bool,
-            Field(description="Reverse the Y-axis hour direction on hourly_plot."),
+            Field(description="Reverse Y."),
         ] = False,
         custom_hours: Annotated[
-            list[int] | None,
-            Field(description="Custom hour labels or subset for hourly_plot."),
+            Any,
+            Field(description="Custom hours."),
         ] = None,
         y_axis_min: Annotated[
-            list[float | None] | float | None,
-            Field(description="Lower Y-axis bound(s) for monthly_chart."),
+            Any,
+            Field(description="Lower Y bound."),
         ] = None,
         y_axis_max: Annotated[
-            list[float | None] | float | None,
-            Field(description="Upper Y-axis bound(s) for monthly_chart."),
+            Any,
+            Field(description="Upper Y bound."),
         ] = None,
-        # Psychrometric & Adaptive chart comfort polygons / inputs
         comfort_polygon: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional PMV/Adaptive comfort polygon config dictionary."),
+            Any,
+            Field(description="Polygon dict."),
         ] = None,
         include_passive_strategies: Annotated[
             bool,
-            Field(description="Overlay passive strategy polygons when comfort inputs allow."),
+            Field(description="Passive polygons."),
         ] = True,
         passive_strategy_parameters: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional PassiveStrategyParameters configuration dictionary."),
+            Any,
+            Field(description="Strategy params."),
         ] = None,
         passive_strategies: Annotated[
-            list[str] | None,
-            Field(description="List of passive strategies to overlay on comfort chart."),
+            Any,
+            Field(description="Strategy names."),
         ] = None,
         incident_irradiance_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Garden DataCollection target for incident irradiance (passive solar strategy)."),
+            Any,
+            Field(description="Irradiance target."),
         ] = None,
         outdoor_temperature_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Garden target for outdoor prevailing temperature (adaptive chart)."),
+            Any,
+            Field(description="Outdoor target."),
         ] = None,
         operative_temperature_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Garden target for indoor operative temperature (adaptive chart)."),
+            Any,
+            Field(description="Operative target."),
         ] = None,
         air_temperature_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Garden target for indoor air temperature (comfort polygon)."),
+            Any,
+            Field(description="Air temp target."),
         ] = None,
         mean_radiant_temperature_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Garden target for mean radiant temperature (comfort polygon)."),
+            Any,
+            Field(description="MRT target."),
         ] = None,
         air_speed_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Garden target for indoor air speed in m/s (comfort polygon)."),
+            Any,
+            Field(description="Air speed target."),
         ] = None,
         wind_speed_target: Annotated[
-            DataCollectionTargetRef | None,
-            Field(description="Garden target for outdoor wind speed in m/s."),
+            Any,
+            Field(description="Wind speed target."),
         ] = None,
         comfort_parameter: Annotated[
-            dict[str, Any] | None,
-            Field(description="Optional PMVParameter or AdaptiveParameter dictionary."),
+            Any,
+            Field(description="PMV/AdaptiveParameter dict."),
         ] = None,
         min_prevailing: Annotated[
             float,
-            Field(description="Minimum prevailing outdoor temperature (C) on adaptive chart."),
+            Field(description="Min prevailing C."),
         ] = 10,
         max_prevailing: Annotated[
             float,
-            Field(description="Maximum prevailing outdoor temperature (C) on adaptive chart."),
+            Field(description="Max prevailing C."),
         ] = 33,
         min_operative: Annotated[
             float,
-            Field(description="Minimum indoor operative temperature (C) on adaptive chart."),
+            Field(description="Min operative C."),
         ] = 14,
         max_operative: Annotated[
             float,
-            Field(description="Maximum indoor operative temperature (C) on adaptive chart."),
+            Field(description="Max operative C."),
         ] = 40,
     ) -> ArtifactResultModel:
-        """Build an HourlyPlot, MonthlyChart, PsychrometricChart, or WindRose VisualizationSet or HTML.
+        """Build HourlyPlot, MonthlyChart, PsychrometricChart, AdaptiveChart, or WindRose VisualizationSet/HTML."""
+        from garden.visualize._schemas import normalize_chart_inputs
 
-        Accepts inline ``legend_parameter`` dictionaries (including 2D legend
-        fields like ``origin``, ``segment_height``, ``segment_width``,
-        ``color_set``, ``min``/``max``), DataCollection dicts/targets, and
-        EnergyPlus SQL run inputs for hourly/monthly charts.
-        """
-        dumped_energy_run_target = dump_target(energy_run_target)
-        dumped_dc_target = dump_target(data_collection_target)
-        dumped_dc = dump_input(data_collection)
-        dumped_series = dump_input(series)
-        coerced_legend = coerce_legend_parameter_dict(dump_input(legend_parameter))
+        params = normalize_chart_inputs(
+            {
+                "chart_type": chart_type,
+                "export_format": export_format,
+                "garden_root": garden_root,
+                "legend_parameter": legend_parameter,
+                "x_dim": x_dim,
+                "y_dim": y_dim,
+                "width": width,
+                "height": height,
+                "name": name,
+                "output_subdir": output_subdir,
+                "return_visualization_set": return_visualization_set,
+                "energy_run_target": energy_run_target,
+                "run_id": run_id,
+                "output_name": output_name,
+                "collection_index": collection_index,
+                "run_period_index": run_period_index,
+                "data_collection": data_collection,
+                "data_collection_target": data_collection_target,
+                "series": series,
+                "time_interval": time_interval,
+                "chart_title": chart_title,
+                "y_axis_title": y_axis_title,
+                "stack": stack,
+                "percentile": percentile,
+                "time_marks": time_marks,
+                "temperature_target": temperature_target,
+                "relative_humidity_target": relative_humidity_target,
+                "strategy_layers": strategy_layers,
+                "average_pressure": average_pressure,
+                "base_point": base_point,
+                "min_temperature": min_temperature,
+                "max_temperature": max_temperature,
+                "max_humidity_ratio": max_humidity_ratio,
+                "use_ip": use_ip,
+                "z": z,
+                "plot_wet_bulb": plot_wet_bulb,
+                "direction_data_collection": direction_data_collection,
+                "direction_data_collection_target": direction_data_collection_target,
+                "analysis_data_collection": analysis_data_collection,
+                "analysis_data_collection_target": analysis_data_collection_target,
+                "direction_count": direction_count,
+                "calm_threshold": calm_threshold,
+                "analysis_period": analysis_period,
+                "north": north,
+                "show_zeros": show_zeros,
+                "frequency_labels": frequency_labels,
+                "z_dim": z_dim,
+                "reverse_y": reverse_y,
+                "custom_hours": custom_hours,
+                "y_axis_min": y_axis_min,
+                "y_axis_max": y_axis_max,
+                "comfort_polygon": comfort_polygon,
+                "include_passive_strategies": include_passive_strategies,
+                "passive_strategy_parameters": passive_strategy_parameters,
+                "passive_strategies": passive_strategies,
+                "incident_irradiance_target": incident_irradiance_target,
+                "outdoor_temperature_target": outdoor_temperature_target,
+                "operative_temperature_target": operative_temperature_target,
+                "air_temperature_target": air_temperature_target,
+                "mean_radiant_temperature_target": mean_radiant_temperature_target,
+                "air_speed_target": air_speed_target,
+                "wind_speed_target": wind_speed_target,
+                "comfort_parameter": comfort_parameter,
+                "min_prevailing": min_prevailing,
+                "max_prevailing": max_prevailing,
+                "min_operative": min_operative,
+                "max_operative": max_operative,
+            }
+        )
+        pixel_width = params.pop("width", None)
+        pixel_height = params.pop("height", None)
+
+        def _finish(res: dict[str, Any]) -> ArtifactResultModel:
+            if pixel_width is not None or pixel_height is not None:
+                res.setdefault("summary_view", {})["export_dimensions_note"] = (
+                    f"Chart geometry uses model units (x_dim/y_dim); passed pixel hints "
+                    f"width={pixel_width}, height={pixel_height} apply when exporting via "
+                    "LB_Export_Visualization_Set(export_format='svg'|'png', width=..., height=...)."
+                )
+            return validate_output(ArtifactResultModel, res)
+
+        dumped_energy_run_target = params["energy_run_target"]
+        dumped_dc_target = params["data_collection_target"]
+        dumped_dc = params["data_collection"]
+        dumped_series = params["series"]
+        coerced_legend = coerce_legend_parameter_dict(params["legend_parameter"])
+        chart_type = params["chart_type"]
+        export_format = params["export_format"]
+        garden_root = params["garden_root"]
+        x_dim = params["x_dim"]
+        y_dim = params["y_dim"]
+        name = params["name"]
+        output_subdir = params["output_subdir"]
+        return_visualization_set = params["return_visualization_set"]
+        run_id = params["run_id"]
+        output_name = params["output_name"]
+        collection_index = params["collection_index"]
+        run_period_index = params["run_period_index"]
+        time_interval = params["time_interval"]
+        chart_title = params["chart_title"]
+        y_axis_title = params["y_axis_title"]
+        stack = params["stack"]
+        percentile = params["percentile"]
+        time_marks = params["time_marks"]
+        z_dim = params["z_dim"]
+        reverse_y = params["reverse_y"]
+        custom_hours = params["custom_hours"]
+        y_axis_min = params["y_axis_min"]
+        y_axis_max = params["y_axis_max"]
 
         if chart_type == "hourly_plot":
             chart_name = name or (
@@ -594,8 +693,7 @@ def register(mcp: FastMCP) -> None:
                     and y_dim is None
                     and run_period_index is None
                 ):
-                    return validate_output(
-                        ArtifactResultModel,
+                    return _finish(
                         energy_result_hourly_plot_to_html(
                             garden_root=root,
                             run_target=dumped_energy_run_target,
@@ -604,7 +702,7 @@ def register(mcp: FastMCP) -> None:
                             collection_index=collection_index,
                             name=chart_name,
                             output_subdir=output_subdir or "artifacts/energy/results/html",
-                        ),
+                        )
                     )
                 dumped_dc = _extract_energy_hourly_collection(
                     garden_root=root,
@@ -617,8 +715,7 @@ def register(mcp: FastMCP) -> None:
 
             if export_format == "html":
                 root = _require_garden_root(garden_root, "hourly_plot HTML export")
-                return validate_output(
-                    ArtifactResultModel,
+                return _finish(
                     data_collection_hourly_plot_to_html(
                         garden_root=root,
                         data_collection=dumped_dc,
@@ -631,10 +728,9 @@ def register(mcp: FastMCP) -> None:
                         custom_hours=custom_hours,
                         name=chart_name,
                         output_subdir=output_subdir or "artifacts/visualization/datacollections/html",
-                    ),
+                    )
                 )
-            return validate_output(
-                ArtifactResultModel,
+            return _finish(
                 data_collection_hourly_plot_to_visualization_set(
                     data_collection=dumped_dc,
                     data_collection_target=dumped_dc_target,
@@ -647,7 +743,7 @@ def register(mcp: FastMCP) -> None:
                     custom_hours=custom_hours,
                     name=chart_name,
                     return_visualization_set=return_visualization_set,
-                ),
+                )
             )
 
         if chart_type == "monthly_chart":
@@ -679,8 +775,7 @@ def register(mcp: FastMCP) -> None:
                     and x_dim is None
                     and y_dim is None
                 ):
-                    return validate_output(
-                        ArtifactResultModel,
+                    return _finish(
                         energy_result_monthly_chart_to_html(
                             garden_root=root,
                             series=dumped_series,
@@ -694,7 +789,7 @@ def register(mcp: FastMCP) -> None:
                             time_marks=time_marks,
                             name=chart_name,
                             output_subdir=output_subdir or "artifacts/energy/results/html",
-                        ),
+                        )
                     )
                 resolved_series = _extract_energy_monthly_series(
                     garden_root=root,
@@ -707,8 +802,7 @@ def register(mcp: FastMCP) -> None:
 
             if export_format == "html":
                 root = _require_garden_root(garden_root, "monthly_chart HTML export")
-                return validate_output(
-                    ArtifactResultModel,
+                return _finish(
                     data_collection_monthly_chart_to_html(
                         garden_root=root,
                         series=resolved_series,
@@ -725,10 +819,9 @@ def register(mcp: FastMCP) -> None:
                         y_dim=y_dim,
                         name=chart_name,
                         output_subdir=output_subdir or "artifacts/visualization/datacollections/html",
-                    ),
+                    )
                 )
-            return validate_output(
-                ArtifactResultModel,
+            return _finish(
                 data_collection_monthly_chart_to_visualization_set(
                     series=resolved_series,
                     garden_root=garden_root,
@@ -745,13 +838,13 @@ def register(mcp: FastMCP) -> None:
                     y_dim=y_dim,
                     name=chart_name,
                     return_visualization_set=return_visualization_set,
-                ),
+                )
             )
 
         if chart_type == "psychrometric_chart":
             root = _require_garden_root(garden_root, "psychrometric_chart")
-            dumped_temp_target = dump_target(temperature_target)
-            dumped_rh_target = dump_target(relative_humidity_target)
+            dumped_temp_target = params["temperature_target"]
+            dumped_rh_target = params["relative_humidity_target"]
             if dumped_temp_target is None or dumped_rh_target is None:
                 raise ValueError(
                     "temperature_target and relative_humidity_target are required for psychrometric_chart."
@@ -761,46 +854,45 @@ def register(mcp: FastMCP) -> None:
                 garden_root=root,
                 temperature_target=dumped_temp_target,
                 relative_humidity_target=dumped_rh_target,
-                strategy_layers=_coerce_strategy_layers(dump_input(strategy_layers)),
-                comfort_polygon=dump_input(comfort_polygon),
-                include_passive_strategies=include_passive_strategies,
-                passive_strategy_parameters=dump_input(passive_strategy_parameters),
-                passive_strategies=passive_strategies,
-                incident_irradiance_target=dump_target(incident_irradiance_target),
-                outdoor_temperature_target=dump_target(outdoor_temperature_target),
-                mean_radiant_temperature_target=dump_target(mean_radiant_temperature_target),
-                air_speed_target=dump_target(air_speed_target),
-                wind_speed_target=dump_target(wind_speed_target),
-                comfort_parameter=dump_input(comfort_parameter),
-                average_pressure=average_pressure,
+                strategy_layers=_coerce_strategy_layers(params["strategy_layers"]),
+                comfort_polygon=params["comfort_polygon"],
+                include_passive_strategies=params["include_passive_strategies"],
+                passive_strategy_parameters=params["passive_strategy_parameters"],
+                passive_strategies=params["passive_strategies"],
+                incident_irradiance_target=params["incident_irradiance_target"],
+                outdoor_temperature_target=params["outdoor_temperature_target"],
+                mean_radiant_temperature_target=params["mean_radiant_temperature_target"],
+                air_speed_target=params["air_speed_target"],
+                wind_speed_target=params["wind_speed_target"],
+                comfort_parameter=params["comfort_parameter"],
+                average_pressure=params["average_pressure"],
                 legend_parameter=coerced_legend,
-                base_point=dump_input(base_point),
+                base_point=params["base_point"],
                 x_dim=1 if x_dim is None else x_dim,
                 y_dim=1500 if y_dim is None else y_dim,
-                min_temperature=min_temperature,
-                max_temperature=max_temperature,
-                max_humidity_ratio=max_humidity_ratio,
-                use_ip=use_ip,
-                z=z,
-                plot_wet_bulb=plot_wet_bulb,
+                min_temperature=params["min_temperature"],
+                max_temperature=params["max_temperature"],
+                max_humidity_ratio=params["max_humidity_ratio"],
+                use_ip=params["use_ip"],
+                z=params["z"],
+                plot_wet_bulb=params["plot_wet_bulb"],
                 name=chart_name,
                 return_visualization_set=True if export_format == "html" else return_visualization_set,
             )
             if export_format == "html":
-                return validate_output(
-                    ArtifactResultModel,
+                return _finish(
                     visualization_set_to_html(
                         garden_root=root,
                         visualization_set=res["visualization_set"],
                         name=chart_name,
                         output_subdir=output_subdir or "artifacts/visualization/html",
-                    ),
+                    )
                 )
-            return validate_output(ArtifactResultModel, res)
+            return _finish(res)
 
         if chart_type == "adaptive_chart":
             root = _require_garden_root(garden_root, "adaptive_chart")
-            effective_outdoor = dump_target(outdoor_temperature_target) or dump_target(temperature_target)
+            effective_outdoor = params["outdoor_temperature_target"] or params["temperature_target"]
             if effective_outdoor is None:
                 raise ValueError(
                     "outdoor_temperature_target is required for adaptive_chart."
@@ -809,74 +901,72 @@ def register(mcp: FastMCP) -> None:
             res = adaptive_chart_to_visualization_set(
                 garden_root=root,
                 outdoor_temperature_target=effective_outdoor,
-                operative_temperature_target=dump_target(operative_temperature_target),
-                air_temperature_target=dump_target(air_temperature_target),
-                mean_radiant_temperature_target=dump_target(mean_radiant_temperature_target),
-                air_speed_target=dump_target(air_speed_target),
-                relative_humidity_target=dump_target(relative_humidity_target),
-                wind_speed_target=dump_target(wind_speed_target),
-                comfort_parameter=dump_input(comfort_parameter),
-                comfort_polygon=dump_input(comfort_polygon),
-                include_passive_strategies=include_passive_strategies,
-                passive_strategy_parameters=dump_input(passive_strategy_parameters),
-                passive_strategies=passive_strategies,
-                incident_irradiance_target=dump_target(incident_irradiance_target),
-                average_pressure=average_pressure,
-                strategy_layers=_coerce_strategy_layers(dump_input(strategy_layers)),
+                operative_temperature_target=params["operative_temperature_target"],
+                air_temperature_target=params["air_temperature_target"],
+                mean_radiant_temperature_target=params["mean_radiant_temperature_target"],
+                air_speed_target=params["air_speed_target"],
+                relative_humidity_target=params["relative_humidity_target"],
+                wind_speed_target=params["wind_speed_target"],
+                comfort_parameter=params["comfort_parameter"],
+                comfort_polygon=params["comfort_polygon"],
+                include_passive_strategies=params["include_passive_strategies"],
+                passive_strategy_parameters=params["passive_strategy_parameters"],
+                passive_strategies=params["passive_strategies"],
+                incident_irradiance_target=params["incident_irradiance_target"],
+                average_pressure=params["average_pressure"],
+                strategy_layers=_coerce_strategy_layers(params["strategy_layers"]),
                 legend_parameter=coerced_legend,
-                base_point=dump_input(base_point),
+                base_point=params["base_point"],
                 x_dim=1 if x_dim is None else x_dim,
                 y_dim=1 if y_dim is None else y_dim,
-                min_prevailing=min_prevailing,
-                max_prevailing=max_prevailing,
-                min_operative=min_operative,
-                max_operative=max_operative,
-                use_ip=use_ip,
-                z=z,
+                min_prevailing=params["min_prevailing"],
+                max_prevailing=params["max_prevailing"],
+                min_operative=params["min_operative"],
+                max_operative=params["max_operative"],
+                use_ip=params["use_ip"],
+                z=params["z"],
                 name=chart_name,
                 return_visualization_set=True if export_format == "html" else return_visualization_set,
             )
             if export_format == "html":
-                return validate_output(
-                    ArtifactResultModel,
+                return _finish(
                     visualization_set_to_html(
                         garden_root=root,
                         visualization_set=res["visualization_set"],
                         name=chart_name,
                         output_subdir=output_subdir or "artifacts/visualization/html",
-                    ),
+                    )
                 )
-            return validate_output(ArtifactResultModel, res)
+            return _finish(res)
 
         root = _require_garden_root(garden_root, "windrose")
         chart_name = name or "wind_rose"
         res = windrose_to_visualization_set(
             garden_root=root,
-            direction_data_collection=dump_input(direction_data_collection),
-            direction_data_collection_target=dump_target(direction_data_collection_target),
-            analysis_data_collection=dump_input(analysis_data_collection),
-            analysis_data_collection_target=dump_target(analysis_data_collection_target),
-            direction_count=direction_count,
-            calm_threshold=calm_threshold,
-            analysis_period=dump_input(analysis_period),
-            north=north,
-            show_zeros=show_zeros,
-            frequency_labels=frequency_labels,
+            direction_data_collection=params["direction_data_collection"],
+            direction_data_collection_target=params["direction_data_collection_target"],
+            analysis_data_collection=params["analysis_data_collection"],
+            analysis_data_collection_target=params["analysis_data_collection_target"],
+            direction_count=params["direction_count"],
+            calm_threshold=params["calm_threshold"],
+            analysis_period=params["analysis_period"],
+            north=params["north"],
+            show_zeros=params["show_zeros"],
+            frequency_labels=params["frequency_labels"],
             legend_parameter=coerced_legend,
             name=chart_name,
             return_visualization_set=True if export_format == "html" else return_visualization_set,
         )
         if export_format == "html":
-            return validate_output(
-                ArtifactResultModel,
+            return _finish(
                 visualization_set_to_html(
                     garden_root=root,
                     visualization_set=res["visualization_set"],
                     name=chart_name,
                     output_subdir=output_subdir or "artifacts/visualization/html",
-                ),
+                )
             )
-        return validate_output(ArtifactResultModel, res)
+        return _finish(res)
 
     @mcp.tool(
         name="LB_Sky_To_Visualization_Set",
@@ -1446,6 +1536,10 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Include 3D legends in the export."),
         ] = False,
+        auto_crop: Annotated[
+            bool,
+            Field(description="Crop SVG canvas/viewBox tightly to visible elements and legends (default True)."),
+        ] = True,
     ) -> ArtifactResultModel:
         """Export a VisualizationSet dictionary or Garden target to HTML, SVG, VTKJS, PNG, VTK, VTP, VSF, or PKL."""
         return validate_output(
@@ -1465,6 +1559,7 @@ def register(mcp: FastMCP) -> None:
                 interactive=interactive,
                 render_2d_legend=render_2d_legend,
                 render_3d_legend=render_3d_legend,
+                auto_crop=auto_crop,
             ),
         )
 

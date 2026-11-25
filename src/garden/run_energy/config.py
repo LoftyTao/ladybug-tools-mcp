@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import unicodedata
@@ -15,6 +16,61 @@ from garden.paths import to_posix_relative
 
 WEATHER_TARGET_TYPE = "weather_file"
 _WEATHER_QUERY_STOPWORDS = {"weather", "epw", "file", "climate", "data"}
+_DATASET_VERSION_RE = re.compile(
+    r"(?:^|[_\-])("
+    r"TMYx(?:\.\d{4}-\d{4})?"
+    r"|TMY[23]?"
+    r"|IWEC2?"
+    r"|CSWD"
+    r"|CWEC"
+    r"|SWERA"
+    r"|ISHRAE2?"
+    r"|CTZ\d*"
+    r"|TRY"
+    r"|AMY(?:[._-]?\d{4})?"
+    r")(?=$|[_\-.])",
+    re.IGNORECASE,
+)
+
+
+def compute_file_sha256(path: Path) -> str:
+    """Return the lowercase SHA-256 hex digest of a file."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(65536):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def parse_weather_filename_metadata(filename: str) -> dict[str, str | None]:
+    """Extract optional dataset_version and inferred station name from a weather file name."""
+    stem = Path(str(filename or "").strip()).stem
+    if not stem:
+        return {"station": None, "dataset_version": None}
+    match = _DATASET_VERSION_RE.search(stem)
+    dataset_version = match.group(1) if match else None
+    station = stem[: match.start()].rstrip("_-.") if match else stem
+    return {
+        "station": station or stem,
+        "dataset_version": dataset_version,
+    }
+
+
+def parse_epw_location_metadata(epw_path: Path) -> dict[str, str | None]:
+    """Read station/source/WMO metadata from the first LOCATION line of an EPW file."""
+    try:
+        with epw_path.open("r", encoding="utf-8", errors="replace") as handle:
+            first_line = handle.readline().strip()
+    except OSError:
+        return {"station": None, "epw_source": None, "wmo_station": None}
+    parts = [part.strip() for part in first_line.split(",")]
+    if len(parts) < 6 or parts[0].upper() != "LOCATION":
+        return {"station": None, "epw_source": None, "wmo_station": None}
+    return {
+        "station": parts[1] or None,
+        "epw_source": parts[4] or None,
+        "wmo_station": parts[5] or None,
+    }
 
 
 def _existing_path(value: str | None) -> dict[str, Any]:
@@ -97,7 +153,7 @@ def make_garden_weather_target(
     stat_path: Path | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a Garden-managed weather_file target with relative paths."""
+    """Build a Garden-managed weather_file target with relative paths and EPW provenance."""
     target: dict[str, Any] = {
         "target_type": WEATHER_TARGET_TYPE,
         "domain": "ladybug",
@@ -112,6 +168,23 @@ def make_garden_weather_target(
         target["stat_path"] = to_posix_relative(stat_path, garden_root)
     if metadata:
         target.update(metadata)
+
+    filename_meta = parse_weather_filename_metadata(
+        str(target.get("file_name") or epw_path.name)
+    )
+    epw_loc = parse_epw_location_metadata(epw_path) if epw_path.is_file() else {}
+    if not target.get("station"):
+        station = epw_loc.get("station") or filename_meta.get("station") or epw_path.stem
+        if station:
+            target["station"] = station
+    if not target.get("wmo_station") and epw_loc.get("wmo_station"):
+        target["wmo_station"] = epw_loc["wmo_station"]
+    if not target.get("dataset_version") and filename_meta.get("dataset_version"):
+        target["dataset_version"] = filename_meta["dataset_version"]
+    if not target.get("source"):
+        target["source"] = "local_weather"
+    if not target.get("epw_sha256") and epw_path.is_file():
+        target["epw_sha256"] = compute_file_sha256(epw_path)
     return target
 
 
@@ -151,6 +224,9 @@ def _searchable_weather_values(target: dict[str, Any]) -> list[str]:
         "identifier",
         "station",
         "station_id",
+        "wmo_station",
+        "dataset_version",
+        "file_name",
         "source",
         "host",
         "path",
@@ -162,6 +238,7 @@ def _searchable_weather_values(target: dict[str, Any]) -> list[str]:
         "state",
         "province",
         "region",
+        "admin_region",
     ):
         value = target.get(key)
         if value is not None:
@@ -267,11 +344,24 @@ def import_local_weather_folder(
     if stat_path is not None:
         copied_stat = destination / stat_path.name
         shutil.copy2(stat_path, copied_stat)
-    source_metadata = {
+
+    filename_meta = parse_weather_filename_metadata(epw_path.name)
+    epw_loc = parse_epw_location_metadata(copied_epw)
+    station = epw_loc.get("station") or filename_meta.get("station") or epw_path.stem
+    epw_sha256 = compute_file_sha256(copied_epw)
+    source_metadata: dict[str, Any] = {
         "source": "local_weather",
         "source_path": str(source),
-        "search_terms": [weather_identifier, epw_path.stem],
+        "station": station,
+        "wmo_station": epw_loc.get("wmo_station"),
+        "dataset_version": filename_meta.get("dataset_version"),
+        "epw_sha256": epw_sha256,
+        "file_name": epw_path.name,
+        "search_terms": [
+            term for term in (weather_identifier, epw_path.stem, station) if term
+        ],
     }
+    source_metadata = {k: v for k, v in source_metadata.items() if v is not None}
     target = make_garden_weather_target(
         garden_root=garden_root_path,
         manifest=manifest,
@@ -295,6 +385,10 @@ def import_local_weather_folder(
         "summary_view": {
             "garden_target": manifest.target(),
             "identifier": weather_identifier,
+            "station": target.get("station"),
+            "dataset_version": target.get("dataset_version"),
+            "source": target.get("source"),
+            "epw_sha256": target.get("epw_sha256"),
             "epw_path": target.get("epw_path"),
             "ddy_path": target.get("ddy_path"),
             "stat_path": target.get("stat_path"),
@@ -350,7 +444,7 @@ def search_weather_files(
             "has_ddy": bool(target.get("ddy_path")),
             "target": target,
         }
-        for key in ("station_id", "station", "source", "host"):
+        for key in ("station_id", "station", "source", "host", "dataset_version", "epw_sha256"):
             if key in target:
                 match[key] = target[key]
         matches.append(match)

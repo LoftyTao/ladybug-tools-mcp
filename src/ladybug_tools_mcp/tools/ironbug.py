@@ -131,6 +131,8 @@ class ForwardTranslatorSummary(MappingReadMixin, BaseModel):
     warning_count: int | None = None
     errors: list[str] | None = None
     warnings: list[str] | None = None
+    version_translator_warnings: list[str] | None = None
+    version_translator_errors: list[str] | None = None
     reason: str | None = None
 
 
@@ -162,6 +164,7 @@ class ValidateSystemResult(ValidationResultModel):
     ironbug_model_target: IronbugModelTargetRef | None = None
     errors: list[str] | None = None
     warnings: list[str] | None = None
+    compatibility_warnings: list[dict[str, Any]] | None = None
     blocking_issues: list[ValidationIssueModel] | None = None
     thermal_zones: list[str] | None = None
     openstudio_summary: dict[str, int] | None = None

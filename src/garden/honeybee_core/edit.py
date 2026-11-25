@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from difflib import get_close_matches
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +19,7 @@ from honeybee.boundarycondition import (
 )
 from honeybee.door import Door
 from honeybee.face import Face
-from honeybee.facetype import face_types
+from honeybee.facetype import AirBoundary, face_types
 from honeybee.model import Model
 from honeybee.room import Room
 from honeybee.shade import Shade
@@ -37,8 +39,11 @@ from honeybee_energy.lib.constructions import (
     shade_construction_by_identifier,
     window_construction_by_identifier,
 )
-from honeybee_energy.lib.constructionsets import construction_set_by_identifier
-from honeybee_energy.lib.programtypes import program_type_by_identifier
+from honeybee_energy.lib.constructionsets import (
+    CONSTRUCTION_SETS,
+    construction_set_by_identifier,
+)
+from honeybee_energy.lib.programtypes import PROGRAM_TYPES, program_type_by_identifier
 from honeybee_energy.lib.schedules import schedule_by_identifier
 from honeybee_energy.load.daylight import DaylightingControl
 from honeybee_energy.load.equipment import ElectricEquipment, GasEquipment
@@ -101,7 +106,10 @@ from garden.honeybee_core.targets import (
     normalize_honeybee_object_target,
     object_summary,
 )
-from garden.libraries.properties import get_garden_properties_library_object
+from garden.libraries.properties import (
+    get_garden_properties_library_object,
+    search_garden_properties_library_objects,
+)
 
 
 def _edit_response(
@@ -321,6 +329,12 @@ def _edit_surface_door_pair_geometry(
     adjacent_host = adjacent_door.parent
     if not isinstance(adjacent_host, Face):
         raise ValueError("Adjacent door parent must be a Honeybee Face.")
+    if isinstance(host.type, AirBoundary) or isinstance(adjacent_host.type, AirBoundary):
+        raise ValueError(
+            f"Cannot update Door '{door.identifier}' on AirBoundary face '{host.identifier}' "
+            f"(adjacent face: '{adjacent_host.identifier}'). Split the shared wall into a solid "
+            "Wall segment for the door and an AirBoundary segment for the open portion."
+        )
 
     edited_door = _edited_subface_from_geometry(
         door,
@@ -348,13 +362,22 @@ def _edit_surface_door_pair_geometry(
         angle_tolerance=model.angle_tolerance,
     ):
         raise ValueError(
-            "Could not project the edited Surface-adjacent Honeybee Door "
-            f"geometry onto the paired face: {adjacent_host.identifier}."
+            f"Could not project edited Door '{door.identifier}' from host face "
+            f"'{host.identifier}' onto adjacent face '{adjacent_host.identifier}'. "
+            "Fix: run HB_Relate_Model with intersect=True so the shared wall faces align, "
+            "or keep the Door geometry within both faces' shared overlap."
         )
-    validate_face_sub_faces(host)
-    validate_face_sub_faces(adjacent_host)
-    host.set_adjacency(adjacent_host, tolerance=model.tolerance)
-    validate_model_adjacency(model)
+    try:
+        validate_face_sub_faces(host)
+        validate_face_sub_faces(adjacent_host)
+        host.set_adjacency(adjacent_host, tolerance=model.tolerance)
+        validate_model_adjacency(model)
+    except Exception as exc:
+        raise ValueError(
+            f"Mismatched adjacency when editing Door '{door.identifier}' between host face "
+            f"'{host.identifier}' and adjacent face '{adjacent_host.identifier}': {exc} "
+            "Fix: run HB_Relate_Model with intersect=True or split the shared wall faces to match."
+        ) from exc
     return edited_door
 
 
@@ -531,19 +554,177 @@ def _vent_crack_from_dict(data: dict[str, Any]) -> AFNCrack:
         raise ValueError(f"Invalid Honeybee Energy vent crack input. {exc}") from exc
 
 
-def _construction_set_from_input(data: dict[str, Any] | str) -> ConstructionSet:
+def _garden_library_dict_by_identifier(
+    *,
+    garden_root: Path | str | None,
+    identifier: str,
+    domain: str,
+    object_family: str,
+) -> dict[str, Any] | None:
+    if garden_root is None:
+        return None
     try:
-        if isinstance(data, str):
-            return construction_set_by_identifier(data)
+        res = get_garden_properties_library_object(
+            garden_root=str(garden_root),
+            domain=domain,
+            object_family=object_family,
+            identifier=identifier,
+        )
+    except ValueError:
+        return None
+    obj_dict = res.get("object_dict")
+    return obj_dict if isinstance(obj_dict, dict) else None
+
+
+def _garden_library_identifiers(
+    *,
+    garden_root: Path | str | None,
+    domain: str,
+    object_family: str,
+) -> list[str]:
+    if garden_root is None:
+        return []
+    try:
+        res = search_garden_properties_library_objects(
+            garden_root=str(garden_root),
+            domain=domain,
+            object_family=object_family,
+            query="",
+            limit=50,
+        )
+    except Exception:
+        return []
+    return [
+        str(item["identifier"])
+        for item in res.get("matches", [])
+        if isinstance(item, dict) and item.get("identifier")
+    ]
+
+
+def _closest_library_options(
+    query: str,
+    candidates: Iterable[str],
+    *,
+    limit: int = 5,
+) -> list[str]:
+    pool = [str(item) for item in candidates if item]
+    if not pool:
+        return []
+    close = get_close_matches(query, pool, n=limit, cutoff=0.35)
+    if close:
+        return close
+    lowered = query.lower()
+    substr = [item for item in pool if lowered in item.lower()][:limit]
+    return substr if substr else pool[:limit]
+
+
+def _library_lookup_error(
+    *,
+    label: str,
+    identifier: str,
+    garden_root: Path | str | None,
+    domain: str,
+    object_family: str,
+    standards_pool: tuple[str, ...] = (),
+    no_standards_hint: str | None = None,
+) -> ValueError:
+    garden_ids = _garden_library_identifiers(
+        garden_root=garden_root,
+        domain=domain,
+        object_family=object_family,
+    )
+    garden_opts = _closest_library_options(identifier, garden_ids)
+    parts = [f"Honeybee Energy {label} {identifier!r} was not found in Garden Properties Library"]
+    if standards_pool:
+        parts[0] += " or built-in Honeybee Energy standards."
+    else:
+        parts[0] += "."
+    if garden_opts:
+        parts.append(f"Closest/available Garden {object_family} IDs: {', '.join(garden_opts)}.")
+    elif garden_root is not None:
+        parts.append(f"No saved Garden {object_family} objects exist yet.")
+    if standards_pool:
+        std_opts = _closest_library_options(identifier, standards_pool)
+        if std_opts:
+            parts.append(f"Closest standards IDs: {', '.join(std_opts)}.")
+    elif no_standards_hint:
+        parts.append(no_standards_hint)
+    return ValueError(" ".join(parts))
+
+
+def _construction_set_from_input(
+    data: dict[str, Any] | str,
+    *,
+    garden_root: Path | str | None = None,
+) -> ConstructionSet:
+    if isinstance(data, dict) and isinstance(data.get("object_dict"), dict):
+        data = data["object_dict"]
+    if isinstance(data, str):
+        key = data.strip()
+        if not key:
+            raise ValueError("construction_set string identifier must not be empty.")
+        lib_dict = _garden_library_dict_by_identifier(
+            garden_root=garden_root,
+            identifier=key,
+            domain="honeybee_energy",
+            object_family="construction_set",
+        )
+        if lib_dict is not None:
+            try:
+                return ConstructionSet.from_dict(lib_dict)
+            except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
+                raise ValueError(f"Invalid Garden ConstructionSet {key!r}. {exc}") from exc
+        try:
+            return construction_set_by_identifier(key)
+        except Exception as exc:
+            raise _library_lookup_error(
+                label="ConstructionSet",
+                identifier=key,
+                garden_root=garden_root,
+                domain="honeybee_energy",
+                object_family="construction_set",
+                standards_pool=tuple(CONSTRUCTION_SETS),
+            ) from exc
+    try:
         return ConstructionSet.from_dict(data)
     except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
         raise ValueError(f"Invalid Honeybee Energy construction set input. {exc}") from exc
 
 
-def _program_type_from_input(data: dict[str, Any] | str) -> ProgramType:
+def _program_type_from_input(
+    data: dict[str, Any] | str,
+    *,
+    garden_root: Path | str | None = None,
+) -> ProgramType:
+    if isinstance(data, dict) and isinstance(data.get("object_dict"), dict):
+        data = data["object_dict"]
+    if isinstance(data, str):
+        key = data.strip()
+        if not key:
+            raise ValueError("program_type string identifier must not be empty.")
+        lib_dict = _garden_library_dict_by_identifier(
+            garden_root=garden_root,
+            identifier=key,
+            domain="honeybee_energy",
+            object_family="program_type",
+        )
+        if lib_dict is not None:
+            try:
+                return ProgramType.from_dict(lib_dict)
+            except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
+                raise ValueError(f"Invalid Garden ProgramType {key!r}. {exc}") from exc
+        try:
+            return program_type_by_identifier(key)
+        except Exception as exc:
+            raise _library_lookup_error(
+                label="ProgramType",
+                identifier=key,
+                garden_root=garden_root,
+                domain="honeybee_energy",
+                object_family="program_type",
+                standards_pool=tuple(PROGRAM_TYPES),
+            ) from exc
     try:
-        if isinstance(data, str):
-            return program_type_by_identifier(data)
         result = dict_to_object(data)
     except Exception as exc:  # pragma: no cover - SDK-raised diagnostics
         raise ValueError(f"Invalid Honeybee Energy program type input. {exc}") from exc
@@ -575,13 +756,41 @@ def _library_object_dict_from_target(
     )["object_dict"]
 
 
-def _hvac_from_dict(data: dict[str, Any]) -> _HVACSystem:
+def _hvac_from_dict(
+    data: dict[str, Any] | str,
+    *,
+    garden_root: Path | str | None = None,
+) -> _HVACSystem:
     if isinstance(data, dict) and isinstance(data.get("object_dict"), dict):
         data = data["object_dict"]
+    if isinstance(data, str):
+        key = data.strip()
+        if not key:
+            raise ValueError("hvac string identifier must not be empty.")
+        lib_dict = _garden_library_dict_by_identifier(
+            garden_root=garden_root,
+            identifier=key,
+            domain="honeybee_energy",
+            object_family="hvac",
+        )
+        if lib_dict is None:
+            raise _library_lookup_error(
+                label="HVAC",
+                identifier=key,
+                garden_root=garden_root,
+                domain="honeybee_energy",
+                object_family="hvac",
+                no_standards_hint=(
+                    "Save HVAC systems via EP_Create_HVAC_Template / GD_Properties_Library, "
+                    "or pass an HVAC object_dict."
+                ),
+            )
+        data = lib_dict
     hvac_type = data.get("type") if isinstance(data, dict) else None
     if not isinstance(hvac_type, str):
         raise ValueError(
-            "hvac must be a Honeybee Energy HVAC dictionary with a type field."
+            "hvac must be a Honeybee Energy HVAC dictionary with a type field, "
+            "a Garden library target, or a saved Garden HVAC identifier."
         )
     hvac_cls = HVAC_TYPES_DICT.get(hvac_type)
     if hvac_cls is None:
@@ -1436,7 +1645,8 @@ def _apply_radiance_hot_swaps(
 def edit_honeybee_model(
     *,
     garden_root: str,
-    target: dict[str, Any],
+    target: dict[str, Any] | None = None,
+    model_target: dict[str, Any] | None = None,
     display_name: str | None = None,
     user_data: dict[str, Any] | None = None,
     units: str | None = None,
@@ -1449,7 +1659,17 @@ def edit_honeybee_model(
     postprocess_strategy: str | None = None,
 ) -> dict[str, Any]:
     """Edit one Honeybee Model by model target."""
-    target = normalize_honeybee_model_target(target)
+    if target is not None and model_target is not None:
+        norm_t = normalize_honeybee_model_target(target)
+        norm_mt = normalize_honeybee_model_target(model_target)
+        if norm_t != norm_mt:
+            raise ValueError("Provide either target or model_target, not conflicting targets.")
+        target = norm_t
+    else:
+        resolved_raw_target = target if target is not None else model_target
+        if resolved_raw_target is None:
+            raise ValueError("edit_honeybee_model requires target or model_target.")
+        target = normalize_honeybee_model_target(resolved_raw_target)
     if target.get("target_type") != "honeybee_model" or target.get("domain") != "honeybee":
         raise ValueError("edit_honeybee_model requires a Honeybee model target.")
 
@@ -1503,6 +1723,10 @@ def edit_honeybee_model(
         model.properties.energy.electric_load_center = _electric_load_center_from_dict(
             electric_load_center
         )
+    if add_objects:
+        from garden.honeybee_core.creation import normalize_honeybee_add_object
+
+        add_objects = [normalize_honeybee_add_object(item) for item in add_objects]
     add_summary = add_objects_to_model(model, add_objects)
     remove_summary = remove_objects_from_model(model, remove_targets)
     model, postprocess = apply_honeybee_postprocess(
@@ -1710,7 +1934,7 @@ def edit_honeybee_room(
     exclude_floor_area: bool | None = None,
     program_type: dict[str, Any] | str | None = None,
     construction_set: dict[str, Any] | str | None = None,
-    hvac: dict[str, Any] | None = None,
+    hvac: dict[str, Any] | str | None = None,
     people: dict[str, Any] | None = None,
     lighting: dict[str, Any] | None = None,
     electric_equipment: dict[str, Any] | None = None,
@@ -1820,7 +2044,10 @@ def edit_honeybee_room(
             domain="honeybee_energy",
             object_family="program_type",
         )
-        room.properties.energy.program_type = _program_type_from_input(program_type)
+        room.properties.energy.program_type = _program_type_from_input(
+            program_type,
+            garden_root=garden_root,
+        )
     if construction_set is not None:
         construction_set = _library_object_dict_from_target(
             garden_root=garden_root,
@@ -1830,7 +2057,8 @@ def edit_honeybee_room(
             object_family="construction_set",
         )
         room.properties.energy.construction_set = _construction_set_from_input(
-            construction_set
+            construction_set,
+            garden_root=garden_root,
         )
     if hvac is not None:
         hvac = _library_object_dict_from_target(
@@ -1840,7 +2068,10 @@ def edit_honeybee_room(
             domain="honeybee_energy",
             object_family="hvac",
         )
-        room.properties.energy.hvac = _hvac_from_dict(hvac)
+        room.properties.energy.hvac = _hvac_from_dict(
+            hvac,
+            garden_root=garden_root,
+        )
     for load_field, load_cls in (
         ("people", People),
         ("lighting", Lighting),
@@ -2681,7 +2912,7 @@ def edit_honeybee_objects(
     energy_properties: dict[str, Any] | None = None,
     program_type: dict[str, Any] | str | None = None,
     construction_set: dict[str, Any] | str | None = None,
-    hvac: dict[str, Any] | None = None,
+    hvac: dict[str, Any] | str | None = None,
     people: dict[str, Any] | None = None,
     lighting: dict[str, Any] | None = None,
     electric_equipment: dict[str, Any] | None = None,
@@ -3044,7 +3275,8 @@ def edit_honeybee_objects(
                 field_name="program_type",
                 domain="honeybee_energy",
                 object_family="program_type",
-            )
+            ),
+            garden_root=garden_root_path,
         )
     resolved_construction_set = None
     if construction_set is not None:
@@ -3055,7 +3287,8 @@ def edit_honeybee_objects(
                 field_name="construction_set",
                 domain="honeybee_energy",
                 object_family="construction_set",
-            )
+            ),
+            garden_root=garden_root_path,
         )
     resolved_hvac = None
     if hvac is not None:
@@ -3066,7 +3299,8 @@ def edit_honeybee_objects(
                 field_name="hvac",
                 domain="honeybee_energy",
                 object_family="hvac",
-            )
+            ),
+            garden_root=garden_root_path,
         )
     resolved_ventilation = None
     if ventilation is not None:

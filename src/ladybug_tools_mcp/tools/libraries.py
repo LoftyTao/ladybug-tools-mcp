@@ -442,13 +442,15 @@ def register(mcp: FastMCP) -> None:
             "Search or inspect built-in Ladybug Tools standards catalogs across Energy (schedules, "
             "program types, materials, constructions, construction sets), Radiance (modifiers, "
             "modifier sets), OpenDSS electrical catalogs (transformer_properties, power_lines, wires), "
-            "and Fairyfly THERM catalogs (solid_material, cavity_material, condition, gas, pure_gas). "
+            "and Fairyfly THERM catalogs (domain='therm' or 'fairyfly': solid_material, "
+            "cavity_material, condition, gas, pure_gas). "
             "Use action='search' (with optional structured filters climate_zone, vintage, "
             "construction_type, building_type) for compact matches, or action='get' with identifier "
             "to inspect full properties, U-values, layers, schedules, and object_dict."
         ),
         tags={
             "energy",
+            "fairyfly",
             "library",
             "opendss",
             "radiance",
@@ -473,9 +475,9 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = "search",
         domain: Annotated[
-            Literal["energy", "radiance", "opendss", "therm"],
+            Literal["energy", "radiance", "opendss", "therm", "fairyfly"],
             Field(
-                description="Standards catalog domain: 'energy', 'radiance', 'opendss', or 'therm'."
+                description="Standards catalog domain: 'energy', 'radiance', 'opendss', 'therm', or 'fairyfly' (alias for 'therm')."
             ),
         ] = "energy",
         object_family: Annotated[
@@ -535,9 +537,10 @@ def register(mcp: FastMCP) -> None:
         ] = 10,
     ) -> QueryResultModel:
         """Search or inspect built-in Energy, Radiance, OpenDSS, or THERM standards catalogs."""
+        normalized_domain = "therm" if domain == "fairyfly" else domain
         if action == "get":
             target_identifier = (identifier if identifier is not None else query).strip()
-            if domain == "energy":
+            if normalized_domain == "energy":
                 from garden.energy.libraries import get_energy_library_object
 
                 return validate_output(
@@ -547,7 +550,7 @@ def register(mcp: FastMCP) -> None:
                         object_family=object_family,
                     ),
                 )
-            if domain == "radiance":
+            if normalized_domain == "radiance":
                 return validate_output(
                     QueryResultModel,
                     _get_radiance_library_object(
@@ -555,7 +558,7 @@ def register(mcp: FastMCP) -> None:
                         object_family=object_family,
                     ),
                 )
-            if domain == "opendss":
+            if normalized_domain == "opendss":
                 return validate_output(
                     QueryResultModel,
                     _get_opendss_library_object(
@@ -572,7 +575,7 @@ def register(mcp: FastMCP) -> None:
                 ),
             )
 
-        if domain == "energy":
+        if normalized_domain == "energy":
             from garden.energy.libraries import search_energy_library_objects
 
             return validate_output(
@@ -587,7 +590,7 @@ def register(mcp: FastMCP) -> None:
                     limit=limit,
                 ),
             )
-        if domain == "radiance":
+        if normalized_domain == "radiance":
             from garden.radiance.libraries import search_radiance_library_objects
 
             return validate_output(
@@ -598,7 +601,7 @@ def register(mcp: FastMCP) -> None:
                     limit=limit,
                 ),
             )
-        if domain == "therm":
+        if normalized_domain == "therm":
             return validate_output(
                 QueryResultModel,
                 _search_therm_library(

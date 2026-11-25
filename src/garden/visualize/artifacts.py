@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
+import math
 from pathlib import Path
+import threading
 from typing import Any
 
 import ladybug_vtk._extend_visualization_set  # noqa: F401
+from ladybug.color import Colorset
 from ladybug.legend import (
     Legend,
-    Legend3DParameters,
     LegendParameters,
     LegendParametersCategorized,
 )
+from ladybug_display.svg._types import ViewBoxSpec
 from ladybug_display.visualization import AnalysisGeometry, ContextGeometry, VisualizationSet
 from ladybug_geometry.geometry3d import Plane, Vector3D
 from ladybug_vtk.display_polydata import DisplayMode, DisplayPolyData
@@ -27,6 +31,7 @@ from garden.visualize.legend import (
     edit_2d_legend_parameter,
     legend_3d_parameter_from_dict,
     legend_parameter_from_dict,
+    resolve_colorset,
 )
 
 HTML_ARTIFACT_TYPE = "visualization_html"
@@ -82,6 +87,488 @@ def _visualization_set_target(
     }
 
 
+_SVG_ORDER_LOCK = threading.RLock()
+_SVG_SKIP_TAGS = {
+    "Defs",
+    "Style",
+    "Title",
+    "Desc",
+    "LinearGradient",
+    "RadialGradient",
+    "Pattern",
+    "ClipPath",
+    "Mask",
+    "Symbol",
+    "Marker",
+    "Script",
+    "Metadata",
+}
+
+
+@contextmanager
+def _fast_svg_group_child():
+    """Avoid O(N^2) Title lookups in ladybug_display._svg_order._group_child on dense meshes."""
+    import ladybug_display._svg_order as svg_order
+
+    with _SVG_ORDER_LOCK:
+        orig_group_child = svg_order._group_child
+        title_cache: dict[int, tuple[Any, int, list[Any]]] = {}
+
+        def _cached_group_child(parent: Any, child: Any) -> Any:
+            from copy import copy
+
+            elements = parent.elements
+            n_elems = len(elements)
+            key = id(parent)
+            cached = title_cache.get(key)
+            if cached is not None and cached[0] is parent and cached[1] == n_elems:
+                titles = cached[2]
+            else:
+                titles = [e for e in elements if isinstance(e, svg_order.svg.Title)]
+                title_cache[key] = (parent, n_elems, titles)
+            group = copy(parent)
+            group.elements = [child] + titles
+            return group
+
+        svg_order._group_child = _cached_group_child
+        try:
+            yield
+        finally:
+            svg_order._group_child = orig_group_child
+
+
+def _extract_source_run_id(
+    *,
+    visualization_set: dict[str, Any] | None = None,
+    visualization_set_target: dict[str, Any] | None = None,
+    manifest: GardenManifest | None = None,
+    explicit_source: dict[str, Any] | None = None,
+) -> str | None:
+    """Resolve source run_id from target, manifest artifact metadata, or VisualizationSet user_data."""
+    candidates: list[Any] = []
+    if isinstance(explicit_source, dict):
+        candidates.extend((explicit_source.get("source_run_id"), explicit_source.get("run_id")))
+    if isinstance(visualization_set_target, dict):
+        candidates.extend(
+            (visualization_set_target.get("source_run_id"), visualization_set_target.get("run_id"))
+        )
+        if manifest is not None:
+            tgt_path = visualization_set_target.get("path")
+            tgt_id = visualization_set_target.get("identifier")
+            for art in reversed(manifest.artifacts):
+                if tgt_path and art.get("path") == tgt_path:
+                    src = art.get("source")
+                    if isinstance(src, dict):
+                        candidates.extend((src.get("source_run_id"), src.get("run_id")))
+                    break
+                if (
+                    not tgt_path
+                    and tgt_id
+                    and art.get("name") == tgt_id
+                    and art.get("artifact_type") == VISUALIZATION_SET_ARTIFACT_TYPE
+                ):
+                    src = art.get("source")
+                    if isinstance(src, dict):
+                        candidates.extend((src.get("source_run_id"), src.get("run_id")))
+                    break
+    if isinstance(visualization_set, dict):
+        candidates.extend((visualization_set.get("source_run_id"), visualization_set.get("run_id")))
+        user_data = visualization_set.get("user_data")
+        if isinstance(user_data, dict):
+            candidates.extend((user_data.get("source_run_id"), user_data.get("run_id")))
+        vs_source = visualization_set.get("source")
+        if isinstance(vs_source, dict):
+            candidates.extend((vs_source.get("source_run_id"), vs_source.get("run_id")))
+    for val in candidates:
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+
+def _normalize_visualization_set_dict(visualization_set: dict[str, Any]) -> dict[str, Any]:
+    """Coerce inline legend_parameters lacking 'type' inside a VisualizationSet dict."""
+    geos = visualization_set.get("geometry")
+    if not isinstance(geos, list) or not geos:
+        return visualization_set
+
+    needs_norm = False
+    for geo in geos:
+        if not isinstance(geo, dict):
+            continue
+        data_sets = geo.get("data_sets")
+        if not isinstance(data_sets, list):
+            continue
+        for ds in data_sets:
+            if not isinstance(ds, dict):
+                continue
+            lp = ds.get("legend_parameters")
+            if isinstance(lp, dict) and not lp.get("type"):
+                needs_norm = True
+                break
+        if needs_norm:
+            break
+    if not needs_norm:
+        return visualization_set
+
+    copied = dict(visualization_set)
+    new_geos = []
+    for geo in geos:
+        if isinstance(geo, dict) and isinstance(geo.get("data_sets"), list):
+            new_ds_list = []
+            for ds in geo["data_sets"]:
+                if isinstance(ds, dict) and isinstance(ds.get("legend_parameters"), dict):
+                    ds_copy = dict(ds)
+                    ds_copy["legend_parameters"] = coerce_legend_parameter_dict(
+                        ds["legend_parameters"]
+                    )
+                    new_ds_list.append(ds_copy)
+                else:
+                    new_ds_list.append(ds)
+            geo_copy = dict(geo)
+            geo_copy["data_sets"] = new_ds_list
+            new_geos.append(geo_copy)
+        else:
+            new_geos.append(geo)
+    copied["geometry"] = new_geos
+    return copied
+
+
+def _svg_num(val: Any, default: float = 0.0) -> float:
+    if val is None:
+        return default
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return float(val)
+    inner = getattr(val, "value", None)
+    if isinstance(inner, (int, float)) and not isinstance(inner, bool):
+        return float(inner)
+    if isinstance(val, str):
+        stripped = val.strip().lower()
+        for suffix in ("px", "pt", "em", "rem"):
+            if stripped.endswith(suffix):
+                stripped = stripped[: -len(suffix)].strip()
+                break
+        try:
+            return float(stripped)
+        except ValueError:
+            return default
+    return default
+
+
+def _mat_mul(
+    m1: tuple[float, float, float, float, float, float],
+    m2: tuple[float, float, float, float, float, float],
+) -> tuple[float, float, float, float, float, float]:
+    a1, b1, c1, d1, e1, f1 = m1
+    a2, b2, c2, d2, e2, f2 = m2
+    return (
+        a1 * a2 + c1 * b2,
+        b1 * a2 + d1 * b2,
+        a1 * c2 + c1 * d2,
+        b1 * c2 + d1 * d2,
+        a1 * e2 + c1 * f2 + e1,
+        b1 * e2 + d1 * f2 + f1,
+    )
+
+
+def _apply_transforms(
+    base: tuple[float, float, float, float, float, float],
+    transforms: Any,
+) -> tuple[float, float, float, float, float, float]:
+    if not transforms:
+        return base
+    cur = base
+    for tr in transforms:
+        name = type(tr).__name__
+        if name == "Matrix":
+            mat = (float(tr.a), float(tr.b), float(tr.c), float(tr.d), float(tr.e), float(tr.f))
+        elif name == "Translate":
+            mat = (1.0, 0.0, 0.0, 1.0, float(tr.x), float(tr.y or 0.0))
+        elif name == "Scale":
+            sx = float(tr.x)
+            sy = sx if tr.y is None else float(tr.y)
+            mat = (sx, 0.0, 0.0, sy, 0.0, 0.0)
+        elif name == "Rotate":
+            rad = math.radians(float(tr.a))
+            cos_a = math.cos(rad)
+            sin_a = math.sin(rad)
+            if tr.x is not None and tr.y is not None:
+                cx = float(tr.x)
+                cy = float(tr.y)
+                mat = _mat_mul(
+                    (1.0, 0.0, 0.0, 1.0, cx, cy),
+                    _mat_mul((cos_a, sin_a, -sin_a, cos_a, 0.0, 0.0), (1.0, 0.0, 0.0, 1.0, -cx, -cy)),
+                )
+            else:
+                mat = (cos_a, sin_a, -sin_a, cos_a, 0.0, 0.0)
+        elif name == "SkewX":
+            mat = (1.0, 0.0, math.tan(math.radians(float(tr.a))), 1.0, 0.0, 0.0)
+        elif name == "SkewY":
+            mat = (1.0, math.tan(math.radians(float(tr.a))), 0.0, 1.0, 0.0, 0.0)
+        else:
+            continue
+        cur = _mat_mul(cur, mat)
+    return cur
+
+
+def _extract_path_points(commands: Any) -> list[tuple[float, float]]:
+    if not commands:
+        return []
+    pts: list[tuple[float, float]] = []
+    cur_x = 0.0
+    cur_y = 0.0
+    sub_x = 0.0
+    sub_y = 0.0
+    for cmd in commands:
+        name = type(cmd).__name__
+        if name == "MoveTo":
+            cur_x, cur_y = float(cmd.x), float(cmd.y)
+            sub_x, sub_y = cur_x, cur_y
+            pts.append((cur_x, cur_y))
+        elif name == "MoveToRel":
+            cur_x += float(cmd.dx)
+            cur_y += float(cmd.dy)
+            sub_x, sub_y = cur_x, cur_y
+            pts.append((cur_x, cur_y))
+        elif name == "LineTo":
+            cur_x, cur_y = float(cmd.x), float(cmd.y)
+            pts.append((cur_x, cur_y))
+        elif name == "LineToRel":
+            cur_x += float(cmd.dx)
+            cur_y += float(cmd.dy)
+            pts.append((cur_x, cur_y))
+        elif name == "HorizontalLineTo":
+            cur_x = float(cmd.x)
+            pts.append((cur_x, cur_y))
+        elif name == "HorizontalLineToRel":
+            cur_x += float(cmd.dx)
+            pts.append((cur_x, cur_y))
+        elif name == "VerticalLineTo":
+            cur_y = float(cmd.y)
+            pts.append((cur_x, cur_y))
+        elif name == "VerticalLineToRel":
+            cur_y += float(cmd.dy)
+            pts.append((cur_x, cur_y))
+        elif name == "CubicBezier":
+            pts.extend(
+                [
+                    (float(cmd.x1), float(cmd.y1)),
+                    (float(cmd.x2), float(cmd.y2)),
+                    (float(cmd.x), float(cmd.y)),
+                ]
+            )
+            cur_x, cur_y = float(cmd.x), float(cmd.y)
+        elif name == "CubicBezierRel":
+            pts.extend(
+                [
+                    (cur_x + float(cmd.dx1), cur_y + float(cmd.dy1)),
+                    (cur_x + float(cmd.dx2), cur_y + float(cmd.dy2)),
+                    (cur_x + float(cmd.dx), cur_y + float(cmd.dy)),
+                ]
+            )
+            cur_x += float(cmd.dx)
+            cur_y += float(cmd.dy)
+        elif name == "SmoothCubicBezier":
+            pts.extend([(float(cmd.x2), float(cmd.y2)), (float(cmd.x), float(cmd.y))])
+            cur_x, cur_y = float(cmd.x), float(cmd.y)
+        elif name == "SmoothCubicBezierRel":
+            pts.extend(
+                [
+                    (cur_x + float(cmd.dx2), cur_y + float(cmd.dy2)),
+                    (cur_x + float(cmd.dx), cur_y + float(cmd.dy)),
+                ]
+            )
+            cur_x += float(cmd.dx)
+            cur_y += float(cmd.dy)
+        elif name == "QuadraticBezier":
+            pts.extend([(float(cmd.x1), float(cmd.y1)), (float(cmd.x), float(cmd.y))])
+            cur_x, cur_y = float(cmd.x), float(cmd.y)
+        elif name == "QuadraticBezierRel":
+            pts.extend(
+                [
+                    (cur_x + float(cmd.dx1), cur_y + float(cmd.dy1)),
+                    (cur_x + float(cmd.dx), cur_y + float(cmd.dy)),
+                ]
+            )
+            cur_x += float(cmd.dx)
+            cur_y += float(cmd.dy)
+        elif name == "SmoothQuadraticBezier":
+            cur_x, cur_y = float(cmd.x), float(cmd.y)
+            pts.append((cur_x, cur_y))
+        elif name == "SmoothQuadraticBezierRel":
+            cur_x += float(cmd.dx)
+            cur_y += float(cmd.dy)
+            pts.append((cur_x, cur_y))
+        elif name == "Arc":
+            rx = abs(float(cmd.rx))
+            ry = abs(float(cmd.ry))
+            nx, ny = float(cmd.x), float(cmd.y)
+            mid_x = 0.5 * (cur_x + nx)
+            mid_y = 0.5 * (cur_y + ny)
+            pts.extend([(cur_x, cur_y), (nx, ny), (mid_x - rx, mid_y - ry), (mid_x + rx, mid_y + ry)])
+            cur_x, cur_y = nx, ny
+        elif name == "ArcRel":
+            rx = abs(float(cmd.rx))
+            ry = abs(float(cmd.ry))
+            nx = cur_x + float(cmd.dx)
+            ny = cur_y + float(cmd.dy)
+            mid_x = 0.5 * (cur_x + nx)
+            mid_y = 0.5 * (cur_y + ny)
+            pts.extend([(cur_x, cur_y), (nx, ny), (mid_x - rx, mid_y - ry), (mid_x + rx, mid_y + ry)])
+            cur_x, cur_y = nx, ny
+        elif name == "ClosePath":
+            cur_x, cur_y = sub_x, sub_y
+    return pts
+
+
+def _crop_svg_canvas(svg_obj: Any, *, margin: float | None = None) -> tuple[int, int, str | None]:
+    """Compute a tight content bounding box for an SVG and update viewBox/width/height."""
+    bounds = [math.inf, math.inf, -math.inf, -math.inf]
+
+    def _expand_point(x: float, y: float, pad_r: float = 0.0) -> None:
+        if x - pad_r < bounds[0]:
+            bounds[0] = x - pad_r
+        if y - pad_r < bounds[1]:
+            bounds[1] = y - pad_r
+        if x + pad_r > bounds[2]:
+            bounds[2] = x + pad_r
+        if y + pad_r > bounds[3]:
+            bounds[3] = y + pad_r
+
+    def _expand_transformed_points(
+        ctm: tuple[float, float, float, float, float, float],
+        points: list[tuple[float, float]],
+        pad_r: float = 0.0,
+    ) -> None:
+        a, b, c, d, e, f = ctm
+        for lx, ly in points:
+            _expand_point(a * lx + c * ly + e, b * lx + d * ly + f, pad_r=pad_r)
+
+    def _walk(node: Any, ctm: tuple[float, float, float, float, float, float]) -> None:
+        cls_name = type(node).__name__
+        if cls_name in _SVG_SKIP_TAGS:
+            return
+        local_ctm = _apply_transforms(ctm, getattr(node, "transform", None))
+        scale_est = max(
+            math.hypot(local_ctm[0], local_ctm[1]),
+            math.hypot(local_ctm[2], local_ctm[3]),
+            1.0,
+        )
+        stroke_w = _svg_num(getattr(node, "stroke_width", None), 0.0)
+        half_stroke = 0.5 * stroke_w * scale_est
+
+        if cls_name in ("Polygon", "Polyline"):
+            pts = getattr(node, "points", None) or []
+            pairs = [(float(pts[i]), float(pts[i + 1])) for i in range(0, len(pts) - 1, 2)]
+            _expand_transformed_points(local_ctm, pairs, pad_r=half_stroke)
+        elif cls_name == "Line":
+            _expand_transformed_points(
+                local_ctm,
+                [
+                    (_svg_num(getattr(node, "x1", 0.0)), _svg_num(getattr(node, "y1", 0.0))),
+                    (_svg_num(getattr(node, "x2", 0.0)), _svg_num(getattr(node, "y2", 0.0))),
+                ],
+                pad_r=half_stroke,
+            )
+        elif cls_name == "Rect":
+            w = _svg_num(getattr(node, "width", 0.0))
+            h = _svg_num(getattr(node, "height", 0.0))
+            if w > 0.0 or h > 0.0:
+                rx = _svg_num(getattr(node, "x", 0.0))
+                ry = _svg_num(getattr(node, "y", 0.0))
+                _expand_transformed_points(
+                    local_ctm,
+                    [(rx, ry), (rx + w, ry), (rx + w, ry + h), (rx, ry + h)],
+                    pad_r=half_stroke,
+                )
+        elif cls_name == "Circle":
+            cx = _svg_num(getattr(node, "cx", 0.0))
+            cy = _svg_num(getattr(node, "cy", 0.0))
+            r = abs(_svg_num(getattr(node, "r", 0.0)))
+            _expand_transformed_points(
+                local_ctm,
+                [(cx - r, cy - r), (cx + r, cy - r), (cx + r, cy + r), (cx - r, cy + r)],
+                pad_r=half_stroke,
+            )
+        elif cls_name == "Ellipse":
+            cx = _svg_num(getattr(node, "cx", 0.0))
+            cy = _svg_num(getattr(node, "cy", 0.0))
+            rx = abs(_svg_num(getattr(node, "rx", 0.0)))
+            ry = abs(_svg_num(getattr(node, "ry", 0.0)))
+            _expand_transformed_points(
+                local_ctm,
+                [(cx - rx, cy - ry), (cx + rx, cy - ry), (cx + rx, cy + ry), (cx - rx, cy + ry)],
+                pad_r=half_stroke,
+            )
+        elif cls_name == "Path":
+            pts = _extract_path_points(getattr(node, "d", None))
+            _expand_transformed_points(local_ctm, pts, pad_r=half_stroke)
+        elif cls_name == "Text":
+            sub_spans = [
+                sub for sub in (getattr(node, "elements", None) or []) if type(sub).__name__ == "TSpan"
+            ]
+            chunks: list[tuple[Any, str]] = []
+            direct_txt = str(getattr(node, "text", None) or "")
+            if direct_txt.strip():
+                chunks.append((node, direct_txt))
+            for span in sub_spans:
+                span_txt = str(getattr(span, "text", None) or "")
+                if span_txt.strip():
+                    chunks.append((span, span_txt))
+            for txt_node, content in chunks:
+                tx = _svg_num(getattr(txt_node, "x", None), _svg_num(getattr(node, "x", 0.0)))
+                ty = _svg_num(getattr(txt_node, "y", None), _svg_num(getattr(node, "y", 0.0)))
+                tx += _svg_num(getattr(txt_node, "dx", None), 0.0)
+                ty += _svg_num(getattr(txt_node, "dy", None), 0.0)
+                fs = max(8.0, _svg_num(getattr(txt_node, "font_size", None), _svg_num(getattr(node, "font_size", None), 12.0)))
+                text_w = max(fs * 0.72 * len(content.strip()), fs)
+                anchor = str(getattr(txt_node, "text_anchor", None) or getattr(node, "text_anchor", None) or "start").lower()
+                if anchor == "end":
+                    lx0, lx1 = tx - text_w, tx
+                elif anchor == "middle":
+                    lx0, lx1 = tx - 0.5 * text_w, tx + 0.5 * text_w
+                else:
+                    lx0, lx1 = tx, tx + text_w
+                baseline = str(
+                    getattr(txt_node, "dominant_baseline", None)
+                    or getattr(node, "dominant_baseline", None)
+                    or "auto"
+                ).lower()
+                if baseline in ("hanging", "text-before-edge"):
+                    ly0, ly1 = ty - 0.2 * fs, ty + 1.15 * fs
+                elif baseline in ("middle", "central"):
+                    ly0, ly1 = ty - 0.65 * fs, ty + 0.65 * fs
+                else:
+                    ly0, ly1 = ty - 1.15 * fs, ty + 0.35 * fs
+                _expand_transformed_points(
+                    local_ctm,
+                    [(lx0, ly0), (lx1, ly0), (lx1, ly1), (lx0, ly1)],
+                    pad_r=max(2.0, 0.15 * fs * scale_est),
+                )
+
+        if cls_name != "Text":
+            for child in getattr(node, "elements", None) or []:
+                _walk(child, local_ctm)
+
+    _walk(svg_obj, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0))
+    if not all(math.isfinite(b) for b in bounds):
+        orig_w = int(_svg_num(getattr(svg_obj, "width", 1600), 1600))
+        orig_h = int(_svg_num(getattr(svg_obj, "height", 900), 900))
+        vb = getattr(svg_obj, "viewBox", None)
+        return orig_w, orig_h, str(vb) if vb is not None else None
+
+    cw = max(1.0, bounds[2] - bounds[0])
+    ch = max(1.0, bounds[3] - bounds[1])
+    pad = max(0.0, float(margin)) if margin is not None else max(6.0, min(16.0, 0.015 * max(cw, ch)))
+    vx = math.floor(bounds[0] - pad)
+    vy = math.floor(bounds[1] - pad)
+    vw = max(1, math.ceil(bounds[2] + pad) - vx)
+    vh = max(1, math.ceil(bounds[3] + pad) - vy)
+    svg_obj.viewBox = ViewBoxSpec(vx, vy, vw, vh)
+    svg_obj.width = vw
+    svg_obj.height = vh
+    return vw, vh, str(svg_obj.viewBox)
+
+
 def save_visualization_set(
     *,
     garden_root: str,
@@ -95,19 +582,26 @@ def save_visualization_set(
     manifest = GardenManifest.read(garden_root_path)
     safe_name = slugify_name(name)
     output_dir = _resolve_output_dir(garden_root_path, output_subdir)
-    VisualizationSet.from_dict(visualization_set)
+    normalized_vis_set = _normalize_visualization_set_dict(visualization_set)
+    VisualizationSet.from_dict(normalized_vis_set)
     vis_set_path = (output_dir / f"{safe_name}.json").resolve()
     vis_set_path.relative_to(garden_root_path)
     with vis_set_path.open("w", encoding="utf-8", newline="\n") as handle:
-        json.dump(visualization_set, handle)
+        json.dump(normalized_vis_set, handle)
         handle.write("\n")
 
     artifact_path = to_posix_relative(vis_set_path, garden_root_path)
     artifact_source = {
-        "visualization_set_identifier": visualization_set.get("identifier"),
-        "visualization_set_display_name": visualization_set.get("display_name"),
+        "visualization_set_identifier": normalized_vis_set.get("identifier"),
+        "visualization_set_display_name": normalized_vis_set.get("display_name"),
         **(source or {}),
     }
+    source_run_id = _extract_source_run_id(
+        visualization_set=normalized_vis_set,
+        explicit_source=artifact_source,
+    )
+    if source_run_id is not None:
+        artifact_source.setdefault("source_run_id", source_run_id)
     artifact = _register_artifact(
         manifest,
         artifact_type=VISUALIZATION_SET_ARTIFACT_TYPE,
@@ -136,12 +630,12 @@ def save_visualization_set(
     }
 
 
-def load_visualization_set(
+def _read_visualization_set_target_json(
     *,
-    garden_root: str,
+    garden_root_path: Path,
+    manifest: GardenManifest,
     visualization_set_target: dict[str, Any],
 ) -> dict[str, Any]:
-    """Load a Garden-backed VisualizationSet target."""
     if not isinstance(visualization_set_target, dict):
         raise ValueError("visualization_set_target must be a dictionary.")
     target_type = visualization_set_target.get("target_type")
@@ -151,8 +645,6 @@ def load_visualization_set(
             "visualization_set_target target_type must be "
             f"{VISUALIZATION_SET_TARGET_TYPE!r}; got {target_type!r}."
         )
-    garden_root_path = Path(garden_root).expanduser().resolve()
-    manifest = GardenManifest.read(garden_root_path)
     garden_id = visualization_set_target.get("garden_id")
     if garden_id != manifest.garden_id:
         raise ValueError("visualization_set_target garden_id does not match the Garden root.")
@@ -163,7 +655,24 @@ def load_visualization_set(
     if not vis_set_path.is_file():
         raise ValueError(f"VisualizationSet target file was not found: {target_path}")
     with vis_set_path.open("r", encoding="utf-8") as handle:
-        visualization_set = json.load(handle)
+        return json.load(handle)
+
+
+def load_visualization_set(
+    *,
+    garden_root: str,
+    visualization_set_target: dict[str, Any],
+) -> dict[str, Any]:
+    """Load a Garden-backed VisualizationSet target."""
+    garden_root_path = Path(garden_root).expanduser().resolve()
+    manifest = GardenManifest.read(garden_root_path)
+    visualization_set = _normalize_visualization_set_dict(
+        _read_visualization_set_target_json(
+            garden_root_path=garden_root_path,
+            manifest=manifest,
+            visualization_set_target=visualization_set_target,
+        )
+    )
     VisualizationSet.from_dict(visualization_set)
     return visualization_set
 
@@ -183,11 +692,45 @@ def _resolve_visualization_set_input(
     if has_dict:
         if not isinstance(visualization_set, dict):
             raise ValueError("visualization_set must be a dictionary.")
-        return visualization_set
+        return _normalize_visualization_set_dict(visualization_set)
     return load_visualization_set(
         garden_root=garden_root,
         visualization_set_target=visualization_set_target or {},
     )
+
+
+def _resolve_visualization_set_and_obj(
+    *,
+    garden_root_path: Path,
+    manifest: GardenManifest,
+    visualization_set: dict[str, Any] | None,
+    visualization_set_target: dict[str, Any] | None,
+) -> tuple[dict[str, Any], VisualizationSet, str | None]:
+    has_dict = visualization_set is not None
+    has_target = visualization_set_target is not None
+    if has_dict == has_target:
+        raise ValueError(
+            "Provide exactly one of visualization_set or visualization_set_target."
+        )
+    if has_dict:
+        if not isinstance(visualization_set, dict):
+            raise ValueError("visualization_set must be a dictionary.")
+        raw_dict = _normalize_visualization_set_dict(visualization_set)
+    else:
+        raw_dict = _normalize_visualization_set_dict(
+            _read_visualization_set_target_json(
+                garden_root_path=garden_root_path,
+                manifest=manifest,
+                visualization_set_target=visualization_set_target or {},
+            )
+        )
+    vis_set = VisualizationSet.from_dict(raw_dict)
+    source_run_id = _extract_source_run_id(
+        visualization_set=raw_dict,
+        visualization_set_target=visualization_set_target,
+        manifest=manifest,
+    )
+    return raw_dict, vis_set, source_run_id
 
 
 def _resolve_view_arg(view: str | dict[str, Any] | Plane) -> tuple[str | Plane, Any]:
@@ -253,6 +796,8 @@ def _persist_exported_artifact(
         "exists": resolved_path.is_file(),
         **(extra_summary or {}),
     }
+    if source.get("source_run_id"):
+        summary_view.setdefault("source_run_id", source["source_run_id"])
     return {
         "artifact_name": safe_name,
         "artifact_path": artifact_path,
@@ -289,12 +834,12 @@ def visualization_set_to_html(
     safe_name = slugify_name(name)
     output_dir = _resolve_output_dir(garden_root_path, output_subdir)
 
-    visualization_set = _resolve_visualization_set_input(
-        garden_root=garden_root,
+    visualization_set, vis_set, source_run_id = _resolve_visualization_set_and_obj(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
         visualization_set=visualization_set,
         visualization_set_target=visualization_set_target,
     )
-    vis_set = VisualizationSet.from_dict(visualization_set)
     html_path = Path(
         vis_set.to_html(
             output_folder=str(output_dir),
@@ -302,10 +847,12 @@ def visualization_set_to_html(
             open=open,
         )
     )
-    source = {
+    source: dict[str, Any] = {
         "visualization_set_identifier": visualization_set.get("identifier"),
         "visualization_set_display_name": visualization_set.get("display_name"),
     }
+    if source_run_id is not None:
+        source["source_run_id"] = source_run_id
     return _persist_exported_artifact(
         garden_root_path=garden_root_path,
         manifest=manifest,
@@ -331,22 +878,24 @@ def visualization_set_to_vtkjs(
     safe_name = slugify_name(name)
     output_dir = _resolve_output_dir(garden_root_path, output_subdir)
 
-    visualization_set = _resolve_visualization_set_input(
-        garden_root=garden_root,
+    visualization_set, vis_set, source_run_id = _resolve_visualization_set_and_obj(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
         visualization_set=visualization_set,
         visualization_set_target=visualization_set_target,
     )
-    vis_set = VisualizationSet.from_dict(visualization_set)
     vtkjs_path = Path(
         vis_set.to_vtkjs(
             output_folder=str(output_dir),
             file_name=safe_name,
         )
     )
-    source = {
+    source: dict[str, Any] = {
         "visualization_set_identifier": visualization_set.get("identifier"),
         "visualization_set_display_name": visualization_set.get("display_name"),
     }
+    if source_run_id is not None:
+        source["source_run_id"] = source_run_id
     return _persist_exported_artifact(
         garden_root_path=garden_root_path,
         manifest=manifest,
@@ -370,6 +919,7 @@ def visualization_set_to_svg(
     interactive: bool = False,
     render_2d_legend: bool = True,
     render_3d_legend: bool = False,
+    auto_crop: bool = True,
     name: str = "visualization_set",
     output_subdir: str = "artifacts/visualization/svg",
 ) -> dict[str, Any]:
@@ -385,36 +935,49 @@ def visualization_set_to_svg(
     safe_name = slugify_name(name)
     output_dir = _resolve_output_dir(garden_root_path, output_subdir)
 
-    visualization_set = _resolve_visualization_set_input(
-        garden_root=garden_root,
+    visualization_set, vis_set, source_run_id = _resolve_visualization_set_and_obj(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
         visualization_set=visualization_set,
         visualization_set_target=visualization_set_target,
     )
-    vis_set = VisualizationSet.from_dict(visualization_set)
-    svg = vis_set.to_svg(
-        width=width,
-        height=height,
-        margin=margin,
-        interactive=interactive,
-        render_3d_legend=render_3d_legend,
-        render_2d_legend=render_2d_legend,
-        view=resolved_view,
-    )
+    with _fast_svg_group_child():
+        svg = vis_set.to_svg(
+            width=width,
+            height=height,
+            margin=margin,
+            interactive=interactive,
+            render_3d_legend=render_3d_legend,
+            render_2d_legend=render_2d_legend,
+            view=resolved_view,
+        )
+    if auto_crop:
+        actual_w, actual_h, view_box_str = _crop_svg_canvas(svg, margin=margin)
+    else:
+        actual_w, actual_h = width, height
+        vb = getattr(svg, "viewBox", None)
+        view_box_str = str(vb) if vb is not None else None
     svg_path = (output_dir / f"{safe_name}.svg").resolve()
     svg_path.relative_to(garden_root_path)
     svg_path.write_text(svg.as_str(), encoding="utf-8")
 
-    source = {
+    source: dict[str, Any] = {
         "visualization_set_identifier": visualization_set.get("identifier"),
         "visualization_set_display_name": visualization_set.get("display_name"),
         "view": view_meta,
-        "width": width,
-        "height": height,
+        "width": actual_w,
+        "height": actual_h,
+        "canvas_width": width,
+        "canvas_height": height,
         "margin": margin,
         "interactive": interactive,
         "render_2d_legend": render_2d_legend,
         "render_3d_legend": render_3d_legend,
+        "auto_crop": auto_crop,
+        "view_box": view_box_str,
     }
+    if source_run_id is not None:
+        source["source_run_id"] = source_run_id
     return _persist_exported_artifact(
         garden_root_path=garden_root_path,
         manifest=manifest,
@@ -423,7 +986,16 @@ def visualization_set_to_svg(
         output_path=svg_path,
         source=source,
         message="VisualizationSet SVG artifact exported.",
-        extra_summary={"view": view_meta, "width": width, "height": height, "margin": margin},
+        extra_summary={
+            "view": view_meta,
+            "width": actual_w,
+            "height": actual_h,
+            "canvas_width": width,
+            "canvas_height": height,
+            "margin": margin,
+            "auto_crop": auto_crop,
+            "view_box": view_box_str,
+        },
     )
 
 
@@ -744,12 +1316,12 @@ def visualization_set_to_png(
     safe_name = slugify_name(name)
     output_dir = _resolve_output_dir(garden_root_path, output_subdir)
 
-    visualization_set = _resolve_visualization_set_input(
-        garden_root=garden_root,
+    visualization_set, vis_set, source_run_id = _resolve_visualization_set_and_obj(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
         visualization_set=visualization_set,
         visualization_set_target=visualization_set_target,
     )
-    vis_set = VisualizationSet.from_dict(visualization_set)
     png_path = (output_dir / f"{safe_name}.png").resolve()
     png_path.relative_to(garden_root_path)
 
@@ -772,7 +1344,7 @@ def visualization_set_to_png(
         )
     image.save(png_path, format="PNG")
 
-    source = {
+    source: dict[str, Any] = {
         "visualization_set_identifier": visualization_set.get("identifier"),
         "visualization_set_display_name": visualization_set.get("display_name"),
         "view": view_meta,
@@ -781,6 +1353,8 @@ def visualization_set_to_png(
         "render_2d_legend": render_2d_legend,
         "renderer": renderer_used,
     }
+    if source_run_id is not None:
+        source["source_run_id"] = source_run_id
     return _persist_exported_artifact(
         garden_root_path=garden_root_path,
         manifest=manifest,
@@ -818,12 +1392,12 @@ def visualization_set_to_vtk_file(
         garden_root_path, output_subdir or f"artifacts/visualization/{fmt}"
     )
 
-    visualization_set = _resolve_visualization_set_input(
-        garden_root=garden_root,
+    visualization_set, vis_set, source_run_id = _resolve_visualization_set_and_obj(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
         visualization_set=visualization_set,
         visualization_set_target=visualization_set_target,
     )
-    vis_set = VisualizationSet.from_dict(visualization_set)
     polydatas = []
     for geo in vis_set.geometry:
         dp = DisplayPolyData.from_visualization_geometry(geo)
@@ -835,11 +1409,13 @@ def visualization_set_to_vtk_file(
     writer = VTKWriters.legacy if fmt == "vtk" else VTKWriters.binary
     written_path = Path(write_to_file(polydata_or_append, str(output_dir), safe_name, writer=writer))
     artifact_type = VTK_ARTIFACT_TYPE if fmt == "vtk" else VTP_ARTIFACT_TYPE
-    source = {
+    source: dict[str, Any] = {
         "visualization_set_identifier": visualization_set.get("identifier"),
         "visualization_set_display_name": visualization_set.get("display_name"),
         "vtk_format": fmt,
     }
+    if source_run_id is not None:
+        source["source_run_id"] = source_run_id
     return _persist_exported_artifact(
         garden_root_path=garden_root_path,
         manifest=manifest,
@@ -871,23 +1447,25 @@ def visualization_set_to_native_file(
         garden_root_path, output_subdir or f"artifacts/visualization/{fmt}"
     )
 
-    visualization_set = _resolve_visualization_set_input(
-        garden_root=garden_root,
+    visualization_set, vis_set, source_run_id = _resolve_visualization_set_and_obj(
+        garden_root_path=garden_root_path,
+        manifest=manifest,
         visualization_set=visualization_set,
         visualization_set_target=visualization_set_target,
     )
-    vis_set = VisualizationSet.from_dict(visualization_set)
     if fmt == "vsf":
         written_path = Path(vis_set.to_json(f"{safe_name}.vsf", str(output_dir)))
         artifact_type = VSF_ARTIFACT_TYPE
     else:
         written_path = Path(vis_set.to_pkl(f"{safe_name}.pkl", str(output_dir)))
         artifact_type = PKL_ARTIFACT_TYPE
-    source = {
+    source: dict[str, Any] = {
         "visualization_set_identifier": visualization_set.get("identifier"),
         "visualization_set_display_name": visualization_set.get("display_name"),
         "file_format": fmt,
     }
+    if source_run_id is not None:
+        source["source_run_id"] = source_run_id
     return _persist_exported_artifact(
         garden_root_path=garden_root_path,
         manifest=manifest,
@@ -963,14 +1541,36 @@ def _extract_properties_3d(raw: dict[str, Any]) -> dict[str, Any] | None:
     prop3d = raw.get("properties_3d")
     if isinstance(prop3d, dict):
         return legend_3d_parameter_from_dict(prop3d).to_dict()
-    inline_3d = {
-        k: raw[k]
-        for k in ("base_plane", "segment_height", "segment_width", "text_height")
-        if k in raw and raw[k] is not None
-    }
+    inline_3d: dict[str, Any] = {}
+    for k in ("base_plane", "segment_height", "segment_width", "text_height"):
+        val = raw.get(k)
+        if val is None or isinstance(val, str):
+            continue
+        inline_3d[k] = val
     if inline_3d:
         return legend_3d_parameter_from_dict(inline_3d).to_dict()
     return None
+
+
+def _normalize_dimensions_2d(raw: dict[str, Any]) -> Any:
+    dims = raw.get("dimensions_2d")
+    if isinstance(dims, dict):
+        return dict(dims)
+    extracted: dict[str, Any] = {}
+    for k in ("segment_height", "segment_width", "text_height"):
+        val = raw.get(k)
+        if isinstance(val, str) and val.strip():
+            extracted[k] = val.strip()
+    return extracted or dims
+
+
+def _normalize_properties_2d_dict(prop2d: Any) -> Any:
+    if not isinstance(prop2d, dict):
+        return prop2d
+    normalized = dict(prop2d)
+    if not normalized.get("type"):
+        normalized["type"] = "Legend2DParameters"
+    return normalized
 
 
 def coerce_legend_parameter_dict(data: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -982,6 +1582,14 @@ def coerce_legend_parameter_dict(data: dict[str, Any] | None) -> dict[str, Any] 
     raw = data.get("object_dict") if isinstance(data.get("object_dict"), dict) else data
     raw = dict(raw)
     explicit_type = raw.get("type")
+    if isinstance(explicit_type, str) and not explicit_type.strip():
+        explicit_type = None
+        raw.pop("type", None)
+    elif explicit_type is None and "type" in raw:
+        raw.pop("type", None)
+
+    if isinstance(raw.get("properties_2d"), dict):
+        raw["properties_2d"] = _normalize_properties_2d_dict(raw["properties_2d"])
 
     if explicit_type == "Legend3DParameters":
         return legend_parameter_from_dict(raw).to_dict()
@@ -991,28 +1599,41 @@ def coerce_legend_parameter_dict(data: dict[str, Any] | None) -> dict[str, Any] 
     ):
         cat_dict = dict(raw)
         cat_dict["type"] = "LegendParametersCategorized"
+        if not cat_dict.get("colors"):
+            domain = cat_dict.get("domain") or []
+            n_colors = (len(domain) + 1) if isinstance(domain, list) else 2
+            if cat_dict.get("color_set"):
+                palette = resolve_colorset(str(cat_dict["color_set"]))
+            else:
+                palette = list(Colorset.original())
+            sampled = (
+                palette[:n_colors]
+                if len(palette) >= n_colors
+                else [palette[i % len(palette)] for i in range(n_colors)]
+            )
+            cat_dict["colors"] = [c.to_dict() for c in sampled]
         if "properties_3d" in cat_dict and isinstance(cat_dict["properties_3d"], dict):
             cat_dict["properties_3d"] = legend_3d_parameter_from_dict(
                 cat_dict["properties_3d"]
             ).to_dict()
-        elif any(
-            k in cat_dict and cat_dict[k] is not None
-            for k in ("base_plane", "segment_height", "segment_width", "text_height")
-        ):
-            cat_dict["properties_3d"] = _extract_properties_3d(cat_dict)
+        else:
+            extracted_cat_3d = _extract_properties_3d(cat_dict)
+            if extracted_cat_3d is not None:
+                cat_dict["properties_3d"] = extracted_cat_3d
+        dims_2d = _normalize_dimensions_2d(raw)
         legend_obj = legend_parameter_from_dict(cat_dict)
-        if any(
+        if dims_2d is not None or any(
             k in raw and raw[k] is not None
-            for k in ("position_2d", "dimensions_2d", "orientation", "origin_x", "origin_y")
+            for k in ("position_2d", "dimensions_2d", "orientation", "origin_x", "origin_y", "color_set")
         ):
             edited = edit_2d_legend_parameter(
                 legend_parameter=legend_obj.to_dict(),
                 title=raw.get("title"),
                 decimal_count=raw.get("decimal_count"),
                 position_2d=_normalize_position_2d(raw.get("position_2d"), raw),
-                dimensions_2d=raw.get("dimensions_2d"),
+                dimensions_2d=dims_2d,
                 orientation=raw.get("orientation"),
-                color_set=raw.get("color_set"),
+                color_set=raw.get("color_set") if not raw.get("colors") else None,
                 properties_3d=_extract_properties_3d(raw),
             )
             return dict(edited["object_dict"])
@@ -1025,6 +1646,7 @@ def coerce_legend_parameter_dict(data: dict[str, Any] | None) -> dict[str, Any] 
         )
 
     normalized_pos_2d = _normalize_position_2d(raw.get("position_2d"), raw)
+    normalized_dims_2d = _normalize_dimensions_2d(raw)
     extracted_3d = _extract_properties_3d(raw)
 
     if explicit_type == "LegendParameters":
@@ -1034,6 +1656,7 @@ def coerce_legend_parameter_dict(data: dict[str, Any] | None) -> dict[str, Any] 
             if (
                 (k in _HELPER_LEGEND_KEYS and k not in {"title", "segment_count", "decimal_count"})
                 or k in {"origin_x", "origin_y", "originx", "originy"}
+                or (k in {"segment_height", "segment_width", "text_height"} and isinstance(v, str))
             )
         }
         base_dict = {k: v for k, v in raw.items() if k == "type" or k in _SDK_LEGEND_KEYS}
@@ -1051,7 +1674,7 @@ def coerce_legend_parameter_dict(data: dict[str, Any] | None) -> dict[str, Any] 
             minimum=raw.get("minimum"),
             maximum=raw.get("maximum"),
             position_2d=normalized_pos_2d,
-            dimensions_2d=raw.get("dimensions_2d"),
+            dimensions_2d=normalized_dims_2d,
             orientation=raw.get("orientation"),
             color_set=raw.get("color_set"),
             properties_3d=extracted_3d,
@@ -1065,16 +1688,21 @@ def coerce_legend_parameter_dict(data: dict[str, Any] | None) -> dict[str, Any] 
         minimum=raw.get("minimum", raw.get("min")),
         maximum=raw.get("maximum", raw.get("max")),
         position_2d=normalized_pos_2d,
-        dimensions_2d=raw.get("dimensions_2d"),
+        dimensions_2d=normalized_dims_2d,
         orientation=raw.get("orientation") or ("horizontal" if raw.get("vertical") is False else "vertical"),
         color_set=raw.get("color_set"),
         properties_3d=extracted_3d,
     )
     merged = dict(created["object_dict"])
+    merged["type"] = "LegendParameters"
     for key in _SDK_LEGEND_KEYS:
         if key in raw and raw[key] is not None and key not in {"min", "max", "vertical", "properties_3d"}:
+            if key in {"segment_height", "segment_width", "text_height"} and isinstance(raw[key], str):
+                continue
             if key == "properties_2d" and isinstance(raw[key], dict):
-                merged["properties_2d"] = {**(merged.get("properties_2d") or {}), **raw[key]}
+                merged["properties_2d"] = _normalize_properties_2d_dict(
+                    {**(merged.get("properties_2d") or {}), **raw[key]}
+                )
             else:
                 merged[key] = raw[key]
     return LegendParameters.from_dict(merged).to_dict()
@@ -1106,6 +1734,7 @@ def export_visualization_set(
     interactive: bool = False,
     render_2d_legend: bool = True,
     render_3d_legend: bool = False,
+    auto_crop: bool = True,
 ) -> dict[str, Any]:
     """Export a VisualizationSet to HTML, SVG, VTKJS, PNG, VTK, VTP, VSF, or PKL."""
     fmt = export_format.strip().lower()
@@ -1130,6 +1759,7 @@ def export_visualization_set(
             interactive=interactive,
             render_2d_legend=render_2d_legend,
             render_3d_legend=render_3d_legend,
+            auto_crop=auto_crop,
             name=name,
             output_subdir=output_subdir or "artifacts/visualization/svg",
         )

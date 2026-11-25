@@ -19,8 +19,6 @@ from ladybug.datacollection import (
 )
 from ladybug.datatype import TYPESDICT
 from ladybug.datatype.base import DataTypeBase
-from ladybug.datatype.energyflux import Irradiance
-from ladybug.datatype.energyintensity import Radiation
 from ladybug.datatype.generic import GenericType
 from ladybug.datatype.temperaturetime import CoolingDegreeTime, HeatingDegreeTime
 from ladybug.datautil import (
@@ -35,7 +33,7 @@ from ladybug.dt import Date, DateTime
 from ladybug.header import Header
 from ladybug_comfort.degreetime import cooling_degree_time, heating_degree_time
 
-from garden.analysis_period import analysis_period_from_input, analysis_period_summary
+from garden.analysis_period import analysis_period_from_input
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
 from ladybug_tools_mcp.contracts import make_artifact_receipt, make_report
@@ -549,6 +547,92 @@ def _persist_collection_result(
     return result
 
 
+def _calculate_degree_days(
+    *,
+    garden_root_path: Path,
+    manifest: GardenManifest,
+    col: Any,
+    source_action: str,
+    op_alias: str,
+    degree_day_type: str,
+    base_temperature: float | None,
+    heating_base_temperature: float,
+    cooling_base_temperature: float,
+    identifier: str | None,
+) -> dict[str, Any]:
+    """Compute heating/cooling degree-hours and degree-days and persist DataCollections."""
+    mode = (
+        "heating"
+        if op_alias == "heating_degree_days"
+        else "cooling"
+        if op_alias == "cooling_degree_days"
+        else str(degree_day_type).strip().lower()
+    )
+    if mode not in {"heating", "cooling", "both"}:
+        raise ValueError("degree_day_type must be one of: heating, cooling, both.")
+    h_base = float(base_temperature) if base_temperature is not None else float(heating_base_temperature)
+    c_base = float(base_temperature) if base_temperature is not None else float(cooling_base_temperature)
+    ts = max(1, int(getattr(col.header.analysis_period, "timestep", 1) or 1))
+    outputs: dict[str, Any] = {}
+    summary_dd: dict[str, Any] = {}
+    for kind, fn, dt_cls, b_temp in [
+        ("heating", heating_degree_time, HeatingDegreeTime, h_base),
+        ("cooling", cooling_degree_time, CoolingDegreeTime, c_base),
+    ]:
+        if mode not in {kind, "both"}:
+            continue
+        deg_vals = [float(fn(float(v), b_temp)) for v in col.values]
+        dd_unit = "degF-hours" if str(col.header.unit) == "F" else "degC-hours"
+        meta = dict(col.header.metadata or {})
+        meta["base_temperature"] = b_temp
+        hdr = Header(
+            dt_cls(),
+            dd_unit,
+            col.header.analysis_period,
+            metadata=meta,
+        )
+        if isinstance(col, HourlyContinuousCollection):
+            dd_col = HourlyContinuousCollection(hdr, deg_vals)
+        else:
+            dd_col = type(col)(hdr, deg_vals, col.datetimes)
+        saved_dd = save_data_collection(
+            garden_root=garden_root_path,
+            data_collection=dd_col,
+            identifier=f"{identifier or 'degree_days'}_{kind}",
+            source={
+                "producer": "LB_Analyze_Data_Collection",
+                "action": source_action,
+                "operation": "degree_days",
+                "kind": kind,
+                "base_temperature": b_temp,
+            },
+        )
+        outputs[kind] = saved_dd
+        summary_dd[kind] = {
+            "base_temperature": b_temp,
+            "degree_hours_total": float(sum(deg_vals)),
+            "degree_days_total": float(sum(deg_vals) / (24.0 * ts)),
+            "target": saved_dd["target"],
+        }
+    primary_key = "heating" if "heating" in outputs else "cooling"
+    primary = outputs[primary_key]
+    return {
+        "target": primary["target"],
+        "data_target": primary["target"],
+        "data_collection_target": primary["target"],
+        "targets": {k: v["target"] for k, v in outputs.items()},
+        "data_collection_targets": {k: v["target"] for k, v in outputs.items()},
+        "artifact": primary["artifact"],
+        "persistence_receipt": primary["persistence_receipt"],
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "operation": "degree_days",
+            "degree_days": summary_dd,
+        },
+        "report": make_report(status="ok", message="Degree-days computed and persisted."),
+    }
+
+
 def analyze_data_collection(
     *,
     garden_root: str,
@@ -829,6 +913,31 @@ def analyze_data_collection(
             extra_summary={"filter_type": inferred},
         )
 
+    if act == "degree_days":
+        col = _resolve_single_collection(
+            garden_root_path=garden_root_path,
+            data_collection=data_collection,
+            data_collection_target=data_collection_target,
+        )
+        op_alias = str(operation or "degree_days").strip().lower()
+        if op_alias not in {"degree_days", "heating_degree_days", "cooling_degree_days"}:
+            raise ValueError(
+                f"Unsupported degree_days operation {operation!r}. "
+                "Allowed: degree_days, heating_degree_days, cooling_degree_days."
+            )
+        return _calculate_degree_days(
+            garden_root_path=garden_root_path,
+            manifest=manifest,
+            col=col,
+            source_action="degree_days",
+            op_alias=op_alias,
+            degree_day_type=degree_day_type,
+            base_temperature=base_temperature,
+            heating_base_temperature=heating_base_temperature,
+            cooling_base_temperature=cooling_base_temperature,
+            identifier=identifier,
+        )
+
     if act == "aggregate":
         col = _resolve_single_collection(
             garden_root_path=garden_root_path,
@@ -836,6 +945,19 @@ def analyze_data_collection(
             data_collection_target=data_collection_target,
         )
         op = str(operation or "monthly").strip().lower()
+        if op in {"degree_days", "heating_degree_days", "cooling_degree_days"}:
+            return _calculate_degree_days(
+                garden_root_path=garden_root_path,
+                manifest=manifest,
+                col=col,
+                source_action="aggregate",
+                op_alias=op,
+                degree_day_type=degree_day_type,
+                base_temperature=base_temperature,
+                heating_base_temperature=heating_base_temperature,
+                cooling_base_temperature=cooling_base_temperature,
+                identifier=identifier,
+            )
         method = str(aggregation_method or "average").strip().lower()
         if method == "avg":
             method = "average"
@@ -871,7 +993,8 @@ def analyze_data_collection(
             raise ValueError(
                 f"Unsupported aggregate operation {op!r}. Allowed: daily, monthly, monthly_per_hour, "
                 "to_time_aggregated, to_time_rate_of_change, interpolate_holes, "
-                "convert_to_culled_timestep, interpolate_to_timestep, normalize_by_area."
+                "convert_to_culled_timestep, interpolate_to_timestep, normalize_by_area, "
+                "degree_days, heating_degree_days, cooling_degree_days."
             )
         return _persist_collection_result(
             garden_root_path=garden_root_path,
@@ -925,76 +1048,18 @@ def analyze_data_collection(
             else:
                 out_col = col / operand
         elif op_alias in {"degree_days", "heating_degree_days", "cooling_degree_days"}:
-            mode = (
-                "heating"
-                if op_alias == "heating_degree_days"
-                else "cooling"
-                if op_alias == "cooling_degree_days"
-                else str(degree_day_type).strip().lower()
+            return _calculate_degree_days(
+                garden_root_path=garden_root_path,
+                manifest=manifest,
+                col=col,
+                source_action="math",
+                op_alias=op_alias,
+                degree_day_type=degree_day_type,
+                base_temperature=base_temperature,
+                heating_base_temperature=heating_base_temperature,
+                cooling_base_temperature=cooling_base_temperature,
+                identifier=identifier,
             )
-            if mode not in {"heating", "cooling", "both"}:
-                raise ValueError("degree_day_type must be one of: heating, cooling, both.")
-            h_base = float(base_temperature) if base_temperature is not None else float(heating_base_temperature)
-            c_base = float(base_temperature) if base_temperature is not None else float(cooling_base_temperature)
-            ts = max(1, int(getattr(col.header.analysis_period, "timestep", 1) or 1))
-            outputs: dict[str, Any] = {}
-            summary_dd: dict[str, Any] = {}
-            for kind, fn, dt_cls, b_temp in [
-                ("heating", heating_degree_time, HeatingDegreeTime, h_base),
-                ("cooling", cooling_degree_time, CoolingDegreeTime, c_base),
-            ]:
-                if mode not in {kind, "both"}:
-                    continue
-                deg_vals = [float(fn(float(v), b_temp)) for v in col.values]
-                dd_unit = "degF-hours" if str(col.header.unit) == "F" else "degC-hours"
-                meta = dict(col.header.metadata or {})
-                meta["base_temperature"] = b_temp
-                hdr = Header(
-                    dt_cls(),
-                    dd_unit,
-                    col.header.analysis_period,
-                    metadata=meta,
-                )
-                if isinstance(col, HourlyContinuousCollection):
-                    dd_col = HourlyContinuousCollection(hdr, deg_vals)
-                else:
-                    dd_col = type(col)(hdr, deg_vals, col.datetimes)
-                saved_dd = save_data_collection(
-                    garden_root=garden_root_path,
-                    data_collection=dd_col,
-                    identifier=f"{identifier or 'degree_days'}_{kind}",
-                    source={
-                        "producer": "LB_Analyze_Data_Collection",
-                        "action": "math",
-                        "operation": "degree_days",
-                        "kind": kind,
-                        "base_temperature": b_temp,
-                    },
-                )
-                outputs[kind] = saved_dd
-                summary_dd[kind] = {
-                    "base_temperature": b_temp,
-                    "degree_hours_total": float(sum(deg_vals)),
-                    "degree_days_total": float(sum(deg_vals) / (24.0 * ts)),
-                    "target": saved_dd["target"],
-                }
-            primary_key = "heating" if "heating" in outputs else "cooling"
-            primary = outputs[primary_key]
-            return {
-                "target": primary["target"],
-                "data_target": primary["target"],
-                "data_collection_target": primary["target"],
-                "targets": {k: v["target"] for k, v in outputs.items()},
-                "data_collection_targets": {k: v["target"] for k, v in outputs.items()},
-                "artifact": primary["artifact"],
-                "persistence_receipt": primary["persistence_receipt"],
-                "summary_view": {
-                    "garden_target": manifest.target(),
-                    "operation": "degree_days",
-                    "degree_days": summary_dd,
-                },
-                "report": make_report(status="ok", message="Degree-days computed and persisted."),
-            }
         else:
             raise ValueError(
                 f"Unsupported math operation {op!r}. Allowed: to_unit, to_ip, to_si, "
@@ -1013,7 +1078,7 @@ def analyze_data_collection(
         )
 
     raise ValueError(
-        f"Unsupported action {action!r}. Allowed: import, create, inspect, filter, aggregate, math."
+        f"Unsupported action {action!r}. Allowed: import, create, inspect, filter, aggregate, math, degree_days."
     )
 
 

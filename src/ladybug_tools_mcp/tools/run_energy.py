@@ -6,8 +6,21 @@ import time
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
-from pydantic import Field
+from pydantic import BeforeValidator, Field
 
+from garden.run_energy._schemas import (
+    SimulationParameterMode,
+    normalize_reporting_frequency,
+    normalize_simulation_units,
+    normalize_terrain_type,
+    validate_daylight_saving_time,
+    validate_measures_input,
+    validate_output_request,
+    validate_run_period,
+    validate_shadow_calculation,
+    validate_simulation_control,
+    validate_sizing,
+)
 from ladybug_tools_mcp.contracts import (
     ArtifactTargetRef,
     BuildingModelTargetRef,
@@ -23,35 +36,11 @@ from ladybug_tools_mcp.contracts import (
 )
 
 
-WeatherAction = Literal["search", "import", "download", "read_data"]
-SimulationParameterMode = Literal["simulation_parameter", "output_request", "inspect_measures"]
+WeatherAction = Literal["search", "search_remote", "import", "download", "read_data"]
+WeatherScope = Literal["local", "remote"]
 SimulationFileType = Literal["auto", "idf", "osm"]
 WeatherFormat = Literal["epw", "zip", "EPW", "ZIP"]
-TerrainType = Literal[
-    "Ocean",
-    "Country",
-    "Suburbs",
-    "Urban",
-    "City",
-    "ocean",
-    "country",
-    "suburbs",
-    "urban",
-    "city",
-]
-ReportingFrequency = Literal[
-    "Annual",
-    "Monthly",
-    "Daily",
-    "Hourly",
-    "Timestep",
-    "annual",
-    "monthly",
-    "daily",
-    "hourly",
-    "timestep",
-]
-SimulationUnits = Literal["si", "ip", "SI", "IP"]
+SimulationUnits = Annotated[str, BeforeValidator(normalize_simulation_units)]
 SummaryPeriod = Literal["annual", "monthly", "Annual", "Monthly"]
 SummaryKind = Literal[
     "energy_use",
@@ -77,29 +66,32 @@ def register(mcp: FastMCP) -> None:
         name="LB_Manage_Weather",
         description=(
             "Manage Garden weather_file targets and EPW weather DataCollections via action: "
-            "search (search registered Garden weather_file targets under imports/weather), import "
-            "(copy local EPW/DDY/STAT files into the Garden "
-            "and register a weather_file target), download (search and download one public EPW/ZIP "
-            "weather file from epwapi/epwfile into the Garden), or read_data (read an EPW field "
-            "such as dry_bulb_temperature, relative_humidity, wind_speed, or radiation into a "
-            "saved Ladybug DataCollection target)."
+            "search (local Garden targets by default, or remote catalog when scope='remote'), "
+            "search_remote (search public epwapi/epwfile catalog returning file_id/file_name/"
+            "object_key candidates), import (copy local EPW/DDY/STAT files into the Garden), "
+            "download (download one public EPW/ZIP from epwapi/epwfile into the Garden, or "
+            "return ambiguous matches), or read_data (read an EPW field into a DataCollection)."
         ),
         tags={"ladybug", "energy", "weather", "epw", "download", "search", "garden"},
         timeout=360,
     )
     def manage_weather(
         garden_root: Annotated[
-            str,
-            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
-        ],
+            str | None,
+            Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']; required for local search, import, download, and read_data."),
+        ] = None,
         action: Annotated[
             WeatherAction,
-            Field(description="Weather management action: search, import, download, or read_data."),
-        ],
+            Field(description="Weather management action: search, search_remote, import, download, or read_data."),
+        ] = "search",
         query: Annotated[
             str | None,
-            Field(description="Optional query string for search or download."),
+            Field(description="Optional query string for search, search_remote, or download."),
         ] = None,
+        scope: Annotated[
+            WeatherScope,
+            Field(description="For action='search': 'local' (default, Garden targets) or 'remote' (epwapi/epwfile catalog)."),
+        ] = "local",
         source_path: Annotated[
             str | None,
             Field(
@@ -116,19 +108,19 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         max_results: Annotated[
             int,
-            Field(ge=1, description="For action='search': maximum number of Garden EPW matches to return."),
+            Field(ge=1, description="For action='search' or 'search_remote': maximum number of matches to return."),
         ] = 10,
         require_ddy: Annotated[
             bool,
-            Field(description="For action='search': only return EPW files that have a sibling DDY file."),
+            Field(description="For action='search' (local): only return EPW files that have a sibling DDY file."),
         ] = False,
         file_id: Annotated[
             str | None,
-            Field(description="For action='download': opaque id returned by epwapi /v1/files."),
+            Field(description="For action='download': opaque id returned by epwapi /v1/files or search_remote."),
         ] = None,
         file_name: Annotated[
             str | None,
-            Field(description="For action='download': exact EPW or ZIP file name."),
+            Field(description="For action='search_remote' or 'download': exact EPW or ZIP file name."),
         ] = None,
         object_key: Annotated[
             str | None,
@@ -136,27 +128,27 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         file_target: Annotated[
             dict[str, Any] | None,
-            Field(description="For action='download': one file item returned by epwapi /v1/files."),
+            Field(description="For action='download': one file item returned by epwapi /v1/files or search_remote."),
         ] = None,
         region: Annotated[
             str | None,
-            Field(description="For action='download': exact epwapi region name, e.g. WMO_Region_2_Asia."),
+            Field(description="For action='search_remote' or 'download': exact epwapi region name, e.g. WMO_Region_2_Asia."),
         ] = None,
         country: Annotated[
             str | None,
-            Field(description="For action='download': exact epwapi country name, e.g. CHN_China."),
+            Field(description="For action='search_remote' or 'download': exact epwapi country name, e.g. CHN_China."),
         ] = None,
         admin_region: Annotated[
             str | None,
-            Field(description="For action='download': exact epwapi administrative-region name."),
+            Field(description="For action='search_remote' or 'download': exact epwapi administrative-region name."),
         ] = None,
         format: Annotated[
             WeatherFormat,
-            Field(description="For action='download': archive format filter (epw or zip)."),
+            Field(description="For action='search_remote' or 'download': archive format filter (epw or zip)."),
         ] = "zip",
         page_size: Annotated[
             int,
-            Field(ge=1, le=200, description="For action='download': epwapi page_size from 1 to 200."),
+            Field(ge=1, le=200, description="For action='download'/'search_remote': epwapi page_size from 1 to 200."),
         ] = 20,
         weather_target: Annotated[
             WeatherTargetRef | None,
@@ -195,6 +187,27 @@ def register(mcp: FastMCP) -> None:
         ] = False,
     ) -> MutationResultModel:
         """Search, import, download, or read EPW weather data in a Garden."""
+        if action == "search_remote" or (action == "search" and scope == "remote"):
+            from garden.run_energy.weather_download import (
+                search_remote_weather as service,
+            )
+
+            remote_limit = max_results if max_results != 10 else page_size
+            return validate_output(
+                MutationResultModel,
+                service(
+                    garden_root=garden_root,
+                    query=query,
+                    file_name=file_name,
+                    region=region,
+                    country=country,
+                    admin_region=admin_region,
+                    file_format=format,
+                    max_results=remote_limit,
+                ),
+            )
+        if not garden_root:
+            raise ValueError(f"garden_root is required when action={action!r}.")
         if action == "search":
             from garden.run_energy.config import search_weather_files as service
 
@@ -262,128 +275,118 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="EP_Create_Simulation_Parameter",
-        description=(
-            "Create and persist a reusable Honeybee Energy SimulationParameter target (or an "
-            "energy_output_request target when mode='output_request', or inspect OpenStudio "
-            "measures when mode='inspect_measures') for EP_Start_Simulation. Supports "
-            "run_period, holidays, daylight_saving_time, timestep, north_angle, terrain_type, "
-            "simulation_control, design_days (DDY strategies or DesignDay dicts), sizing "
-            "factors, shadow_calculation settings, plus either an existing output_request_target "
-            "or inline output request settings (14 SimulationOutput presets, custom_outputs, "
-            "summary_reports, reporting_frequency, include_sqlite, include_html, "
-            "unmet_setpoint_tolerance)."
-        ),
+        description="Create a SimulationParameter target, output_request target, or inspect OpenStudio measures.",
         tags={"energy", "energyplus", "author", "parameter", "simulation", "report", "measures"},
         timeout=20,
     )
     def create_simulation_parameter(
         garden_root: Annotated[
             str,
-            Field(description="Required Garden root path containing garden.json, usually GD_Create['garden_root']."),
+            Field(description="Garden root path."),
         ],
         mode: Annotated[
             SimulationParameterMode,
-            Field(description="Create a simulation_parameter target, an energy_output_request target, or inspect OpenStudio measures."),
+            Field(description="simulation_parameter, output_request, or inspect_measures."),
         ] = "simulation_parameter",
         identifier: Annotated[
             str | None,
-            Field(description="Stable identifier for the saved target (required when mode='output_request')."),
+            Field(description="Target identifier (required for output_request)."),
         ] = None,
         run_period: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional task-level period with start_month, start_day, end_month, end_day, and optional start_day_of_week/leap_year/holidays/daylight_saving_time."),
+            Field(description="RunPeriod dict (start/end month & day, leap_year, start_day_of_week)."),
         ] = None,
         design_days: Annotated[
-            list[str | dict[str, Any]] | str | dict[str, Any] | None,
-            Field(description="Optional DDY strategies (all, heating, cooling, heating_99.6, heating_99, cooling_0.4, cooling_1, 99.6/0.4, 99/1) and/or direct Ladybug DesignDay dicts."),
+            Any,
+            Field(description="DDY strategy/list ('99.6/0.4', 'all', 'heating', 'cooling') or DesignDay dicts."),
         ] = None,
         sizing: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional sizing settings such as heating_factor, cooling_factor, efficiency_standard, climate_zone, building_type, and bypass_efficiency_sizing."),
+            Field(description="Sizing dict (heating/cooling_factor, efficiency_standard, climate_zone, building_type)."),
         ] = None,
         shadow_calculation: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional EnergyPlus shadow settings such as solar_distribution, calculation_method, calculation_update_method, calculation_frequency, and maximum_figures."),
+            Field(description="ShadowCalculation dict (solar_distribution, calculation_method/frequency)."),
         ] = None,
         timestep: Annotated[
             int | None,
-            Field(ge=1, le=60, description="Optional timesteps per hour (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, or 60)."),
+            Field(ge=1, le=60, description="Timesteps per hour (1..60 divisor)."),
         ] = None,
         north_angle: Annotated[
             float | None,
-            Field(ge=-360, le=360, description="Optional clockwise north rotation angle in degrees (-360 to 360)."),
+            Field(ge=-360, le=360, description="Clockwise north angle in degrees."),
         ] = None,
         terrain_type: Annotated[
-            TerrainType | None,
-            Field(description="Optional site terrain type: Ocean, Country, Suburbs, Urban, or City."),
+            str | None,
+            Field(description="Ocean, Country, Suburbs, Urban, or City."),
         ] = None,
         simulation_control: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional SimulationControl dict (do_zone_sizing, do_system_sizing, do_plant_sizing, run_for_sizing_periods, run_for_run_periods)."),
+            Field(description="SimulationControl boolean flags."),
         ] = None,
         holidays: Annotated[
-            list[Any] | None,
-            Field(description="Optional list of holiday dates as [month, day], {month, day}, or 'MM/DD'."),
+            Any,
+            Field(description="Holiday dates ([month, day], {month, day}, or 'MM/DD')."),
         ] = None,
         daylight_saving_time: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional DaylightSavingTime dict with start_date/end_date ([month, day]) or start_month/start_day/end_month/end_day."),
+            Field(description="DaylightSavingTime start/end date dict."),
         ] = None,
         measure_folder: Annotated[
             str | None,
-            Field(description="For mode='inspect_measures': optional OpenStudio measure folder (or parent folder) inside Garden or LBT measures."),
+            Field(description="inspect_measures: OpenStudio measure folder."),
         ] = None,
         measures_path: Annotated[
             str | None,
-            Field(description="For mode='inspect_measures': optional alias for measure_folder."),
+            Field(description="inspect_measures: alias for measure_folder."),
         ] = None,
         measures: Annotated[
-            list[dict[str, Any] | str] | None,
-            Field(description="For mode='inspect_measures': optional list of {folder, arguments} specs or folder strings to inspect and validate."),
+            Any,
+            Field(description="inspect_measures: list of {folder, arguments} or folder strings."),
         ] = None,
         output_request_target: Annotated[
             ArtifactTargetRef | None,
-            Field(description="Optional existing energy_output_request target."),
+            Field(description="Existing energy_output_request target."),
         ] = None,
         output_request: Annotated[
             dict[str, Any] | None,
-            Field(description="Optional inline output request dictionary with presets, custom_outputs, summary_reports, reporting_frequency, include_sqlite, include_html, and/or unmet_setpoint_tolerance."),
+            Field(description="Inline output_request dict."),
         ] = None,
         presets: Annotated[
             list[str] | None,
-            Field(description="Optional named output presets: zone_energy_use, hvac_energy_use, unmet_hours, surface_temperature, surface_energy_flow, glazing_solar, comfort_metrics, energy_balance, gains_and_losses, electricity_generation, plant_temperatures, plant_variables, stratification, or comfort_map."),
+            Field(description="Output presets (e.g. zone_energy_use, hvac_energy_use, unmet_hours)."),
         ] = None,
         custom_outputs: Annotated[
             list[str] | None,
-            Field(description="Optional exact EnergyPlus Output:Variable names to request."),
+            Field(description="EnergyPlus Output:Variable names."),
         ] = None,
         summary_reports: Annotated[
             list[str] | None,
-            Field(description="Optional EnergyPlus summary reports such as AllSummary or AnnualBuildingUtilityPerformanceSummary."),
+            Field(description="Summary reports (e.g. AllSummary)."),
         ] = None,
         reporting_frequency: Annotated[
-            ReportingFrequency,
-            Field(description="EnergyPlus reporting frequency for output variables: Annual, Monthly, Daily, Hourly, or Timestep."),
+            str,
+            Field(description="Annual, Monthly, Daily, Hourly, or Timestep."),
         ] = "Hourly",
         include_sqlite: Annotated[
             bool,
-            Field(description="Whether the simulation should write a SQLite result file for DataCollection result reading."),
+            Field(description="Write SQLite result file."),
         ] = True,
         include_html: Annotated[
             bool,
-            Field(description="Whether the simulation should write an HTML summary report."),
+            Field(description="Write HTML summary report."),
         ] = True,
         unmet_setpoint_tolerance: Annotated[
             float,
-            Field(ge=0.0, le=10.0, description="Unmet setpoint tolerance in degrees Celsius."),
+            Field(ge=0.0, le=10.0, description="Unmet setpoint tolerance (C)."),
         ] = 1.11,
         weather_target: Annotated[
             WeatherTargetRef | None,
-            Field(description="Optional weather_file target with ddy_path; when supplied, design_days strategies are resolved during creation."),
+            Field(description="Weather target with ddy_path for design_days."),
         ] = None,
         include_body: Annotated[
             bool,
-            Field(description="Return the full SDK SimulationParameter dictionary when mode='simulation_parameter'."),
+            Field(description="Return full SimulationParameter dict."),
         ] = False,
     ) -> MutationResultModel:
         """Create a reusable Energy SimulationParameter, energy_output_request target, or inspect OpenStudio measures."""
@@ -395,6 +398,7 @@ def register(mcp: FastMCP) -> None:
             create_simulation_parameter as parameter_service,
         )
 
+        validated_measures = validate_measures_input(measures)
         if mode == "inspect_measures":
             return validate_output(
                 MutationResultModel,
@@ -402,34 +406,27 @@ def register(mcp: FastMCP) -> None:
                     garden_root=garden_root,
                     measure_folder=measure_folder,
                     measures_path=measures_path,
-                    measures=measures,
+                    measures=validated_measures,
                 ),
             )
 
-        allowed_output_keys = {
-            "identifier",
-            "presets",
-            "custom_outputs",
-            "summary_reports",
-            "reporting_frequency",
-            "include_sqlite",
-            "include_html",
-            "unmet_setpoint_tolerance",
-        }
+        normalized_frequency = normalize_reporting_frequency(reporting_frequency)
+        normalized_terrain = normalize_terrain_type(terrain_type)
+        validated_run_period = validate_run_period(run_period)
+        validated_sizing = validate_sizing(sizing)
+        validated_shadow = validate_shadow_calculation(shadow_calculation)
+        validated_control = validate_simulation_control(simulation_control)
+        validated_dst = validate_daylight_saving_time(daylight_saving_time)
+
         inline_output_kwargs: dict[str, Any] = {}
         if output_request is not None:
-            if not isinstance(output_request, dict):
-                raise ValueError("output_request must be a dictionary.")
-            unknown = sorted(set(output_request) - allowed_output_keys)
-            if unknown:
-                raise ValueError(
-                    f"output_request contains unsupported field(s): {', '.join(unknown)}."
-                )
+            validated_output = validate_output_request(output_request)
+            assert validated_output is not None
             if presets is not None or custom_outputs is not None or summary_reports is not None:
                 raise ValueError(
                     "Pass output settings either inside output_request or as top-level presets/custom_outputs/summary_reports, not both."
                 )
-            inline_output_kwargs = dict(output_request)
+            inline_output_kwargs = dict(validated_output)
         else:
             if presets is not None:
                 inline_output_kwargs["presets"] = presets
@@ -437,8 +434,8 @@ def register(mcp: FastMCP) -> None:
                 inline_output_kwargs["custom_outputs"] = custom_outputs
             if summary_reports is not None:
                 inline_output_kwargs["summary_reports"] = summary_reports
-            if reporting_frequency != "Hourly":
-                inline_output_kwargs["reporting_frequency"] = reporting_frequency
+            if normalized_frequency != "Hourly":
+                inline_output_kwargs["reporting_frequency"] = normalized_frequency
             if include_sqlite is not True:
                 inline_output_kwargs["include_sqlite"] = include_sqlite
             if include_html is not True:
@@ -450,19 +447,19 @@ def register(mcp: FastMCP) -> None:
             if any(
                 value is not None
                 for value in (
-                    run_period,
+                    validated_run_period,
                     design_days,
-                    sizing,
-                    shadow_calculation,
+                    validated_sizing,
+                    validated_shadow,
                     timestep,
                     north_angle,
-                    terrain_type,
-                    simulation_control,
+                    normalized_terrain,
+                    validated_control,
                     holidays,
-                    daylight_saving_time,
+                    validated_dst,
                     measure_folder,
                     measures_path,
-                    measures,
+                    validated_measures,
                     output_request_target,
                 )
             ):
@@ -480,7 +477,9 @@ def register(mcp: FastMCP) -> None:
                     presets=inline_output_kwargs.get("presets"),
                     custom_outputs=inline_output_kwargs.get("custom_outputs"),
                     summary_reports=inline_output_kwargs.get("summary_reports"),
-                    reporting_frequency=str(inline_output_kwargs.get("reporting_frequency", reporting_frequency)),
+                    reporting_frequency=str(
+                        inline_output_kwargs.get("reporting_frequency", normalized_frequency)
+                    ),
                     include_sqlite=bool(inline_output_kwargs.get("include_sqlite", include_sqlite)),
                     include_html=bool(inline_output_kwargs.get("include_html", include_html)),
                     unmet_setpoint_tolerance=float(
@@ -489,7 +488,7 @@ def register(mcp: FastMCP) -> None:
                 ),
             )
 
-        if any(value is not None for value in (measure_folder, measures_path, measures)):
+        if any(value is not None for value in (measure_folder, measures_path, validated_measures)):
             raise ValueError(
                 "measure_folder, measures_path, and measures are only valid when mode='inspect_measures'."
             )
@@ -510,7 +509,9 @@ def register(mcp: FastMCP) -> None:
                 presets=inline_output_kwargs.get("presets"),
                 custom_outputs=inline_output_kwargs.get("custom_outputs"),
                 summary_reports=inline_output_kwargs.get("summary_reports"),
-                reporting_frequency=str(inline_output_kwargs.get("reporting_frequency", reporting_frequency)),
+                reporting_frequency=str(
+                    inline_output_kwargs.get("reporting_frequency", normalized_frequency)
+                ),
                 include_sqlite=bool(inline_output_kwargs.get("include_sqlite", include_sqlite)),
                 include_html=bool(inline_output_kwargs.get("include_html", include_html)),
                 unmet_setpoint_tolerance=float(
@@ -522,16 +523,16 @@ def register(mcp: FastMCP) -> None:
         result = parameter_service(
             garden_root=garden_root,
             identifier=identifier,
-            run_period=run_period,
+            run_period=validated_run_period,
             design_days=design_days,
-            sizing=sizing,
-            shadow_calculation=shadow_calculation,
+            sizing=validated_sizing,
+            shadow_calculation=validated_shadow,
             timestep=timestep,
             north_angle=north_angle,
-            terrain_type=terrain_type,
-            simulation_control=simulation_control,
+            terrain_type=normalized_terrain,
+            simulation_control=validated_control,
             holidays=holidays,
-            daylight_saving_time=daylight_saving_time,
+            daylight_saving_time=validated_dst,
             output_request_target=resolved_output_request_target,
             weather_target=dump_target(weather_target),
             include_body=include_body,
@@ -612,7 +613,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         units: Annotated[
             SimulationUnits,
-            Field(description="EUI units for EnergyPlus result summaries: si or ip."),
+            Field(description="EUI units: 'si' (default; accepts 'meters'/'metric') or 'ip' (accepts 'feet'/'imperial')."),
         ] = "si",
         workers: Annotated[
             int | None,
@@ -692,11 +693,13 @@ def register(mcp: FastMCP) -> None:
                 result["status"] = status
                 result["outputs"] = polled.get("outputs")
                 result["result_evidence"] = polled.get("result_evidence")
+                result["stage_statuses"] = polled.get("stage_statuses")
                 result["final_answer_ready"] = polled.get("final_answer_ready")
                 summary = result.setdefault("summary_view", {})
                 summary["status"] = status
                 summary["outputs"] = polled.get("summary_view", {}).get("run", {}).get("outputs") or summary.get("outputs")
                 summary["result_evidence"] = polled.get("result_evidence")
+                summary["stage_statuses"] = polled.get("stage_statuses")
                 summary["final_answer_ready"] = polled.get("final_answer_ready")
                 summary["recommended_next_tools"] = polled.get("summary_view", {}).get("recommended_next_tools")
                 if status not in {"queued", "running"}:

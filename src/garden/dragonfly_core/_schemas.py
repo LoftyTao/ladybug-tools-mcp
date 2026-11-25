@@ -1,9 +1,9 @@
-"""Pydantic validation schemas for Dragonfly Core batch object creation."""
+"""Pydantic validation schemas for Dragonfly Core batch creation and property inputs."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -135,8 +135,94 @@ def validate_dragonfly_batch_item(object_type: str, raw_item: Any) -> dict[str, 
     return validated.model_dump(exclude_unset=True)
 
 
+class DragonflyApplyPropertiesInput(BaseModel):
+    """Runtime validation schema preserving constraints for slimmed DF_Apply_Properties."""
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+
+    host_type: Literal["room2d", "story", "building", "context_shade", "model"] | None = None
+    program_type_identifier: str | None = None
+    construction_set_identifier: str | None = None
+    person_count: float | None = Field(default=None, ge=0.0)
+    lighting_watts: float | None = Field(default=None, ge=0.0)
+    electric_equipment_watts: float | None = Field(default=None, ge=0.0)
+    gas_equipment_watts: float | None = Field(default=None, ge=0.0)
+    hot_water_flow: float | None = Field(default=None, ge=0.0)
+    infiltration_ach: float | None = Field(default=None, ge=0.0)
+    daylighting_control: dict[str, Any] | None = None
+    daylight_center: dict[str, Any] | None = None
+    window_vent_control: dict[str, Any] | None = None
+    window_vent_opening: dict[str, Any] | None = None
+    fans: list[Any] | None = None
+    process_loads: list[Any] | None = None
+    diversify: dict[str, Any] | bool | None = None
+    modifier_set_identifier: str | None = None
+    grid_parameter_type: Literal[
+        "room_grid",
+        "room_radial_grid",
+        "exterior_face_grid",
+        "exterior_aperture_grid",
+    ] | None = None
+    grid_dimension: float | None = Field(default=None, gt=0.0)
+    grid_offset: float | None = Field(default=None, ge=0.0)
+    face_type: Literal["Wall", "Roof", "Floor", "All", "wall", "roof", "floor", "all"] = "Wall"
+    aperture_type: Literal["Window", "Skylight", "All", "window", "skylight", "all"] = "All"
+    dir_count: int = Field(default=8, ge=1)
+    start_vector: list[float] | None = None
+    mesh_radius: float | None = Field(default=None, gt=0.0)
+    window_parameter: dict[str, Any] | None = None
+    shading_parameter: dict[str, Any] | None = None
+    skylight_parameter: dict[str, Any] | None = None
+    clerestory_parameter: dict[str, Any] | None = None
+    parameter_type: str | None = None
+    application_scope: Literal["all_outdoor", "segment_index"] = "all_outdoor"
+    segment_index: int | list[int] | None = None
+    window_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    window_height: float | None = Field(default=None, gt=0.0)
+    sill_height: float | None = Field(default=None, ge=0.0)
+    horizontal_separation: float | None = Field(default=None, ge=0.0)
+    vertical_separation: float = Field(default=0.0, ge=0.0)
+    width: float | None = Field(default=None, gt=0.0)
+    height: float | None = Field(default=None, gt=0.0)
+    window_area: float | None = Field(default=None, gt=0.0)
+    window_width: float | None = Field(default=None, gt=0.0)
+    origins: list[list[float]] | None = None
+    widths: list[float] | None = None
+    heights: list[float] | None = None
+    polygons: list[list[list[float]]] | None = None
+    are_doors: list[bool] | None = None
+    depth: float | None = None
+    distance: float | None = Field(default=None, gt=0.0)
+    louver_count: int | None = Field(default=None, ge=1)
+    contour_vector: list[float] | None = None
+    skylight_area: float | None = Field(default=None, gt=0.0)
+    skylight_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
+    spacing: float | str | None = None
+    story_identifier: str | None = None
+    air_boundary: bool | None = None
+    air_boundaries: list[bool] | None = None
+    boundary_condition: str | dict[str, Any] | None = None
+    guide_lines: list[list[list[float]]] | None = None
+    room_identifiers: list[str] | None = None
+    wall_modifiers: dict[str, Any] | None = None
+    tolerance: float = Field(default=0.01, gt=0.0)
+
+
+def validate_df_apply_properties_inputs(**kwargs: Any) -> dict[str, Any]:
+    """Validate DF_Apply_Properties inputs offloaded from the MCP JSON schema."""
+    try:
+        validated = DragonflyApplyPropertiesInput.model_validate(kwargs)
+    except ValidationError as exc:
+        err = exc.errors()[0]
+        loc = ".".join(str(part) for part in err.get("loc", ())) or "input"
+        raise ValueError(f"Invalid DF_Apply_Properties parameter {loc}: {err.get('msg', exc)}") from exc
+    return validated.model_dump()
+
+
 __all__ = [
+    "DragonflyApplyPropertiesInput",
     "DragonflyContextShadeBatchItem",
     "DragonflyRoom2DBatchItem",
+    "validate_df_apply_properties_inputs",
     "validate_dragonfly_batch_item",
 ]

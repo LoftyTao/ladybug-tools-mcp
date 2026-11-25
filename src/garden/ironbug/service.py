@@ -34,7 +34,11 @@ from garden.ironbug._schemas import (
     validate_vrf_systems,
 )
 from garden.ironbug.client import IronbugBridgeError, get_bridge_client
-from garden.ironbug.runtime import IronbugRuntimeUnavailable
+from garden.ironbug.runtime import (
+    IronbugRuntimeUnavailable,
+    extract_osm_version,
+    inspect_ironbug_openstudio_compatibility,
+)
 from garden.ironbug.store import (
     empty_draft,
     load_ironbug_system_files,
@@ -1133,6 +1137,7 @@ def validate_ironbug_system(
 
     osm_issues: list[dict[str, Any]] = []
     osm_warnings: list[str] = []
+    osm_version: str | None = None
     try:
         client = get_bridge_client()
         validate_payload: dict[str, Any] = {
@@ -1152,6 +1157,7 @@ def validate_ironbug_system(
                         if isinstance(rm.properties.energy.hvac, DetailedHVAC):
                             rm.properties.energy.hvac = None
                     osm_text = model_to_osm(hb_copy)
+                    osm_version = extract_osm_version(osm_text)
                     osm_path = Path(tmpdir) / "validate_model.osm"
                     osm_path.write_text(osm_text, encoding="utf-8")
                     validate_payload["osm_path"] = str(osm_path)
@@ -1185,6 +1191,20 @@ def validate_ironbug_system(
         else (val.get("thermal_zones") or [])
     )
 
+    compat = inspect_ironbug_openstudio_compatibility(
+        ironbug_version=(
+            system_summary.get("ib_version")
+            or val.get("ironbug_hvac_version")
+            or spec_dict.get("IBVersion")
+        ),
+        osm_version=val.get("osm_version") or osm_version,
+    )
+    compatibility_warnings = list(compat.get("compatibility_warnings") or [])
+    for item in compatibility_warnings:
+        msg = item.get("message") if isinstance(item, dict) else None
+        if isinstance(msg, str) and msg and msg not in warnings:
+            warnings.append(msg)
+
     room_check: dict[str, Any] | None = None
     if hb_model is not None:
         room_check = _check_honeybee_room_preconditions(
@@ -1196,7 +1216,7 @@ def validate_ironbug_system(
         room_check = _check_dragonfly_room_preconditions(
             df_model,
             room_identifiers=room_identifiers,
-            system_zone_names=system_zones,
+            system_zone_names=list(system_zones),
         )
         warnings.extend(room_check.get("warnings") or [])
 
@@ -1225,6 +1245,8 @@ def validate_ironbug_system(
     }
     if forward_translator is not None:
         summary_view["forward_translator"] = forward_translator
+    if compatibility_warnings:
+        summary_view["compatibility_warnings"] = compatibility_warnings
 
     payload: dict[str, Any] = {
         "valid": valid,
@@ -1251,6 +1273,8 @@ def validate_ironbug_system(
     }
     if forward_translator is not None:
         payload["forward_translator"] = forward_translator
+    if compatibility_warnings:
+        payload["compatibility_warnings"] = compatibility_warnings
     return payload
 
 

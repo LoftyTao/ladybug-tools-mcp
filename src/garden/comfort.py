@@ -9,7 +9,6 @@ from ladybug.analysisperiod import AnalysisPeriod
 from ladybug.datacollection import HourlyContinuousCollection
 from ladybug.datatype.rvalue import ClothingInsulation
 from ladybug.datatype.temperature import Temperature
-from ladybug.datatype.temperaturetime import CoolingDegreeTime
 from ladybug.epw import EPW
 from ladybug.header import Header
 from ladybug.location import Location
@@ -200,6 +199,20 @@ def _comfort_percentages(comfort: Any, comfort_model: str) -> dict[str, Any]:
     return percentages
 
 
+def _attach_comfort_methodology(
+    summary_view: dict[str, Any],
+    *,
+    method: dict[str, Any],
+    assumptions: dict[str, Any],
+    applicable_scope: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach structured methodology, assumptions, and scope metadata to summary_view."""
+    summary_view["method"] = method
+    summary_view["assumptions"] = assumptions
+    summary_view["applicable_scope"] = applicable_scope
+    return summary_view
+
+
 def _calculate(
     *,
     garden_root: str | Path,
@@ -213,6 +226,9 @@ def _calculate(
     producer: str,
     output_metrics: list[str] | None = None,
     return_data_collection: bool = False,
+    method: dict[str, Any] | None = None,
+    assumptions: dict[str, Any] | None = None,
+    applicable_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     parameter_dict = parameter.to_dict() if parameter is not None else None
     comfort_summary = _comfort_percentages(comfort, comfort_model)
@@ -271,6 +287,13 @@ def _calculate(
         "data_collection": primary_summary,
         "percentages": comfort_summary,
     }
+    if method is not None and assumptions is not None and applicable_scope is not None:
+        _attach_comfort_methodology(
+            summary_view,
+            method=method,
+            assumptions=assumptions,
+            applicable_scope=applicable_scope,
+        )
     if comfort_model == "PMV":
         summary_view["percentage_people_dissatisfied"] = data_collection_summary(
             comfort.percentage_people_dissatisfied
@@ -394,6 +417,38 @@ def calculate_utci(
             "mean_radiant_temperature": mean_radiant_temperature_target,
             "wind_speed": wind_speed_target,
         }
+    epw_used = weather_target is not None or epw_path is not None
+    utci_method = {
+        "name": "Universal Thermal Climate Index (UTCI Fiala multi-node regression)",
+        "comfort_index": "UTCI",
+        "epw_shortcut_used": epw_used,
+    }
+    utci_assumptions = {
+        "air_temperature_source": "epw_dry_bulb_temperature" if epw_used else "air_temperature_target",
+        "relative_humidity_source": "epw_relative_humidity" if epw_used else "relative_humidity_target",
+        "mean_radiant_temperature_source": (
+            ("epw_outdoor_solarcal_mrt" if include_sun else "epw_dry_bulb_temperature")
+            if epw_used
+            else ("mean_radiant_temperature_target" if mean_radiant_temperature_target is not None else "assumed_equal_to_air_temperature")
+        ),
+        "wind_speed_source": (
+            ("epw_meteorological_wind_speed" if include_wind else "default_0.5_m_s")
+            if epw_used
+            else ("wind_speed_target" if wind_speed_target is not None else "default_0.5_m_s")
+        ),
+        "include_wind": bool(include_wind) if epw_used else None,
+        "include_sun": bool(include_sun) if epw_used else None,
+        "activity_and_clothing": "Pedestrian walking (~4 km/h, ~2.3 met) with dynamic UTCI seasonal clothing model.",
+    }
+    utci_scope = {
+        "domain": "outdoor_thermal_stress",
+        "intended_use": "Outdoor human biometeorology and thermal stress classification (11-point scale).",
+        "applicable_ranges": {
+            "air_temperature_c": [-50.0, 50.0],
+            "wind_speed_10m_m_s": [0.5, 17.0],
+        },
+        "not_modeled": ["indoor_enclosure_conditions", "custom_metabolic_or_clothing_inputs"],
+    }
     return _calculate(
         garden_root=garden_root,
         comfort_model="UTCI",
@@ -406,31 +461,55 @@ def calculate_utci(
         producer="LB_Calculate_Comfort",
         output_metrics=output_metrics,
         return_data_collection=return_data_collection,
+        method=utci_method,
+        assumptions=utci_assumptions,
+        applicable_scope=utci_scope,
     )
 
 
 def calculate_adaptive(
     *,
     garden_root: str,
-    outdoor_temperature_target: dict[str, Any],
+    outdoor_temperature_target: dict[str, Any] | None = None,
     operative_temperature_target: dict[str, Any] | None = None,
     air_temperature_target: dict[str, Any] | None = None,
     mean_radiant_temperature_target: dict[str, Any] | None = None,
     air_speed_target: dict[str, Any] | None = None,
+    weather_target: dict[str, Any] | None = None,
+    epw_path: str | None = None,
     comfort_parameter: dict[str, Any] | None = None,
     output_metrics: list[str] | None = None,
     identifier: str | None = None,
     return_data_collection: bool = False,
 ) -> dict[str, Any]:
-    """Calculate Adaptive comfort from Garden DataCollection targets."""
+    """Calculate Adaptive comfort from Garden DataCollection targets or weather_target/epw_path."""
     from ladybug_comfort.collection.adaptive import Adaptive
     from ladybug_comfort.parameter.adaptive import AdaptiveParameter
 
-    outdoor_temperature = _load_required_collection(
-        garden_root=garden_root,
-        target=outdoor_temperature_target,
-        field_name="outdoor_temperature_target",
+    epw_obj = (
+        _resolve_epw_object(
+            garden_root=garden_root,
+            weather_target=weather_target,
+            epw_path=epw_path,
+        )
+        if (weather_target is not None or epw_path is not None)
+        else None
     )
+    if outdoor_temperature_target is not None:
+        outdoor_temperature = _load_required_collection(
+            garden_root=garden_root,
+            target=outdoor_temperature_target,
+            field_name="outdoor_temperature_target",
+        )
+        outdoor_source = "outdoor_temperature_target"
+    elif epw_obj is not None:
+        outdoor_temperature = epw_obj.dry_bulb_temperature
+        outdoor_source = "epw_dry_bulb_temperature"
+    else:
+        raise ValueError(
+            "Adaptive comfort requires outdoor_temperature_target or weather_target/epw_path."
+        )
+
     air_speed = (
         _load_required_collection(
             garden_root=garden_root,
@@ -445,6 +524,7 @@ def calculate_adaptive(
         expected_type="AdaptiveParameter",
         parameter_cls=AdaptiveParameter,
     )
+    operative_assumed_outdoor = False
     try:
         if operative_temperature_target is not None:
             operative_temperature = _load_required_collection(
@@ -458,6 +538,7 @@ def calculate_adaptive(
                 air_speed=air_speed,
                 comfort_parameter=parameter,
             )
+            operative_source = "operative_temperature_target"
         elif air_temperature_target is not None:
             air_temp = _load_required_collection(
                 garden_root=garden_root,
@@ -480,30 +561,89 @@ def calculate_adaptive(
                 air_speed=air_speed,
                 comfort_parameter=parameter,
             )
+            operative_source = (
+                "from_air_and_rad_temp"
+                if rad_temp is not None
+                else "from_air_temp_with_mrt_assumed_equal_to_air_temp"
+            )
+        elif epw_obj is not None:
+            operative_temperature = epw_obj.dry_bulb_temperature
+            comfort = Adaptive(
+                outdoor_temperature,
+                operative_temperature,
+                air_speed=air_speed,
+                comfort_parameter=parameter,
+            )
+            operative_assumed_outdoor = True
+            operative_source = "assumed_operative_equals_outdoor_dry_bulb"
         else:
             raise ValueError(
-                "Adaptive comfort requires operative_temperature_target or air_temperature_target."
+                "Adaptive comfort requires operative_temperature_target or air_temperature_target "
+                "(or weather_target/epw_path shortcut)."
             )
     except (AssertionError, TypeError, ValueError) as exc:
         raise ValueError(f"Could not calculate Adaptive comfort: {exc}") from exc
+
+    input_targets: dict[str, Any] = {
+        "outdoor_temperature": outdoor_temperature_target,
+        "operative_temperature": operative_temperature_target,
+        "air_temperature": air_temperature_target,
+        "mean_radiant_temperature": mean_radiant_temperature_target,
+        "air_speed": air_speed_target,
+    }
+    if epw_obj is not None:
+        input_targets["weather_target"] = weather_target
+        input_targets["epw_path"] = epw_path
+
+    is_ashrae = parameter.ashrae_or_en if parameter is not None else True
+    use_avg_month = parameter.avg_month_or_running_mean if parameter is not None else True
+    adaptive_method = {
+        "name": f"{'ASHRAE 55' if is_ashrae else 'EN 16798'} Adaptive Thermal Comfort",
+        "comfort_index": "Adaptive",
+        "standard": "ASHRAE_55" if is_ashrae else "EN_16798",
+        "prevailing_outdoor_method": "monthly_average" if use_avg_month else "exponential_running_mean",
+        "epw_shortcut_used": epw_obj is not None,
+    }
+    adaptive_assumptions: dict[str, Any] = {
+        "outdoor_temperature_source": outdoor_source,
+        "operative_temperature_source": operative_source,
+        "operative_equals_outdoor_dry_bulb": operative_assumed_outdoor,
+        "air_speed_source": "air_speed_target" if air_speed_target is not None else "default_still_air_no_cooling_offset",
+    }
+    if operative_assumed_outdoor:
+        adaptive_assumptions["baseline_note"] = (
+            "operative_temperature was assumed equal to outdoor_dry_bulb from the EPW file "
+            "as an unconditioned outdoor/free-running envelope baseline (neglecting solar/internal "
+            "gains and thermal mass lag)."
+        )
+    adaptive_scope: dict[str, Any] = {
+        "domain": "naturally_ventilated_or_free_running_buildings",
+        "prevailing_outdoor_range_c": [10.0, 33.5] if is_ashrae else [10.0, 30.0],
+        "occupant_assumptions": "Sedentary occupants (~1.0-1.3 met) with adaptive clothing and operable windows.",
+    }
+    if operative_assumed_outdoor:
+        adaptive_scope["not_modeled"] = [
+            "indoor_solar_gains",
+            "internal_heat_gains",
+            "building_thermal_mass_lag",
+            "mechanical_conditioning",
+        ]
+
     return _calculate(
         garden_root=garden_root,
         comfort_model="Adaptive",
         metric_name="degrees_from_neutral",
         metric_attribute="degrees_from_neutral",
         comfort=comfort,
-        input_targets={
-            "outdoor_temperature": outdoor_temperature_target,
-            "operative_temperature": operative_temperature_target,
-            "air_temperature": air_temperature_target,
-            "mean_radiant_temperature": mean_radiant_temperature_target,
-            "air_speed": air_speed_target,
-        },
+        input_targets=input_targets,
         parameter=parameter,
         identifier=identifier,
         producer="LB_Calculate_Comfort",
         output_metrics=output_metrics,
         return_data_collection=return_data_collection,
+        method=adaptive_method,
+        assumptions=adaptive_assumptions,
+        applicable_scope=adaptive_scope,
     )
 
 
@@ -621,6 +761,42 @@ def calculate_pmv(
             "clo_value": clo_value if isinstance(clo_value, dict) else None,
             "external_work": external_work if isinstance(external_work, dict) else None,
         }
+    epw_used = weather_target is not None or epw_path is not None
+    pmv_method = {
+        "name": "Fanger PMV / PPD / Pierce SET (ASHRAE 55 / ISO 7730)",
+        "comfort_index": "PMV",
+        "epw_shortcut_used": epw_used,
+    }
+    pmv_assumptions = {
+        "air_temperature_source": "epw_dry_bulb_temperature" if epw_used else "air_temperature_target",
+        "relative_humidity_source": "epw_relative_humidity" if epw_used else "relative_humidity_target",
+        "mean_radiant_temperature_source": (
+            ("epw_outdoor_solarcal_mrt" if include_sun else "epw_dry_bulb_temperature")
+            if epw_used
+            else ("mean_radiant_temperature_target" if mean_radiant_temperature_target is not None else "assumed_equal_to_air_temperature")
+        ),
+        "air_speed_source": (
+            ("epw_wind_speed_scaled_2_3" if include_wind else "default_0.1_m_s")
+            if epw_used
+            else ("explicit_input" if air_speed is not None else "default_0.1_m_s")
+        ),
+        "met_rate_met": resolved_met_rate if resolved_met_rate is not None and not hasattr(resolved_met_rate, "values") else ("data_collection" if resolved_met_rate is not None else (2.4 if epw_used else 1.1)),
+        "clo_value_clo": resolved_clo_value if resolved_clo_value is not None and not hasattr(resolved_clo_value, "values") else ("data_collection" if resolved_clo_value is not None else 0.7),
+        "external_work_met": resolved_external_work if resolved_external_work is not None and not hasattr(resolved_external_work, "values") else ("data_collection" if resolved_external_work is not None else 0.0),
+        "ppd_comfort_thresh_pct": parameter.ppd_comfort_thresh if parameter is not None else 10.0,
+    }
+    pmv_scope = {
+        "domain": "steady_state_indoor_or_epw_screening",
+        "standards": ["ASHRAE 55", "ISO 7730"],
+        "applicable_ranges": {
+            "air_temperature_c": [10.0, 30.0],
+            "mean_radiant_temperature_c": [10.0, 40.0],
+            "air_speed_m_s": [0.0, 2.0],
+            "met_rate_met": [1.0, 4.0],
+            "clo_value_clo": [0.0, 2.0],
+        },
+        "not_modeled": ["local_draft_or_asymmetry_discomfort", "transient_physiological_adaptation"],
+    }
     return _calculate(
         garden_root=garden_root,
         comfort_model="PMV",
@@ -633,6 +809,9 @@ def calculate_pmv(
         producer="LB_Calculate_Comfort",
         output_metrics=output_metrics,
         return_data_collection=return_data_collection,
+        method=pmv_method,
+        assumptions=pmv_assumptions,
+        applicable_scope=pmv_scope,
     )
 
 
@@ -728,6 +907,38 @@ def calculate_pet(
             "relative_humidity": relative_humidity_target,
             "mean_radiant_temperature": mean_radiant_temperature_target,
         }
+    epw_used = weather_target is not None or epw_path is not None
+    pet_method = {
+        "name": "Physiological Equivalent Temperature (MEMI 2-node energy balance)",
+        "comfort_index": "PET",
+        "epw_shortcut_used": epw_used,
+    }
+    pet_assumptions = {
+        "air_temperature_source": "epw_dry_bulb_temperature" if epw_used else "air_temperature_target",
+        "relative_humidity_source": "epw_relative_humidity" if epw_used else "relative_humidity_target",
+        "mean_radiant_temperature_source": (
+            ("epw_outdoor_solarcal_mrt" if include_sun else "epw_dry_bulb_temperature")
+            if epw_used
+            else ("mean_radiant_temperature_target" if mean_radiant_temperature_target is not None else "assumed_equal_to_air_temperature")
+        ),
+        "air_speed_source": (
+            ("epw_wind_speed_scaled_2_3" if include_wind else "default_0.1_m_s")
+            if epw_used
+            else ("explicit_input" if air_speed is not None else "default_0.1_m_s")
+        ),
+        "barometric_pressure_source": (
+            "epw_atmospheric_station_pressure"
+            if epw_used
+            else ("explicit_input" if barometric_pressure is not None else "default_101325_pa")
+        ),
+        "met_rate_met": resolved_met_rate if resolved_met_rate is not None and not hasattr(resolved_met_rate, "values") else ("data_collection" if resolved_met_rate is not None else (2.4 if epw_used else 1.1)),
+        "clo_value_clo": resolved_clo_value if resolved_clo_value is not None and not hasattr(resolved_clo_value, "values") else ("data_collection" if resolved_clo_value is not None else 0.7),
+    }
+    pet_scope = {
+        "domain": "indoor_and_outdoor_physiological_thermal_stress",
+        "reference_environment": "Ta=MRT=20C, v=0.1 m/s, VP=12 hPa, clo=0.9, work=80 W.",
+        "not_modeled": ["localized_radiant_asymmetry", "transient_sweat_accumulation_beyond_memi"],
+    }
     return _calculate(
         garden_root=garden_root,
         comfort_model="PET",
@@ -740,6 +951,9 @@ def calculate_pet(
         producer="LB_Calculate_Comfort",
         output_metrics=output_metrics,
         return_data_collection=return_data_collection,
+        method=pet_method,
+        assumptions=pet_assumptions,
+        applicable_scope=pet_scope,
     )
 
 
@@ -961,6 +1175,22 @@ def calculate_solarcal(
         producer="LB_Calculate_Comfort",
         output_metrics=output_metrics,
         return_data_collection=return_data_collection,
+        method={
+            "name": f"SolarCal Effective Radiant Field ({model_label})",
+            "comfort_index": "SolarCal_MRT",
+            "solarcal_type": sc_kind,
+        },
+        assumptions={
+            "sky_exposure": "explicit_input" if sky_exposure is not None else ("0.5_indoor_default" if sc_kind == "indoor" else "1.0_outdoor_default"),
+            "fraction_body_exposed": "explicit_input" if fraction_body_exposed is not None else "1.0_default",
+            "floor_reflectance": "explicit_input" if floor_reflectance is not None else "0.25_default",
+            "longwave_baseline": "explicit_input" if (surface_temperatures is not None or longwave_mrt is not None) else "epw_dry_bulb_temperature",
+        },
+        applicable_scope={
+            "domain": "solar_mean_radiant_temperature_delta",
+            "standards": ["ASHRAE 55 Appendix C SolarCal"],
+            "not_modeled": ["multi_bounce_specular_reflections", "detailed_3d_ray_tracing_unless_radiance_map"],
+        },
     )
 
 
@@ -1003,6 +1233,15 @@ def _calculate_prevailing_temperature(
         producer="LB_Calculate_Comfort",
         output_metrics=output_metrics,
         return_data_collection=return_data_collection,
+        method={
+            "name": "Adaptive Prevailing Outdoor Temperature",
+            "averaging_mode": "monthly_mean" if avg_month else "exponential_running_mean",
+        },
+        assumptions={
+            "outdoor_temperature_source": "outdoor_temperature_target" if outdoor_temperature_target is not None else "epw_dry_bulb_temperature",
+            "avg_month": bool(avg_month),
+        },
+        applicable_scope={"domain": "adaptive_comfort_preprocessing", "standards": ["ASHRAE 55", "EN 16798"]},
     )
 
 
@@ -1060,6 +1299,14 @@ def _calculate_clo_schiavon(
                 "comfort_model": "SchiavonClo",
                 "outdoor_temperature": float(outdoor_temperature),
                 "clo_value": clo_val,
+                "method": {"name": "Schiavon & Lee Dynamic Clothing Model", "mode": "scalar"},
+                "assumptions": {
+                    "max_clo": max_clo,
+                    "max_clo_temp_c": max_clo_temp,
+                    "min_clo": min_clo,
+                    "min_clo_temp_c": min_clo_temp,
+                },
+                "applicable_scope": {"domain": "adaptive_clothing_estimation", "standards": ["ASHRAE 55"]},
             },
             "report": make_report(status="ok", message="Schiavon dynamic clothing computed."),
         }
@@ -1100,6 +1347,14 @@ def _calculate_clo_schiavon(
             "garden_target": GardenManifest.read(Path(garden_root).resolve()).target(),
             "comfort_model": "SchiavonClo",
             "data_collection": saved["summary_view"],
+            "method": {"name": "Schiavon & Lee Dynamic Clothing Model", "mode": "collection"},
+            "assumptions": {
+                "max_clo": max_clo,
+                "max_clo_temp_c": max_clo_temp,
+                "min_clo": min_clo,
+                "min_clo_temp_c": min_clo_temp,
+            },
+            "applicable_scope": {"domain": "adaptive_clothing_estimation", "standards": ["ASHRAE 55"]},
         },
         "report": make_report(status="ok", message="Schiavon clo DataCollection persisted."),
     }
@@ -1119,7 +1374,6 @@ def _calculate_local_discomfort(
     identifier: str | None = None,
     return_data_collection: bool = False,
 ) -> dict[str, Any]:
-    from ladybug.datatype.thermalcondition import DiscomfortReason
     from ladybug_comfort.local import ankle_draft_ppd, radiant_asymmetry_ppd
 
     kind = str(local_discomfort_type or "radiant_asymmetry_ppd").strip().lower()
@@ -1156,7 +1410,14 @@ def _calculate_local_discomfort(
             ppd_val = float(radiant_asymmetry_ppd(float(inp), asym_idx))
             return {
                 "ppd": ppd_val,
-                "summary_view": {"comfort_model": kind, "asymmetry_type": asym_idx, "ppd": ppd_val},
+                "summary_view": {
+                    "comfort_model": kind,
+                    "asymmetry_type": asym_idx,
+                    "ppd": ppd_val,
+                    "method": {"name": "ISO 7730 / ASHRAE 55 Radiant Temperature Asymmetry PPD", "mode": "scalar"},
+                    "assumptions": {"asymmetry_type": asym_idx},
+                    "applicable_scope": {"domain": "local_thermal_discomfort", "standards": ["ASHRAE 55", "ISO 7730"]},
+                },
                 "report": make_report(status="ok", message="Radiant asymmetry PPD computed."),
             }
         ppd_vals = [float(radiant_asymmetry_ppd(float(v), asym_idx)) for v in inp.values]
@@ -1174,7 +1435,13 @@ def _calculate_local_discomfort(
             ppd_val = float(ankle_draft_ppd(float(pmv_in), float(vel_in)))
             return {
                 "ppd": ppd_val,
-                "summary_view": {"comfort_model": kind, "ppd": ppd_val},
+                "summary_view": {
+                    "comfort_model": kind,
+                    "ppd": ppd_val,
+                    "method": {"name": "ASHRAE 55 Ankle Draft PPD", "mode": "scalar"},
+                    "assumptions": {"predicted_mean_vote": float(pmv_in), "air_speed_at_ankle_m_s": float(vel_in)},
+                    "applicable_scope": {"domain": "local_thermal_discomfort", "standards": ["ASHRAE 55"]},
+                },
                 "report": make_report(status="ok", message="Ankle draft PPD computed."),
             }
         template_col = pmv_in if hasattr(pmv_in, "values") else vel_in
@@ -1211,6 +1478,9 @@ def _calculate_local_discomfort(
             "garden_target": GardenManifest.read(Path(garden_root).resolve()).target(),
             "comfort_model": kind,
             "data_collection": saved["summary_view"],
+            "method": {"name": f"Local Discomfort ({kind})", "mode": "collection"},
+            "assumptions": {"asymmetry_type": asymmetry_type if kind == "radiant_asymmetry_ppd" else None},
+            "applicable_scope": {"domain": "local_thermal_discomfort", "standards": ["ASHRAE 55", "ISO 7730"]},
         },
         "report": make_report(status="ok", message=f"Local discomfort '{kind}' persisted."),
     }
@@ -1363,6 +1633,9 @@ def _calculate_heat_stress(
                 "comfort_model": f"heat_stress:{idx_name}",
                 "value": vals[0],
                 "category": cats[0],
+                "method": {"name": f"Heat/Cold Stress Index ({idx_name})", "mode": "scalar"},
+                "assumptions": {"epw_shortcut_used": epw_obj is not None},
+                "applicable_scope": {"domain": "thermal_stress_screening", "index": idx_name},
             },
             "report": make_report(status="ok", message=f"Heat stress '{idx_name}' computed."),
         }
@@ -1393,6 +1666,12 @@ def _calculate_heat_stress(
             "data_collection": saved["summary_view"],
             "category_min": min(cats),
             "category_max": max(cats),
+            "method": {"name": f"Heat/Cold Stress Index ({idx_name})", "mode": "collection"},
+            "assumptions": {
+                "epw_shortcut_used": epw_obj is not None,
+                "mrt_assumed_equal_to_air_temp": mrt_in is None and idx_name == "wbgt",
+            },
+            "applicable_scope": {"domain": "thermal_stress_screening", "index": idx_name},
         },
         "report": make_report(status="ok", message=f"Heat stress '{idx_name}' DataCollection persisted."),
     }
@@ -1750,6 +2029,11 @@ def calculate_passive_strategy(
 
     primary_key = requested_metrics[0]
     primary_saved = persisted_by_name[primary_key]
+    additive_strategy_sum_percent = round(
+        float(stats["baseline_comfort_percent"])
+        + sum(float(v) for v in stats["strategy_percents"].values()),
+        2,
+    )
     summary_view: dict[str, Any] = {
         "garden_target": garden_target,
         "comfort_model": "PassiveStrategy",
@@ -1778,6 +2062,70 @@ def calculate_passive_strategy(
         },
         "data_collection": metric_summaries[primary_key],
     }
+    _attach_comfort_methodology(
+        summary_view,
+        method={
+            "name": "Psychrometric Chart Passive Strategy Polygon Analysis (PolygonPMV)",
+            "comfort_index": "PassiveStrategy",
+            "hourly_combination_rule": "hourly_boolean_union_or",
+            "combination_explanation": (
+                "Each enabled strategy evaluates an independent hourly boolean mask from its "
+                "psychrometric polygon(s) and gates. total_comfort is the hourly boolean OR union "
+                "across baseline comfort and enabled strategies (passive_gain = total_comfort AND "
+                "NOT baseline comfort), so total_comfort_percent is generally less than or equal to "
+                "the additive sum of individual strategy percentages when strategy hours overlap."
+            ),
+            "additive_strategy_sum_percent": additive_strategy_sum_percent,
+            "combined_total_comfort_percent": stats["total_comfort_percent"],
+            "strategy_semantics": {
+                "fan_use": (
+                    "Evaluates elevated interior air speed (fan_air_speed) expanding the warm PMV "
+                    "polygon boundary; 'natural_ventilation' is aliased to 'fan_use' and represents "
+                    "air-movement convective cooling on the psychrometric chart rather than coupled "
+                    "outdoor-indoor airflow opening ventilation."
+                ),
+                "night_flush": (
+                    "Separate strategy gated by outdoor dry-bulb diurnal cooling potential "
+                    "(outdoor_temperature_target or EPW dry-bulb) for night thermal mass flushing."
+                ),
+            },
+            "merge_polygons": bool(merge_polygons),
+        },
+        assumptions={
+            "dry_bulb_source": "air_temperature_target" if air_temperature_target is not None else "epw_dry_bulb_temperature",
+            "relative_humidity_source": "relative_humidity_target" if relative_humidity_target is not None else "epw_relative_humidity",
+            "outdoor_temperature_source": (
+                "outdoor_temperature_target"
+                if outdoor_temperature_target is not None
+                else ("epw_dry_bulb_temperature" if epw_obj is not None else None)
+            ),
+            "incident_irradiance_source": (
+                "incident_irradiance_target"
+                if incident_irradiance_target is not None
+                else ("epw_global_horizontal_radiation" if epw_obj is not None else None)
+            ),
+            "average_pressure_pa": avg_pressure,
+            "polygon_pmv_time_collapse_note": (
+                "PolygonPMV accepts at most 12 (or 24) representative values per secondary PMV input "
+                "(rad_temperature, air_speed, met_rate, clo_value, external_work); longer series are "
+                "collapsed to their period mean."
+            ),
+            "fan_air_speed_m_s": params.fan_air_speed,
+        },
+        applicable_scope={
+            "domain": "climate_passive_strategy_screening",
+            "intended_use": (
+                "Early-design psychrometric climate screening of passive heating/cooling potential; "
+                "not a substitute for dynamic whole-building energy or airflow network simulation."
+            ),
+            "fan_use_vs_natural_ventilation": (
+                "'natural_ventilation' maps to psychrometric fan_use (air speed extension) and "
+                "ignores building envelope opening area, stack/wind pressure, and infiltration."
+            ),
+            "strategies_evaluated": stats["strategies_added"],
+            "strategies_skipped": stats["strategies_skipped"],
+        },
+    )
     if output_metrics:
         summary_view["output_metrics"] = metric_summaries
         summary_view["output_targets"] = {k: v["target"] for k, v in persisted_by_name.items()}
@@ -1849,9 +2197,11 @@ def _calculate_solar_mrt_map(
                 garden_root=garden_root, target=lw_raw, field_name="longwave_mrt"
             )
         ]
+        lw_source_name = "longwave_mrt" if longwave_mrt is not None else "surface_temperatures"
     elif isinstance(lw_raw, (int, float)) and not isinstance(lw_raw, bool):
         hdr = Header(Temperature(), "C", AnalysisPeriod())
         lw_data = [HourlyContinuousCollection(hdr, [float(lw_raw)] * 8760)]
+        lw_source_name = "scalar_constant_longwave_mrt"
     elif air_temperature_target is not None:
         lw_data = [
             _load_required_collection(
@@ -1860,8 +2210,10 @@ def _calculate_solar_mrt_map(
                 field_name="air_temperature_target",
             )
         ]
+        lw_source_name = "air_temperature_target"
     elif epw_obj is not None:
         lw_data = [epw_obj.dry_bulb_temperature]
+        lw_source_name = "epw_dry_bulb_temperature"
     else:
         raise ValueError(
             "Solar MRT map mode requires longwave_mrt, surface_temperatures, "
@@ -1904,19 +2256,39 @@ def _calculate_solar_mrt_map(
         },
     )
     sensor_summaries = [data_collection_summary(c) for c in mrt_cols[:32]]
+    map_summary = {
+        "garden_target": GardenManifest.read(Path(garden_root).resolve()).target(),
+        "comfort_model": f"{comfort_model}Map",
+        "sensor_count": len(mrt_cols),
+        "sensors": sensor_summaries,
+        "data_collection": data_collection_summary(primary_col),
+    }
+    _attach_comfort_methodology(
+        map_summary,
+        method={
+            "name": "SolarCal Radiance Illuminance Map MRT",
+            "comfort_index": f"{comfort_model}Map",
+            "mode": "sensor_map",
+            "indirect_is_total": bool(indirect_is_total),
+            "primary_collection_aggregation": "mean_across_sensors" if len(mrt_cols) > 1 else "single_sensor",
+        },
+        assumptions={
+            "longwave_mrt_source": lw_source_name,
+            "location": loc_obj.to_dict().get("city") or "custom",
+            "sensor_count": len(mrt_cols),
+        },
+        applicable_scope={
+            "domain": "spatial_solar_mean_radiant_temperature",
+            "intended_use": "Spatially resolved shortwave solar MRT over Radiance illuminance sensor grids.",
+        },
+    )
     res: dict[str, Any] = {
         "target": saved["target"],
         "data_target": saved["target"],
         "data_collection_target": saved["target"],
         "artifact": saved["artifact"],
         "persistence_receipt": saved["persistence_receipt"],
-        "summary_view": {
-            "garden_target": GardenManifest.read(Path(garden_root).resolve()).target(),
-            "comfort_model": f"{comfort_model}Map",
-            "sensor_count": len(mrt_cols),
-            "sensors": sensor_summaries,
-            "data_collection": data_collection_summary(primary_col),
-        },
+        "summary_view": map_summary,
         "report": make_report(
             status="ok",
             message=f"{comfort_model} map MRT computed for {len(mrt_cols)} sensor(s).",
@@ -2021,19 +2393,38 @@ def calculate_indoor_solar_mrt(
             body_absorptivity=parameter.body_absorptivity if parameter is not None else 0.7,
             body_emissivity=parameter.body_emissivity if parameter is not None else 0.95,
         )
+        scalar_summary = {
+            "comfort_model": "IndoorSolarCal",
+            "mode": "scalar",
+            "solar_altitude": float(solar_altitude),
+            "longwave_mrt": lw_val,
+            "mrt": float(exch["mrt"]),
+            "dmrt": float(exch["dmrt"]),
+            "erf": float(exch["erf"]),
+        }
+        _attach_comfort_methodology(
+            scalar_summary,
+            method={
+                "name": "ASHRAE 55 Indoor SolarCal Shortwave Radiative Exchange",
+                "comfort_index": "IndoorSolarCal",
+                "mode": "scalar",
+            },
+            assumptions={
+                "sky_exposure": 0.5 if sky_e is None else sky_e,
+                "fraction_body_exposed": 1.0 if frac_e is None else frac_e,
+                "floor_reflectance": 0.25 if flr_ref is None else flr_ref,
+                "window_transmittance": 0.4 if win_tr is None else win_tr,
+            },
+            applicable_scope={
+                "domain": "indoor_solar_mean_radiant_temperature",
+                "intended_use": "Single-point effective radiant field and solar MRT delta near glazing.",
+            },
+        )
         return {
             "mrt": float(exch["mrt"]),
             "dmrt": float(exch["dmrt"]),
             "erf": float(exch["erf"]),
-            "summary_view": {
-                "comfort_model": "IndoorSolarCal",
-                "mode": "scalar",
-                "solar_altitude": float(solar_altitude),
-                "longwave_mrt": lw_val,
-                "mrt": float(exch["mrt"]),
-                "dmrt": float(exch["dmrt"]),
-                "erf": float(exch["erf"]),
-            },
+            "summary_view": scalar_summary,
             "report": make_report(status="ok", message="Scalar Indoor SolarCal MRT computed."),
         }
 
@@ -2164,6 +2555,33 @@ def calculate_indoor_solar_mrt(
         producer="LB_Calculate_Comfort",
         output_metrics=output_metrics,
         return_data_collection=return_data_collection,
+        method={
+            "name": "ASHRAE 55 Indoor SolarCal Time-Series MRT",
+            "comfort_index": "IndoorSolarCal",
+            "mode": "collection",
+        },
+        assumptions={
+            "longwave_mrt_source": (
+                "longwave_mrt"
+                if longwave_mrt is not None
+                else (
+                    "surface_temperatures"
+                    if surface_temperatures is not None
+                    else (
+                        "mean_radiant_temperature_target"
+                        if mean_radiant_temperature_target is not None
+                        else ("air_temperature_target" if air_temperature_target is not None else "epw_dry_bulb_temperature")
+                    )
+                )
+            ),
+            "sky_exposure": sky_exp if not hasattr(sky_exp, "values") else "data_collection",
+            "sky_exposure_default_note": "Defaults to 0.5 (all-glass facade approximation) if omitted and human_to_sky is not computed.",
+            "human_to_sky_raytraced": human_to_sky_info is not None,
+        },
+        applicable_scope={
+            "domain": "indoor_solar_mean_radiant_temperature",
+            "intended_use": "Hourly indoor solar MRT adjustment for occupants near sunlit fenestration.",
+        },
     )
     res["summary_view"]["effective_radiant_field"] = data_collection_summary(
         comfort.effective_radiant_field
@@ -2276,6 +2694,37 @@ def calculate_outdoor_solar_mrt(
         )
         total_dmrt = float(exch["s_dmrt"]) + float(exch["l_dmrt"])
         total_erf = float(exch["s_erf"]) + float(exch["l_erf"])
+        scalar_summary = {
+            "comfort_model": "OutdoorSolarCal",
+            "mode": "scalar",
+            "solar_altitude": float(solar_altitude),
+            "surface_temperatures": srfs_val,
+            "horizontal_infrared": hir_val,
+            "mrt": float(exch["mrt"]),
+            "s_dmrt": float(exch["s_dmrt"]),
+            "l_dmrt": float(exch["l_dmrt"]),
+            "dmrt": total_dmrt,
+            "s_erf": float(exch["s_erf"]),
+            "l_erf": float(exch["l_erf"]),
+            "erf": total_erf,
+        }
+        _attach_comfort_methodology(
+            scalar_summary,
+            method={
+                "name": "ASHRAE 55 Outdoor SolarCal Shortwave + Longwave Exchange",
+                "comfort_index": "OutdoorSolarCal",
+                "mode": "scalar",
+            },
+            assumptions={
+                "sky_exposure": 1.0 if sky_e is None else sky_e,
+                "fraction_body_exposed": 1.0 if frac_e is None else frac_e,
+                "floor_reflectance": 0.25 if flr_ref is None else flr_ref,
+            },
+            applicable_scope={
+                "domain": "outdoor_solar_mean_radiant_temperature",
+                "intended_use": "Single-point outdoor MRT combining shortwave solar and longwave sky exchange.",
+            },
+        )
         return {
             "mrt": float(exch["mrt"]),
             "s_dmrt": float(exch["s_dmrt"]),
@@ -2284,20 +2733,7 @@ def calculate_outdoor_solar_mrt(
             "s_erf": float(exch["s_erf"]),
             "l_erf": float(exch["l_erf"]),
             "erf": total_erf,
-            "summary_view": {
-                "comfort_model": "OutdoorSolarCal",
-                "mode": "scalar",
-                "solar_altitude": float(solar_altitude),
-                "surface_temperatures": srfs_val,
-                "horizontal_infrared": hir_val,
-                "mrt": float(exch["mrt"]),
-                "s_dmrt": float(exch["s_dmrt"]),
-                "l_dmrt": float(exch["l_dmrt"]),
-                "dmrt": total_dmrt,
-                "s_erf": float(exch["s_erf"]),
-                "l_erf": float(exch["l_erf"]),
-                "erf": total_erf,
-            },
+            "summary_view": scalar_summary,
             "report": make_report(status="ok", message="Scalar Outdoor SolarCal MRT computed."),
         }
 
@@ -2436,6 +2872,35 @@ def calculate_outdoor_solar_mrt(
         producer="LB_Calculate_Comfort",
         output_metrics=output_metrics,
         return_data_collection=return_data_collection,
+        method={
+            "name": "ASHRAE 55 Outdoor SolarCal Time-Series MRT",
+            "comfort_index": "OutdoorSolarCal",
+            "mode": "collection",
+        },
+        assumptions={
+            "surface_temperature_source": (
+                "surface_temperatures"
+                if surface_temperatures is not None
+                else (
+                    "longwave_mrt"
+                    if longwave_mrt is not None
+                    else (
+                        "mean_radiant_temperature_target"
+                        if mean_radiant_temperature_target is not None
+                        else ("air_temperature_target" if air_temperature_target is not None else "epw_dry_bulb_temperature")
+                    )
+                )
+            ),
+            "horizontal_infrared_source": (
+                "horizontal_infrared_target" if horizontal_infrared_target is not None else "epw_horizontal_infrared_radiation_intensity"
+            ),
+            "sky_exposure": sky_exp if not hasattr(sky_exp, "values") else "data_collection",
+            "human_to_sky_raytraced": human_to_sky_info is not None,
+        },
+        applicable_scope={
+            "domain": "outdoor_solar_mean_radiant_temperature",
+            "intended_use": "Hourly outdoor human MRT accounting for solar radiation and sky/ground longwave exchange.",
+        },
     )
     res["summary_view"]["shortwave_effective_radiant_field"] = data_collection_summary(
         comfort.shortwave_effective_radiant_field
@@ -2555,12 +3020,15 @@ def calculate_comfort(
             return_data_collection=return_data_collection,
         )
     if normalized_model == "adaptive":
-        if outdoor_temperature_target is None or (
-            operative_temperature_target is None and air_temperature_target is None
+        has_weather_shortcut = weather_target is not None or epw_path is not None
+        if not has_weather_shortcut and (
+            outdoor_temperature_target is None
+            or (operative_temperature_target is None and air_temperature_target is None)
         ):
             raise ValueError(
                 "Adaptive comfort requires outdoor_temperature_target and operative_temperature_target "
-                "(or air_temperature_target + optional mean_radiant_temperature_target)."
+                "(or air_temperature_target + optional mean_radiant_temperature_target), "
+                "or weather_target/epw_path."
             )
         resolved_air_speed_target = air_speed_target
         if resolved_air_speed_target is None and isinstance(air_speed, dict):
@@ -2572,6 +3040,8 @@ def calculate_comfort(
             air_temperature_target=air_temperature_target if isinstance(air_temperature_target, dict) else None,
             mean_radiant_temperature_target=mean_radiant_temperature_target if isinstance(mean_radiant_temperature_target, dict) else None,
             air_speed_target=resolved_air_speed_target,
+            weather_target=weather_target,
+            epw_path=epw_path,
             comfort_parameter=comfort_parameter,
             output_metrics=output_metrics,
             identifier=identifier,

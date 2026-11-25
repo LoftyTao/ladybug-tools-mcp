@@ -152,6 +152,28 @@ def export_model_file(
         path=artifact_path,
     )
     manifest.upsert_artifact(target, key_fields=("artifact_type", "identifier"))
+
+    report_target: dict[str, Any] | None = None
+    if (
+        normalized_format == FORMAT_GBAS_DWG
+        and gbas_report_path is not None
+        and gbas_report_path.is_file()
+    ):
+        report_rel_path = to_posix_relative(gbas_report_path, garden_root_path)
+        report_target = {
+            **make_model_export_artifact_target(
+                manifest=manifest,
+                export_format="gbas_selfcheck_report",
+                identifier=identifier,
+                path=report_rel_path,
+            ),
+            "dwg_identifier": identifier,
+            "dwg_target": target,
+            "model_domain": model_domain,
+            "model_target": resolved_model_target,
+        }
+        manifest.upsert_artifact(report_target, key_fields=("artifact_type", "identifier"))
+
     manifest.write(garden_root_path)
 
     warnings: list[str] = []
@@ -181,6 +203,9 @@ def export_model_file(
         "export_options": options,
         **extra_summary,
     }
+    if report_target is not None:
+        summary_view["report_artifact"] = report_target
+        summary_view["report_target"] = report_target
     result: dict[str, Any] = {
         "target": target,
         "model_export_artifact_target": target,

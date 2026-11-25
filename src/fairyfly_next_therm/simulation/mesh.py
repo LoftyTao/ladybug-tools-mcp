@@ -1,20 +1,20 @@
-# coding=utf-8
 """Meshing control parameters."""
-from __future__ import division
 import xml.etree.ElementTree as ET
 
 from fairyfly.typing import float_in_range, int_positive
 
 
-class MeshControl(object):
+class MeshControl:
     """Meshing control parameters.
 
     Args:
-        mesh_type: Legacy THERM selector. Rhino always uses QuadRemeshBrep,
-            regardless of this value. (Default: Simmetrix).
+        mesh_type: Legacy THERM selector. Rhino/Gmsh ignore this setting, and
+            "auto" is accepted case-insensitively and mapped to Simmetrix.
+            (Default: Simmetrix).
 
             * Simmetrix
             * QuadTree
+            * auto (mapped to Simmetrix)
 
         parameter: Rhino TargetQuadCount for native meshing. The actual Q4 count
             may differ. (Default: 20).
@@ -52,7 +52,10 @@ class MeshControl(object):
     @mesh_type.setter
     def mesh_type(self, value):
         if value is not None:
-            clean_input = str(value).lower()
+            clean_input = str(value).strip().lower()
+            if clean_input == 'auto':
+                self._mesh_type = 'Simmetrix'
+                return
             for key in self.TYPES:
                 if key.lower() == clean_input:
                     value = key
@@ -247,4 +250,4 @@ class MeshControl(object):
             self.max_error_percent, self.max_iterations)
 
     def __repr__(self):
-        return 'MeshControl: {} - Parameter {}'.format(self.mesh_type, self.parameter)
+        return f'MeshControl: {self.mesh_type} - Parameter {self.parameter}'

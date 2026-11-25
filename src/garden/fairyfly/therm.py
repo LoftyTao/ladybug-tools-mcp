@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -12,6 +13,7 @@ from typing import Any
 import xml.etree.ElementTree as ET
 import zipfile
 
+from fairyfly_next_therm.native_mesh import _covered, _covered_length
 from fairyfly_next_therm.result import THMZResult
 from fairyfly_next_therm.run import run_thmz
 from fairyfly_next_therm.simulation.exposure import ModelExposure
@@ -20,7 +22,6 @@ from fairyfly_next_therm.simulation.parameter import SimulationParameter
 from fairyfly_next_therm.simulation.transient import TransientCalculation
 from fairyfly_next_therm.writer import model_to_thmz
 from ladybug.psychrometrics import dew_point_from_db_rh, rel_humid_from_db_dpt
-from ladybug_geometry.geometry2d.pointvector import Point2D
 from pyhygrothermfem_fairyfly.transient_results import (
     TRANSIENT_RESULT_MEMBERS,
     TRANSIENT_STEP_EXCHANGE_MEMBERS,
@@ -31,7 +32,11 @@ from pyhygrothermfem_fairyfly.transient_results import (
 from garden.background import submit_worker_process
 from garden.fairyfly.availability import therm_engine_config
 from garden.fairyfly.mesher import gmsh_mesh_to_xml, mesh_thmz_in_place, thmz_has_mesh
-from garden.fairyfly.model import load_fairyfly_model, resolve_model_target
+from garden.fairyfly.model import (
+    inspect_fairyfly_model_geometry,
+    load_fairyfly_model,
+    resolve_model_target,
+)
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import (
     require_garden_root,
@@ -161,6 +166,7 @@ _THERM_RUNS = RunManager(
         "simulation_mode",
         "solver_provenance",
         "mesh_convergence",
+        "preflight",
         "source_thmz_path",
         "engine",
         "disabled_reason",
@@ -320,6 +326,314 @@ def _coerce_simulation_parameter(
     return SimulationParameter(mesh=mesh_ctrl, exposure=exposure_obj, transient=transient_obj)
 
 
+def _inspect_thmz_preflight(thmz_path: Path) -> dict[str, Any]:
+    """Inspect boundary labels, mesh counts, and boundary coverage in a THMZ archive."""
+    if not thmz_path.is_file():
+        raise FileNotFoundError(f"THMZ archive not found: {thmz_path}")
+
+    with zipfile.ZipFile(thmz_path, "r") as archive:
+        names = set(archive.namelist())
+        if "Model.xml" not in names:
+            raise ValueError(f"THMZ archive is missing Model.xml: {thmz_path}")
+        model_xml = ET.fromstring(archive.read("Model.xml"))
+
+        origin_el = model_xml.find("GlazingOrigin")
+        origin_x = float(origin_el.findtext("x") or 0.0) if origin_el is not None else 0.0
+        origin_y = float(origin_el.findtext("y") or 0.0) if origin_el is not None else 0.0
+
+        xml_boundaries: dict[int, dict[str, Any]] = {}
+        boundary_labels: list[dict[str, Any]] = []
+        for boundary in model_xml.findall("Boundaries/Boundary"):
+            if boundary.findtext("Type") != "Boundary Condition":
+                continue
+            raw_id = boundary.findtext("ID")
+            if raw_id is None:
+                continue
+            bid = int(raw_id)
+            name = boundary.findtext("Name") or ""
+            flux_tag = (boundary.findtext("FluxTag") or "").strip() or None
+            start_el = boundary.find("StartPoint")
+            end_el = boundary.find("EndPoint")
+            if start_el is None or end_el is None:
+                continue
+            start_xy = (
+                float(start_el.findtext("x") or 0.0),
+                float(start_el.findtext("y") or 0.0),
+            )
+            end_xy = (
+                float(end_el.findtext("x") or 0.0),
+                float(end_el.findtext("y") or 0.0),
+            )
+            expected_len = math.hypot(end_xy[0] - start_xy[0], end_xy[1] - start_xy[1])
+            info = {
+                "id": bid,
+                "name": name,
+                "flux_tag": flux_tag,
+                "start": start_xy,
+                "end": end_xy,
+                "expected_length": expected_len,
+            }
+            xml_boundaries[bid] = info
+            boundary_labels.append(
+                {
+                    "id": bid,
+                    "name": name,
+                    "flux_tag": flux_tag,
+                    "start": [round(start_xy[0], 4), round(start_xy[1], 4)],
+                    "end": [round(end_xy[0], 4), round(end_xy[1], 4)],
+                    "expected_length": round(expected_len, 4),
+                }
+            )
+
+        has_mesh_member = "Mesh.xml" in names
+        mesh_node_count = 0
+        mesh_element_count = 0
+        covered_segments: dict[int, list[tuple[tuple[float, float], tuple[float, float]]]] = {
+            bid: [] for bid in xml_boundaries
+        }
+        unmatched_boundaries: list[dict[str, Any]] = []
+        unknown_mesh_labels: set[int] = set()
+
+        if has_mesh_member:
+            mesh_xml = ET.fromstring(archive.read("Mesh.xml"))
+            case = mesh_xml.find("Case")
+            if case is not None:
+                nodes_mm: list[tuple[float, float]] = []
+                for node in case.findall("Nodes/Node"):
+                    x_m = float(node.findtext("x") or 0.0)
+                    y_m = float(node.findtext("y") or 0.0)
+                    nodes_mm.append((x_m * 1000.0 + origin_x, y_m * 1000.0 + origin_y))
+                mesh_node_count = len(nodes_mm)
+
+                elements = case.findall("Elements/Element")
+                mesh_element_count = len(elements)
+                edge_counts: dict[tuple[int, int], int] = {}
+                for elem in elements:
+                    node_indices = [
+                        int(child.text)
+                        for child in elem
+                        if child.tag.startswith("node") and child.text is not None
+                    ]
+                    n_len = len(node_indices)
+                    for idx in range(n_len):
+                        a = node_indices[idx]
+                        b = node_indices[(idx + 1) % n_len]
+                        key = (min(a, b), max(a, b))
+                        edge_counts[key] = edge_counts.get(key, 0) + 1
+
+                for tag_path in ("BCSegments/Convections/Convection", "BCSegments/Fluxes/Flux"):
+                    for seg_el in case.findall(tag_path):
+                        raw_n1 = seg_el.findtext("node1")
+                        raw_n2 = seg_el.findtext("node2")
+                        raw_lbl = seg_el.findtext("label")
+                        if raw_n1 is None or raw_n2 is None or raw_lbl is None:
+                            continue
+                        n1, n2, lbl = int(raw_n1), int(raw_n2), int(raw_lbl)
+                        if lbl not in xml_boundaries:
+                            unknown_mesh_labels.add(lbl)
+                            continue
+                        if 0 <= n1 < mesh_node_count and 0 <= n2 < mesh_node_count:
+                            covered_segments[lbl].append((nodes_mm[n1], nodes_mm[n2]))
+
+                temp_labels_by_node: dict[int, set[int]] = {}
+                for temp_el in case.findall("BCSegments/Temperatures/Temperature"):
+                    raw_node = temp_el.findtext("node")
+                    raw_lbl = temp_el.findtext("label")
+                    if raw_node is None or raw_lbl is None:
+                        continue
+                    node_idx, lbl = int(raw_node), int(raw_lbl)
+                    if lbl not in xml_boundaries:
+                        unknown_mesh_labels.add(lbl)
+                        continue
+                    temp_labels_by_node.setdefault(node_idx, set()).add(lbl)
+
+                if temp_labels_by_node:
+                    for (a, b), count in edge_counts.items():
+                        if count != 1:
+                            continue
+                        if not (0 <= a < mesh_node_count and 0 <= b < mesh_node_count):
+                            continue
+                        shared = temp_labels_by_node.get(a, set()) & temp_labels_by_node.get(b, set())
+                        for lbl in shared:
+                            covered_segments[lbl].append((nodes_mm[a], nodes_mm[b]))
+
+        for lbl in sorted(unknown_mesh_labels):
+            unmatched_boundaries.append(
+                {
+                    "id": lbl,
+                    "name": None,
+                    "flux_tag": None,
+                    "reason": "unknown_mesh_bc_label",
+                    "segment": None,
+                    "expected_length": 0.0,
+                    "covered_length": 0.0,
+                }
+            )
+
+        boundary_coverage_lengths: dict[str, dict[str, Any]] = {}
+        for bid, binfo in xml_boundaries.items():
+            seg = (binfo["start"], binfo["end"])
+            if has_mesh_member:
+                spans = covered_segments.get(bid, [])
+                expected_len, covered_len = _covered_length(seg, spans, tolerance=1e-2)
+                is_covered = _covered(seg, spans, tolerance=1e-2)
+                if not is_covered:
+                    unmatched_boundaries.append(
+                        {
+                            "id": bid,
+                            "name": binfo["name"],
+                            "flux_tag": binfo["flux_tag"],
+                            "reason": "uncovered_in_mesh",
+                            "segment": [
+                                [round(binfo["start"][0], 4), round(binfo["start"][1], 4)],
+                                [round(binfo["end"][0], 4), round(binfo["end"][1], 4)],
+                            ],
+                            "expected_length": round(expected_len, 4),
+                            "covered_length": round(covered_len, 4),
+                        }
+                    )
+            else:
+                expected_len = binfo["expected_length"]
+                covered_len = 0.0
+                is_covered = False
+
+            boundary_coverage_lengths[str(bid)] = {
+                "id": bid,
+                "name": binfo["name"],
+                "flux_tag": binfo["flux_tag"],
+                "expected_length": round(expected_len, 4),
+                "covered_length": round(covered_len, 4),
+                "covered": is_covered,
+                "segment": [
+                    [round(binfo["start"][0], 4), round(binfo["start"][1], 4)],
+                    [round(binfo["end"][0], 4), round(binfo["end"][1], 4)],
+                ],
+            }
+
+    return {
+        "boundary_count": len(xml_boundaries),
+        "boundary_labels": boundary_labels,
+        "boundary_coverage_lengths": boundary_coverage_lengths,
+        "unmatched_boundaries": unmatched_boundaries,
+        "mesh_element_count": mesh_element_count,
+        "mesh_node_count": mesh_node_count,
+        "has_mesh_xml": has_mesh_member,
+    }
+
+
+def _assert_thmz_preflight_valid(
+    preflight: dict[str, Any],
+    *,
+    require_mesh: bool,
+    require_boundaries: bool,
+) -> None:
+    """Fail fast when THMZ preflight detects missing/unmatched boundaries or empty mesh."""
+    if require_boundaries and preflight.get("boundary_count", 0) <= 0:
+        raise ValueError(
+            "THMZ preflight failed: no boundary conditions were exported (boundary_count=0)."
+        )
+    if (require_mesh or preflight.get("has_mesh_xml")) and (
+        preflight.get("mesh_element_count", 0) <= 0 or preflight.get("mesh_node_count", 0) <= 0
+    ):
+        raise ValueError(
+            "THMZ preflight failed: Mesh.xml contains zero elements or nodes "
+            f"(mesh_element_count={preflight.get('mesh_element_count', 0)}, "
+            f"mesh_node_count={preflight.get('mesh_node_count', 0)})."
+        )
+    unmatched = list(preflight.get("unmatched_boundaries") or [])
+    if unmatched:
+        details = "; ".join(
+            f"id={item.get('id')} name={item.get('name')!r} flux_tag={item.get('flux_tag')!r} "
+            f"reason={item.get('reason')} segment={item.get('segment')} "
+            f"expected_length={item.get('expected_length')} covered_length={item.get('covered_length')}"
+            for item in unmatched
+        )
+        raise ValueError(f"THMZ preflight failed due to unmatched boundaries: {details}")
+
+
+def _validate_pre_solve_model(model: Any, *, require_boundaries: bool = False) -> dict[str, Any]:
+    """Validate Fairyfly model geometry, materials, and boundary alignment before meshing/solving."""
+    if not getattr(model, "shapes", None):
+        raise ValueError(
+            "Fairyfly pre-solve validation failed: model has no shapes. Add at least one Shape."
+        )
+    geom_report = inspect_fairyfly_model_geometry(model)
+    errors: list[str] = []
+    if geom_report["shapes_missing_materials"]:
+        names = ", ".join(
+            f"{item['display_name']} ({item['identifier']})"
+            for item in geom_report["shapes_missing_materials"]
+        )
+        errors.append(f"Shape(s) missing THERM material assignment: {names}.")
+    if geom_report["empty_boundaries"]:
+        names = ", ".join(
+            f"{item['display_name']} ({item['identifier']})"
+            for item in geom_report["empty_boundaries"]
+        )
+        errors.append(f"Boundary(ies) with empty geometry: {names}.")
+    if geom_report["misaligned_boundaries"]:
+        details = "; ".join(
+            f"boundary={item['boundary_name']!r} segment={item['start']}->{item['end']} "
+            f"min_distance={item['min_distance']}"
+            for item in geom_report["misaligned_boundaries"]
+        )
+        errors.append(
+            f"Boundary segment(s) do not lie within model tolerance of any shape exterior edge: {details}."
+        )
+    if geom_report["problem_regions"]:
+        errors.append(
+            f"Model has {len(geom_report['problem_regions'])} disconnected THERM problem region(s) "
+            "that are not contiguous."
+        )
+    if require_boundaries and not getattr(model, "boundaries", None):
+        errors.append(
+            "Model has no boundaries assigned; at least one boundary condition is required before solving."
+        )
+    if errors:
+        raise ValueError("Fairyfly pre-solve validation failed: " + " ".join(errors))
+
+    boundary_labels: list[dict[str, Any]] = []
+    boundary_coverage_lengths: dict[str, dict[str, Any]] = {}
+    for idx, boundary in enumerate(getattr(model, "boundaries", ()) or (), 1):
+        therm_prop = getattr(getattr(boundary, "properties", None), "therm", None)
+        cond = getattr(therm_prop, "condition", None)
+        cond_name = getattr(cond, "display_name", None) or getattr(boundary, "display_name", "")
+        flux_tag = getattr(therm_prop, "u_factor_tag", None)
+        segs = list(getattr(boundary, "geometry", ()) or ())
+        total_len = sum(float(getattr(seg, "length", 0.0)) for seg in segs)
+        seg_coords = [
+            [[round(seg.p1.x, 4), round(seg.p1.y, 4)], [round(seg.p2.x, 4), round(seg.p2.y, 4)]]
+            for seg in segs
+        ]
+        boundary_labels.append(
+            {
+                "id": idx,
+                "name": str(cond_name or ""),
+                "boundary_name": str(getattr(boundary, "display_name", "") or ""),
+                "flux_tag": flux_tag,
+                "segments": seg_coords,
+                "expected_length": round(total_len, 4),
+            }
+        )
+        boundary_coverage_lengths[str(idx)] = {
+            "id": idx,
+            "name": str(cond_name or ""),
+            "flux_tag": flux_tag,
+            "expected_length": round(total_len, 4),
+            "covered_length": 0.0,
+            "covered": False,
+        }
+
+    return {
+        "boundary_count": len(boundary_labels),
+        "boundary_labels": boundary_labels,
+        "boundary_coverage_lengths": boundary_coverage_lengths,
+        "unmatched_boundaries": [],
+        "mesh_element_count": 0,
+        "mesh_node_count": 0,
+    }
+
+
 def _run_response(
     *,
     garden_root: Path,
@@ -329,7 +643,8 @@ def _run_response(
     report_status: str = "ok",
 ) -> dict[str, Any]:
     target = record["target"]
-    summary = {
+    preflight = record.get("preflight")
+    summary: dict[str, Any] = {
         "garden_target": manifest.target(),
         "target": target,
         "run_id": record["run_id"],
@@ -344,6 +659,7 @@ def _run_response(
         "simulation_mode": record.get("simulation_mode"),
         "solver_provenance": record.get("solver_provenance"),
         "mesh_convergence": record.get("mesh_convergence"),
+        "preflight": preflight,
         "source_thmz_path": record.get("source_thmz_path"),
         "engine": record.get("engine"),
         "disabled_reason": record.get("disabled_reason"),
@@ -352,6 +668,17 @@ def _run_response(
             "arguments": {"garden_root": str(garden_root), "run_target": target},
         },
     }
+    if isinstance(preflight, dict):
+        for key in (
+            "boundary_count",
+            "boundary_labels",
+            "boundary_coverage_lengths",
+            "unmatched_boundaries",
+            "mesh_element_count",
+            "mesh_node_count",
+        ):
+            if key in preflight:
+                summary[key] = preflight[key]
     return {
         "target": target,
         "run_target": target,
@@ -383,6 +710,7 @@ def write_fairyfly_model_to_thmz(
     garden_root_path = require_garden_root(garden_root)
     manifest, resolved_model_target = resolve_model_target(garden_root_path, model_target)
     model = load_fairyfly_model(garden_root_path, resolved_model_target)
+    _validate_pre_solve_model(model, require_boundaries=False)
     sim_par = _coerce_simulation_parameter(simulation_parameter)
     normalized_run_id = _THERM_RUNS.normalize_run_id(run_id)
     run_dir = _THERM_RUNS.run_dir(garden_root_path, normalized_run_id)
@@ -394,6 +722,9 @@ def write_fairyfly_model_to_thmz(
         sim_par,
         mesh_generator=gmsh_mesh_to_xml if include_mesh else None,
     )
+    preflight = _inspect_thmz_preflight(thmz_path)
+    if include_mesh:
+        _assert_thmz_preflight_valid(preflight, require_mesh=True, require_boundaries=False)
     has_mesh = thmz_has_mesh(thmz_path)
     thmz_relative_path = to_posix_relative(thmz_path, garden_root_path)
     target = make_fairyfly_thmz_target(
@@ -416,6 +747,26 @@ def write_fairyfly_model_to_thmz(
         source=source,
     )
     manifest.write(garden_root_path)
+    summary_view = {
+        "garden_target": manifest.target(),
+        "target": target,
+        "run_id": normalized_run_id,
+        "status": "written",
+        "path": thmz_relative_path,
+        "include_mesh": bool(include_mesh),
+        "has_mesh": has_mesh,
+        "model_target": resolved_model_target,
+        "model_path": model_path,
+        "simulation_parameter": sim_par.to_dict() if sim_par is not None else None,
+        "preflight": preflight,
+        "boundary_count": preflight["boundary_count"],
+        "boundary_labels": preflight["boundary_labels"],
+        "boundary_coverage_lengths": preflight["boundary_coverage_lengths"],
+        "unmatched_boundaries": preflight["unmatched_boundaries"],
+        "mesh_element_count": preflight["mesh_element_count"],
+        "mesh_node_count": preflight["mesh_node_count"],
+        "artifact": artifact,
+    }
     return {
         "target": target,
         "thmz_target": target,
@@ -429,19 +780,7 @@ def write_fairyfly_model_to_thmz(
             absolute_path=str(thmz_path),
             source=source,
         ),
-        "summary_view": {
-            "garden_target": manifest.target(),
-            "target": target,
-            "run_id": normalized_run_id,
-            "status": "written",
-            "path": thmz_relative_path,
-            "include_mesh": bool(include_mesh),
-            "has_mesh": has_mesh,
-            "model_target": resolved_model_target,
-            "model_path": model_path,
-            "simulation_parameter": sim_par.to_dict() if sim_par is not None else None,
-            "artifact": artifact,
-        },
+        "summary_view": summary_view,
         "report": make_report(
             status="ok",
             message=f"Fairyfly model written to THERM THMZ: {thmz_relative_path}",
@@ -490,6 +829,7 @@ def _run_therm_worker(
     status = "completed"
     provenance: dict[str, Any] | None = None
     mesh_convergence: dict[str, Any] | None = None
+    preflight: dict[str, Any] | None = existing.get("preflight")
 
     try:
         sim_par = _coerce_simulation_parameter(simulation_parameter)
@@ -502,6 +842,8 @@ def _run_therm_worker(
             if not premeshed:
                 target_quad = max(int(sim_par.mesh.parameter), 4) if sim_par is not None else 20
                 mesh_thmz_in_place(thmz_path, target_quad_count=target_quad)
+            preflight = _inspect_thmz_preflight(thmz_path)
+            _assert_thmz_preflight_valid(preflight, require_mesh=True, require_boundaries=True)
             run_thmz(str(thmz_path), silent=silent)
             provenance = _verify_solver_outputs(thmz_path)
             mesh_convergence = {
@@ -513,6 +855,7 @@ def _run_therm_worker(
             if model_target is None:
                 raise ValueError("model_target is required when thmz_target/thmz_path is omitted.")
             model = load_fairyfly_model(garden_root_path, model_target)
+            _validate_pre_solve_model(model, require_boundaries=True)
             effective_par = sim_par if sim_par is not None else SimulationParameter()
             control = effective_par.mesh
             if effective_par.transient is None and control.run_error_estimator:
@@ -531,6 +874,10 @@ def _run_therm_worker(
                         str(thmz_path),
                         step_par,
                         mesh_generator=gmsh_mesh_to_xml,
+                    )
+                    preflight = _inspect_thmz_preflight(thmz_path)
+                    _assert_thmz_preflight_valid(
+                        preflight, require_mesh=True, require_boundaries=True
                     )
                     run_thmz(str(thmz_path), silent=silent)
                     provenance = _verify_solver_outputs(thmz_path)
@@ -561,6 +908,10 @@ def _run_therm_worker(
                     effective_par,
                     mesh_generator=gmsh_mesh_to_xml,
                 )
+                preflight = _inspect_thmz_preflight(thmz_path)
+                _assert_thmz_preflight_valid(
+                    preflight, require_mesh=True, require_boundaries=True
+                )
                 run_thmz(str(thmz_path), silent=silent)
                 provenance = _verify_solver_outputs(thmz_path)
     except Exception as exc:
@@ -589,6 +940,7 @@ def _run_therm_worker(
         "simulation_mode": provenance.get("mode") if provenance else existing.get("simulation_mode"),
         "solver_provenance": provenance,
         "mesh_convergence": mesh_convergence,
+        "preflight": preflight,
         "warnings": warnings,
     }
     _THERM_RUNS.upsert(garden_root_path, updated)
@@ -665,6 +1017,19 @@ def start_fairyfly_therm_run(
     target = make_fairyfly_therm_run_target(manifest.garden_id, normalized_run_id)
     sim_par = _coerce_simulation_parameter(simulation_parameter)
     sim_par_dict = sim_par.to_dict() if sim_par is not None else None
+
+    if source_thmz is not None:
+        preflight = _inspect_thmz_preflight(source_thmz)
+        _assert_thmz_preflight_valid(
+            preflight,
+            require_mesh=bool(preflight.get("has_mesh_xml")),
+            require_boundaries=True,
+        )
+    else:
+        assert resolved_model_target is not None
+        model = load_fairyfly_model(garden_root_path, resolved_model_target)
+        preflight = _validate_pre_solve_model(model, require_boundaries=True)
+
     engine = therm_engine_config()
     started_at = utc_now_iso()
 
@@ -683,6 +1048,7 @@ def start_fairyfly_therm_run(
             "source_thmz_path": str(source_thmz) if source_thmz else None,
             "run_folder": run_folder,
             "simulation_parameter": sim_par_dict,
+            "preflight": preflight,
             "engine": engine,
             "disabled_reason": disabled_reason,
             "warnings": [f"THERM/pyHygroThermFEM runtime unavailable: {disabled_reason}"],
@@ -716,6 +1082,7 @@ def start_fairyfly_therm_run(
         "simulation_mode": None,
         "solver_provenance": None,
         "mesh_convergence": None,
+        "preflight": preflight,
         "engine": engine,
         "warnings": [],
     }

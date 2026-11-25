@@ -56,6 +56,7 @@ class RoomBatchItemSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     identifier: str = Field(..., min_length=1)
+    display_name: str | None = None
     faces: list[dict[str, Any]] | None = None
     room_geometry: dict[str, Any] | None = None
     x_dim: float | None = None
@@ -75,6 +76,7 @@ class FaceBatchItemSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     identifier: str = Field(..., min_length=1)
+    display_name: str | None = None
     geometry: dict[str, Any]
 
     @field_validator("identifier")
@@ -89,6 +91,7 @@ class DoorBatchItemSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     identifier: str = Field(..., min_length=1)
+    display_name: str | None = None
     host_target: dict[str, Any] | None = None
     geometry: dict[str, Any] | None = None
     is_glass: bool = False
@@ -108,6 +111,7 @@ class ApertureBatchItemSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    mode: str | None = None
     host_target: dict[str, Any] | None = None
     identifier: str | None = None
     geometry: dict[str, Any] | None = None
@@ -208,13 +212,23 @@ def validate_honeybee_aperture_batch_items(
     items: list[Any],
     *,
     default_host_target: dict[str, Any] | None = None,
+    expected_mode: str | None = None,
 ) -> list[dict[str, Any]]:
     """Validate batch item specs for create_honeybee_apertures_batch."""
-    return _validate_item_specs_with_default_host(
+    specs = _validate_item_specs_with_default_host(
         items,
         model_cls=ApertureBatchItemSpec,
         default_host_target=default_host_target,
     )
+    if expected_mode is not None:
+        for index, spec in enumerate(specs):
+            item_mode = spec.pop("mode", None)
+            if item_mode is not None and str(item_mode).strip() != expected_mode:
+                raise ValueError(
+                    f"items[{index}].mode ({item_mode!r}) does not match "
+                    f"HB_Create_Apertures mode={expected_mode!r}."
+                )
+    return specs
 
 
 def validate_honeybee_shade_batch_items(

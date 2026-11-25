@@ -618,9 +618,11 @@ def _des_gmt_config() -> dict[str, Any]:
     }
 
 
-def _ironbug_console_config() -> dict[str, Any]:
+def _ironbug_console_config(openstudio_cli_version: str | None = None) -> dict[str, Any]:
     from garden.ironbug.runtime import (
         _repo_or_packaged_bridge_dll,
+        inspect_ironbug_openstudio_compatibility,
+        read_pe_file_version,
         resolve_ironbug_console_exe,
         resolve_ironbug_dir,
         resolve_openstudio_csharp_dir,
@@ -633,16 +635,44 @@ def _ironbug_console_config() -> dict[str, Any]:
     dotnet_exe = shutil.which("dotnet")
     path_str = str(ib_dir) if ib_dir else getattr(energy_folders, "ironbug_path", None)
     exe_str = str(exe) if exe else getattr(energy_folders, "ironbug_exe", None)
+
+    sdk_ib_path = _normalized_path(getattr(energy_folders, "ironbug_path", None))
+    ib_version = getattr(energy_folders, "ironbug_version_str", None)
+    if (ib_dir and sdk_ib_path and str(ib_dir).lower() != sdk_ib_path.lower()) or not ib_version:
+        ib_version = (
+            read_pe_file_version(ib_dir / "Ironbug.HVAC.dll")
+            or read_pe_file_version(exe)
+            or ib_version
+        )
+
+    cli_ver = (
+        openstudio_cli_version
+        if openstudio_cli_version is not None
+        else getattr(energy_folders, "openstudio_version_str", None)
+    )
+    compat = inspect_ironbug_openstudio_compatibility(
+        ironbug_dir=ib_dir,
+        openstudio_csharp_dir=os_cs_dir,
+        ironbug_version=ib_version,
+        openstudio_cli_version=cli_ver,
+    )
+
     record: dict[str, Any] = {
         "name": "ironbug_console",
         "path": path_str,
         "path_exists": bool(path_str and Path(path_str).expanduser().is_dir()),
         "exe": exe_str,
         "exe_exists": bool(exe_str and Path(exe_str).expanduser().is_file()),
-        "version": getattr(energy_folders, "ironbug_version_str", None),
+        "version": ib_version,
         "ironbug_hvac_dll_exists": bool(ib_dir and (ib_dir / "Ironbug.HVAC.dll").is_file()),
         "openstudio_csharp_path": str(os_cs_dir) if os_cs_dir else None,
         "openstudio_csharp_dll_exists": bool(os_cs_dir and (os_cs_dir / "OpenStudio.dll").is_file()),
+        "openstudio_csharp_version": compat.get("openstudio_csharp_version"),
+        "bundled_openstudio_version": compat.get("ironbug_bundled_openstudio_version"),
+        "assembly_openstudio_version": compat.get("ironbug_assembly_openstudio_version"),
+        "expected_openstudio_version": compat.get("ironbug_openstudio_version"),
+        "python_openstudio_version": compat.get("python_openstudio_version"),
+        "compatibility_warnings": compat.get("compatibility_warnings") or [],
         "dotnet_available": bool(dotnet_exe),
         "dotnet_exe": dotnet_exe,
         "bridge_dll_exists": bool(bridge_dll and bridge_dll.is_file()),
@@ -714,6 +744,7 @@ def get_ladybug_tools_config() -> dict[str, Any]:
     _apply_runtime_requirement("therm", therm)
     therm.update(_ENGINE_HELP["therm"])
 
+    ironbug_console = _ironbug_console_config(openstudio_cli_version=openstudio.get("version"))
     engines: dict[str, dict[str, Any]] = {
         "radiance": _radiance_config(),
         "openstudio": openstudio,
@@ -721,7 +752,7 @@ def get_ladybug_tools_config() -> dict[str, Any]:
         "urbanopt": _urbanopt_config(),
         "des_gmt": _des_gmt_config(),
         "therm": therm,
-        "ironbug_console": _ironbug_console_config(),
+        "ironbug_console": ironbug_console,
     }
     measures = {
         "lbt_measures_path": _path_record(energy_folders.lbt_measures_path),
@@ -742,26 +773,33 @@ def get_ladybug_tools_config() -> dict[str, Any]:
         for name, engine in engines.items()
         if engine.get("version_requirement") and engine.get("version_status") in {"older", "newer", "unknown"}
     ]
+    compatibility_warnings = list(ironbug_console.get("compatibility_warnings") or [])
     warnings: list[str] = []
     if missing:
         warnings.append("Some configured Ladybug Tools engines or executable paths are missing: " + ", ".join(missing))
     if incompatible:
         warnings.append("Some configured Ladybug Tools engines do not match the required runtime versions: " + ", ".join(incompatible))
+    for item in compatibility_warnings:
+        msg = item.get("message") if isinstance(item, dict) else None
+        if isinstance(msg, str) and msg and msg not in warnings:
+            warnings.append(msg)
 
     return {
+        "compatibility_warnings": compatibility_warnings,
         "summary_view": {
             "engines": engines,
             "measures": measures,
             "path_updates": {"prepend": prepend, "env": {"PATH": os.pathsep.join(prepend)}},
             "missing_engines": missing,
             "incompatible_engines": incompatible,
+            "compatibility_warnings": compatibility_warnings,
             "missing_engine_guidance": {name: _runtime_guidance(name, engines[name]) for name in missing},
             "runtime_requirement_guidance": {
                 name: _runtime_guidance(name, engines[name]) for name in sorted({*missing, *incompatible})
             },
         },
         "report": make_report(
-            status="warning" if missing or incompatible else "ok",
+            status="warning" if missing or incompatible or compatibility_warnings else "ok",
             message="Ladybug Tools SDK runtime configuration returned.",
             warnings=warnings,
         ),

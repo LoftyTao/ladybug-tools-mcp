@@ -1,34 +1,102 @@
-"""Download EPW weather files from the public epwapi/epwfile service."""
+"""Download and search EPW weather files from the public epwapi/epwfile service."""
 
 from __future__ import annotations
 
+from functools import lru_cache
 import json
-import shutil
-import time
-import zipfile
 from pathlib import Path, PurePosixPath
+import shutil
+import ssl
+import time
 from typing import Any, Iterator
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
-from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
+import zipfile
 
 from garden.manifest import GardenManifest
 from garden.paths import slugify_name, to_posix_relative, validate_portable_file_name
+from garden.run_energy.config import (
+    compute_file_sha256,
+    make_garden_weather_target,
+    parse_epw_location_metadata,
+    parse_weather_filename_metadata,
+)
 from ladybug_tools_mcp.contracts import make_report
-from garden.run_energy.config import make_garden_weather_target
 
 
-EPW_API_URL = "http://epwapi.greensimhub.com.cn"
+EPW_API_URL = "https://epwapi.greensimhub.com.cn"
 EPW_FILE_URL = "https://epwfile.greensimhub.com.cn"
 _USER_AGENT = "LadybugToolsMCP/1.1"
 _HEALTH_TIMEOUT = 20
 _API_TIMEOUT = 60
 _DOWNLOAD_TIMEOUT = 300
 _OSS_PAGE_SIZE = 1000
+_MAX_OSS_PAGES_UNSCOPED = 3
+_MAX_OSS_PAGES_SCOPED = 20
+_MAX_AMBIGUOUS_CANDIDATES = 20
+
+
+@lru_cache(maxsize=1)
+def _build_ssl_context() -> ssl.SSLContext:
+    """Build a standard verified SSL context resilient to isolated Windows envs."""
+    try:
+        import truststore
+
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except ImportError:
+        pass
+
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        pass
+
+    context = ssl.create_default_context()
+    if hasattr(ssl, "enum_certificates"):
+        pem_blocks: list[str] = []
+        for store_name in ("CA", "ROOT"):
+            try:
+                entries = ssl.enum_certificates(store_name)
+            except OSError:
+                continue
+            for cert_bytes, encoding, _trust in entries:
+                if encoding != "x509_asn":
+                    continue
+                try:
+                    pem_blocks.append(ssl.DER_cert_to_PEM_cert(cert_bytes))
+                except (ssl.SSLError, ValueError):
+                    continue
+        if pem_blocks:
+            for pem in pem_blocks:
+                try:
+                    context.load_verify_locations(cadata=pem)
+                except ssl.SSLError:
+                    continue
+    return context
+
+
+def _should_fast_fail_request_error(exc: Exception) -> bool:
+    if isinstance(exc, HTTPError):
+        return 400 <= exc.code < 500 and exc.code != 429
+    if isinstance(exc, URLError) and isinstance(getattr(exc, "reason", None), ssl.SSLError):
+        return True
+    return False
+
+
+def _is_network_error(exc: Exception | None) -> bool:
+    if exc is None:
+        return False
+    if isinstance(exc, HTTPError):
+        return exc.code == 429 or exc.code >= 500
+    return isinstance(exc, (URLError, TimeoutError, ConnectionError, OSError, ssl.SSLError))
 
 
 def _request_bytes(url: str, *, timeout: int) -> bytes:
+    context = _build_ssl_context() if url.lower().startswith("https://") else None
     for attempt in range(3):
         request = Request(
             url,
@@ -38,10 +106,10 @@ def _request_bytes(url: str, *, timeout: int) -> bytes:
             },
         )
         try:
-            with urlopen(request, timeout=timeout) as response:
+            with urlopen(request, timeout=timeout, context=context) as response:
                 return response.read()
-        except HTTPError:
-            if attempt == 2:
+        except (HTTPError, URLError, TimeoutError) as exc:
+            if attempt == 2 or _should_fast_fail_request_error(exc):
                 raise
             time.sleep(0.5 * (2**attempt))
     raise RuntimeError("Unreachable weather request retry state.")
@@ -76,7 +144,8 @@ def _api_file_search(
     admin_region: str | None,
     file_format: str,
     page_size: int,
-) -> list[dict[str, Any]]:
+    max_results: int | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
     params: dict[str, Any] = {"page": 1, "page_size": page_size, "format": file_format}
     for key, value in (
         ("query", query),
@@ -88,6 +157,7 @@ def _api_file_search(
             params[key] = value
 
     matches: list[dict[str, Any]] = []
+    truncated = False
     while True:
         result = _request_json(f"{EPW_API_URL}/v1/files", params=params, timeout=_API_TIMEOUT)
         if not isinstance(result, dict) or not isinstance(result.get("items"), list):
@@ -95,17 +165,28 @@ def _api_file_search(
         matches.extend(item for item in result["items"] if isinstance(item, dict))
         pages = result.get("pages", 1)
         page = result.get("page", params["page"])
+        if max_results is not None and len(matches) >= max_results:
+            truncated = len(matches) > max_results or (
+                isinstance(pages, int) and isinstance(page, int) and page < pages
+            )
+            matches = matches[:max_results]
+            break
         if not isinstance(pages, int) or not isinstance(page, int) or page >= pages:
             break
         params["page"] = page + 1
-    return matches
+    return matches, truncated
 
 
 def _api_file_detail(file_id: str) -> dict[str, Any]:
-    result = _request_json(
-        f"{EPW_API_URL}/v1/files/{quote(file_id, safe='')}",
-        timeout=_API_TIMEOUT,
-    )
+    try:
+        result = _request_json(
+            f"{EPW_API_URL}/v1/files/{quote(file_id, safe='')}",
+            timeout=_API_TIMEOUT,
+        )
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise LookupError(f"Weather file_id was not found: {file_id}") from exc
+        raise
     if isinstance(result, dict) and isinstance(result.get("file"), dict):
         result = result["file"]
     if not isinstance(result, dict):
@@ -125,9 +206,13 @@ def _xml_text(element: ET.Element, name: str) -> str | None:
     return None
 
 
-def _oss_objects(prefix: str) -> Iterator[dict[str, Any]]:
+def _oss_objects(prefix: str, *, max_pages: int | None = None) -> Iterator[dict[str, Any]]:
     token: str | None = None
+    page_num = 0
     while True:
+        if max_pages is not None and page_num >= max_pages:
+            return
+        page_num += 1
         params: dict[str, Any] = {
             "list-type": "2",
             "prefix": prefix,
@@ -162,11 +247,13 @@ def _directory_prefix(
     for value in values:
         if value and ("/" in value or "\\" in value or value in {".", ".."}):
             raise ValueError("Weather directory fields must be single path components.")
-    if not region or not country:
+    if not region:
         return "epwfile/"
-    parts = ["epwfile", region, country]
-    if admin_region:
-        parts.append(admin_region)
+    parts = ["epwfile", region]
+    if country:
+        parts.append(country)
+        if admin_region:
+            parts.append(admin_region)
     return "/".join(parts) + "/"
 
 
@@ -192,7 +279,70 @@ def _item_format(item: dict[str, Any], name: str) -> str:
     return value
 
 
-def _fallback_search(
+def _candidate_item(item: dict[str, Any]) -> dict[str, Any]:
+    object_key = item.get("object_key") or item.get("key")
+    file_name = item.get("file_name") or item.get("name")
+    if not file_name and object_key:
+        file_name = str(object_key).rsplit("/", 1)[-1]
+    file_name_str = str(file_name).strip() if file_name else None
+    parsed = parse_weather_filename_metadata(file_name_str or "")
+    station = item.get("station_name") or item.get("station") or parsed.get("station")
+    fmt = item.get("format")
+    if not fmt and file_name_str and Path(file_name_str).suffix:
+        fmt = Path(file_name_str).suffix[1:].lower()
+    return {
+        "file_id": item.get("file_id") or item.get("id"),
+        "file_name": file_name_str,
+        "station": station,
+        "region": item.get("region"),
+        "country": item.get("country"),
+        "admin_region": item.get("admin_region"),
+        "object_key": object_key,
+        "format": str(fmt).lower() if fmt else None,
+    }
+
+
+def _filter_matches_by_fields(
+    matches: list[dict[str, Any]],
+    *,
+    file_name: str | None = None,
+    region: str | None = None,
+    country: str | None = None,
+    admin_region: str | None = None,
+) -> list[dict[str, Any]]:
+    filtered = matches
+    if file_name:
+        expected = file_name.strip().casefold()
+        filtered = [
+            item
+            for item in filtered
+            if str(item.get("name") or item.get("file_name") or "").strip().casefold() == expected
+        ]
+    if region:
+        expected_region = region.strip().casefold()
+        filtered = [
+            item
+            for item in filtered
+            if str(item.get("region") or "").strip().casefold() == expected_region
+        ]
+    if country:
+        expected_country = country.strip().casefold()
+        filtered = [
+            item
+            for item in filtered
+            if str(item.get("country") or "").strip().casefold() == expected_country
+        ]
+    if admin_region:
+        expected_admin = admin_region.strip().casefold()
+        filtered = [
+            item
+            for item in filtered
+            if str(item.get("admin_region") or "").strip().casefold() == expected_admin
+        ]
+    return filtered
+
+
+def _oss_file_search(
     *,
     query: str | None,
     file_name: str | None,
@@ -200,46 +350,65 @@ def _fallback_search(
     country: str | None,
     admin_region: str | None,
     file_format: str,
-) -> dict[str, Any]:
+    max_results: int = _MAX_AMBIGUOUS_CANDIDATES,
+) -> tuple[list[dict[str, Any]], bool]:
     prefix = _directory_prefix(
         region=region,
         country=country,
         admin_region=admin_region,
     )
+    unscoped = not (region and country)
+    max_pages = _MAX_OSS_PAGES_UNSCOPED if unscoped else _MAX_OSS_PAGES_SCOPED
+    max_scanned = max_pages * _OSS_PAGE_SIZE
+
     matches: list[dict[str, Any]] = []
-    query_value = (query or "").casefold()
-    expected_name = file_name.casefold() if file_name else None
-    for row in _oss_objects(prefix):
+    query_tokens = [tok for tok in (query or "").casefold().split() if tok]
+    expected_name = file_name.strip().casefold() if file_name else None
+    country_filter = country.strip().casefold() if country else None
+    admin_filter = admin_region.strip().casefold() if admin_region else None
+    scanned = 0
+    truncated = False
+
+    for row in _oss_objects(prefix, max_pages=max_pages):
+        scanned += 1
         key = str(row["key"])
         name = key.rsplit("/", 1)[-1]
         if Path(name).suffix.lower() != f".{file_format}":
             continue
+        parts = key.split("/")
+        row_region = parts[1] if len(parts) >= 3 else None
+        row_country = parts[2] if len(parts) >= 3 else None
+        row_admin = parts[3] if len(parts) >= 4 else None
+        if country_filter and (row_country or "").casefold() != country_filter:
+            continue
+        if admin_filter and (row_admin or "").casefold() != admin_filter:
+            continue
         if expected_name and name.casefold() != expected_name:
             continue
-        if query_value and query_value not in key.casefold():
+        if query_tokens and not all(tok in key.casefold() for tok in query_tokens):
             continue
-        parts = key.split("/")
+        parsed = parse_weather_filename_metadata(name)
         item: dict[str, Any] = {
             "name": name,
+            "file_name": name,
+            "station": parsed.get("station"),
             "format": file_format,
             "object_key": key,
             "size": row.get("size"),
         }
-        if len(parts) >= 3:
-            item["region"], item["country"] = parts[1], parts[2]
-        if len(parts) >= 4:
-            item["admin_region"] = parts[3]
+        if row_region:
+            item["region"] = row_region
+        if row_country:
+            item["country"] = row_country
+        if row_admin:
+            item["admin_region"] = row_admin
         matches.append(item)
-        if len(matches) > 1:
+        if len(matches) >= max_results:
+            truncated = True
             break
-    if not matches:
-        raise LookupError("No matching EPW weather file was found.")
-    if len(matches) != 1:
-        raise ValueError(
-            "Weather query matched multiple files; add region, country, admin_region, "
-            "file_name, or a more specific query."
-        )
-    return matches[0]
+    if scanned >= max_scanned and not matches:
+        truncated = True
+    return matches, truncated
 
 
 def _object_key_from_item(item: dict[str, Any]) -> str:
@@ -255,26 +424,26 @@ def _object_key_from_item(item: dict[str, Any]) -> str:
             raise ValueError("object_key must be an epwfile object key.")
         return key
     name = _item_name(item)
-    prefix = _directory_prefix(
+    matches, _truncated = _oss_file_search(
+        query=None,
+        file_name=name,
         region=item.get("region"),
         country=item.get("country"),
         admin_region=item.get("admin_region"),
+        file_format=_item_format(item, name),
+        max_results=2,
     )
-    candidates = [
-        row["key"]
-        for row in _oss_objects(prefix)
-        if str(row["key"]).rsplit("/", 1)[-1] == name
-    ]
-    if not candidates:
+    if not matches:
         raise LookupError(f"Object not found in epwfile: {name}")
-    if len(candidates) > 1:
+    if len(matches) > 1:
         raise ValueError(f"Multiple epwfile objects have the name {name!r}.")
-    return str(candidates[0])
+    return str(matches[0]["object_key"])
 
 
 def _download_url(url: str, destination: Path) -> None:
     partial = destination.with_name(destination.name + ".part")
     partial.unlink(missing_ok=True)
+    context = _build_ssl_context() if url.lower().startswith("https://") else None
     try:
         for attempt in range(3):
             request = Request(
@@ -285,13 +454,13 @@ def _download_url(url: str, destination: Path) -> None:
                 },
             )
             try:
-                with urlopen(request, timeout=_DOWNLOAD_TIMEOUT) as response:
+                with urlopen(request, timeout=_DOWNLOAD_TIMEOUT, context=context) as response:
                     with partial.open("wb") as output:
                         shutil.copyfileobj(response, output, length=1024 * 1024)
                 partial.replace(destination)
                 return
-            except HTTPError:
-                if attempt == 2:
+            except (HTTPError, URLError, TimeoutError) as exc:
+                if attempt == 2 or _should_fast_fail_request_error(exc):
                     raise
                 time.sleep(0.5 * (2**attempt))
     except Exception:
@@ -380,17 +549,57 @@ def _aliases(
     return result
 
 
+def _ambiguous_response(
+    *,
+    manifest: GardenManifest,
+    matches: list[dict[str, Any]],
+    query: str | None,
+) -> dict[str, Any]:
+    candidates = [_candidate_item(item) for item in matches[:_MAX_AMBIGUOUS_CANDIDATES]]
+    message = (
+        f"Weather query matched {len(matches)} files; pick a specific "
+        "file_id, file_name, or object_key from matches."
+    )
+    next_step = (
+        "Re-run LB_Manage_Weather with action='download' passing file_id, "
+        "file_name, or object_key from one of the returned matches."
+    )
+    return {
+        "status": "ambiguous",
+        "matches": candidates,
+        "summary_view": {
+            "garden_target": manifest.target(),
+            "status": "ambiguous",
+            "blocker": "ambiguous_weather_query",
+            "query": query,
+            "total_matches": len(matches),
+            "returned_matches": len(candidates),
+            "recommended_next_step": next_step,
+        },
+        "report": make_report(
+            status="blocked",
+            message=message,
+            details={
+                "blocker": "ambiguous_weather_query",
+                "total_matches": len(matches),
+                "candidates": candidates,
+            },
+        ),
+    }
+
+
 def _blocked_response(
     *,
-    garden_root: Path,
+    garden_root: Path | None,
     item: dict[str, Any] | None,
     error: Exception,
     api_error: Exception | None,
+    operation: str = "download",
 ) -> dict[str, Any]:
     download_url = str(item.get("download_url") or "") if item else ""
     object_key = str(item.get("object_key") or "") if item else ""
     expected_path: str | None = None
-    if item:
+    if item and garden_root is not None:
         try:
             name = _item_name(item)
             expected_path = to_posix_relative(
@@ -399,34 +608,169 @@ def _blocked_response(
             )
         except (TypeError, ValueError):
             pass
+
+    if isinstance(error, LookupError):
+        blocker = "station_not_found"
+        report_message = str(error) or "No matching remote EPW weather file was found."
+        manual_recovery = (
+            "Broaden or adjust query, use LB_Manage_Weather(action='search_remote') to "
+            "browse matching stations, or import a local EPW with action='import'."
+        )
+    elif _is_network_error(error) or (_is_network_error(api_error) and isinstance(error, ValueError)):
+        blocker = "network_error"
+        report_message = "Weather request failed due to a network or TLS error at the remote weather source."
+        manual_recovery = (
+            "Retry when the weather service is reachable, or download the EPW/ZIP object "
+            "from object_url and import it with LB_Manage_Weather(action='import')."
+        )
+    else:
+        blocker = "external_weather_download_failed"
+        report_message = f"Weather {operation} failed at the remote weather source."
+        manual_recovery = (
+            "Retry the same request when the weather service is reachable, or download "
+            "the EPW/ZIP object from object_url and import it with LB_Manage_Weather(action='import')."
+        )
+
     recovery = {
-        "reason": "external_weather_download_failed",
+        "reason": blocker,
         "download_url": download_url,
         "object_key": object_key,
         "garden_relative_path": expected_path,
         "error_type": type(error).__name__,
         "error_message": str(error),
         "api_health_error": str(api_error) if api_error else None,
-        "manual_recovery": (
-            "Retry the same request when the weather service is reachable, or download "
-            "the EPW/ZIP object from object_url and import it with LB_Manage_Weather (action='import')."
-        ),
+        "manual_recovery": manual_recovery,
     }
     if object_key:
         recovery["object_url"] = f"{EPW_FILE_URL}/{quote(object_key, safe='/')}"
-    return {
+    result: dict[str, Any] = {
         "summary_view": {
             "status": "blocked",
-            "blocker": "external_weather_download_failed",
+            "blocker": blocker,
             "download_url": download_url,
             "object_key": object_key,
-            "recommended_next_step": recovery["manual_recovery"],
+            "recommended_next_step": manual_recovery,
         },
         "download_recovery": recovery,
         "report": make_report(
             status="blocked",
-            message="Weather download failed at the remote weather source.",
+            message=report_message,
             details=recovery,
+        ),
+    }
+    if operation == "search_remote":
+        result["matches"] = []
+    return result
+
+
+def search_remote_weather(
+    *,
+    garden_root: str | None = None,
+    query: str | None = None,
+    file_name: str | None = None,
+    region: str | None = None,
+    country: str | None = None,
+    admin_region: str | None = None,
+    file_format: str = "zip",
+    max_results: int = 20,
+) -> dict[str, Any]:
+    """Search the public epwapi/epwfile catalog and return compact candidate items."""
+    file_format = str(file_format).strip().lower()
+    if file_format not in {"epw", "zip"}:
+        raise ValueError("file_format must be epw or zip.")
+    if isinstance(max_results, bool) or not 1 <= max_results <= 200:
+        raise ValueError("max_results must be between 1 and 200.")
+    if not any((query, file_name, region, country, admin_region)):
+        raise ValueError("Provide query, file_name, region, country, or admin_region.")
+
+    manifest: GardenManifest | None = None
+    garden_root_path: Path | None = None
+    if garden_root:
+        garden_root_path = Path(garden_root).expanduser().resolve()
+        if (garden_root_path / "garden.json").is_file():
+            manifest = GardenManifest.read(garden_root_path)
+
+    effective_format = file_format
+    if file_name and Path(file_name.strip()).suffix.lower() in {".epw", ".zip"}:
+        effective_format = Path(file_name.strip()).suffix[1:].lower()
+    effective_query = query or (Path(file_name).stem if file_name else None)
+    api_error: Exception | None = None
+    search_source = "epwapi"
+    truncated = False
+    warnings: list[str] = []
+
+    try:
+        _api_health()
+        raw_matches, truncated = _api_file_search(
+            query=effective_query,
+            region=region,
+            country=country,
+            admin_region=admin_region,
+            file_format=effective_format,
+            page_size=min(max(max_results, 20), 200),
+            max_results=max_results if not file_name else None,
+        )
+        raw_matches = _filter_matches_by_fields(
+            raw_matches,
+            file_name=file_name,
+            region=region,
+            country=country,
+            admin_region=admin_region,
+        )
+        if len(raw_matches) > max_results:
+            truncated = True
+            raw_matches = raw_matches[:max_results]
+    except Exception as error:
+        api_error = error
+        search_source = "epwfile"
+        try:
+            raw_matches, truncated = _oss_file_search(
+                query=query,
+                file_name=file_name,
+                region=region,
+                country=country,
+                admin_region=admin_region,
+                file_format=effective_format,
+                max_results=max_results,
+            )
+            warnings.append("epwapi was unavailable; searched epwfile OSS fallback.")
+            if truncated and not raw_matches:
+                warnings.append(
+                    "Unscoped OSS fallback scan was capped; add region/country for exhaustive results."
+                )
+        except Exception as oss_error:
+            return _blocked_response(
+                garden_root=garden_root_path,
+                item=None,
+                error=oss_error,
+                api_error=api_error,
+                operation="search_remote",
+            )
+
+    candidates = [_candidate_item(item) for item in raw_matches]
+    summary_view: dict[str, Any] = {
+        "scope": "remote",
+        "query": query or "",
+        "file_name": file_name,
+        "region": region,
+        "country": country,
+        "admin_region": admin_region,
+        "format": file_format,
+        "count": len(candidates),
+        "max_results": max_results,
+        "source": search_source,
+        "truncated": truncated,
+    }
+    if manifest is not None:
+        summary_view["garden_target"] = manifest.target()
+
+    return {
+        "matches": candidates,
+        "summary_view": summary_view,
+        "report": make_report(
+            status="ok",
+            message=f"Found {len(candidates)} remote weather file(s).",
+            warnings=warnings,
         ),
     }
 
@@ -465,64 +809,105 @@ def download_weather(
         api_available = False
         api_error = error
 
+    effective_format = file_format
+    if file_name and Path(file_name.strip()).suffix.lower() in {".epw", ".zip"}:
+        effective_format = Path(file_name.strip()).suffix[1:].lower()
+
     item: dict[str, Any] | None = dict(file_target) if isinstance(file_target, dict) else None
     if file_target is not None and item is None:
         raise ValueError("file_target must be an object returned by the weather API.")
     if object_key:
         item = item or {}
         item["object_key"] = object_key
-    if file_name:
-        item = item or {}
-        item["name"] = file_name
     if file_id:
         item = item or {}
         item["id"] = file_id
+    if file_name and item is not None:
+        item["name"] = file_name
 
-    if item is None and query and api_available:
-        try:
-            matches = _api_file_search(
-                query=query,
-                region=region,
-                country=country,
-                admin_region=admin_region,
-                file_format=file_format,
-                page_size=page_size,
-            )
-        except Exception as error:
-            api_error = error
-            api_available = False
-        else:
-            if not matches:
-                raise LookupError("No matching EPW weather file was found.")
-            if len(matches) != 1:
-                raise ValueError(
-                    "Weather query matched multiple files; add region, country, "
-                    "admin_region, or a more specific query."
+    if item is None and (query or file_name):
+        matches: list[dict[str, Any]] | None = None
+        if api_available:
+            try:
+                search_query = query or (Path(file_name).stem if file_name else None)
+                raw_matches, _truncated = _api_file_search(
+                    query=search_query,
+                    region=region,
+                    country=country,
+                    admin_region=admin_region,
+                    file_format=effective_format,
+                    page_size=max(page_size, _MAX_AMBIGUOUS_CANDIDATES),
+                    max_results=max(page_size, _MAX_AMBIGUOUS_CANDIDATES) if not file_name else None,
                 )
-            item = matches[0]
+                matches = _filter_matches_by_fields(
+                    raw_matches,
+                    file_name=file_name,
+                    region=region,
+                    country=country,
+                    admin_region=admin_region,
+                )
+            except Exception as error:
+                api_error = error
+                api_available = False
 
-    if item is None and query:
-        try:
-            item = _fallback_search(
-                query=query,
-                file_name=file_name,
-                region=region,
-                country=country,
-                admin_region=admin_region,
-                file_format=file_format,
-            )
-        except Exception as error:
+        if matches is None:
+            try:
+                matches, oss_truncated = _oss_file_search(
+                    query=query,
+                    file_name=file_name,
+                    region=region,
+                    country=country,
+                    admin_region=admin_region,
+                    file_format=effective_format,
+                    max_results=_MAX_AMBIGUOUS_CANDIDATES,
+                )
+            except Exception as error:
+                return _blocked_response(
+                    garden_root=garden_root_path,
+                    item=None,
+                    error=error,
+                    api_error=api_error,
+                )
+            if not matches:
+                msg = (
+                    "OSS weather fallback scan was capped without region/country filter; "
+                    "add region/country, file_id, or object_key."
+                    if oss_truncated
+                    else "No matching EPW weather file was found."
+                )
+                return _blocked_response(
+                    garden_root=garden_root_path,
+                    item=None,
+                    error=LookupError(msg),
+                    api_error=api_error,
+                )
+
+        if not matches:
             return _blocked_response(
                 garden_root=garden_root_path,
                 item=None,
-                error=error,
+                error=LookupError("No matching EPW weather file was found."),
                 api_error=api_error,
             )
+        if len(matches) > 1:
+            return _ambiguous_response(
+                manifest=manifest,
+                matches=matches,
+                query=query or file_name,
+            )
+        item = matches[0]
 
     if item is None and file_id and api_available:
         try:
             item = _api_file_detail(file_id)
         except Exception as error:
+            if isinstance(error, LookupError):
+                return _blocked_response(
+                    garden_root=garden_root_path,
+                    item=None,
+                    error=error,
+                    api_error=api_error,
+                )
             api_error = error
             api_available = False
 
@@ -530,7 +915,7 @@ def download_weather(
         return _blocked_response(
             garden_root=garden_root_path,
             item=None,
-            error=ValueError("Weather file metadata is unavailable."),
+            error=api_error or ValueError("Weather file metadata is unavailable."),
             api_error=api_error,
         )
 
@@ -539,6 +924,13 @@ def download_weather(
         try:
             item = {**_api_file_detail(file_id), **item}
         except Exception as error:
+            if isinstance(error, LookupError):
+                return _blocked_response(
+                    garden_root=garden_root_path,
+                    item=item,
+                    error=error,
+                    api_error=api_error,
+                )
             api_error = error
             api_available = False
 
@@ -624,16 +1016,34 @@ def download_weather(
         if selected_object_key
         else None
     )
+    filename_meta = parse_weather_filename_metadata(epw_path.name)
+    if filename_meta.get("dataset_version") is None:
+        filename_meta = {
+            **filename_meta,
+            "dataset_version": parse_weather_filename_metadata(name).get("dataset_version"),
+        }
+    epw_loc = parse_epw_location_metadata(epw_path)
+    epw_sha256 = compute_file_sha256(epw_path)
+    station = (
+        item.get("station_name")
+        or item.get("station")
+        or epw_loc.get("station")
+        or filename_meta.get("station")
+    )
+    source_value = item.get("source") or download_source
+
     metadata = {
         "station_id": item.get("station_id"),
-        "station": item.get("station_name") or item.get("station"),
-        "wmo_station": item.get("wmo_station"),
-        "source": item.get("source"),
+        "station": station,
+        "wmo_station": item.get("wmo_station") or epw_loc.get("wmo_station"),
+        "dataset_version": filename_meta.get("dataset_version"),
+        "source": source_value,
+        "epw_sha256": epw_sha256,
         "host": item.get("host"),
         "region": item.get("region"),
         "country": item.get("country"),
         "admin_region": item.get("admin_region"),
-        "file_id": item.get("id"),
+        "file_id": item.get("id") or item.get("file_id"),
         "file_name": name,
         "file_format": item_format,
         "download_source": download_source,
@@ -643,7 +1053,7 @@ def download_weather(
         "object_url": object_url,
         "search_terms": [
             value
-            for value in (name, item.get("station_name"), item.get("station"), item.get("wmo_station"))
+            for value in (name, station, item.get("station_name"), item.get("wmo_station"))
             if value
         ],
     }
@@ -680,11 +1090,14 @@ def download_weather(
             "identifier": identifier,
             "file_name": name,
             "file_format": item_format,
-            "station": metadata.get("station"),
-            "wmo_station": metadata.get("wmo_station"),
-            "region": metadata.get("region"),
-            "country": metadata.get("country"),
-            "admin_region": metadata.get("admin_region"),
+            "station": target.get("station"),
+            "wmo_station": target.get("wmo_station"),
+            "dataset_version": target.get("dataset_version"),
+            "source": target.get("source"),
+            "epw_sha256": target.get("epw_sha256"),
+            "region": target.get("region"),
+            "country": target.get("country"),
+            "admin_region": target.get("admin_region"),
             "download_source": download_source,
             "object_url": object_url,
             "epw_path": target["epw_path"],

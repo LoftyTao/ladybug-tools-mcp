@@ -7,7 +7,10 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
-from garden.dragonfly_core._schemas import validate_dragonfly_batch_item
+from garden.dragonfly_core._schemas import (
+    validate_df_apply_properties_inputs,
+    validate_dragonfly_batch_item,
+)
 from garden.dragonfly_core.conversion import (
     dragonfly_model_to_honeybee,
     honeybee_model_to_dragonfly,
@@ -146,7 +149,7 @@ def register(mcp: FastMCP) -> None:
     def DF_Model(
         garden_root: Annotated[
             str,
-            Field(description="Root directory of the project Garden."),
+            Field(description="Garden root directory."),
         ],
         identifier: Annotated[
             str,
@@ -227,7 +230,7 @@ def register(mcp: FastMCP) -> None:
     def DF_Create_Objects(
         garden_root: Annotated[
             str,
-            Field(description="Root directory of the project Garden."),
+            Field(description="Garden root directory."),
         ],
         object_type: Annotated[
             Literal[
@@ -251,7 +254,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+            Field(description="Dragonfly Model target (defaults to active model)."),
         ] = None,
         items: Annotated[
             list[dict[str, Any]] | None,
@@ -587,7 +590,7 @@ def register(mcp: FastMCP) -> None:
     def DF_Edit_Object(
         garden_root: Annotated[
             str,
-            Field(description="Root directory of the project Garden."),
+            Field(description="Garden root directory."),
         ],
         object_type: Annotated[
             Literal["model", "building", "story", "room2d"] | None,
@@ -599,7 +602,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+            Field(description="Dragonfly Model target (defaults to active model)."),
         ] = None,
         building_identifier: Annotated[
             str | None,
@@ -726,7 +729,7 @@ def register(mcp: FastMCP) -> None:
     def DF_Remove_Objects(
         garden_root: Annotated[
             str,
-            Field(description="Root directory of the project Garden."),
+            Field(description="Garden root directory."),
         ],
         object_type: Annotated[
             Literal["building", "story", "room2d", "context_shade"] | None,
@@ -762,7 +765,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+            Field(description="Dragonfly Model target (defaults to active model)."),
         ] = None,
     ) -> MutationResultModel:
         """Remove Buildings, Stories from a Building, Room2Ds, or ContextShades."""
@@ -790,7 +793,7 @@ def register(mcp: FastMCP) -> None:
     def DF_Process_Geometry(
         garden_root: Annotated[
             str,
-            Field(description="Root directory of the project Garden."),
+            Field(description="Garden root directory."),
         ],
         operation: Annotated[
             Literal[
@@ -814,7 +817,7 @@ def register(mcp: FastMCP) -> None:
         ],
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+            Field(description="Dragonfly Model target (defaults to active model)."),
         ] = None,
         host_type: Annotated[
             str | None,
@@ -1015,357 +1018,435 @@ def register(mcp: FastMCP) -> None:
     def DF_Apply_Properties(
         garden_root: Annotated[
             str,
-            Field(description="Root directory of the project Garden."),
+            Field(description="Garden root path."),
         ],
         property_domain: Annotated[
             Literal["energy", "radiance", "window", "shading", "skylight", "clerestory", "wall"],
-            Field(description="Property domain to configure or apply."),
+            Field(description="Property domain."),
         ],
         host_target: Annotated[
             BuildingObjectTargetRef | None,
-            Field(description="Target Dragonfly object receiving the property."),
+            Field(description="Target object."),
         ] = None,
         host_type: Annotated[
-            Literal["room2d", "story", "building", "context_shade", "model"] | None,
-            Field(description="Host scope type when applying envelope or energy properties."),
+            Any,
+            Field(description="Host scope."),
         ] = None,
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+            Field(description="Model target."),
         ] = None,
         # Energy properties
         program_type_identifier: Annotated[
-            str | None,
-            Field(description="Library ProgramType identifier for energy domain."),
+            Any,
+            Field(description="ProgramType ID."),
         ] = None,
         construction_set_identifier: Annotated[
-            str | None,
-            Field(description="Library ConstructionSet identifier for energy domain."),
+            Any,
+            Field(description="ConstructionSet ID."),
         ] = None,
         program_type: Annotated[
             Any,
-            Field(description="ProgramType target, dict, or identifier."),
+            Field(description="ProgramType."),
         ] = None,
         construction_set: Annotated[
             Any,
-            Field(description="ConstructionSet target, dict, or identifier."),
+            Field(description="ConstructionSet."),
         ] = None,
         hvac: Annotated[
             Any,
-            Field(description="HVAC system target, dict, or identifier."),
+            Field(description="HVAC."),
         ] = None,
         shw: Annotated[
             Any,
-            Field(description="Service hot water target or dict."),
+            Field(description="SHW."),
         ] = None,
         person_count: Annotated[
-            float | None,
-            Field(ge=0.0, description="Explicit occupant count override."),
+            Any,
+            Field(description="Occupants."),
         ] = None,
         lighting_watts: Annotated[
-            float | None,
-            Field(ge=0.0, description="Explicit lighting power (W)."),
+            Any,
+            Field(description="Lighting W."),
         ] = None,
         electric_equipment_watts: Annotated[
-            float | None,
-            Field(ge=0.0, description="Explicit electric equipment power (W)."),
+            Any,
+            Field(description="Electric W."),
         ] = None,
         gas_equipment_watts: Annotated[
-            float | None,
-            Field(ge=0.0, description="Explicit gas equipment power (W)."),
+            Any,
+            Field(description="Gas W."),
         ] = None,
         hot_water_flow: Annotated[
-            float | None,
-            Field(ge=0.0, description="Service hot water flow rate override."),
+            Any,
+            Field(description="SHW flow."),
         ] = None,
         infiltration_ach: Annotated[
-            float | None,
-            Field(ge=0.0, description="Infiltration air changes per hour."),
+            Any,
+            Field(description="Infil. ACH."),
         ] = None,
         daylighting_control: Annotated[
-            dict[str, Any] | None,
-            Field(description="DaylightingControl settings dict."),
+            Any,
+            Field(description="Daylight ctrl."),
         ] = None,
         daylight_center: Annotated[
-            dict[str, Any] | None,
-            Field(description="Daylight sensor placement dict."),
+            Any,
+            Field(description="Daylight pt."),
         ] = None,
         window_vent_control: Annotated[
-            dict[str, Any] | None,
-            Field(description="VentilationControl dict for natural ventilation."),
+            Any,
+            Field(description="Vent ctrl."),
         ] = None,
         window_vent_opening: Annotated[
-            dict[str, Any] | None,
-            Field(description="VentilationOpening dict for operable windows."),
+            Any,
+            Field(description="Vent open."),
         ] = None,
         fans: Annotated[
-            list[Any] | None,
-            Field(description="List of VentilationFan dicts or targets."),
+            Any,
+            Field(description="Vent fans list."),
         ] = None,
         remove_existing_fans: Annotated[
             bool,
-            Field(description="Clear existing ventilation fans before adding new ones."),
+            Field(description="Clear fans."),
         ] = False,
         process_loads: Annotated[
-            list[Any] | None,
-            Field(description="List of ProcessLoad dicts or targets."),
+            Any,
+            Field(description="Process loads list."),
         ] = None,
         remove_existing_process_loads: Annotated[
             bool,
-            Field(description="Clear existing process loads before adding new ones."),
+            Field(description="Clear loads."),
         ] = False,
         diversify: Annotated[
-            dict[str, Any] | bool | None,
-            Field(description="Load diversification bool or config dict."),
+            Any,
+            Field(description="Diversify."),
         ] = None,
         ceiling_plenum_construction: Annotated[
             Any,
-            Field(description="Ceiling plenum construction target or dict."),
+            Field(description="Ceiling plenum."),
         ] = None,
         floor_plenum_construction: Annotated[
             Any,
-            Field(description="Floor plenum construction target or dict."),
+            Field(description="Floor plenum."),
         ] = None,
         construction: Annotated[
             Any,
-            Field(description="ContextShade construction target or dict."),
+            Field(description="Construction."),
         ] = None,
         transmittance_schedule: Annotated[
             Any,
-            Field(description="ContextShade transmittance schedule target or dict."),
+            Field(description="Schedule."),
         ] = None,
         # Radiance properties
         modifier_set_identifier: Annotated[
-            str | None,
-            Field(description="Library ModifierSet identifier for radiance domain."),
+            Any,
+            Field(description="ModifierSet ID."),
         ] = None,
         modifier_set: Annotated[
             Any,
-            Field(description="ModifierSet target, dict, or identifier."),
+            Field(description="ModifierSet."),
         ] = None,
         modifier: Annotated[
             Any,
-            Field(description="ContextShade Radiance Modifier target or dict."),
+            Field(description="Modifier."),
         ] = None,
         grid_parameter_type: Annotated[
-            Literal[
-                "room_grid",
-                "room_radial_grid",
-                "exterior_face_grid",
-                "exterior_aperture_grid",
-            ]
-            | None,
-            Field(description="SensorGridParameter kind: room_grid, room_radial_grid, exterior_face_grid, or exterior_aperture_grid."),
+            Any,
+            Field(description="Grid type."),
         ] = None,
         grid_dimension: Annotated[
-            float | None,
-            Field(gt=0.0, description="Sensor grid cell dimension in model units."),
+            Any,
+            Field(description="Grid size."),
         ] = None,
         grid_offset: Annotated[
-            float | None,
-            Field(ge=0.0, description="Sensor offset distance from floor or face."),
+            Any,
+            Field(description="Grid offset."),
         ] = None,
         wall_offset: Annotated[
             float,
-            Field(description="Sensor perimeter inset distance from Room2D walls."),
+            Field(description="Wall inset."),
         ] = 0,
         face_type: Annotated[
-            Literal["Wall", "Roof", "Floor", "All", "wall", "roof", "floor", "all"],
-            Field(description="Face type for exterior_face_grid: Wall, Roof, Floor, or All."),
+            str,
+            Field(description="Face type."),
         ] = "Wall",
         aperture_type: Annotated[
-            Literal["Window", "Skylight", "All", "window", "skylight", "all"],
-            Field(description="Aperture type for exterior_aperture_grid: Window, Skylight, or All."),
+            str,
+            Field(description="Aperture type."),
         ] = "All",
         punched_geometry: Annotated[
             bool,
-            Field(description="Generate exterior_face_grid using punched wall geometry."),
+            Field(description="Punched."),
         ] = False,
         dir_count: Annotated[
             int,
-            Field(ge=1, description="Radial direction count for room_radial_grid."),
+            Field(description="Dirs."),
         ] = 8,
         start_vector: Annotated[
-            list[float] | None,
-            Field(description="Radial grid start vector [x, y] or [x, y, z]."),
+            Any,
+            Field(description="Start vec."),
         ] = None,
         mesh_radius: Annotated[
-            float | None,
-            Field(gt=0.0, description="Optional disk mesh radius for radial sensors."),
+            Any,
+            Field(description="Mesh rad."),
         ] = None,
         include_mesh: Annotated[
             bool,
-            Field(description="Include SensorGrid mesh faces alongside sensors."),
+            Field(description="Mesh."),
         ] = True,
         remove_existing_grid_parameters: Annotated[
             bool,
-            Field(description="Remove existing grid parameters before applying."),
+            Field(description="Clear grids."),
         ] = False,
         # Window / Shading / Skylight / Clerestory / Wall parameters
         window_parameter: Annotated[
-            dict[str, Any] | None,
-            Field(description="Prebuilt Dragonfly WindowParameter dict."),
+            Any,
+            Field(description="WindowParam."),
         ] = None,
         shading_parameter: Annotated[
-            dict[str, Any] | None,
-            Field(description="Prebuilt Dragonfly ShadingParameter dict."),
+            Any,
+            Field(description="ShadingParam."),
         ] = None,
         skylight_parameter: Annotated[
-            dict[str, Any] | None,
-            Field(description="Prebuilt Dragonfly SkylightParameter dict."),
+            Any,
+            Field(description="SkylightParam."),
         ] = None,
         clerestory_parameter: Annotated[
-            dict[str, Any] | None,
-            Field(description="Dragonfly ClerestoryParameter dict."),
+            Any,
+            Field(description="ClerestoryParam."),
         ] = None,
         parameter_type: Annotated[
-            str | None,
-            Field(description="Window, shading, or skylight parameter subclass name."),
+            Any,
+            Field(description="Param type."),
         ] = None,
         application_scope: Annotated[
             str,
-            Field(description="Wall segment scope: 'all_outdoor' or 'segment_index'."),
+            Field(description="Apply scope."),
         ] = "all_outdoor",
         segment_index: Annotated[
-            int | list[int] | None,
-            Field(description="Room2D wall segment index or list of indices."),
+            Any,
+            Field(description="Seg idx."),
         ] = None,
         window_ratio: Annotated[
-            float | None,
-            Field(ge=0.0, le=1.0, description="Window-to-wall glazing ratio (0-1)."),
+            Any,
+            Field(description="Win ratio."),
         ] = None,
         rect_split: Annotated[
             bool,
-            Field(description="Split rectangular windows per sub-wall span."),
+            Field(description="Rect split."),
         ] = True,
         window_height: Annotated[
-            float | None,
-            Field(gt=0.0, description="Continuous/repeating window height."),
+            Any,
+            Field(description="Win height."),
         ] = None,
         sill_height: Annotated[
-            float | None,
-            Field(ge=0.0, description="Window sill elevation above floor."),
+            Any,
+            Field(description="Sill height."),
         ] = None,
         horizontal_separation: Annotated[
-            float | None,
-            Field(ge=0.0, description="Horizontal gap between repeating windows."),
+            Any,
+            Field(description="Horiz gap."),
         ] = None,
         vertical_separation: Annotated[
             float,
-            Field(ge=0.0, description="Vertical separation for repeating windows."),
+            Field(description="Vert gap."),
         ] = 0,
         width: Annotated[
-            float | None,
-            Field(gt=0.0, description="Width for rectangular/single window parameters."),
+            Any,
+            Field(description="Width."),
         ] = None,
         height: Annotated[
-            float | None,
-            Field(gt=0.0, description="Height for rectangular/single window parameters."),
+            Any,
+            Field(description="Win height."),
         ] = None,
         window_area: Annotated[
-            float | None,
-            Field(gt=0.0, description="Target area for DetailedRectangularWindows."),
+            Any,
+            Field(description="Win area."),
         ] = None,
         window_width: Annotated[
-            float | None,
-            Field(gt=0.0, description="Width for RepeatingWindowRatio / RectangularWindows."),
+            Any,
+            Field(description="Win width."),
         ] = None,
         origins: Annotated[
-            list[list[float]] | None,
-            Field(description="Window origin points for RectangularWindows."),
+            Any,
+            Field(description="Origins."),
         ] = None,
         widths: Annotated[
-            list[float] | None,
-            Field(description="Per-window widths for RectangularWindows."),
+            Any,
+            Field(description="Widths."),
         ] = None,
         heights: Annotated[
-            list[float] | None,
-            Field(description="Per-window heights for RectangularWindows."),
+            Any,
+            Field(description="Heights."),
         ] = None,
         polygons: Annotated[
-            list[list[list[float]]] | None,
-            Field(description="Custom 2D vertices for DetailedWindows or DetailedSkylights."),
+            Any,
+            Field(description="Polygons."),
         ] = None,
         are_doors: Annotated[
-            list[bool] | None,
-            Field(description="Door flags matching rectangular or detailed openings."),
+            Any,
+            Field(description="Are doors."),
         ] = None,
         depth: Annotated[
-            float | None,
-            Field(description="Shade depth in model units."),
+            Any,
+            Field(description="Depth."),
         ] = None,
         angle: Annotated[
             float,
-            Field(description="Shade tilt or louver angle in degrees."),
+            Field(description="Angle deg."),
         ] = 0,
         distance: Annotated[
-            float | None,
-            Field(description="Spacing distance between louvers."),
+            Any,
+            Field(description="Distance."),
         ] = None,
         louver_count: Annotated[
-            int | None,
-            Field(ge=1, description="Number of louvers for LouversByCount."),
+            Any,
+            Field(description="Louvers."),
         ] = None,
         offset: Annotated[
             float,
-            Field(description="Shade offset from wall plane."),
+            Field(description="Offset."),
         ] = 0,
         contour_vector: Annotated[
-            list[float] | None,
-            Field(description="Louver orientation vector [x, y]."),
+            Any,
+            Field(description="Contour vec."),
         ] = None,
         flip_start_side: Annotated[
             bool,
-            Field(description="Flip louver start side along wall."),
+            Field(description="Flip start."),
         ] = False,
         skylight_area: Annotated[
-            float | None,
-            Field(gt=0.0, description="Grid cell skylight area."),
+            Any,
+            Field(description="Sky area."),
         ] = None,
         skylight_ratio: Annotated[
-            float | None,
-            Field(ge=0.0, le=1.0, description="Grid skylight-to-roof ratio (0-1)."),
+            Any,
+            Field(description="Sky ratio."),
         ] = None,
         spacing: Annotated[
-            float | str | None,
-            Field(description="Grid spacing distance or expression for GriddedSkylights."),
+            Any,
+            Field(description="Spacing."),
         ] = None,
         story_identifier: Annotated[
-            str | None,
-            Field(description="Story ID for clerestory parameter application."),
+            Any,
+            Field(description="Story ID."),
         ] = None,
         air_boundary: Annotated[
-            bool | None,
-            Field(description="Set wall segment air-boundary flag."),
+            Any,
+            Field(description="Air bnd."),
         ] = None,
         air_boundaries: Annotated[
-            list[bool] | None,
-            Field(description="Per-segment air-boundary flags for Room2D."),
+            Any,
+            Field(description="Air bnds."),
         ] = None,
         boundary_condition: Annotated[
-            str | dict[str, Any] | None,
-            Field(description="Wall boundary condition name or Surface/OtherSideTemp dict."),
+            Any,
+            Field(description="Boundary cond."),
         ] = None,
         guide_lines: Annotated[
-            list[list[list[float]]] | None,
-            Field(description="2D guide lines for wall intersection or properties."),
+            Any,
+            Field(description="Guide lines."),
         ] = None,
         room_identifiers: Annotated[
-            list[str] | None,
-            Field(description="Room2D identifiers for wall property edits."),
+            Any,
+            Field(description="Room IDs."),
         ] = None,
         wall_modifiers: Annotated[
-            dict[str, Any] | None,
-            Field(description="Radiance wall modifier overrides dictionary."),
+            Any,
+            Field(description="Wall mods."),
         ] = None,
         tolerance: Annotated[
             float,
-            Field(gt=0.0, description="Geometric tolerance for wall operations."),
+            Field(description="Tolerance."),
         ] = 0.01,
     ) -> MutationResultModel:
         """Apply Energy, Radiance, Window, Shading, Skylight, Clerestory, or Wall properties."""
         dumped_host_target = dump_target(host_target)
         dumped_model_target = dump_target(model_target)
+        dumped_daylighting_control = dump_input(daylighting_control)
+        dumped_daylight_center = dump_input(daylight_center)
+        dumped_window_vent_control = dump_input(window_vent_control)
+        dumped_window_vent_opening = dump_input(window_vent_opening)
+        dumped_fans = dump_input(fans)
+        dumped_process_loads = dump_input(process_loads)
+        dumped_diversify = dump_input(diversify)
+        dumped_window_param = dump_input(window_parameter)
+        dumped_shading_param = dump_input(shading_parameter)
+        dumped_skylight_param = dump_input(skylight_parameter)
+        dumped_clerestory_param = dump_input(clerestory_parameter)
+        dumped_boundary_condition = dump_input(boundary_condition)
+        dumped_wall_modifiers = dump_input(wall_modifiers)
+
+        validated = validate_df_apply_properties_inputs(
+            host_type=host_type,
+            program_type_identifier=program_type_identifier,
+            construction_set_identifier=construction_set_identifier,
+            person_count=person_count,
+            lighting_watts=lighting_watts,
+            electric_equipment_watts=electric_equipment_watts,
+            gas_equipment_watts=gas_equipment_watts,
+            hot_water_flow=hot_water_flow,
+            infiltration_ach=infiltration_ach,
+            daylighting_control=dumped_daylighting_control,
+            daylight_center=dumped_daylight_center,
+            window_vent_control=dumped_window_vent_control,
+            window_vent_opening=dumped_window_vent_opening,
+            fans=dumped_fans,
+            process_loads=dumped_process_loads,
+            diversify=dumped_diversify,
+            modifier_set_identifier=modifier_set_identifier,
+            grid_parameter_type=grid_parameter_type,
+            grid_dimension=grid_dimension,
+            grid_offset=grid_offset,
+            face_type=face_type,
+            aperture_type=aperture_type,
+            dir_count=dir_count,
+            start_vector=start_vector,
+            mesh_radius=mesh_radius,
+            window_parameter=dumped_window_param,
+            shading_parameter=dumped_shading_param,
+            skylight_parameter=dumped_skylight_param,
+            clerestory_parameter=dumped_clerestory_param,
+            parameter_type=parameter_type,
+            application_scope=application_scope,
+            segment_index=segment_index,
+            window_ratio=window_ratio,
+            window_height=window_height,
+            sill_height=sill_height,
+            horizontal_separation=horizontal_separation,
+            vertical_separation=vertical_separation,
+            width=width,
+            height=height,
+            window_area=window_area,
+            window_width=window_width,
+            origins=origins,
+            widths=widths,
+            heights=heights,
+            polygons=polygons,
+            are_doors=are_doors,
+            depth=depth,
+            distance=distance,
+            louver_count=louver_count,
+            contour_vector=contour_vector,
+            skylight_area=skylight_area,
+            skylight_ratio=skylight_ratio,
+            spacing=spacing,
+            story_identifier=story_identifier,
+            air_boundary=air_boundary,
+            air_boundaries=air_boundaries,
+            boundary_condition=dumped_boundary_condition,
+            guide_lines=guide_lines,
+            room_identifiers=room_identifiers,
+            wall_modifiers=dumped_wall_modifiers,
+            tolerance=tolerance,
+        )
+        host_type = validated["host_type"]
+        application_scope = validated["application_scope"]
+        face_type = validated["face_type"]
+        aperture_type = validated["aperture_type"]
+        dir_count = validated["dir_count"]
+        vertical_separation = validated["vertical_separation"]
+        tolerance = validated["tolerance"]
 
         if property_domain == "energy":
             if dumped_host_target is None and host_type != "model":
@@ -1390,15 +1471,15 @@ def register(mcp: FastMCP) -> None:
                     gas_equipment_watts=gas_equipment_watts,
                     hot_water_flow=hot_water_flow,
                     infiltration_ach=infiltration_ach,
-                    daylighting_control=daylighting_control,
-                    daylight_center=daylight_center,
-                    window_vent_control=window_vent_control,
-                    window_vent_opening=window_vent_opening,
-                    fans=dump_input(fans),
+                    daylighting_control=dumped_daylighting_control,
+                    daylight_center=dumped_daylight_center,
+                    window_vent_control=dumped_window_vent_control,
+                    window_vent_opening=dumped_window_vent_opening,
+                    fans=dumped_fans,
                     remove_existing_fans=remove_existing_fans,
-                    process_loads=dump_input(process_loads),
+                    process_loads=dumped_process_loads,
                     remove_existing_process_loads=remove_existing_process_loads,
-                    diversify=dump_input(diversify),
+                    diversify=dumped_diversify,
                     ceiling_plenum_construction=dump_input(ceiling_plenum_construction),
                     floor_plenum_construction=dump_input(floor_plenum_construction),
                     construction=dump_input(construction),
@@ -1434,7 +1515,7 @@ def register(mcp: FastMCP) -> None:
             )
 
         if property_domain == "window":
-            resolved_window = dump_input(window_parameter)
+            resolved_window = dumped_window_param
             if resolved_window is None:
                 if parameter_type is None:
                     raise ValueError(
@@ -1499,7 +1580,7 @@ def register(mcp: FastMCP) -> None:
             )
 
         if property_domain == "shading":
-            resolved_shading = dump_input(shading_parameter)
+            resolved_shading = dumped_shading_param
             if resolved_shading is None:
                 if parameter_type is None or depth is None:
                     raise ValueError(
@@ -1548,7 +1629,7 @@ def register(mcp: FastMCP) -> None:
             )
 
         if property_domain == "skylight":
-            resolved_skylight = dump_input(skylight_parameter)
+            resolved_skylight = dumped_skylight_param
             if resolved_skylight is None:
                 if parameter_type is None:
                     raise ValueError(
@@ -1591,13 +1672,13 @@ def register(mcp: FastMCP) -> None:
             )
 
         if property_domain == "clerestory":
-            if clerestory_parameter is None:
+            if dumped_clerestory_param is None:
                 raise ValueError("clerestory_parameter dict is required for property_domain='clerestory'.")
             return validate_output(
                 MutationResultModel,
                 apply_dragonfly_clerestory_parameter(
                     garden_root=garden_root,
-                    clerestory_parameter=dump_input(clerestory_parameter),
+                    clerestory_parameter=dumped_clerestory_param,
                     host_target=dumped_host_target,
                     story_identifier=story_identifier,
                     model_target=dumped_model_target,
@@ -1614,10 +1695,10 @@ def register(mcp: FastMCP) -> None:
                 segment_index=segment_index,
                 air_boundary=air_boundary,
                 air_boundaries=air_boundaries,
-                boundary_condition=dump_input(boundary_condition),
+                boundary_condition=dumped_boundary_condition,
                 guide_lines=guide_lines,
                 room_identifiers=room_identifiers,
-                wall_modifiers=dump_input(wall_modifiers),
+                wall_modifiers=dumped_wall_modifiers,
                 tolerance=tolerance,
             ),
         )
@@ -1630,7 +1711,7 @@ def register(mcp: FastMCP) -> None:
     def DF_Inspect_Model(
         garden_root: Annotated[
             str,
-            Field(description="Root directory of the project Garden."),
+            Field(description="Garden root directory."),
         ],
         view: Annotated[
             Literal[
@@ -1644,7 +1725,7 @@ def register(mcp: FastMCP) -> None:
         ] = "model_summary",
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+            Field(description="Dragonfly Model target (defaults to active model)."),
         ] = None,
         target: Annotated[
             BuildingObjectTargetRef | None,
@@ -1742,11 +1823,11 @@ def register(mcp: FastMCP) -> None:
     def DF_Search_Objects(
         garden_root: Annotated[
             str,
-            Field(description="Root directory of the project Garden."),
+            Field(description="Garden root directory."),
         ],
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+            Field(description="Dragonfly Model target (defaults to active model)."),
         ] = None,
         object_type: Annotated[
             Literal["all", "building", "story", "room2d", "context_shade"],
@@ -1816,7 +1897,7 @@ def register(mcp: FastMCP) -> None:
     def DF_Transfer_Model(
         garden_root: Annotated[
             str,
-            Field(description="Root directory of the project Garden."),
+            Field(description="Garden root directory."),
         ],
         operation: Annotated[
             Literal["import_file", "export_file", "to_honeybee", "from_honeybee"],
@@ -1824,7 +1905,7 @@ def register(mcp: FastMCP) -> None:
         ],
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+            Field(description="Dragonfly Model target (defaults to active model)."),
         ] = None,
         # import_file / export_file parameters
         file_path: Annotated[
@@ -2023,7 +2104,7 @@ def register(mcp: FastMCP) -> None:
     def DF_To_Visualization_Set(
         garden_root: Annotated[
             str,
-            Field(description="Root directory of the project Garden."),
+            Field(description="Garden root directory."),
         ],
         mode: Annotated[
             Literal[
@@ -2038,7 +2119,7 @@ def register(mcp: FastMCP) -> None:
         ] = "model",
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+            Field(description="Dragonfly Model target (defaults to active model)."),
         ] = None,
         # targets mode
         target: Annotated[
@@ -2294,11 +2375,11 @@ def register(mcp: FastMCP) -> None:
     def DF_Validate_Model(
         garden_root: Annotated[
             str,
-            Field(description="Root directory of the project Garden."),
+            Field(description="Garden root directory."),
         ],
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Target Dragonfly Model (uses active model if omitted)."),
+            Field(description="Dragonfly Model target (defaults to active model)."),
         ] = None,
     ) -> ValidationResultModel:
         """Validate a Dragonfly Model for geometry, adjacency, and property issues."""

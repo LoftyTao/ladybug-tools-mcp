@@ -2,6 +2,7 @@ using System.Collections;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace IronbugBridge;
 
@@ -232,8 +233,17 @@ internal sealed class SystemBuilder
         var osZoneType = osAsm.GetType("OpenStudio.ThermalZone")
             ?? throw new TypeLoadException("OpenStudio.ThermalZone type not found.");
 
+        var osRuntimeVersion = GetOpenStudioRuntimeVersion(osAsm);
+        var ironbugHvacVersion = _runtime.HvacAssembly.GetName().Version?.ToString();
+        var ironbugOsRefVersion = _runtime.HvacAssembly.GetReferencedAssemblies()
+            .FirstOrDefault(a => string.Equals(a.Name, "OpenStudio", StringComparison.OrdinalIgnoreCase))
+            ?.Version?.ToString();
+
         var errors = new List<string>();
         var warnings = new List<string>();
+        var vtWarnings = new List<string>();
+        var vtErrors = new List<string>();
+        string? osmVersion = null;
         object? osModel = null;
         bool hasExternalOsm = !string.IsNullOrWhiteSpace(osmPath);
 
@@ -249,38 +259,16 @@ internal sealed class SystemBuilder
                 }
                 else
                 {
-                    var osUtilCore = osAsm.GetType("OpenStudio.OpenStudioUtilitiesCore")
-                        ?? throw new TypeLoadException("OpenStudio.OpenStudioUtilitiesCore type not found.");
-                    var toPathMethod = osUtilCore.GetMethod("toPath", new[] { typeof(string) })
-                        ?? throw new MissingMethodException("OpenStudioUtilitiesCore.toPath(string) not found.");
-                    var osPath = toPathMethod.Invoke(null, new object[] { fullOsmPath })!;
-                    try
-                    {
-                        var loadMethod = osModelType.GetMethod("load", new[] { osPath.GetType() })
-                            ?? throw new MissingMethodException("OpenStudio.Model.load(OpenStudio.Path) not found.");
-                        var optModel = loadMethod.Invoke(null, new[] { osPath })!;
-                        try
-                        {
-                            var isInit = optModel.GetType().GetMethod("is_initialized")?.Invoke(optModel, null) is bool init && init;
-                            if (!isInit)
-                            {
-                                errors.Add($"Failed to load OpenStudio model from '{fullOsmPath}'.");
-                                osModel = Activator.CreateInstance(osModelType)!;
-                            }
-                            else
-                            {
-                                osModel = optModel.GetType().GetMethod("get")!.Invoke(optModel, null)!;
-                            }
-                        }
-                        finally
-                        {
-                            (optModel as IDisposable)?.Dispose();
-                        }
-                    }
-                    finally
-                    {
-                        (osPath as IDisposable)?.Dispose();
-                    }
+                    osmVersion = ExtractOsmVersionFromFile(fullOsmPath);
+                    osModel = LoadOsmModelWithDiagnostics(
+                        osAsm,
+                        osModelType,
+                        fullOsmPath,
+                        ref osmVersion,
+                        errors,
+                        warnings,
+                        vtWarnings,
+                        vtErrors);
                 }
             }
             else
@@ -353,7 +341,16 @@ internal sealed class SystemBuilder
             bool shouldRunFt = runForwardTranslator ?? hasExternalOsm;
             if (shouldRunFt && saveOk && errors.Count == 0)
             {
-                forwardTranslatorInfo = RunForwardTranslatorCheck(osAsm, osModelType, osModel, errors, warnings);
+                forwardTranslatorInfo = RunForwardTranslatorCheck(
+                    osAsm,
+                    osModelType,
+                    osModel,
+                    errors,
+                    warnings,
+                    vtWarnings,
+                    vtErrors,
+                    osmVersion,
+                    osRuntimeVersion);
             }
 
             var osSummary = BuildOpenStudioSummary(osModelType, osModel);
@@ -366,7 +363,24 @@ internal sealed class SystemBuilder
                 ["thermal_zones"] = zoneNames.ToList(),
                 ["system_summary"] = summary,
                 ["openstudio_summary"] = osSummary,
+                ["openstudio_version"] = osRuntimeVersion,
+                ["ironbug_hvac_version"] = ironbugHvacVersion,
+                ["ironbug_openstudio_ref_version"] = ironbugOsRefVersion,
             };
+            if (!string.IsNullOrWhiteSpace(osmVersion))
+            {
+                payload["osm_version"] = osmVersion;
+            }
+            if (vtWarnings.Count > 0 || vtErrors.Count > 0)
+            {
+                payload["version_translator"] = new Dictionary<string, object?>
+                {
+                    ["osm_version"] = osmVersion,
+                    ["openstudio_version"] = osRuntimeVersion,
+                    ["warnings"] = vtWarnings,
+                    ["errors"] = vtErrors,
+                };
+            }
             if (forwardTranslatorInfo != null)
             {
                 payload["forward_translator"] = forwardTranslatorInfo;
@@ -636,8 +650,19 @@ internal sealed class SystemBuilder
                     continue;
                 }
             }
-            var coerced = CoerceFieldValue(kv.Value, dataType, resolveComponent, allSpecs);
-            tryAddMethod.Invoke(customAttrs, new[] { ibField, coerced });
+            var coerced = CoerceFieldValue(compId, kv.Name, kv.Value, dataType, resolveComponent, allSpecs);
+            try
+            {
+                tryAddMethod.Invoke(customAttrs, new[] { ibField, coerced });
+            }
+            catch (Exception ex)
+            {
+                var inner = ex is TargetInvocationException tie && tie.InnerException != null ? tie.InnerException : ex;
+                var expectedTypeName = FormatExpectedClrType(dataType);
+                throw new ArgumentException(
+                    $"Failed to set field '{kv.Name}' on component '{compId}' (expected CLR type '{expectedTypeName}'): {inner.Message}",
+                    inner);
+            }
         }
     }
 
@@ -1900,7 +1925,34 @@ internal sealed class SystemBuilder
         ca.GetType().GetMethod("TryAdd", new[] { ibFieldType, typeof(object) })!.Invoke(ca, new[] { ibField, value });
     }
 
+    private static string FormatExpectedClrType(Type? targetType)
+    {
+        if (targetType == null) return "unknown";
+        var underlying = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        return underlying.FullName ?? underlying.Name;
+    }
+
+    private static string BuildModelObjectFieldHint(string expectedTypeName, bool expectsModelObj)
+    {
+        if (expectedTypeName.Contains("Schedule", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Define a separate IB_ScheduleRuleset/IB_ScheduleConstant/IB_ScheduleFile component via IB_Upsert_Components "
+                + "and reference it via \"@<schedule_component_id>\" (or a reference wrapper {\"ref\": \"<schedule_component_id>\"}), "
+                + "or omit the field to use the default.";
+        }
+        if (expectsModelObj)
+        {
+            return $"Define a separate Ironbug component matching '{expectedTypeName}' (e.g. IB_ScheduleRuleset/IB_ScheduleConstant/IB_ScheduleFile for schedules, or IB_Curve* for curves) "
+                + "via IB_Upsert_Components and reference it via \"@<component_id>\" (or {\"ref\": \"<component_id>\"}), "
+                + "or omit the field to use the default.";
+        }
+        return $"Pass a scalar value matching '{expectedTypeName}', or reference a defined component via \"@<component_id>\" "
+            + "(e.g. define a separate IB_ScheduleRuleset/IB_ScheduleConstant/IB_ScheduleFile component for schedule fields).";
+    }
+
     private object? CoerceFieldValue(
+        string compId,
+        string fieldName,
         JsonElement el,
         Type? targetType,
         Func<string, object> resolveComponent,
@@ -1908,35 +1960,87 @@ internal sealed class SystemBuilder
     {
         if (el.ValueKind == JsonValueKind.Null) return null;
 
+        var underlyingTarget = targetType != null ? (Nullable.GetUnderlyingType(targetType) ?? targetType) : null;
+        var expectedTypeName = FormatExpectedClrType(targetType);
+        bool expectsModelObj = underlyingTarget != null
+            && underlyingTarget.Namespace != null
+            && underlyingTarget.Namespace.StartsWith("OpenStudio", StringComparison.Ordinal);
+
+        if (el.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var refKey in new[] { "ref", "component_id", "identifier" })
+            {
+                if (el.TryGetProperty(refKey, out var refEl)
+                    && refEl.ValueKind == JsonValueKind.String
+                    && !string.IsNullOrWhiteSpace(refEl.GetString()))
+                {
+                    var refId = StripRefPrefix(refEl.GetString()!);
+                    if (allSpecs.ContainsKey(refId))
+                    {
+                        return resolveComponent(refId);
+                    }
+                }
+            }
+
+            throw new ArgumentException(
+                $"Unsupported object value for field '{fieldName}' on component '{compId}' (expected CLR type '{expectedTypeName}'). "
+                + BuildModelObjectFieldHint(expectedTypeName, expectsModelObj));
+        }
+
         if (el.ValueKind == JsonValueKind.String)
         {
             var s = el.GetString()!;
             var stripped = StripRefPrefix(s);
             bool explicitRef = s.StartsWith("@", StringComparison.Ordinal);
-            bool expectsModelObj = targetType != null && targetType.Namespace != null && targetType.Namespace.StartsWith("OpenStudio", StringComparison.Ordinal);
             if ((explicitRef || expectsModelObj) && allSpecs.ContainsKey(stripped))
             {
                 return resolveComponent(stripped);
             }
-            if (targetType == typeof(double) && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
+            if (explicitRef)
+            {
+                throw new ArgumentException(
+                    $"Field '{fieldName}' on component '{compId}' references unknown component '{stripped}' (expected CLR type '{expectedTypeName}'). "
+                    + BuildModelObjectFieldHint(expectedTypeName, expectsModelObj));
+            }
+            if (expectsModelObj)
+            {
+                throw new ArgumentException(
+                    $"Field '{fieldName}' on component '{compId}' expects CLR type '{expectedTypeName}', not string '{s}'. "
+                    + BuildModelObjectFieldHint(expectedTypeName, expectsModelObj));
+            }
+            if (underlyingTarget == typeof(double) && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
                 return d;
-            if (targetType == typeof(int) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var iv))
+            if (underlyingTarget == typeof(int) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var iv))
                 return iv;
-            if (targetType == typeof(bool) && bool.TryParse(s, out var bv))
+            if (underlyingTarget == typeof(bool) && bool.TryParse(s, out var bv))
                 return bv;
             return s;
         }
 
         if (el.ValueKind == JsonValueKind.Number)
         {
-            if (targetType == typeof(int)) return el.GetInt32();
+            if (expectsModelObj)
+            {
+                throw new ArgumentException(
+                    $"Field '{fieldName}' on component '{compId}' expects CLR type '{expectedTypeName}', not number '{el.GetRawText()}'. "
+                    + BuildModelObjectFieldHint(expectedTypeName, expectsModelObj));
+            }
+            if (underlyingTarget == typeof(int)) return el.GetInt32();
             return el.GetDouble();
         }
         if (el.ValueKind == JsonValueKind.True || el.ValueKind == JsonValueKind.False)
         {
+            if (expectsModelObj)
+            {
+                throw new ArgumentException(
+                    $"Field '{fieldName}' on component '{compId}' expects CLR type '{expectedTypeName}', not boolean '{el.GetBoolean()}'. "
+                    + BuildModelObjectFieldHint(expectedTypeName, expectsModelObj));
+            }
             return el.GetBoolean();
         }
-        throw new ArgumentException($"Unsupported field value kind: {el.ValueKind}");
+        throw new ArgumentException(
+            $"Unsupported field value kind '{el.ValueKind}' for field '{fieldName}' on component '{compId}' (expected CLR type '{expectedTypeName}'). "
+            + BuildModelObjectFieldHint(expectedTypeName, expectsModelObj));
     }
 
     private object? CoerceValue(
@@ -2952,12 +3056,219 @@ internal sealed class SystemBuilder
         }
     }
 
+    private static string? GetOpenStudioRuntimeVersion(Assembly osAsm)
+    {
+        try
+        {
+            var osUtilCore = osAsm.GetType("OpenStudio.OpenStudioUtilitiesCore");
+            var ver = osUtilCore?.GetMethod("openStudioVersion", Type.EmptyTypes)?.Invoke(null, null)?.ToString()?.Trim();
+            if (!string.IsNullOrWhiteSpace(ver))
+                return ver;
+        }
+        catch
+        {
+        }
+        return osAsm.GetName().Version?.ToString();
+    }
+
+    private static string? ExtractOsmVersionFromFile(string osmPath)
+    {
+        try
+        {
+            // OS:Version normally appears near the top of the file; inspect up to first 16 KB first.
+            using var reader = new StreamReader(osmPath);
+            var buf = new char[16384];
+            int read = reader.Read(buf, 0, buf.Length);
+            var head = new string(buf, 0, read);
+            var match = Regex.Match(head, @"OS:Version\s*,[^;]*?(\d+\.\d+\.\d+(?:\.\d+)?)\s*;", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (match.Success)
+                return match.Groups[1].Value;
+        }
+        catch
+        {
+        }
+        return null;
+    }
+
+    private static object? CreateOpenStudioWarnLogSink(Assembly osAsm)
+    {
+        try
+        {
+            var sinkType = osAsm.GetType("OpenStudio.StringStreamLogSink");
+            if (sinkType == null) return null;
+            var sink = Activator.CreateInstance(sinkType);
+            if (sink == null) return null;
+            var logLevelType = osAsm.GetType("OpenStudio.LogLevel");
+            if (logLevelType != null && Enum.TryParse(logLevelType, "Warn", ignoreCase: true, out var warnLevel))
+            {
+                sinkType.GetMethod("setLogLevel", new[] { logLevelType })?.Invoke(sink, new[] { warnLevel });
+            }
+            return sink;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void DisposeOpenStudioLogSink(object? sink)
+    {
+        if (sink == null) return;
+        try
+        {
+            sink.GetType().GetMethod("disable", Type.EmptyTypes)?.Invoke(sink, null);
+        }
+        catch
+        {
+        }
+        (sink as IDisposable)?.Dispose();
+    }
+
+    private static void CollectLogMessageVector(
+        object? msgVec,
+        List<string> warnDest,
+        List<string> errorDest,
+        HashSet<string> seenWarn,
+        HashSet<string> seenError)
+    {
+        if (msgVec is not IEnumerable msgs) return;
+        foreach (var log in msgs)
+        {
+            if (log == null) continue;
+            var lt = log.GetType();
+            var rawMsg = lt.GetMethod("logMessage", Type.EmptyTypes)?.Invoke(log, null)?.ToString()?.Trim();
+            if (string.IsNullOrWhiteSpace(rawMsg)) continue;
+            var channel = lt.GetMethod("logChannel", Type.EmptyTypes)?.Invoke(log, null)?.ToString()?.Trim();
+            var levelStr = lt.GetMethod("logLevel", Type.EmptyTypes)?.Invoke(log, null)?.ToString()?.Trim() ?? "";
+            var formatted = string.IsNullOrWhiteSpace(channel) ? rawMsg : $"[{channel}] {rawMsg}";
+
+            bool isErrorLevel = string.Equals(levelStr, "Error", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(levelStr, "Fatal", StringComparison.OrdinalIgnoreCase);
+            if (isErrorLevel)
+            {
+                if (seenError.Add(formatted)) errorDest.Add(formatted);
+            }
+            else
+            {
+                if (seenWarn.Add(formatted)) warnDest.Add(formatted);
+            }
+        }
+    }
+
+    private static object LoadOsmModelWithDiagnostics(
+        Assembly osAsm,
+        Type osModelType,
+        string fullOsmPath,
+        ref string? osmVersion,
+        List<string> errors,
+        List<string> warnings,
+        List<string> vtWarnings,
+        List<string> vtErrors)
+    {
+        var osUtilCore = osAsm.GetType("OpenStudio.OpenStudioUtilitiesCore")
+            ?? throw new TypeLoadException("OpenStudio.OpenStudioUtilitiesCore type not found.");
+        var toPathMethod = osUtilCore.GetMethod("toPath", new[] { typeof(string) })
+            ?? throw new MissingMethodException("OpenStudioUtilitiesCore.toPath(string) not found.");
+        var osPath = toPathMethod.Invoke(null, new object[] { fullOsmPath })!;
+        object? sink = CreateOpenStudioWarnLogSink(osAsm);
+
+        var seenWarn = new HashSet<string>(StringComparer.Ordinal);
+        var seenError = new HashSet<string>(StringComparer.Ordinal);
+
+        try
+        {
+            var vtType = osAsm.GetType("OpenStudio.VersionTranslator");
+            object? optModel = null;
+            if (vtType != null)
+            {
+                var vt = Activator.CreateInstance(vtType)!;
+                try
+                {
+                    vtType.GetMethod("setAllowNewerVersions", new[] { typeof(bool) })?.Invoke(vt, new object[] { true });
+                    var vtLoad = vtType.GetMethod("loadModel", new[] { osPath.GetType() });
+                    if (vtLoad != null)
+                    {
+                        optModel = vtLoad.Invoke(vt, new[] { osPath });
+                        var origVerObj = vtType.GetMethod("originalVersion", Type.EmptyTypes)?.Invoke(vt, null);
+                        var origVerStr = origVerObj?.GetType().GetMethod("str", Type.EmptyTypes)?.Invoke(origVerObj, null)?.ToString()?.Trim();
+                        if (!string.IsNullOrWhiteSpace(origVerStr))
+                        {
+                            osmVersion = origVerStr;
+                        }
+                        CollectLogMessageVector(
+                            vtType.GetMethod("warnings", Type.EmptyTypes)?.Invoke(vt, null),
+                            vtWarnings,
+                            vtErrors,
+                            seenWarn,
+                            seenError);
+                        CollectLogMessageVector(
+                            vtType.GetMethod("errors", Type.EmptyTypes)?.Invoke(vt, null),
+                            vtErrors,
+                            vtErrors,
+                            seenError,
+                            seenError);
+                    }
+                }
+                finally
+                {
+                    (vt as IDisposable)?.Dispose();
+                }
+            }
+
+            if (optModel == null)
+            {
+                var loadMethod = osModelType.GetMethod("load", new[] { osPath.GetType() })
+                    ?? throw new MissingMethodException("OpenStudio.Model.load(OpenStudio.Path) not found.");
+                optModel = loadMethod.Invoke(null, new[] { osPath })!;
+            }
+
+            if (sink != null)
+            {
+                CollectLogMessageVector(
+                    sink.GetType().GetMethod("logMessages", Type.EmptyTypes)?.Invoke(sink, null),
+                    vtWarnings,
+                    vtErrors,
+                    seenWarn,
+                    seenError);
+            }
+
+            try
+            {
+                var isInit = optModel.GetType().GetMethod("is_initialized")?.Invoke(optModel, null) is bool init && init;
+                if (!isInit)
+                {
+                    errors.Add($"Failed to load OpenStudio model from '{fullOsmPath}'.");
+                    foreach (var vErr in vtErrors) errors.Add(vErr);
+                    foreach (var vWarn in vtWarnings) warnings.Add(vWarn);
+                    return Activator.CreateInstance(osModelType)!;
+                }
+
+                foreach (var vWarn in vtWarnings) warnings.Add(vWarn);
+                foreach (var vErr in vtErrors) warnings.Add($"[OSM Load Error] {vErr}");
+                return optModel.GetType().GetMethod("get")!.Invoke(optModel, null)!;
+            }
+            finally
+            {
+                (optModel as IDisposable)?.Dispose();
+            }
+        }
+        finally
+        {
+            DisposeOpenStudioLogSink(sink);
+            (osPath as IDisposable)?.Dispose();
+        }
+    }
+
     private static Dictionary<string, object?> RunForwardTranslatorCheck(
         Assembly osAsm,
         Type osModelType,
         object osModel,
         List<string> errors,
-        List<string> warnings)
+        List<string> warnings,
+        List<string>? vtWarnings = null,
+        List<string>? vtErrors = null,
+        string? osmVersion = null,
+        string? osRuntimeVersion = null)
     {
         var ftType = osAsm.GetType("OpenStudio.EnergyPlusForwardTranslator");
         if (ftType == null)
@@ -3002,14 +3313,40 @@ internal sealed class SystemBuilder
             errors.Add($"[ForwardTranslator] {inner.Message}");
         }
 
-        return new Dictionary<string, object?>
+        var combinedWarnings = new List<string>(ftWarnings);
+        if (vtWarnings != null)
+        {
+            foreach (var w in vtWarnings)
+            {
+                if (!combinedWarnings.Contains(w)) combinedWarnings.Add(w);
+            }
+        }
+        if (vtErrors != null)
+        {
+            foreach (var e in vtErrors)
+            {
+                var tagged = $"[VersionTranslator/OSM] {e}";
+                if (!combinedWarnings.Contains(tagged)) combinedWarnings.Add(tagged);
+            }
+        }
+
+        var ftPayload = new Dictionary<string, object?>
         {
             ["ran"] = true,
             ["error_count"] = ftErrors.Count,
-            ["warning_count"] = ftWarnings.Count,
+            ["warning_count"] = combinedWarnings.Count,
             ["errors"] = ftErrors,
-            ["warnings"] = ftWarnings,
+            ["warnings"] = combinedWarnings,
         };
+        if (!string.IsNullOrWhiteSpace(osmVersion))
+            ftPayload["osm_version"] = osmVersion;
+        if (!string.IsNullOrWhiteSpace(osRuntimeVersion))
+            ftPayload["openstudio_version"] = osRuntimeVersion;
+        if (vtWarnings != null && vtWarnings.Count > 0)
+            ftPayload["version_translator_warnings"] = vtWarnings;
+        if (vtErrors != null && vtErrors.Count > 0)
+            ftPayload["version_translator_errors"] = vtErrors;
+        return ftPayload;
     }
 
     private static Dictionary<string, int> BuildOpenStudioSummary(Type osModelType, object osModel)
