@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import shutil
 from typing import Any
 
@@ -31,7 +32,20 @@ from garden.run_ledger import serialized_run_start
 IDF_FILE_RECIPE = "energyplus_idf"
 OSM_FILE_RECIPE = "openstudio_osm"
 IDF_OUTPUT_NAMES = ("idf", "sql", "zsz", "rdd", "eio", "html", "err", "eui")
-OSM_OUTPUT_NAMES = ("osm", "osw", "idf", "sql", "zsz", "rdd", "eio", "html", "err", "eui")
+OSM_OUTPUT_NAMES = (
+    "osm",
+    "osw",
+    "idf",
+    "sql",
+    "zsz",
+    "rdd",
+    "eio",
+    "html",
+    "err",
+    "eui",
+    "run_log",
+    "failed_job",
+)
 
 
 def _garden_root(value: str | Path) -> Path:
@@ -259,6 +273,51 @@ def _clear_idf_native_outputs(garden_root: Path, run_dir: Path) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
 
 
+def _clear_osm_run_diagnostics(run_dir: Path) -> None:
+    """Remove stale OpenStudio outputs before starting a new OSM run."""
+    for path in (run_dir / "run.log", run_dir / "failed.job", run_dir.parent / "out.osw"):
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+
+
+def _openstudio_run_failure_warnings(
+    *, garden_root: Path, run_dir: Path
+) -> list[str]:
+    """Return concise failure diagnostics from OpenStudio/EnergyPlus run artifacts."""
+    warnings: list[str] = []
+    run_log = run_dir / "run.log"
+    failed_job = run_dir / "failed.job"
+    run_log_relative = to_posix_relative(run_log, garden_root)
+    failed_job_relative = to_posix_relative(failed_job, garden_root)
+
+    run_log_text = ""
+    if run_log.is_file():
+        try:
+            run_log_text = run_log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+
+    nonzero_exit = re.search(
+        r"EnergyPlus returned a non-zero exit code\s*\((-?\d+)\)",
+        run_log_text,
+        re.IGNORECASE,
+    )
+    has_engine_failure_detail = False
+    if nonzero_exit:
+        warnings.append(
+            f"EnergyPlus exited with code {nonzero_exit.group(1)}; see {run_log_relative}."
+        )
+        has_engine_failure_detail = True
+    elif re.search(r"EnergyPlus Terminated with a Fatal Error", run_log_text, re.IGNORECASE):
+        warnings.append(f"EnergyPlus terminated with a fatal error; see {run_log_relative}.")
+        has_engine_failure_detail = True
+
+    if failed_job.is_file() and not has_engine_failure_detail:
+        detail = f"; see {run_log_relative}" if run_log.is_file() else ""
+        warnings.append(f"OpenStudio wrote {failed_job_relative}{detail}.")
+    return warnings
+
+
 def _mark_file_setup_failed(
     garden_root: Path,
     record: dict[str, Any],
@@ -360,6 +419,7 @@ def _prepare_osm_file_run(
     _upsert_record(garden_root_path, record)
     try:
         _clear_idf_native_outputs(garden_root_path, run_dir)
+        _clear_osm_run_diagnostics(run_dir)
         for name in ("in.osm", "in.idf"):
             (run_dir / name).unlink(missing_ok=True)
         workflow_path = _write_workflow_osw(
@@ -567,6 +627,8 @@ def run_osm_file(
             else _existing_file(run_dir / "in.idf")
         ),
         **{name: _existing_file(path) for name, path in known_outputs.items()},
+        "run_log": _existing_file(run_dir / "run.log"),
+        "failed_job": _existing_file(run_dir / "failed.job"),
     }
     output_paths["eui"] = None if measures_only else _eui_output(output_paths.get("sql"), run_dir)
     if out_osw_path.is_file():
@@ -575,8 +637,25 @@ def run_osm_file(
             if osw_obj.errors:
                 status = "failed"
                 warnings.extend(osw_obj.errors)
+            completed_status = osw_obj.file_dict.get("completed_status")
+            if isinstance(completed_status, str) and completed_status.strip().lower() in {
+                "fail",
+                "failed",
+                "failure",
+            }:
+                status = "failed"
+                warnings.append(
+                    f"OpenStudio workflow completed_status is {completed_status.strip()}."
+                )
         except Exception as exc:
             warnings.append(f"Could not parse out.osw: {exc}")
+    run_failure_warnings = _openstudio_run_failure_warnings(
+        garden_root=garden_root_path,
+        run_dir=run_dir,
+    )
+    if run_failure_warnings:
+        status = "failed"
+        warnings.extend(run_failure_warnings)
     if status == "completed":
         if measures_only:
             if not (output_paths.get("osm") or output_paths.get("osw")):
