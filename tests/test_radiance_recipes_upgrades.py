@@ -185,6 +185,9 @@ def test_mcp_registry_radiance_tools_and_zero_stale_tokens() -> None:
                     continue
                 if tok.startswith("IB_") and "_" not in tok[3:]:
                     continue
+                # honeybee_gbas AutoCAD XDATA APPID literal, not an MCP tool name.
+                if tok == "HB_BESI":
+                    continue
                 stale_hits.append(f"{py_file.relative_to(src_root)}:{lineno}: {tok}")
     assert stale_hits == []
 

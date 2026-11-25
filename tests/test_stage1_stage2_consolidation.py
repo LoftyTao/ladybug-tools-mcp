@@ -214,6 +214,9 @@ def test_server_boot_registry_code_mode_and_stale_python_refs(
                 # Ironbug C# runtime class names have a single underscore after IB_ (e.g. IB_HVACSystem).
                 if tok.startswith("IB_") and "_" not in tok[3:]:
                     continue
+                # honeybee_gbas AutoCAD XDATA APPID literal, not an MCP tool name.
+                if tok == "HB_BESI":
+                    continue
                 stale_python_hits.append(f"{py_file.relative_to(src_root)}:{lineno}: {tok}")
     assert stale_python_hits == [], f"Stale tool references in src Python files: {stale_python_hits}"
 
