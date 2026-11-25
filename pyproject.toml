@@ -39,3 +39,36 @@ pyhygrothermfem_fairyfly = [
   "third_party_notices.txt",
   "third_party_licenses/*/*",
 ]
+honeybee_gbas = [
+  "LICENSE",
+  "dwg/LICENSE-ezdwg.txt",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["src"]
+extend-exclude = ["resources", "vendor", "build", "dist", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "UP", "B"]
+ignore = ["E501", "UP035", "UP038", "B905"]
+
+[tool.pyright]
+include = ["src/ladybug_tools_mcp"]
+exclude = [
+  "src/flowerpot/runtime.py",
+  "src/flowerpot/component_state.py",
+  "src/flowerpot/input_guard.py",
+  "src/flowerpot/installation.py",
+  "src/flowerpot/worker.py",
+  "src/grasshopper_components",
+  "src/fairyfly_next_therm",
+  "src/pyhygrothermfem_fairyfly",
+  "resources",
+  "vendor",
+  "build",
+  "dist",
+]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"

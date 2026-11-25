@@ -285,6 +285,7 @@ numpy==2.1.0
     #   honeybee-radiance-postprocess
     #   ladybug-radiance
     #   matplotlib
+    #   shapely
 openapi-pydantic==0.5.1
     # via fastmcp-slim
 openstudio==3.11.0
@@ -392,6 +393,8 @@ rpds-py==2026.6.3
     #   referencing
 secretstorage==3.5.0 ; sys_platform == 'linux'
     # via keyring
+shapely==2.2.0
+    # via -r requirements.in
 six==1.17.0
     # via python-dateutil
 sse-starlette==3.4.8

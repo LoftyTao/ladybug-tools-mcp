@@ -10,12 +10,14 @@ import dragonfly_doe2._extend_dragonfly  # noqa: F401
 import dragonfly_radiance  # noqa: F401
 import honeybee_designbuilder._extend_honeybee  # noqa: F401
 import honeybee_doe2._extend_honeybee  # noqa: F401
+import honeybee_gbas._extend_honeybee  # noqa: F401
 from dragonfly_designbuilder.writer import model_to_dsbxml as dragonfly_model_to_dsbxml
 from dragonfly_doe2.writer import model_to_inp as dragonfly_model_to_inp
 from dragonfly_energy.gbxml.parameters import GBXMLParameters
 from dragonfly_energy.writer import model_to_gbxml as dragonfly_model_to_gbxml
 from honeybee_designbuilder.writer import model_to_dsbxml as honeybee_model_to_dsbxml
 from honeybee_doe2.writer import model_to_inp as honeybee_model_to_inp
+from honeybee_gbas.writer import model_to_dwg as honeybee_model_to_gbas_dwg
 from honeybee_energy.simulation.parameter import SimulationParameter
 from honeybee_energy.writer import _preprocess_model_for_trace_3dplus
 from honeybee_openstudio.openstudio import openstudio
@@ -48,6 +50,7 @@ from ladybug_tools_mcp.contracts import make_artifact_receipt, make_report
 
 DOE_INP_EXPORT_FORMAT = "doe_inp"
 DESIGNBUILDER_DSBXML_EXPORT_FORMAT = "designbuilder_dsbxml"
+FORMAT_GBAS_DWG = "gbas_dwg"
 FORMAT_OSM = "osm"
 FORMAT_IDF = "idf"
 FORMAT_EPJSON = "epjson"
@@ -64,6 +67,7 @@ MODEL_EXPORT_ARTIFACT_DIR = Path("artifacts") / "model_export"
 _EXPORT_EXTENSIONS = {
     DOE_INP_EXPORT_FORMAT: ".inp",
     DESIGNBUILDER_DSBXML_EXPORT_FORMAT: ".dsbxml",
+    FORMAT_GBAS_DWG: ".dwg",
     FORMAT_OSM: ".osm",
     FORMAT_IDF: ".idf",
     FORMAT_EPJSON: ".epjson",
@@ -76,7 +80,7 @@ _EXPORT_EXTENSIONS = {
     FORMAT_STL: ".stl",
 }
 
-_BINARY_OR_DIR_FORMATS = {FORMAT_HBPKL, FORMAT_RAD_FOLDER}
+_BINARY_OR_DIR_FORMATS = {FORMAT_HBPKL, FORMAT_RAD_FOLDER, FORMAT_GBAS_DWG}
 
 
 def export_model_file(
@@ -116,6 +120,17 @@ def export_model_file(
         if normalized_format == FORMAT_RAD_FOLDER
         else output_dir / f"{identifier}{extension}"
     )
+    gbas_report_path = (
+        _resolve_gbas_report_path(
+            options,
+            garden_root_path=garden_root_path,
+            output_dir=output_dir,
+            output_path=output_path,
+            identifier=identifier,
+        )
+        if normalized_format == FORMAT_GBAS_DWG
+        else None
+    )
 
     stored_text, extra_summary = _perform_export(
         model=model,
@@ -126,6 +141,7 @@ def export_model_file(
         identifier=identifier,
         options=options,
         garden_root_path=garden_root_path,
+        gbas_report_path=gbas_report_path,
     )
 
     artifact_path = to_posix_relative(output_path, garden_root_path)
@@ -143,6 +159,17 @@ def export_model_file(
         warnings.append(
             f"include_body is not supported for {normalized_format}; use target path {artifact_path}."
         )
+    for item in extra_summary.get("self_check_warnings") or []:
+        if isinstance(item, dict):
+            code = str(item.get("code") or "unknown")
+            followup = str(item.get("followup") or "").strip()
+            warnings.append(
+                f"GBAS pre-import warning ({code}): {followup}"
+                if followup
+                else f"GBAS pre-import warning ({code})."
+            )
+        elif item:
+            warnings.append(str(item))
 
     summary_view: dict[str, Any] = {
         "target": target,
@@ -258,6 +285,49 @@ def _validate_model_target_path(
 
 def _pick_kwargs(options: dict[str, Any], allowed_keys: tuple[str, ...]) -> dict[str, Any]:
     return {key: options[key] for key in allowed_keys if key in options and options[key] is not None}
+
+
+def _resolve_gbas_report_path(
+    options: dict[str, Any],
+    *,
+    garden_root_path: Path,
+    output_dir: Path,
+    output_path: Path,
+    identifier: str,
+) -> Path | None:
+    """Resolve and validate an optional Garden-local GBAS JSON report path."""
+    raw_report_path = options.get("report_path")
+    write_report = bool(options.get("write_report", False))
+    report_name = options.get("report_name")
+
+    if isinstance(raw_report_path, bool):
+        write_report = write_report or raw_report_path
+        raw_report_path = None
+
+    if raw_report_path is not None:
+        if not isinstance(raw_report_path, str) or not raw_report_path.strip():
+            raise ValueError("export_options.report_path must be a non-empty Garden-relative path.")
+        candidate_input = Path(raw_report_path)
+        if candidate_input.is_absolute():
+            raise ValueError("export_options.report_path must be Garden-relative.")
+        resolved_garden_root = garden_root_path.resolve()
+        candidate = (resolved_garden_root / candidate_input).resolve()
+        try:
+            candidate.relative_to(resolved_garden_root)
+        except ValueError as exc:
+            raise ValueError("export_options.report_path must stay inside the Garden.") from exc
+        if candidate.suffix.lower() != ".json":
+            raise ValueError("export_options.report_path must end with .json.")
+        if candidate == output_path.resolve():
+            raise ValueError("export_options.report_path must differ from the output DWG path.")
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        return candidate
+
+    if write_report or report_name:
+        report_stem = slugify_name(str(report_name)) if report_name else identifier
+        return output_dir / f"{report_stem}.report.json"
+
+    return None
 
 
 def _dragonfly_to_honeybee(model: Any, options: dict[str, Any]) -> Any:
@@ -405,6 +475,7 @@ def _perform_export(
     identifier: str,
     options: dict[str, Any],
     garden_root_path: Path,
+    gbas_report_path: Path | None = None,
 ) -> tuple[str | None, dict[str, Any]]:
     try:
         if export_format == DOE_INP_EXPORT_FORMAT:
@@ -512,6 +583,45 @@ def _perform_export(
 
         hb_model = model if model_domain == "honeybee" else _dragonfly_to_honeybee(model, options)
 
+        if export_format == FORMAT_GBAS_DWG:
+            overwrite = bool(options.get("overwrite", True))
+            report_path = (
+                gbas_report_path
+                if gbas_report_path is not None
+                else _resolve_gbas_report_path(
+                    options,
+                    garden_root_path=garden_root_path,
+                    output_dir=output_dir,
+                    output_path=output_path,
+                    identifier=identifier,
+                )
+            )
+            written_path, gbas_report = honeybee_model_to_gbas_dwg(
+                hb_model,
+                output_path,
+                report_path=report_path,
+                overwrite=overwrite,
+            )
+            report_dict = gbas_report if isinstance(gbas_report, dict) else {}
+            self_check = report_dict.get("self_check")
+            self_check_dict = self_check if isinstance(self_check, dict) else {}
+            extra_summary: dict[str, Any] = {
+                "size_bytes": Path(written_path).stat().st_size,
+                "gbas_status": report_dict.get("status"),
+                "gbas_format": report_dict.get("format"),
+                "source_units": report_dict.get("source_units"),
+                "drawing_units": report_dict.get("drawing_units"),
+                "counts": report_dict.get("counts", {}),
+                "self_check_status": self_check_dict.get("status"),
+                "self_check_passed": self_check_dict.get("passed"),
+                "self_check_warnings": self_check_dict.get("warnings", []),
+                "automatic_repairs": self_check_dict.get("automatic_repairs", {}),
+            }
+            if report_path is not None:
+                extra_summary["report_path"] = to_posix_relative(report_path, garden_root_path)
+                extra_summary["report_absolute_path"] = str(report_path)
+            return None, extra_summary
+
         if export_format == FORMAT_OSM:
             kwargs = _pick_kwargs(
                 options,
@@ -598,6 +708,7 @@ __all__ = [
     "DESIGNBUILDER_DSBXML_EXPORT_FORMAT",
     "DOE_INP_EXPORT_FORMAT",
     "FORMAT_EPJSON",
+    "FORMAT_GBAS_DWG",
     "FORMAT_GBXML",
     "FORMAT_HBPKL",
     "FORMAT_IDF",

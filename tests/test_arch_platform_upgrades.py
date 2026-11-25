@@ -338,7 +338,7 @@ def test_standards_library_get_therm_and_structured_filters(raw_mcp: FastMCP) ->
 def test_multiformat_model_export_and_destructive_annotations(
     tmp_path: Path, raw_mcp: FastMCP
 ) -> None:
-    """Verify GD_Export_Model_File across all 12 formats + export_options and destructiveHint annotations."""
+    """Verify GD_Export_Model_File across all 13 formats + export_options and destructiveHint annotations."""
     gr = (tmp_path / "export_garden").as_posix()
 
     async def _run() -> None:
@@ -463,8 +463,61 @@ def test_multiformat_model_export_and_destructive_annotations(
             assert hbpkl_out["summary_view"]["size_bytes"] > 0
             assert (Path(gr) / hbpkl_out["target"]["path"]).is_file()
 
+            # Native GBAS2026 DWG export (binary) + optional JSON report + overwrite guard.
+            gbas_out = await _call(
+                client,
+                "GD_Export_Model_File",
+                {
+                    "garden_root": gr,
+                    "export_format": "gbas_dwg",
+                    "model_target": hb_target,
+                    "include_body": True,
+                },
+            )
+            assert gbas_out["target"]["artifact_type"] == "gbas_dwg"
+            assert "file_body" not in gbas_out
+            assert gbas_out["report"]["warnings"]
+            assert gbas_out["summary_view"]["size_bytes"] > 0
+            assert gbas_out["summary_view"]["self_check_passed"] is True
+            assert gbas_out["summary_view"]["counts"]["rooms"] == 1
+            assert gbas_out["summary_view"]["counts"]["native_openings"] >= 1
+            gbas_dwg_path = Path(gr) / gbas_out["target"]["path"]
+            assert gbas_dwg_path.is_file()
+            assert gbas_dwg_path.read_bytes().startswith(b"AC1015")
+
+            gbas_reported_out = await _call(
+                client,
+                "GD_Export_Model_File",
+                {
+                    "garden_root": gr,
+                    "export_format": "gbas_dwg",
+                    "model_target": hb_target,
+                    "name": "hb_gbas_reported",
+                    "export_options": {"write_report": True},
+                },
+            )
+            gbas_report_rel = gbas_reported_out["summary_view"]["report_path"]
+            gbas_report_file = Path(gr) / gbas_report_rel
+            assert gbas_report_file.is_file()
+            gbas_report_payload = json.loads(gbas_report_file.read_text(encoding="utf-8"))
+            assert gbas_report_payload["status"] == "translated"
+            assert gbas_report_payload["self_check"]["passed"] is True
+
+            with pytest.raises(Exception):
+                await _call(
+                    client,
+                    "GD_Export_Model_File",
+                    {
+                        "garden_root": gr,
+                        "export_format": "gbas_dwg",
+                        "model_target": hb_target,
+                        "name": "hb_gbas_reported",
+                        "export_options": {"overwrite": False},
+                    },
+                )
+
             # Dragonfly multi-format export coverage.
-            for fmt in ("doe_inp", "osm", "idf", "gbxml", "trace_gbxml", "sdd", "rad", "stl"):
+            for fmt in ("doe_inp", "gbas_dwg", "osm", "idf", "gbxml", "trace_gbxml", "sdd", "rad", "stl"):
                 df_out = await _call(
                     client,
                     "GD_Export_Model_File",
@@ -476,7 +529,10 @@ def test_multiformat_model_export_and_destructive_annotations(
                     },
                 )
                 assert df_out["summary_view"]["model_domain"] == "dragonfly"
-                assert (Path(gr) / df_out["target"]["path"]).is_file()
+                df_artifact_path = Path(gr) / df_out["target"]["path"]
+                assert df_artifact_path.is_file()
+                if fmt == "gbas_dwg":
+                    assert df_artifact_path.read_bytes().startswith(b"AC1015")
 
     asyncio.run(_run())
 

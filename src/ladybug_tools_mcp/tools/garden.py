@@ -8,6 +8,19 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
+from ladybug_tools_mcp.contracts import (
+    ArtifactResultModel,
+    BuildingModelTargetRef,
+    GardenTargetRef,
+    MutationResultModel,
+    QueryResultModel,
+    RunResultModel,
+    RunTargetRef,
+    dump_input,
+    dump_target,
+    validate_output,
+)
+
 
 CleanupScope = Literal["artifacts", "flowerpots", "imports", "payloads", "runs", "tmp"]
 RunDomain = Literal[
@@ -31,14 +44,18 @@ def _normalize_version_summary(
     summary: dict[str, Any] | str | None,
     details: dict[str, Any] | str | None,
 ) -> dict[str, Any] | None:
-    normalized = {"note": summary} if isinstance(summary, str) else (
-        dict(summary) if isinstance(summary, dict) else None
+    dumped_summary = dump_input(summary)
+    dumped_details = dump_input(details)
+    normalized = (
+        {"note": dumped_summary}
+        if isinstance(dumped_summary, str)
+        else (dict(dumped_summary) if isinstance(dumped_summary, dict) else None)
     )
-    if details is not None:
+    if dumped_details is not None:
         if normalized is None:
-            normalized = {"details": details}
+            normalized = {"details": dumped_details}
         elif "details" not in normalized:
-            normalized["details"] = details
+            normalized["details"] = dumped_details
     return normalized
 
 
@@ -69,7 +86,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(
                 description="Optional run target returned by a start simulation tool or GD_List_Runs."
             ),
@@ -94,17 +111,20 @@ def register(mcp: FastMCP) -> None:
             str | None,
             Field(description="Optional cancellation reason recorded in the run ledger."),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> RunResultModel:
         """Cancel an active Garden run and update its ledger."""
         from garden.runs_control import cancel_run as service
 
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            domain=domain,
-            run_id=run_id,
-            recipe=recipe,
-            reason=reason,
+        return validate_output(
+            RunResultModel,
+            service(
+                garden_root=garden_root,
+                run_target=dump_target(run_target),
+                domain=domain,
+                run_id=run_id,
+                recipe=recipe,
+                reason=reason,
+            ),
         )
 
     @mcp.tool(
@@ -149,16 +169,19 @@ def register(mcp: FastMCP) -> None:
                 description="If true, report which selected scopes would be cleaned without deleting files; use this before destructive cleanup when the user has not explicitly confirmed."
             ),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Clean selected non-authoring workspace directories inside one Garden root."""
         from garden.store import (
             cleanup_garden_workspace as cleanup_garden_workspace_service,
         )
 
-        return cleanup_garden_workspace_service(
-            garden_root=garden_root,
-            cleanup_scopes=list(cleanup_scopes),
-            dry_run=dry_run,
+        return validate_output(
+            MutationResultModel,
+            cleanup_garden_workspace_service(
+                garden_root=garden_root,
+                cleanup_scopes=list(cleanup_scopes),
+                dry_run=dry_run,
+            ),
         )
 
     @mcp.tool(
@@ -208,34 +231,40 @@ def register(mcp: FastMCP) -> None:
                 )
             ),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Create a Garden and return its Garden target, summary, report, and receipt."""
         from garden.store import create_garden as create_garden_service
 
         name = name or (Path(root_dir).name if root_dir else "Ladybug Tools Garden")
-        return create_garden_service(
-            name=name, root_dir=root_dir, description=description
+        return validate_output(
+            MutationResultModel,
+            create_garden_service(
+                name=name, root_dir=root_dir, description=description
+            ),
         )
 
     @mcp.tool(
         name="GD_Export_Model_File",
         description=(
             "Export an explicit Garden Honeybee Model or Dragonfly Model target to "
-            "a Garden-managed export artifact across energy, daylight, and geometry formats: "
-            "doe_inp (.inp), designbuilder_dsbxml (.dsbxml), osm (.osm), idf (.idf), "
-            "epjson (.epjson), gbxml (.xml), trace_gbxml (.xml), sdd (.xml), rad (.rad), "
-            "rad_folder (directory), hbpkl (.hbpkl), or stl (.stl). "
+            "a Garden-managed export artifact across energy, daylight, CAD, and geometry formats: "
+            "doe_inp (.inp), designbuilder_dsbxml (.dsbxml), gbas_dwg (.dwg for GBAS2026), "
+            "osm (.osm), idf (.idf), epjson (.epjson), gbxml (.xml), trace_gbxml (.xml), "
+            "sdd (.xml), rad (.rad), rad_folder (directory), hbpkl (.hbpkl), or stl (.stl). "
             "Requires garden_root, export_format, and a nested model_target from "
             "a Honeybee/Dragonfly create tool, GD_List_Models, or GD_Manage_Base_Model. "
-            "Accepts optional export_options dict forwarding DOE-2, DesignBuilder, gbXML, "
-            "OpenStudio, Radiance, or Dragonfly-to-Honeybee options."
+            "Accepts optional export_options dict forwarding DOE-2, DesignBuilder, GBAS DWG "
+            "(write_report, report_name, report_path, overwrite), gbXML, OpenStudio, "
+            "Radiance, or Dragonfly-to-Honeybee options."
         ),
         tags={
             "artifact",
             "designbuilder",
             "doe2",
+            "dwg",
             "export",
             "garden",
+            "gbas",
             "gbxml",
             "honeybee",
             "model",
@@ -243,7 +272,7 @@ def register(mcp: FastMCP) -> None:
             "radiance",
             "dragonfly",
         },
-        timeout=60,
+        timeout=120,
     )
     def export_model_file(
         garden_root: Annotated[
@@ -260,6 +289,7 @@ def register(mcp: FastMCP) -> None:
             Literal[
                 "doe_inp",
                 "designbuilder_dsbxml",
+                "gbas_dwg",
                 "osm",
                 "idf",
                 "epjson",
@@ -273,13 +303,13 @@ def register(mcp: FastMCP) -> None:
             ],
             Field(
                 description=(
-                    "Required export format: doe_inp, designbuilder_dsbxml, osm, idf, epjson, "
+                    "Required export format: doe_inp, designbuilder_dsbxml, gbas_dwg, osm, idf, epjson, "
                     "gbxml, trace_gbxml, sdd, rad, rad_folder, hbpkl, or stl."
                 )
             ),
         ],
         model_target: Annotated[
-            dict[str, Any],
+            BuildingModelTargetRef,
             Field(
                 description=(
                     "Required exact Honeybee Model or Dragonfly Model target. Pass the nested "
@@ -311,21 +341,25 @@ def register(mcp: FastMCP) -> None:
             Field(
                 description=(
                     "Optional format-specific export options forwarded to DOE-2, DesignBuilder, "
-                    "gbXML, TRACE gbXML, OpenStudio, IDF, SDD, Radiance, HBpkl, or Dragonfly-to-Honeybee."
+                    "GBAS DWG (write_report, report_name, report_path, overwrite), gbXML, "
+                    "TRACE gbXML, OpenStudio, IDF, SDD, Radiance, HBpkl, or Dragonfly-to-Honeybee."
                 )
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> ArtifactResultModel:
         """Export a Honeybee or Dragonfly model file artifact."""
         from garden.model_export import export_model_file as service
 
-        return service(
-            garden_root=garden_root,
-            export_format=export_format,
-            model_target=model_target,
-            name=name,
-            include_body=include_body,
-            export_options=export_options,
+        return validate_output(
+            ArtifactResultModel,
+            service(
+                garden_root=garden_root,
+                export_format=export_format,
+                model_target=dump_target(model_target) or {},
+                name=name,
+                include_body=include_body,
+                export_options=dump_input(export_options),
+            ),
         )
 
     @mcp.tool(
@@ -353,11 +387,11 @@ def register(mcp: FastMCP) -> None:
                 description="Required Garden root path containing garden.json, usually GD_Create['garden_root'] or a path selected from GD_List matches."
             ),
         ],
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Return a compact Garden manifest summary."""
         from garden.store import get_garden as service
 
-        return service(garden_root=garden_root)
+        return validate_output(QueryResultModel, service(garden_root=garden_root))
 
     @mcp.tool(
         name="GD_List",
@@ -397,15 +431,18 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Whether to include each Garden description stored in garden.json."),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """List Gardens under a root directory."""
         from garden.store import list_gardens as list_gardens_service
 
-        return list_gardens_service(
-            root_dir=root_dir,
-            include_paths=include_paths,
-            include_base_models=include_base_models,
-            include_description=include_description,
+        return validate_output(
+            QueryResultModel,
+            list_gardens_service(
+                root_dir=root_dir,
+                include_paths=include_paths,
+                include_base_models=include_base_models,
+                include_description=include_description,
+            ),
         )
 
     @mcp.tool(
@@ -460,16 +497,19 @@ def register(mcp: FastMCP) -> None:
             int | None,
             Field(description="Optional maximum number of matching artifacts to return.", ge=1),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """List Garden artifacts."""
         from garden.store import list_garden_artifacts as service
 
-        return service(
-            garden_root=garden_root,
-            artifact_type=artifact_type,
-            domain=domain,
-            query=query,
-            limit=limit,
+        return validate_output(
+            QueryResultModel,
+            service(
+                garden_root=garden_root,
+                artifact_type=artifact_type,
+                domain=domain,
+                query=query,
+                limit=limit,
+            ),
         )
 
     @mcp.tool(
@@ -506,11 +546,14 @@ def register(mcp: FastMCP) -> None:
                 description="Whether to include Garden-relative HBJSON, DFJSON, FFJSON, or IBJSON model file paths in each match."
             ),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """List registered Garden model targets."""
         from garden.store import list_garden_models as service
 
-        return service(garden_root=garden_root, include_paths=include_paths)
+        return validate_output(
+            QueryResultModel,
+            service(garden_root=garden_root, include_paths=include_paths),
+        )
 
     @mcp.tool(
         name="GD_List_Runs",
@@ -553,15 +596,18 @@ def register(mcp: FastMCP) -> None:
             int | None,
             Field(description="Optional maximum number of newest runs to return.", ge=1),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """List Garden runs across domains."""
         from garden.runs_control import list_runs as service
 
-        return service(
-            garden_root=garden_root,
-            domain=domain,
-            status=status,
-            limit=limit,
+        return validate_output(
+            QueryResultModel,
+            service(
+                garden_root=garden_root,
+                domain=domain,
+                status=status,
+                limit=limit,
+            ),
         )
 
     @mcp.tool(
@@ -605,7 +651,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         model_target: Annotated[
-            dict[str, Any] | None,
+            BuildingModelTargetRef | None,
             Field(
                 description="Required for action='set': nested Honeybee, Dragonfly, or Fairyfly model_target dict."
             ),
@@ -624,7 +670,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         indent: Annotated[
             int | None,
-            Field(description="For action='save': JSON indentation for the saved model file; defaults to 2."),
+            Field(description="For action='save': JSON indentation for the saved model file; defaults to 2.", ge=0),
         ] = 2,
         included_prop: Annotated[
             list[str] | None,
@@ -634,21 +680,24 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="For action='save' (Honeybee): whether sub-faces should be triangulated."),
         ] = False,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Get, set, or save a Garden base model slot."""
         from garden.store import manage_base_model as service
 
-        return service(
-            garden_root=garden_root,
-            action=action,
-            domain=domain,
-            model_target=model_target,
-            message=message,
-            force=force,
-            name=name,
-            indent=indent,
-            included_prop=included_prop,
-            triangulate_sub_faces=triangulate_sub_faces,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                action=action,
+                domain=domain,
+                model_target=dump_target(model_target),
+                message=message,
+                force=force,
+                name=name,
+                indent=indent,
+                included_prop=included_prop,
+                triangulate_sub_faces=triangulate_sub_faces,
+            ),
         )
 
     @mcp.tool(
@@ -691,7 +740,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ] = None,
         version_target: Annotated[
-            dict[str, Any] | None,
+            GardenTargetRef | None,
             Field(
                 description="For action='restore': optional nested garden_version target containing version_id."
             ),
@@ -724,43 +773,52 @@ def register(mcp: FastMCP) -> None:
                 le=50,
             ),
         ] = 10,
-    ) -> dict[str, Any]:
+    ) -> MutationResultModel:
         """Manage Garden authoring-truth versions."""
         if action == "status":
             from garden.versions import get_garden_version_status as service
 
-            return service(garden_root=garden_root)
+            return validate_output(MutationResultModel, service(garden_root=garden_root))
         if action == "list":
             from garden.versions import list_garden_versions as service
 
-            return service(garden_root=garden_root, limit=limit)
+            return validate_output(
+                MutationResultModel, service(garden_root=garden_root, limit=limit)
+            )
         normalized_summary = _normalize_version_summary(summary, details)
         if action == "create":
             if not subject or not subject.strip():
                 raise ValueError("subject is required when action='create'.")
             from garden.versions import create_garden_version as service
 
-            return service(
-                garden_root=garden_root,
-                subject=subject,
-                summary=normalized_summary,
-                source=source,
+            return validate_output(
+                MutationResultModel,
+                service(
+                    garden_root=garden_root,
+                    subject=subject,
+                    summary=normalized_summary,
+                    source=source,
+                ),
             )
 
         resolved_version_id = version_id
-        if resolved_version_id is None and isinstance(version_target, dict):
-            raw_id = version_target.get("version_id")
+        dumped_version_target = dump_target(version_target)
+        if resolved_version_id is None and isinstance(dumped_version_target, dict):
+            raw_id = dumped_version_target.get("version_id")
             resolved_version_id = str(raw_id) if raw_id else None
         if not resolved_version_id:
             raise ValueError("version_id or version_target is required when action='restore'.")
         from garden.versions import restore_garden_version as service
 
-        return service(
-            garden_root=garden_root,
-            version_id=resolved_version_id,
-            subject=subject,
-            summary=normalized_summary,
-            source=source,
+        return validate_output(
+            MutationResultModel,
+            service(
+                garden_root=garden_root,
+                version_id=resolved_version_id,
+                subject=subject,
+                summary=normalized_summary,
+                source=source,
+            ),
         )
 
     @mcp.tool(
@@ -790,7 +848,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(
                 description="Optional run target returned by any start simulation tool or GD_List_Runs."
             ),
@@ -829,19 +887,22 @@ def register(mcp: FastMCP) -> None:
             bool,
             Field(description="Include output file metadata in the response; set false for compact polling."),
         ] = True,
-    ) -> dict[str, Any]:
+    ) -> RunResultModel:
         """Poll one Garden run across any domain."""
         from garden.runs_control import poll_run as service
 
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            domain=domain,
-            run_id=run_id,
-            recipe=recipe,
-            wait_seconds=wait_seconds,
-            poll_interval=poll_interval,
-            include_outputs=include_outputs,
+        return validate_output(
+            RunResultModel,
+            service(
+                garden_root=garden_root,
+                run_target=dump_target(run_target),
+                domain=domain,
+                run_id=run_id,
+                recipe=recipe,
+                wait_seconds=wait_seconds,
+                poll_interval=poll_interval,
+                include_outputs=include_outputs,
+            ),
         )
 
     @mcp.tool(
@@ -870,7 +931,7 @@ def register(mcp: FastMCP) -> None:
             ),
         ],
         run_target: Annotated[
-            dict[str, Any] | None,
+            RunTargetRef | None,
             Field(
                 description="Optional run target returned by any start simulation tool or GD_List_Runs."
             ),
@@ -901,16 +962,19 @@ def register(mcp: FastMCP) -> None:
                 description="Optional relative path inside the run_folder (e.g. 'background_stdio.log' or 'openstudio/run/eplusout.err')."
             ),
         ] = None,
-    ) -> dict[str, Any]:
+    ) -> QueryResultModel:
         """Read tail lines from one Garden run's contained log file."""
         from garden.runs_control import read_run_logs as service
 
-        return service(
-            garden_root=garden_root,
-            run_target=run_target,
-            domain=domain,
-            run_id=run_id,
-            recipe=recipe,
-            tail_lines=tail_lines,
-            log_file=log_file,
+        return validate_output(
+            QueryResultModel,
+            service(
+                garden_root=garden_root,
+                run_target=dump_target(run_target),
+                domain=domain,
+                run_id=run_id,
+                recipe=recipe,
+                tail_lines=tail_lines,
+                log_file=log_file,
+            ),
         )
