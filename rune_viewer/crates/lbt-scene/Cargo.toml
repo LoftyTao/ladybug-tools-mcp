@@ -7,5 +7,7 @@ description = "Shared 3D scene representation and Garden Web View protocol types
 
 [dependencies]
 bytemuck = { workspace = true }
+earcutr = { workspace = true }
+glam = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
