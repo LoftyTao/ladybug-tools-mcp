@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 from collections.abc import Callable
 from typing import Any
@@ -60,6 +61,20 @@ def resolve_sandbox_limits() -> dict[str, Any]:
     return limits
 
 
+def _accepts_changed_targets(fn: Callable[..., Any]) -> bool:
+    """Return whether ``fn`` (or a mock's ``side_effect``) accepts ``changed_targets``."""
+    target = getattr(fn, "side_effect", None)
+    check_fn = target if callable(target) else fn
+    try:
+        sig = inspect.signature(check_fn)
+    except (TypeError, ValueError):
+        return False
+    for param in sig.parameters.values():
+        if param.name == "changed_targets" or param.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+    return False
+
+
 class PreviewMontySandboxProvider(MontySandboxProvider):
     """Record Web View previews after tools run through Code Mode."""
 
@@ -75,6 +90,8 @@ class PreviewMontySandboxProvider(MontySandboxProvider):
         external_functions: dict[str, Callable[..., Any]] | None = None,
     ) -> Any:
         pending_previews: dict[str, tuple[str, Any, Any]] = {}
+        changed_targets_by_garden: dict[str, list[dict[str, Any]]] = {}
+        changed_target_keys_by_garden: dict[str, set[tuple[str, ...]]] = {}
         last_tool_error: tuple[str, BaseException] | None = None
         if external_functions and "call_tool" in external_functions:
             call_tool = external_functions["call_tool"]
@@ -92,16 +109,32 @@ class PreviewMontySandboxProvider(MontySandboxProvider):
                     last_tool_error = (tool_name, exc)
                     raise
                 try:
-                    from web_view import preview_event_garden_root
+                    from web_view import extract_changed_targets, preview_event_garden_root
 
                     garden_key = preview_event_garden_root(
+                        tool_name=tool_name,
                         arguments=arguments,
                         result=result,
                     )
                 except Exception:
                     garden_key = None
+                    extract_changed_targets = None
                 if garden_key is not None:
                     pending_previews[garden_key] = (tool_name, arguments, result)
+                    if extract_changed_targets is not None:
+                        bucket = changed_targets_by_garden.setdefault(garden_key, [])
+                        seen_keys = changed_target_keys_by_garden.setdefault(garden_key, set())
+                        for target in extract_changed_targets(result=result, arguments=arguments):
+                            key = (
+                                str(target.get("target_type") or ""),
+                                str(target.get("domain") or ""),
+                                str(target.get("model_identifier") or ""),
+                                str(target.get("object_type") or ""),
+                                str(target.get("object_identifier") or target.get("identifier") or ""),
+                            )
+                            if key not in seen_keys:
+                                seen_keys.add(key)
+                                bucket.append(target)
                 return result
 
             external_functions["call_tool"] = call_tool_with_preview
@@ -131,13 +164,21 @@ class PreviewMontySandboxProvider(MontySandboxProvider):
                 except Exception:
                     maybe_record_code_mode_preview = None
                 if maybe_record_code_mode_preview is not None:
-                    for tool_name, arguments, result in pending_previews.values():
+                    pass_changed_targets = _accepts_changed_targets(maybe_record_code_mode_preview)
+                    for garden_key, (tool_name, arguments, result) in pending_previews.items():
                         try:
+                            kwargs: dict[str, Any] = {
+                                "tool_name": tool_name,
+                                "arguments": arguments,
+                                "result": result,
+                            }
+                            if pass_changed_targets:
+                                kwargs["changed_targets"] = list(
+                                    changed_targets_by_garden.get(garden_key, ())
+                                )
                             await asyncio.to_thread(
                                 maybe_record_code_mode_preview,
-                                tool_name=tool_name,
-                                arguments=arguments,
-                                result=result,
+                                **kwargs,
                             )
                         except Exception:
                             continue

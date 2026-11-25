@@ -1,3 +1,7 @@
 [submodule "vendor/pyHygroThermFEM-Fairyfly"]
 	path = vendor/pyHygroThermFEM-Fairyfly
 	url = https://github.com/LoftyTao/pyHygroThermFEM-Fairyfly.git
+[submodule "vendor/rune"]
+	path = vendor/rune
+	url = https://github.com/anomalyco/rune.git
+	branch = dev

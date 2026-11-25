@@ -167,7 +167,7 @@ def _extract_markdown_section(doc: str, tool_name: str) -> str:
 def test_zero_undocumented_tool_parameters() -> None:
     """Every parameter of every registered MCP tool must declare a non-empty description."""
     tools = _list_registered_tools()
-    expected_count = 109 if fairyfly_tools_enabled() else 103
+    expected_count = 112 if fairyfly_tools_enabled() else 106
     assert len(tools) == expected_count
 
     missing_descriptions: list[str] = []
@@ -184,7 +184,7 @@ def test_zero_undocumented_tool_parameters() -> None:
 def test_zero_opaque_output_schema() -> None:
     """Every registered MCP tool must expose structured outputSchema properties."""
     tools = _list_registered_tools()
-    expected_count = 109 if fairyfly_tools_enabled() else 103
+    expected_count = 112 if fairyfly_tools_enabled() else 106
     assert len(tools) == expected_count
 
     opaque_tools: list[str] = []

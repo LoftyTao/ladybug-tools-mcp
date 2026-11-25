@@ -51,7 +51,7 @@ EXPECTED_MODULE_COUNTS: dict[str, int] = {
     "libraries": 2,
     "comfort": 3,
     "visualize": 7,
-    "web_view": 2,
+    "web_view": 5,
     "fairyfly": 6,
 }
 
@@ -152,17 +152,17 @@ def test_server_boot_registry_code_mode_and_stale_python_refs(
         )
         registered_names.update(tool.name for tool in tools)
 
-    expected_total = 109 if fairyfly_tools_enabled() else 103
+    expected_total = 112 if fairyfly_tools_enabled() else 106
     assert sum(module_counts.values()) == expected_total
     assert len(registered_names) == expected_total
 
-    # Verify toggling fairyfly_tools_enabled=False cleanly drops 6 tools -> 103.
+    # Verify toggling fairyfly_tools_enabled=False cleanly drops 6 tools -> 106.
     disabled_mcp = FastMCP("disabled-ff", on_duplicate="error", strict_input_validation=True)
     with monkeypatch.context() as mp:
         mp.setattr("ladybug_tools_mcp.registry.fairyfly_tools_enabled", lambda: False)
         register_tools(disabled_mcp)
     disabled_tools = asyncio.run(disabled_mcp.list_tools())
-    assert len(disabled_tools) == 103
+    assert len(disabled_tools) == 106
 
     # Inspect CodeMode transform settings.
     code_mode_transforms = [tr for tr in mcp.transforms if isinstance(tr, CodeMode)]
