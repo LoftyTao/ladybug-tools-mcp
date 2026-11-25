@@ -194,7 +194,6 @@ fn parse_color_by(raw: &str) -> Result<ColorBy, String> {
         "program_type" | "program" => Ok(ColorBy::ProgramType),
         "construction_set" | "construction" => Ok(ColorBy::ConstructionSet),
         "hvac" => Ok(ColorBy::Hvac),
-        "wwr" => Ok(ColorBy::Wwr),
         other => Err(format!("Unsupported color_by mode: {other:?}")),
     }
 }

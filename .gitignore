@@ -16,3 +16,5 @@ src/pyhygrothermfem_fairyfly/_native*.so
 src/pyhygrothermfem_fairyfly/_build_source.json
 resources/
 rune_viewer/target/
+.pytest_cache/
+.ruff_cache/

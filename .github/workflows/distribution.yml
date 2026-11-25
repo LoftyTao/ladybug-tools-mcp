@@ -46,6 +46,7 @@ jobs:
     env:
       LBT_MCP_REQUIRE_IRONBUG_BRIDGE: "1"
       LBT_MCP_REQUIRE_HYGROTHERM_NATIVE: "1"
+      LBT_MCP_REQUIRE_RUNE_VIEWER: "1"
     steps:
       - uses: actions/checkout@v5
         with:
@@ -56,6 +57,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux Rune viewer build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev
       - name: Build .NET 8 IronbugBridge sidecar
         run: dotnet build src/ironbug_bridge/IronbugBridge.csproj -c Release
       - name: Build wheel and source distribution
@@ -67,9 +74,46 @@ jobs:
           }
           uv build --wheel
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify IronbugBridge and native solver are bundled in wheel
+      - name: Verify IronbugBridge, native solver, Rune viewer, and licenses are bundled
         run: |
-          uv run --no-project --python 3.12 python -c 'import glob, zipfile; wheels = glob.glob("dist/*.whl"); assert len(wheels) == 1, wheels; zf = zipfile.ZipFile(wheels[0]); names = set(zf.namelist()); required = {"ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.dll", "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.deps.json", "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.runtimeconfig.json", "pyhygrothermfem_fairyfly/_build_source.json", "honeybee_gbas/writer.py", "honeybee_gbas/LICENSE", "honeybee_gbas/dwg/LICENSE-ezdwg.txt"}; missing = sorted(required - names); assert not missing, f"Missing {missing} in {wheels[0]}"; assert any(n.startswith("pyhygrothermfem_fairyfly/_native.") and (n.endswith(".pyd") or n.endswith(".so")) for n in names), "Missing compiled pyhygrothermfem_fairyfly._native extension"'
+          uv run --no-project --python 3.12 python -c '
+          import glob, sys, tarfile, zipfile
+          wheels = glob.glob("dist/*.whl")
+          assert len(wheels) == 1, wheels
+          zf = zipfile.ZipFile(wheels[0])
+          names = set(zf.namelist())
+          rune_exe = "ladybug_tools_mcp/resources/rune_viewer/lbt-rune-viewer.exe" if sys.platform == "win32" else "ladybug_tools_mcp/resources/rune_viewer/lbt-rune-viewer"
+          required = {
+              "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.dll",
+              "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.deps.json",
+              "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.runtimeconfig.json",
+              rune_exe,
+              "pyhygrothermfem_fairyfly/_build_source.json",
+              "honeybee_gbas/writer.py",
+              "honeybee_gbas/LICENSE",
+              "honeybee_gbas/dwg/LICENSE-ezdwg.txt",
+          }
+          missing = sorted(required - names)
+          assert not missing, f"Missing {missing} in {wheels[0]}"
+          assert any(n.startswith("pyhygrothermfem_fairyfly/_native.") and (n.endswith(".pyd") or n.endswith(".so")) for n in names), "Missing compiled pyhygrothermfem_fairyfly._native extension"
+          assert any(n.endswith(".dist-info/licenses/LICENSE") for n in names), f"Missing root LICENSE in {wheels[0]}"
+          assert any(n.endswith(".dist-info/licenses/licenses/THIRD_PARTY_NOTICES.md") for n in names), f"Missing THIRD_PARTY_NOTICES.md in {wheels[0]}"
+          sdists = glob.glob("dist/*.tar.gz")
+          if sdists:
+              with tarfile.open(sdists[0], "r:gz") as tf:
+                  sdist_rel = {m.name.split("/", 1)[1] for m in tf.getmembers() if "/" in m.name}
+              sdist_required = {
+                  "LICENSE",
+                  "licenses/THIRD_PARTY_NOTICES.md",
+                  "licenses/CORRESPONDING_SOURCE.md",
+                  "licenses/SOURCE_MANIFEST.json",
+                  "rune_viewer/Cargo.toml",
+                  "vendor/rune/Cargo.toml",
+                  "scripts/distribution/launcher/Cargo.toml",
+              }
+              sdist_missing = sorted(sdist_required - sdist_rel)
+              assert not sdist_missing, f"Missing {sdist_missing} in {sdists[0]}"
+          '
       - name: Check metadata and release version
         run: |
           uvx twine check dist/*
@@ -97,6 +141,11 @@ jobs:
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: '3.12'
+      - name: Install Linux Rune viewer runtime dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon0 libwayland-client0
       - name: Install wheel and exercise isolated runtime
         shell: pwsh
         run: |
@@ -114,8 +163,6 @@ jobs:
           import shutil
           import subprocess
           import sys
-          import tomllib
-          from urllib.request import urlopen
 
           from fastmcp import Client
           from fastmcp.client.transports import StdioTransport
@@ -125,38 +172,49 @@ jobs:
           if root.exists():
               shutil.rmtree(root)
           root.mkdir(parents=True)
-          runtime = root / "runtime tools"
           gardens = root / "Gardens"
-          config = root / "codex" / "config.toml"
-          skills = root / "skills"
+          gardens.mkdir(parents=True)
           state = root / "installation.json"
-          root.joinpath("codex").mkdir()
-          original = '# keep this comment\n[mcp_servers.example]\ncommand = "example"\n'
-          config.write_text(original, encoding="utf-8")
-          common = [
-              "--wheel", str(wheel), "--tool-dir", str(runtime),
-              "--garden-dir", str(gardens), "--codex-config", str(config),
-              "--skills-dir", str(skills), "--no-grasshopper",
-          ]
           log = (root / "smoke.log").open("w", encoding="utf-8")
 
-          def cli(*arguments):
-              command = [str(Path(sys.executable)), "-I", "-m", "ladybug_tools_mcp_cli", *arguments,
-                         "--state", str(state), "--yes"]
-              completed = subprocess.run(command, cwd=root, text=True, encoding="utf-8",
-                                          errors="replace", capture_output=True)
-              log.write(completed.stdout + completed.stderr + "\n")
-              if completed.returncode:
+          py_exe = Path(sys.executable)
+          lbt_mcp_bin = py_exe.parent / ("lbt-mcp.exe" if sys.platform == "win32" else "lbt-mcp")
+          assert lbt_mcp_bin.is_file(), f"Missing console entrypoint: {lbt_mcp_bin}"
+
+          def run_cli(*arguments, check=True, use_console_script=False):
+              command = (
+                  [str(lbt_mcp_bin), *arguments]
+                  if use_console_script
+                  else [str(py_exe), "-I", "-m", "ladybug_tools_mcp_cli", *arguments]
+              )
+              completed = subprocess.run(
+                  command,
+                  cwd=root,
+                  text=True,
+                  encoding="utf-8",
+                  errors="replace",
+                  capture_output=True,
+              )
+              log.write(f"$ {' '.join(command)}\nrc={completed.returncode}\n{completed.stdout}\n{completed.stderr}\n")
+              if check and completed.returncode:
                   raise RuntimeError(completed.stdout + completed.stderr)
               return completed
 
-          generated = cli("install", *common, "--generate-config")
-          assert config.read_text(encoding="utf-8") == original
-          assert "[mcp_servers.lbt-mcp]" in generated.stdout
-          cli("install", *common)
-          settings = tomllib.loads(config.read_text(encoding="utf-8"))
-          assert settings["mcp_servers"]["lbt-mcp"]["required"] is True
-          record = json.loads(state.read_text(encoding="utf-8"))
+          version_res = run_cli("--version", use_console_script=True)
+          assert version_res.stdout.strip()
+
+          status_res = run_cli("status", "--state", str(state), use_console_script=True)
+          status_payload = json.loads(status_res.stdout)
+          assert status_payload["status"] == "not_installed"
+
+          doctor_res = run_cli("doctor", check=False, use_console_script=True)
+          doctor_report = json.loads(doctor_res.stdout)
+          (root / "doctor.json").write_text(json.dumps(doctor_report, indent=2, ensure_ascii=False), encoding="utf-8")
+          assert doctor_report["mode"] == "plain_venv"
+          assert doctor_report["checks"]["licenses"]["ok"] is True
+          assert doctor_report["checks"]["rune_viewer"]["ok"] is True
+          assert doctor_report["checks"]["pyhygrothermfem_fairyfly"]["ok"] is True
+          assert doctor_report["checks"]["runtime_engines"]["engines"]["therm"]["available"] is True
 
           async def execute(client, code):
               result = await client.call_tool("execute", {"code": code})
@@ -167,30 +225,32 @@ jobs:
 
           async def protocol_smoke():
               env = dict(os.environ)
-              env.update({
-                  "LADYBUG_TOOLS_GARDENS_ROOT": record["gardens_root"],
-                  "LADYBUG_TOOLS_MCP_INSTALLATION": str(state),
-              })
+              env["LADYBUG_TOOLS_GARDENS_ROOT"] = str(gardens)
               transport = StdioTransport(
-                  record["python"], ["-I", "-m", "ladybug_tools_mcp.server"],
-                  cwd=str(root), env=env, keep_alive=False, log_file=root / "server.log",
+                  str(lbt_mcp_bin),
+                  ["serve"],
+                  cwd=str(root),
+                  env=env,
+                  keep_alive=False,
+                  log_file=root / "server.log",
               )
               garden_root = None
               async with Client(transport, timeout=180, init_timeout=120) as client:
                   tools = {item.name for item in await client.list_tools()}
-                  assert {"search", "get_schema", "execute"} <= tools
+                  assert {"search", "get_schema", "tags", "list_tools", "execute"} <= tools
                   created = await execute(client, f'''\
           created = await call_tool("GD_Create", {{"name": "Distribution smoke", "root_dir": {str(gardens / "Distribution smoke")!r}}})
           return {{"created": created}}
           ''')
                   garden_root = created["created"]["garden_root"]
                   viewer_data = await execute(client, f'''\
-          viewer = await call_tool("GD_Web_View_Start_Mode", {{"garden_root": {garden_root!r}, "name": "Distribution smoke"}})
+          viewer = await call_tool("GD_Web_View_Start_Mode", {{"garden_root": {garden_root!r}, "name": "Distribution smoke", "open_window": False}})
           return {{"viewer": viewer}}
           ''')
+                  assert viewer_data["viewer"]["viewer"]["backend"] == "rune"
                   model_data = await execute(client, f'''\
           model = await call_tool("HB_Create_Model", {{"garden_root": {garden_root!r}, "identifier": "package_model", "set_base": True}})
-          room = await call_tool("HB_Create_Room", {{"garden_root": {garden_root!r}, "identifier": "PackageRoom", "x_dim": 6, "y_dim": 5, "height": 3}})
+          room = await call_tool("HB_Create_Objects", {{"garden_root": {garden_root!r}, "object_type": "room", "identifier": "PackageRoom", "x_dim": 6, "y_dim": 5, "height": 3}})
           return {{"model": model, "room": room}}
           ''')
                   validation_data = await execute(client, f'''\
@@ -198,21 +258,22 @@ jobs:
           return {{"validation": validation}}
           ''')
                   assert validation_data["validation"].get("valid", validation_data["validation"].get("is_valid"))
-                  viewer_url = viewer_data["viewer"]["viewer"]["url"]
-                  with urlopen(viewer_url, timeout=20) as response:
-                      assert response.status == 200 and "vtk" in response.read().decode("utf-8").lower()
-                  with urlopen(viewer_url.rstrip("/") + "/api/state", timeout=20) as response:
-                      preview_state = json.load(response)
-                      assert "package_model" in json.dumps(preview_state)
-                  (root / "protocol.json").write_text(json.dumps({**created, **viewer_data, **model_data, **validation_data}, indent=2, default=str), encoding="utf-8")
-                  await execute(client, f'return await call_tool("GD_Web_View_Stop_Mode", {{"garden_root": {garden_root!r}}})')
+                  present_file = Path(garden_root) / "tmp" / "web_view" / "present.json"
+                  assert present_file.is_file()
+                  present_state = json.loads(present_file.read_text(encoding="utf-8"))
+                  assert "package_model" in json.dumps(present_state) and present_state["revision"] >= 2
+                  presented = await execute(client, f'return await call_tool("GD_Web_View_Present", {{"garden_root": {garden_root!r}, "color_by": "story", "camera": "axon"}})')
+                  assert presented["revision"] >= 3
+                  ctx = await execute(client, f'return await call_tool("GD_Web_View_Get_Context", {{"garden_root": {garden_root!r}}})')
+                  assert "selected_targets" in ctx
+                  captured = await execute(client, f'return await call_tool("GD_Web_View_Capture", {{"garden_root": {garden_root!r}, "view": "axon", "width": 320, "height": 240}})')
+                  assert Path(captured["absolute_path"]).is_file()
+                  (root / "protocol.json").write_text(json.dumps({**created, **viewer_data, **model_data, **validation_data, "presented": presented, "context": ctx, "captured": captured}, indent=2, default=str), encoding="utf-8")
+                  stopped = await execute(client, f'return await call_tool("GD_Web_View_Stop_Mode", {{"garden_root": {garden_root!r}}})')
+                  assert stopped["session"]["active"] is False
               assert garden_root and (Path(garden_root) / "garden.json").is_file()
 
           asyncio.run(protocol_smoke())
-          cli("uninstall")
-          assert not state.exists()
-          assert (gardens / "Distribution smoke" / "garden.json").is_file()
-          assert "lbt-mcp" not in tomllib.loads(config.read_text(encoding="utf-8"))["mcp_servers"]
           log.close()
           print("distribution smoke passed")
           '@ | & $python -I - $wheel
@@ -224,8 +285,87 @@ jobs:
           path: |
             ${{ runner.temp }}/distribution 验收/*.log
             ${{ runner.temp }}/distribution 验收/protocol.json
-            ${{ runner.temp }}/distribution 验收/discovery.json
+            ${{ runner.temp }}/distribution 验收/doctor.json
           if-no-files-found: ignore
+
+  windows-offline-bundle:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    needs: [contract-tests]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install matching wasm-bindgen-cli
+        shell: pwsh
+        run: |
+          $ver = uv run --no-project --python 3.12 python -c "import tomllib; pkgs=tomllib.load(open('rune_viewer/Cargo.lock','rb'))['package']; print(next(p['version'] for p in pkgs if p['name']=='wasm-bindgen'))"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $current = (wasm-bindgen --version 2>$null)
+          if ($current -ne "wasm-bindgen $ver") {
+            cargo install --locked wasm-bindgen-cli --version $ver
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Ensure Inno Setup 6 is installed
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found -and -not (Get-Command ISCC.exe -ErrorAction SilentlyContinue)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Prepare bundle build Python environment
+        shell: pwsh
+        run: |
+          uv venv --python 3.12
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv pip install --python .venv/Scripts/python.exe --prerelease allow -e . zstandard pybind11 wheel setuptools
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build Windows offline bundle and Inno Setup installer
+        shell: pwsh
+        run: |
+          .venv/Scripts/python.exe scripts/distribution/build_windows_bundle.py --compile-installer
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build corresponding-source archive
+        shell: pwsh
+        run: |
+          .venv/Scripts/python.exe scripts/distribution/build_corresponding_source.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify offline bundle artifacts and write checksums
+        shell: pwsh
+        run: |
+          $outDir = "dist/windows-offline"
+          $setup = Get-ChildItem "$outDir/*-win-x64-setup.exe" -ErrorAction SilentlyContinue
+          $pack = Get-ChildItem "$outDir/*-win-x64-urbanopt.lbtpack" -ErrorAction SilentlyContinue
+          $src = Get-ChildItem "$outDir/*-corresponding-source.tar.zst" -ErrorAction SilentlyContinue
+          if (-not $setup) { throw "Missing Inno Setup installer in $outDir" }
+          if (-not $pack) { throw "Missing URBANopt .lbtpack in $outDir" }
+          if (-not $src) { throw "Missing corresponding-source archive in $outDir" }
+          $lines = Get-ChildItem $outDir -File | Where-Object { $_.Name -ne "SHA256SUMS.txt" } | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          $lines | Set-Content -Path "$outDir/SHA256SUMS.txt" -Encoding utf8
+          $lines | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-offline-bundle
+          path: dist/windows-offline/*
+          if-no-files-found: error
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')

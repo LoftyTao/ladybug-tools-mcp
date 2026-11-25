@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import platform
 import runpy
 import shutil
 import subprocess
@@ -203,44 +204,122 @@ class BuildPy(build_py):
                 shutil.rmtree(output)
         super().run()
         resources = Path(self.build_lib) / "ladybug_tools_mcp" / "resources"
-        bridge_out = root / "src/ironbug_bridge/bin/Release/net8.0"
-        bridge_dll = bridge_out / "IronbugBridge.dll"
-        require_bridge = os.environ.get("LBT_MCP_REQUIRE_IRONBUG_BRIDGE") == "1"
-        if not bridge_dll.is_file():
-            dotnet = shutil.which("dotnet")
-            if dotnet:
-                subprocess.run(
-                    [dotnet, "build", str(root / "src/ironbug_bridge/IronbugBridge.csproj"), "-c", "Release"],
-                    check=True,
-                )
-                if not bridge_dll.is_file():
-                    raise RuntimeError(
-                        f"dotnet build completed but did not produce {bridge_dll}."
-                    )
-            elif require_bridge:
-                raise RuntimeError(
-                    "LBT_MCP_REQUIRE_IRONBUG_BRIDGE=1 requires IronbugBridge.dll, "
-                    "but neither prebuilt src/ironbug_bridge/bin/Release/net8.0/IronbugBridge.dll "
-                    "nor `dotnet` on PATH was found. Install the .NET 8 SDK or prebuild "
-                    "src/ironbug_bridge/IronbugBridge.csproj."
-                )
+        self_contained_bridge = os.environ.get("LBT_MCP_SELF_CONTAINED_IRONBUG_BRIDGE") == "1"
+        require_bridge = os.environ.get("LBT_MCP_REQUIRE_IRONBUG_BRIDGE") == "1" or self_contained_bridge
+        if self_contained_bridge:
+            machine = platform.machine().lower()
+            if os.name == "nt":
+                default_rid = "win-arm64" if "arm" in machine else "win-x64"
+            elif sys.platform == "darwin":
+                default_rid = "osx-arm64" if "arm" in machine else "osx-x64"
             else:
-                warnings.warn(
-                    "Prebuilt IronbugBridge.dll was not found and `dotnet` is unavailable on PATH; "
-                    "continuing without bundling the .NET 8 IronbugBridge sidecar "
-                    "(set LBT_MCP_REQUIRE_IRONBUG_BRIDGE=1 to require it).",
-                    RuntimeWarning,
-                    stacklevel=2,
+                default_rid = "linux-arm64" if "arm" in machine or "aarch64" in machine else "linux-x64"
+            rid = os.environ.get("LBT_MCP_DOTNET_RID") or default_rid
+            bridge_publish = root / "src/ironbug_bridge/bin/Release/net8.0" / rid / "publish"
+            dotnet = shutil.which("dotnet")
+            if not dotnet:
+                raise RuntimeError(
+                    "LBT_MCP_SELF_CONTAINED_IRONBUG_BRIDGE=1 requires `dotnet` on PATH to publish IronbugBridge."
                 )
-        if bridge_dll.is_file():
+            if bridge_publish.exists():
+                shutil.rmtree(bridge_publish)
+            subprocess.run(
+                [
+                    dotnet,
+                    "publish",
+                    str(root / "src/ironbug_bridge/IronbugBridge.csproj"),
+                    "-c",
+                    "Release",
+                    "-r",
+                    rid,
+                    "--self-contained",
+                    "true",
+                    "-p:DebugType=None",
+                    "-p:DebugSymbols=false",
+                    "-o",
+                    str(bridge_publish),
+                ],
+                check=True,
+            )
+            exe_name = "IronbugBridge.exe" if rid.startswith("win") else "IronbugBridge"
+            if not (bridge_publish / exe_name).is_file() or not (bridge_publish / "IronbugBridge.dll").is_file():
+                raise RuntimeError(
+                    f"dotnet publish completed but did not produce self-contained IronbugBridge in {bridge_publish}."
+                )
             bridge_target = resources / "ironbug_bridge"
             bridge_target.mkdir(parents=True, exist_ok=True)
-            for pattern in ("*.dll", "*.deps.json", "*.runtimeconfig.json"):
-                for asset in bridge_out.glob(pattern):
-                    shutil.copy2(asset, bridge_target / asset.name)
-            runtimes_dir = bridge_out / "runtimes"
-            if runtimes_dir.is_dir():
-                shutil.copytree(runtimes_dir, bridge_target / "runtimes", dirs_exist_ok=True)
+            shutil.copytree(
+                bridge_publish,
+                bridge_target,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns("*.pdb"),
+            )
+            if not rid.startswith("win") and (bridge_target / exe_name).is_file():
+                (bridge_target / exe_name).chmod(0o755)
+        else:
+            bridge_out = root / "src/ironbug_bridge/bin/Release/net8.0"
+            bridge_dll = bridge_out / "IronbugBridge.dll"
+            if not bridge_dll.is_file():
+                dotnet = shutil.which("dotnet")
+                if dotnet:
+                    subprocess.run(
+                        [dotnet, "build", str(root / "src/ironbug_bridge/IronbugBridge.csproj"), "-c", "Release"],
+                        check=True,
+                    )
+                    if not bridge_dll.is_file():
+                        raise RuntimeError(
+                            f"dotnet build completed but did not produce {bridge_dll}."
+                        )
+                elif require_bridge:
+                    raise RuntimeError(
+                        "LBT_MCP_REQUIRE_IRONBUG_BRIDGE=1 requires IronbugBridge.dll, "
+                        "but neither prebuilt src/ironbug_bridge/bin/Release/net8.0/IronbugBridge.dll "
+                        "nor `dotnet` on PATH was found. Install the .NET 8 SDK or prebuild "
+                        "src/ironbug_bridge/IronbugBridge.csproj."
+                    )
+                else:
+                    warnings.warn(
+                        "Prebuilt IronbugBridge.dll was not found and `dotnet` is unavailable on PATH; "
+                        "continuing without bundling the .NET 8 IronbugBridge sidecar "
+                        "(set LBT_MCP_REQUIRE_IRONBUG_BRIDGE=1 to require it).",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+            if bridge_dll.is_file():
+                bridge_target = resources / "ironbug_bridge"
+                bridge_target.mkdir(parents=True, exist_ok=True)
+                for pattern in ("*.dll", "*.deps.json", "*.runtimeconfig.json"):
+                    for asset in bridge_out.glob(pattern):
+                        shutil.copy2(asset, bridge_target / asset.name)
+                runtimes_dir = bridge_out / "runtimes"
+                if runtimes_dir.is_dir():
+                    shutil.copytree(runtimes_dir, bridge_target / "runtimes", dirs_exist_ok=True)
+        rune_exe_name = "lbt-rune-viewer.exe" if os.name == "nt" else "lbt-rune-viewer"
+        rune_bin = root / "rune_viewer" / "target" / "release" / rune_exe_name
+        require_rune = os.environ.get("LBT_MCP_REQUIRE_RUNE_VIEWER") == "1"
+        if not rune_bin.is_file() and require_rune:
+            cargo = shutil.which("cargo")
+            if cargo:
+                subprocess.run(
+                    [cargo, "build", "--release", "-p", "lbt-viewer-app", "--bin", "lbt-rune-viewer"],
+                    cwd=str(root / "rune_viewer"),
+                    check=True,
+                )
+            if not rune_bin.is_file():
+                raise RuntimeError(
+                    "LBT_MCP_REQUIRE_RUNE_VIEWER=1 requires lbt-rune-viewer, "
+                    f"but neither prebuilt {rune_bin} nor a working `cargo` build produced it."
+                )
+        if rune_bin.is_file():
+            rune_target = resources / "rune_viewer"
+            rune_target.mkdir(parents=True, exist_ok=True)
+            copied_bin = rune_target / rune_exe_name
+            shutil.copy2(rune_bin, copied_bin)
+            if os.name != "nt":
+                copied_bin.chmod(0o755)
+        rune_web = root / "rune_viewer" / "target" / "web"
+        if (rune_web / "app_bg.wasm").is_file() and (rune_web / "index.html").is_file():
+            shutil.copytree(rune_web, resources / "rune_viewer" / "web", dirs_exist_ok=True)
         optional_assets = (
             (root / ".agents/skills/ladybug-tools-mcp-use", resources / "skills/ladybug-tools-mcp-use"),
         )

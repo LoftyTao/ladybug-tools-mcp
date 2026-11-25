@@ -85,10 +85,10 @@ mod tests {
 
         let mut present2 = present1.clone();
         present2.revision = 2;
-        present2.color_by = ColorBy::Wwr;
+        present2.color_by = ColorBy::BoundaryCondition;
         write_json_atomic(&present_path(&root), &present2).unwrap();
         let seen2 = watcher.poll_present().unwrap().expect("revision 2 should arrive");
-        assert_eq!(seen2.color_by, ColorBy::Wwr);
+        assert_eq!(seen2.color_by, ColorBy::BoundaryCondition);
 
         // Capture handshake: write capture_request.json -> watcher polls -> writes PNG + CaptureReceipt.
         let req = CaptureRequest {

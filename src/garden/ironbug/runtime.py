@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import platform
 import re
 import shutil
 import struct
@@ -37,21 +39,105 @@ class IronbugRuntimePaths:
     ironbug_dir: Path
     ironbug_exe: Path | None
     openstudio_csharp_dir: Path | None
-    dotnet_exe: str
+    dotnet_exe: str | None
     bridge_dll: Path
+    bridge_exe: Path | None = None
+    is_self_contained: bool = False
+
+
+def _bridge_exe_name() -> str:
+    return "IronbugBridge.exe" if os.name == "nt" else "IronbugBridge"
+
+
+def is_self_contained_bridge_dir(bridge_dir: Path) -> bool:
+    """Return True when a directory contains a self-contained .NET host or runtimeconfig."""
+    if not bridge_dir.is_dir():
+        return False
+    marker_files = (
+        "coreclr.dll",
+        "hostfxr.dll",
+        "libcoreclr.so",
+        "libhostfxr.so",
+        "libcoreclr.dylib",
+        "libhostfxr.dylib",
+    )
+    if any((bridge_dir / marker).is_file() for marker in marker_files):
+        return True
+    runtimeconfig = bridge_dir / "IronbugBridge.runtimeconfig.json"
+    if runtimeconfig.is_file():
+        try:
+            loaded = json.loads(runtimeconfig.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        opts = loaded.get("runtimeOptions") if isinstance(loaded, dict) else None
+        if isinstance(opts, dict) and "includedFrameworks" in opts and "framework" not in opts and "frameworks" not in opts:
+            return True
+    return False
+
+
+def _bridge_candidate_dirs() -> list[Path]:
+    package_root = Path(__file__).resolve().parents[2]
+    machine = platform.machine().lower()
+    if os.name == "nt":
+        rid = "win-arm64" if "arm" in machine else "win-x64"
+    elif os.uname().sysname.lower() == "darwin":
+        rid = "osx-arm64" if "arm" in machine else "osx-x64"
+    else:
+        rid = "linux-arm64" if "arm" in machine or "aarch64" in machine else "linux-x64"
+    candidates = [
+        package_root / "ladybug_tools_mcp" / "resources" / "ironbug_bridge",
+        package_root / "ironbug_bridge" / "bin" / "Release" / "net8.0" / rid / "publish",
+        package_root / "ironbug_bridge" / "bin" / "Release" / "net8.0" / "win-x64" / "publish",
+        package_root / "ironbug_bridge" / "bin" / "Release" / "net8.0",
+        package_root / "ironbug_bridge" / "bin" / "Debug" / "net8.0",
+    ]
+    unique: list[Path] = []
+    for candidate in candidates:
+        if candidate not in unique:
+            unique.append(candidate)
+    return unique
+
+
+def _repo_or_packaged_bridge_exe() -> Path | None:
+    exe_name = _bridge_exe_name()
+    for candidate_dir in _bridge_candidate_dirs():
+        exe = candidate_dir / exe_name
+        if exe.is_file() and is_self_contained_bridge_dir(candidate_dir):
+            return exe
+    return None
 
 
 def _repo_or_packaged_bridge_dll() -> Path | None:
-    package_root = Path(__file__).resolve().parents[2]
-    candidates = [
-        package_root / "ladybug_tools_mcp" / "resources" / "ironbug_bridge" / "IronbugBridge.dll",
-        package_root / "ironbug_bridge" / "bin" / "Release" / "net8.0" / "IronbugBridge.dll",
-        package_root / "ironbug_bridge" / "bin" / "Debug" / "net8.0" / "IronbugBridge.dll",
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
+    exe_name = _bridge_exe_name()
+    candidates = _bridge_candidate_dirs()
+    for candidate_dir in candidates:
+        dll = candidate_dir / "IronbugBridge.dll"
+        if dll.is_file() and (candidate_dir / exe_name).is_file() and is_self_contained_bridge_dir(candidate_dir):
+            return dll
+    for candidate_dir in candidates:
+        dll = candidate_dir / "IronbugBridge.dll"
+        if dll.is_file():
+            return dll
     return None
+
+
+def _runtime_json_override(key: str) -> Path | None:
+    home_env = os.environ.get("LADYBUG_TOOLS_MCP_HOME")
+    if not home_env:
+        return None
+    home = Path(home_env).expanduser()
+    runtime_file = home / "config" / "runtime.json"
+    if not runtime_file.is_file():
+        return None
+    try:
+        data = json.loads(runtime_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    raw = data.get(key) if isinstance(data, dict) else None
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    p = Path(raw.strip()).expanduser()
+    return p if p.is_absolute() else (home / p)
 
 
 def resolve_ironbug_dir() -> Path | None:
@@ -72,6 +158,10 @@ def resolve_ironbug_dir() -> Path | None:
         parent = Path(sdk_exe).expanduser().parent
         if (parent / "Ironbug.HVAC.dll").is_file():
             return parent.resolve()
+
+    rt_dir = _runtime_json_override("ironbug_path")
+    if rt_dir and (rt_dir / "Ironbug.HVAC.dll").is_file():
+        return rt_dir.resolve()
 
     for root in (
         Path("C:/Program Files/ladybug_tools/grasshopper/ironbug"),
@@ -96,6 +186,10 @@ def resolve_openstudio_csharp_dir(ironbug_dir: Path | None) -> Path | None:
         candidate = Path(sdk_cs).expanduser()
         if (candidate / "OpenStudio.dll").is_file():
             return candidate.resolve()
+
+    rt_dir = _runtime_json_override("openstudio_csharp_path")
+    if rt_dir and (rt_dir / "OpenStudio.dll").is_file():
+        return rt_dir.resolve()
 
     os_path = getattr(energy_folders, "openstudio_path", None)
     if os_path:
@@ -134,6 +228,19 @@ def resolve_runtime_paths(
     openstudio_csharp_dir = resolve_openstudio_csharp_dir(ironbug_dir)
     dotnet_exe = shutil.which("dotnet")
     bridge_dll = _repo_or_packaged_bridge_dll()
+    bridge_exe: Path | None = None
+    is_self_contained = False
+
+    if bridge_dll is not None:
+        exe_beside = bridge_dll.with_name(_bridge_exe_name())
+        if exe_beside.is_file() and is_self_contained_bridge_dir(bridge_dll.parent):
+            bridge_exe = exe_beside
+            is_self_contained = True
+    else:
+        bridge_exe = _repo_or_packaged_bridge_exe()
+        if bridge_exe is not None:
+            is_self_contained = True
+            bridge_dll = bridge_exe.with_suffix(".dll")
 
     missing: list[str] = []
     if ironbug_dir is None:
@@ -142,9 +249,9 @@ def resolve_runtime_paths(
         missing.append("Ironbug.Console executable")
     if require_openstudio and openstudio_csharp_dir is None:
         missing.append("OpenStudio.dll (OpenStudio CSharp bindings)")
-    if not dotnet_exe:
+    if not is_self_contained and not dotnet_exe:
         missing.append("dotnet (.NET 8+ runtime)")
-    if bridge_dll is None:
+    if bridge_dll is None and bridge_exe is None:
         missing.append("IronbugBridge.dll (build src/ironbug_bridge or reinstall lbt-mcp)")
 
     if missing:
@@ -160,16 +267,20 @@ def resolve_runtime_paths(
                 "openstudio_csharp_dir": str(openstudio_csharp_dir) if openstudio_csharp_dir else None,
                 "dotnet_exe": dotnet_exe,
                 "bridge_dll": str(bridge_dll) if bridge_dll else None,
+                "bridge_exe": str(bridge_exe) if bridge_exe else None,
+                "is_self_contained": is_self_contained,
             },
         )
 
-    assert ironbug_dir is not None and dotnet_exe is not None and bridge_dll is not None
+    assert ironbug_dir is not None and bridge_dll is not None
     return IronbugRuntimePaths(
         ironbug_dir=ironbug_dir,
         ironbug_exe=ironbug_exe,
         openstudio_csharp_dir=openstudio_csharp_dir,
         dotnet_exe=dotnet_exe,
         bridge_dll=bridge_dll,
+        bridge_exe=bridge_exe,
+        is_self_contained=is_self_contained,
     )
 
 

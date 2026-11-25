@@ -1,0 +1,10 @@
+EnergyPlus version 25.2.0 Attribution and Non-Endorsement Notice
+=====================================================================
+
+This distribution includes unmodified EnergyPlus version 25.2.0 software
+bundled inside the OpenStudio(R) 3.11.0 `EnergyPlus/` directory.
+
+No endorsement by the U.S. Department of Energy (DOE), Lawrence Berkeley National Laboratory,
+the University of Illinois, Oak Ridge National Laboratory, Alliance for Energy Innovation, LLC,
+or EnergyPlus / E+ is implied or granted. Neither "EnergyPlus", "E+", nor "e+" is used in any
+company name, product name, or promotional designation.

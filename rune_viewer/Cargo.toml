@@ -29,7 +29,8 @@ lbt-scene = { path = "crates/lbt-scene" }
 lbt-renderer-wgpu = { path = "crates/lbt-renderer-wgpu" }
 lbt-mcp-bridge = { path = "crates/lbt-mcp-bridge" }
 
-rune = { path = "../vendor/rune/crates/rune", features = ["tooling"] }
+rune = { path = "../vendor/rune/crates/rune" }
+rune-kit = { path = "../vendor/rune/crates/rune-kit", default-features = false }
 
 wgpu = { version = "~30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl"] }
 bytemuck = { version = "1.25", features = ["derive"] }

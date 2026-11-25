@@ -1,6 +1,8 @@
+#![allow(clippy::too_many_arguments)]
+
 use std::path::PathBuf;
 
-use lbt_renderer_wgpu::{BuildingRenderer, RenderState, RendererError};
+use lbt_renderer_wgpu::{BuildingRenderer, RenderState, RendererError, pick_scene_ray};
 use lbt_scene::{
     Bounds3, CameraPreset, ColorBy, EdgeVertex, IsolationMode, MeshVertex, ObjectKind,
     ObjectRecord, ObjectTargetRef, SceneData, SectionAxis, SectionSpec,
@@ -212,6 +214,7 @@ fn make_record(
     kind: ObjectKind,
     identifier: &str,
     parent_object_id: Option<u32>,
+    owner_room_id: Option<u32>,
     face_type: Option<&str>,
     boundary_condition: Option<&str>,
     story: &str,
@@ -228,6 +231,12 @@ fn make_record(
         bounds,
         centroid: bounds.center(),
         parent_object_id,
+        owner_room_id,
+        is_orphaned: owner_room_id.is_none(),
+        is_glass: false,
+        is_indoor_shade: false,
+        is_detached_shade: false,
+        is_shade_mesh: false,
         face_type: face_type.map(str::to_owned),
         boundary_condition: boundary_condition.map(str::to_owned),
         story: Some(story.to_owned()),
@@ -243,6 +252,7 @@ fn make_record(
 struct SampleBuilding {
     scene: SceneData,
     room1_id: u32,
+    room2_id: u32,
     floor1_id: u32,
     south_wall1_id: u32,
     south_ap1_id: u32,
@@ -264,6 +274,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Room,
         "Office_Ground",
         None,
+        Some(room1_id),
         None,
         None,
         "Level_1",
@@ -293,6 +304,7 @@ fn build_sample_building() -> SampleBuilding {
         floor1_id,
         ObjectKind::Face,
         "Ground_Floor",
+        Some(room1_id),
         Some(room1_id),
         Some("Floor"),
         Some("Ground"),
@@ -324,6 +336,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Face,
         "Ground_South_Wall",
         Some(room1_id),
+        Some(room1_id),
         Some("Wall"),
         Some("Outdoors"),
         "Level_1",
@@ -354,6 +367,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Aperture,
         "Ground_South_Win_W",
         Some(south_wall1_id),
+        Some(room1_id),
         None,
         Some("Outdoors"),
         "Level_1",
@@ -383,6 +397,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Aperture,
         "Ground_South_Win_E",
         Some(south_wall1_id),
+        Some(room1_id),
         None,
         Some("Outdoors"),
         "Level_1",
@@ -413,6 +428,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Shade,
         "South_Overhang",
         Some(south_wall1_id),
+        Some(room1_id),
         None,
         None,
         "Level_1",
@@ -441,6 +457,7 @@ fn build_sample_building() -> SampleBuilding {
         east_wall1_id,
         ObjectKind::Face,
         "Ground_East_Wall",
+        Some(room1_id),
         Some(room1_id),
         Some("Wall"),
         Some("Outdoors"),
@@ -471,6 +488,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Door,
         "East_Entry_Door",
         Some(east_wall1_id),
+        Some(room1_id),
         None,
         Some("Outdoors"),
         "Level_1",
@@ -498,6 +516,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Face,
         "Ground_North_Wall",
         Some(room1_id),
+        Some(room1_id),
         Some("Wall"),
         Some("Outdoors"),
         "Level_1",
@@ -523,6 +542,7 @@ fn build_sample_building() -> SampleBuilding {
         10,
         ObjectKind::Face,
         "Ground_West_Wall",
+        Some(room1_id),
         Some(room1_id),
         Some("Wall"),
         Some("Outdoors"),
@@ -569,6 +589,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Face,
         "Level1_Terrace_Roof",
         Some(room1_id),
+        Some(room1_id),
         Some("RoofCeiling"),
         Some("Outdoors"),
         "Level_1",
@@ -584,6 +605,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Room,
         "Office_Upper",
         None,
+        Some(room2_id),
         None,
         None,
         "Level_2",
@@ -613,6 +635,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Face,
         "Upper_Floor_Slab",
         Some(room2_id),
+        Some(room2_id),
         Some("Floor"),
         Some("Surface"),
         "Level_2",
@@ -640,6 +663,7 @@ fn build_sample_building() -> SampleBuilding {
         14,
         ObjectKind::Face,
         "Upper_South_Wall",
+        Some(room2_id),
         Some(room2_id),
         Some("Wall"),
         Some("Outdoors"),
@@ -669,6 +693,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Aperture,
         "Upper_South_Win",
         Some(14),
+        Some(room2_id),
         None,
         Some("Outdoors"),
         "Level_2",
@@ -697,6 +722,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Shade,
         "Upper_South_Shade",
         Some(14),
+        Some(room2_id),
         None,
         None,
         "Level_2",
@@ -725,6 +751,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Face,
         "Upper_East_Wall",
         Some(room2_id),
+        Some(room2_id),
         Some("Wall"),
         Some("Outdoors"),
         "Level_2",
@@ -752,6 +779,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Aperture,
         "Upper_East_Win",
         Some(17),
+        Some(room2_id),
         None,
         Some("Outdoors"),
         "Level_2",
@@ -779,6 +807,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Face,
         "Upper_North_Wall",
         Some(room2_id),
+        Some(room2_id),
         Some("Wall"),
         Some("Outdoors"),
         "Level_2",
@@ -803,6 +832,7 @@ fn build_sample_building() -> SampleBuilding {
         20,
         ObjectKind::Face,
         "Upper_West_Wall",
+        Some(room2_id),
         Some(room2_id),
         Some("Wall"),
         Some("Outdoors"),
@@ -834,6 +864,7 @@ fn build_sample_building() -> SampleBuilding {
         ObjectKind::Face,
         "Upper_Roof",
         Some(room2_id),
+        Some(room2_id),
         Some("RoofCeiling"),
         Some("Outdoors"),
         "Level_2",
@@ -861,6 +892,7 @@ fn build_sample_building() -> SampleBuilding {
             stories: vec!["Level_1".to_owned(), "Level_2".to_owned()],
         },
         room1_id,
+        room2_id,
         floor1_id,
         south_wall1_id,
         south_ap1_id,
@@ -1216,4 +1248,285 @@ fn handles_unaligned_widths_zero_dimensions_and_reuses_rgba_capacity() {
             height: 0
         })
     );
+}
+
+#[test]
+fn room_edit_mode_fades_rest_of_model_and_prioritizes_active_room_picking() {
+    let sample = build_sample_building();
+    let mut renderer = BuildingRenderer::new().expect("wgpu renderer should initialize");
+    renderer.set_scene(&sample.scene);
+
+    let w = 800;
+    let h = 600;
+    renderer
+        .camera_mut()
+        .apply_preset(CameraPreset::Axon, sample.scene.bounds, None);
+
+    // Full model render vs Room Edit Mode on Room 1 (fades Room 2 into clean single-layer ghost shell)
+    renderer.set_render_state(&RenderState {
+        color_by: ColorBy::Type,
+        dark_mode: true,
+        show_edges: true,
+        ..Default::default()
+    });
+    let full_png = renderer.render_png(w, h).unwrap();
+
+    let edit_r1_state = RenderState {
+        color_by: ColorBy::Type,
+        editing_room_id: Some(sample.room1_id),
+        selected_ids: vec![sample.south_wall1_id],
+        dark_mode: true,
+        show_edges: true,
+        ..Default::default()
+    };
+    renderer.set_render_state(&edit_r1_state);
+    let edit_r1_png = renderer.render_png(w, h).unwrap();
+    assert_ne!(
+        edit_r1_png, full_png,
+        "Room Edit Mode must visibly fade non-active rooms"
+    );
+    save_png("gpu_test_room_edit_mode.png", &edit_r1_png);
+
+    // Switch to Top view where ghosted Room 2 Upper Roof (z=6.2) sits directly ABOVE Room 1 Ground Floor (z=0.0).
+    renderer
+        .camera_mut()
+        .apply_preset(CameraPreset::Top, sample.scene.bounds, None);
+    let stacked_px = renderer
+        .camera()
+        .project_world([3.0, 3.5, 6.2], w, h)
+        .expect("stacked point visible");
+
+    // In Room Edit Mode for Room 1, GPU pick_at AND CPU pick_scene_ray MUST pass through ghosted
+    // Room 2 roof and pick Room 1 Ground Floor!
+    let gpu_hit = renderer
+        .pick_at(stacked_px[0], stacked_px[1], w, h)
+        .unwrap()
+        .expect("GPU pick_at should pick Room 1 floor beneath ghosted Room 2");
+    assert_eq!(gpu_hit.object_id, sample.floor1_id);
+    assert_eq!(gpu_hit.owner_room_id, Some(sample.room1_id));
+    assert!(!gpu_hit.is_ghosted);
+    assert!(gpu_hit.world_point[2].abs() < 0.05);
+
+    let (ray_o, ray_d) = renderer.camera().screen_ray(stacked_px[0], stacked_px[1], w, h);
+    let cpu_hit = pick_scene_ray(&sample.scene, &edit_r1_state, ray_o, ray_d)
+        .expect("CPU pick_scene_ray should match GPU pick_at in Room Edit Mode");
+    assert_eq!(cpu_hit.object_id, sample.floor1_id);
+    assert_eq!(cpu_hit.owner_room_id, Some(sample.room1_id));
+    assert!(!cpu_hit.is_ghosted);
+
+    // Switch to Room Edit Mode for Room 2: clicking on Room 1's exposed terrace ([8.0, 3.0, 3.2],
+    // where Room 2 has no geometry) returns the ghosted Room 1 terrace with is_ghosted == true!
+    let edit_r2_state = RenderState {
+        editing_room_id: Some(sample.room2_id),
+        ..Default::default()
+    };
+    renderer.set_render_state(&edit_r2_state);
+    let terrace_px = renderer
+        .camera()
+        .project_world([8.0, 3.0, 3.2], w, h)
+        .expect("terrace visible");
+    let outside_gpu = renderer
+        .pick_at(terrace_px[0], terrace_px[1], w, h)
+        .unwrap()
+        .expect("clicking ghosted terrace outside Room 2 returns ghosted hit");
+    assert_eq!(outside_gpu.object_id, sample.terrace_roof_id);
+    assert_eq!(outside_gpu.owner_room_id, Some(sample.room1_id));
+    assert!(outside_gpu.is_ghosted);
+
+    let (t_ray_o, t_ray_d) = renderer.camera().screen_ray(terrace_px[0], terrace_px[1], w, h);
+    let outside_cpu = pick_scene_ray(&sample.scene, &edit_r2_state, t_ray_o, t_ray_d)
+        .expect("CPU raypick should also return ghosted hit outside Room 2");
+    assert_eq!(outside_cpu.object_id, sample.terrace_roof_id);
+    assert_eq!(outside_cpu.owner_room_id, Some(sample.room1_id));
+    assert!(outside_cpu.is_ghosted);
+}
+
+#[test]
+fn paired_coplanar_air_boundaries_do_not_double_blend_and_light_theme_renders_vibrant_honeybee_colors() {
+    // Build two paired coplanar opposite-normal Air Boundary quads at z = 2.0 (Room 10 & Room 20)
+    // vs a single Air Boundary quad at the same location, and verify pixel alpha-blended output
+    // matches (proving FLAG_CULL_BACK prevents coplanar double-blending).
+    let make_air_boundary_scene = |paired: bool| -> SceneData {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        let mut edges = Vec::new();
+        let mut objects = Vec::new();
+
+        objects.push(make_record(
+            10,
+            ObjectKind::Room,
+            "Room_Bottom",
+            None,
+            Some(10),
+            None,
+            None,
+            "L1",
+            "Z1",
+            None,
+            Bounds3::new([-2.0, -2.0, 0.0], [2.0, 2.0, 2.0]),
+        ));
+        add_quad(
+            &mut vertices,
+            &mut indices,
+            &mut edges,
+            [
+                [-2.0, -2.0, 2.0],
+                [2.0, -2.0, 2.0],
+                [2.0, 2.0, 2.0],
+                [-2.0, 2.0, 2.0],
+            ],
+            [0.0, 0.0, 1.0],
+            11,
+            ObjectKind::Face,
+            false,
+        );
+        objects.push(make_record(
+            11,
+            ObjectKind::Face,
+            "Air_A",
+            Some(10),
+            Some(10),
+            Some("AirBoundary"),
+            Some("Surface"),
+            "L1",
+            "Z1",
+            None,
+            Bounds3::new([-2.0, -2.0, 2.0], [2.0, 2.0, 2.0]),
+        ));
+
+        if paired {
+            objects.push(make_record(
+                20,
+                ObjectKind::Room,
+                "Room_Top",
+                None,
+                Some(20),
+                None,
+                None,
+                "L2",
+                "Z2",
+                None,
+                Bounds3::new([-2.0, -2.0, 2.0], [2.0, 2.0, 4.0]),
+            ));
+            // Opposite winding & opposite normal (-Z), offset 4 mm matching lbt-scene room inset
+            add_quad(
+                &mut vertices,
+                &mut indices,
+                &mut edges,
+                [
+                    [-2.0, -2.0, 2.004],
+                    [-2.0, 2.0, 2.004],
+                    [2.0, 2.0, 2.004],
+                    [2.0, -2.0, 2.004],
+                ],
+                [0.0, 0.0, -1.0],
+                21,
+                ObjectKind::Face,
+                false,
+            );
+            objects.push(make_record(
+                21,
+                ObjectKind::Face,
+                "Air_B",
+                Some(20),
+                Some(20),
+                Some("AirBoundary"),
+                Some("Surface"),
+                "L2",
+                "Z2",
+                None,
+                Bounds3::new([-2.0, -2.0, 2.004], [2.0, 2.0, 2.004]),
+            ));
+        }
+
+        SceneData {
+            model_identifier: "AirBoundary_Pair_Test".to_owned(),
+            bounds: Bounds3::new([-2.0, -2.0, 0.0], [2.0, 2.0, 4.0]),
+            vertices,
+            indices,
+            edge_vertices: edges,
+            objects,
+            ..Default::default()
+        }
+    };
+
+    let mut renderer = BuildingRenderer::new_software().expect("WARP renderer initializes");
+    let single = make_air_boundary_scene(false);
+    let paired = make_air_boundary_scene(true);
+
+    let state = RenderState {
+        color_by: ColorBy::Type,
+        dark_mode: true,
+        show_edges: false,
+        ..Default::default()
+    };
+
+    renderer.set_scene(&single);
+    renderer.set_render_state(&state);
+    renderer
+        .camera_mut()
+        .apply_preset(CameraPreset::Top, single.bounds, None);
+    let mut single_rgba = Vec::new();
+    renderer.render_rgba(128, 128, &mut single_rgba).unwrap();
+
+    renderer.set_scene(&paired);
+    renderer.set_render_state(&state);
+    renderer
+        .camera_mut()
+        .apply_preset(CameraPreset::Top, single.bounds, None);
+    let mut paired_rgba = Vec::new();
+    renderer.render_rgba(128, 128, &mut paired_rgba).unwrap();
+
+    // Center pixel must match closely (single-drawn translucent yellow, not double-blended!)
+    let center = (64 * 128 + 64) * 4;
+    let sc = &single_rgba[center..center + 4];
+    let pc = &paired_rgba[center..center + 4];
+    for ch in 0..3 {
+        assert!(
+            (sc[ch] as i32 - pc[ch] as i32).abs() <= 4,
+            "paired AirBoundary should not double-blend: single={sc:?}, paired={pc:?}"
+        );
+    }
+
+    // Also verify real single_family_home renders cleanly in Light mode + Room Edit Mode on WARP/GPU
+    let hbjson = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("..")
+        .join("resources")
+        .join("honeybee-core")
+        .join("tests")
+        .join("json")
+        .join("single_family_home.hbjson");
+    let scene = lbt_scene::load_hbjson_file(&hbjson, None).expect("load single_family_home");
+    let first_room_id = scene
+        .objects
+        .iter()
+        .find(|o| o.kind == ObjectKind::Room)
+        .map(|o| o.object_id)
+        .expect("single_family_home has rooms");
+
+    renderer.set_scene(&scene);
+    renderer
+        .camera_mut()
+        .apply_preset(CameraPreset::Axon, scene.bounds, None);
+    renderer.set_render_state(&RenderState {
+        color_by: ColorBy::Type,
+        dark_mode: false,
+        show_edges: true,
+        ..Default::default()
+    });
+    let light_png = renderer.render_png(640, 360).unwrap();
+    save_png("gpu_test_sfh_light_type.png", &light_png);
+
+    renderer.set_render_state(&RenderState {
+        color_by: ColorBy::Type,
+        editing_room_id: Some(first_room_id),
+        dark_mode: true,
+        show_edges: true,
+        ..Default::default()
+    });
+    let edit_png = renderer.render_png(640, 360).unwrap();
+    save_png("gpu_test_sfh_room_edit.png", &edit_png);
+    assert_ne!(light_png, edit_png);
 }

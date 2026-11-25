@@ -281,7 +281,7 @@ pub fn mcp_tool_definitions() -> Value {
                 "type": "object",
                 "properties": {
                     "view": { "description": "Camera preset string (axon, top, north, south, east, west, fit) or {position, target} object." },
-                    "color_by": { "type": "string", "description": "ColorBy mode (type, boundary_condition, story, zone, program_type, construction_set, hvac, wwr)." },
+                    "color_by": { "type": "string", "description": "ColorBy mode (type, boundary_condition, story, zone, program_type, construction_set, hvac)." },
                     "section_z": { "type": "number", "description": "Optional horizontal Z section cut plane elevation in model units." }
                 }
             }

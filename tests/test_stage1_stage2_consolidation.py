@@ -222,7 +222,7 @@ def test_server_boot_registry_code_mode_and_stale_python_refs(
 
 
 def test_code_mode_preview_throttling(tmp_path: Path) -> None:
-    """Verify CodeMode coalesces multiple Honeybee edits into one vtk.js flush per Garden."""
+    """Verify CodeMode coalesces multiple Honeybee edits into one Rune present.json flush per Garden."""
     g1_root = (tmp_path / "preview_g1").as_posix()
     g2_root = (tmp_path / "preview_g2").as_posix()
     mcp = create_mcp()
@@ -234,19 +234,19 @@ def test_code_mode_preview_throttling(tmp_path: Path) -> None:
                 {
                     "code": (
                         f'g = await call_tool("GD_Create", {{"name": "preview_g1", "root_dir": {g1_root!r}}})\n'
-                        f'return await call_tool("GD_Web_View_Start_Mode", {{"garden_root": g["garden_root"]}})'
+                        f'return await call_tool("GD_Web_View_Start_Mode", {{"garden_root": g["garden_root"], "open_window": False}})'
                     )
                 },
             )
             try:
-                export_calls: list[str] = []
-                orig_export = web_view._export_session_vtkjs
+                update_calls: list[dict[str, Any]] = []
+                orig_update = web_view.update_present
 
-                def counting_export(*args: Any, **kwargs: Any) -> str:
-                    export_calls.append(str(kwargs.get("name") or ""))
-                    return orig_export(*args, **kwargs)
+                def counting_update(*args: Any, **kwargs: Any) -> dict[str, Any]:
+                    update_calls.append(dict(kwargs))
+                    return orig_update(*args, **kwargs)
 
-                with mock.patch.object(web_view, "_export_session_vtkjs", side_effect=counting_export):
+                with mock.patch.object(web_view, "update_present", side_effect=counting_update):
                     batch_code = (
                         f'gr = {g1_root!r}\n'
                         f'await call_tool("HB_Create_Model", {{"garden_root": gr, "identifier": "prev_hb"}})\n'
@@ -258,25 +258,24 @@ def test_code_mode_preview_throttling(tmp_path: Path) -> None:
                     res = _parse_tool_result(await client.call_tool("execute", {"code": batch_code}))
                     assert res == {"done": True}
 
-                assert len(export_calls) == 1, f"Expected 1 coalesced vtkjs export, got {len(export_calls)}"
+                assert len(update_calls) == 1, f"Expected 1 coalesced update_present call, got {len(update_calls)}"
                 session = web_view.read_web_view_session(garden_root=g1_root)
                 assert session is not None
                 assert len(session["steps"]) == 1
                 assert session["steps"][0]["source_tool"] == "HB_Edit_Objects"
-                vtkjs_rel = session["steps"][0]["viewer_source"]["artifact_path"]
-                vtkjs_abs = Path(g1_root) / vtkjs_rel
-                assert vtkjs_abs.is_file()
-                assert "tmp/web_view/previews" in vtkjs_rel
+                assert session["steps"][0]["viewer_source"]["kind"] == "rune_present"
+                present = web_view.read_present(g1_root)
+                assert present is not None
+                assert present["model_path"] == "models/honeybee/prev_hb.hbjson"
+                assert {t["object_identifier"] for t in present["highlight_targets"]} == {"Room_1", "Room_2"}
+                assert not (Path(g1_root) / "tmp" / "web_view" / "previews").exists()
             finally:
-                try:
-                    await client.call_tool(
-                        "execute",
-                        {
-                            "code": f'return await call_tool("GD_Web_View_Stop_Mode", {{"garden_root": {g1_root!r}}})'
-                        },
-                    )
-                finally:
-                    web_view.stop_preview_url_fallback(garden_root=g1_root)
+                await client.call_tool(
+                    "execute",
+                    {
+                        "code": f'return await call_tool("GD_Web_View_Stop_Mode", {{"garden_root": {g1_root!r}}})'
+                    },
+                )
 
         # Direct PreviewMontySandboxProvider test across two separate Gardens.
         await _call_raw_create_garden(g2_root, "preview_g2")

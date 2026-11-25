@@ -9,8 +9,8 @@ description = "A FastMCP server for Ladybug Tools workflows."
 readme = "README.md"
 dynamic = ["dependencies"]
 requires-python = ">=3.12,<3.13"
-license = "GPL-3.0-only"
-license-files = ["LICENSE"]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "licenses/THIRD_PARTY_NOTICES.md"]
 
 [project.scripts]
 lbt-mcp = "ladybug_tools_mcp_cli:main"
@@ -19,7 +19,7 @@ lbt-mcp = "ladybug_tools_mcp_cli:main"
 Homepage = "https://github.com/LoftyTao/ladybug-tools-mcp"
 
 [tool.setuptools]
-py-modules = ["ladybug_tools_mcp_cli", "ladybug_tools_mcp_clients"]
+py-modules = ["ladybug_tools_mcp_cli"]
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}

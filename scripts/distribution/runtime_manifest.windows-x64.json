@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "platform": "win-x64",
+  "target_versions": {
+    "python": "3.12.16",
+    "openstudio": "3.11.0",
+    "energyplus": "25.2.0",
+    "radiance": "5.4",
+    "radiance_tag": "rad5R4",
+    "radiance_date": "2023-11-05",
+    "ironbug": "1.26.1",
+    "urbanopt": "1.4.0-rc1",
+    "lbt_measures": "0.3.3",
+    "honeybee_openstudio_gem": "2.38.23",
+    "gmsh": "4.15.2",
+    "geos": "3.14.1"
+  },
+  "runtimes": {
+    "python": {
+      "version": "3.12.16",
+      "release_tag": "20261124",
+      "filename": "cpython-3.12.16+20261124-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261124/cpython-3.12.16%2B20261124-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+      "size": 22388338,
+      "sha256": "96694b50dcfde13d56e40346ddaa552a9cd650290e9b933cecf83c1d82226960",
+      "target_dir": "runtimes/python/3.12.16"
+    },
+    "openstudio": {
+      "version": "3.11.0",
+      "build": "241b8abb4d",
+      "filename": "OpenStudio-3.11.0+241b8abb4d-Windows.tar.gz",
+      "url": "https://github.com/NatLabRockies/OpenStudio/releases/download/v3.11.0/OpenStudio-3.11.0%2B241b8abb4d-Windows.tar.gz",
+      "size": 326792808,
+      "sha256": "d87f737ef44fc38aa96600dd2d8a329b39ffbd9865fc7952f93dcd191b84fc46",
+      "target_dir": "runtimes/openstudio/3.11.0",
+      "notes": "OpenStudio 3.11.0 tar.gz omits CSharp/; C# bindings are supplied by openstudio_csharp (NREL.OpenStudio.win 3.11.0 NuGet). EnergyPlus/ is preserved unmodified."
+    },
+    "openstudio_csharp": {
+      "version": "3.11.0",
+      "package_id": "NREL.OpenStudio.win",
+      "filename": "nrel.openstudio.win.3.11.0.nupkg",
+      "url": "https://api.nuget.org/v3-flatcontainer/nrel.openstudio.win/3.11.0/nrel.openstudio.win.3.11.0.nupkg",
+      "size": 88720233,
+      "sha256": "9594cda1f157f86cd973a384a25baf35bccd7a5b58318835a3240d9c7eaae638",
+      "extract_prefix": "build/netstandard2.0/x64/",
+      "target_dir": "runtimes/openstudio/3.11.0/CSharp/openstudio"
+    },
+    "radiance": {
+      "version": "5.4",
+      "tag": "rad5R4",
+      "date": "2023-11-05",
+      "commit": "4ee32974",
+      "filename": "Radiance_4ee32974_Windows.zip",
+      "url": "https://github.com/LBNL-ETA/Radiance/releases/download/rad5R4/Radiance_4ee32974_Windows.zip",
+      "size": 38679624,
+      "sha256": "0c3a321b87f68722ed87aff956e3f79acec0b6181ce8adcac4b3ce6cd0874736",
+      "target_dir": "runtimes/radiance/5.4",
+      "pruned": [
+        "bin/rvu.exe",
+        "bin/Qt5*.dll",
+        "bin/qt.conf",
+        "bin/plugins/platforms/",
+        "bin/plugins/imageformats/"
+      ]
+    },
+    "ironbug_console_reference": {
+      "version": "1.26.1",
+      "filename": "ironbug.console.win-1.26.1.zip",
+      "url": "https://github.com/MingboPeng/Ironbug/releases/download/v1.26.1/ironbug.console.win-1.26.1.zip",
+      "size": 91974886,
+      "sha256": "a6b42f7c37d912c9d43908abe33577833bd47a7f9d4bb9bb54a871760fc69c50",
+      "notes": "Inspected reference archive containing Release/net48 and framework-dependent Release/net8 with bundled OpenStudio 3.10.0.0 DLLs; not staged directly to avoid OpenStudio 3.10.0 mismatch and .NET 8 dependency on Ironbug.Console.exe."
+    },
+    "ironbug": {
+      "version": "1.26.1",
+      "filename": "ironbug-win-1.26.1.zip",
+      "url": "https://github.com/MingboPeng/Ironbug/releases/download/v1.26.1/ironbug-win-1.26.1.zip",
+      "size": 3029748,
+      "sha256": "728e22510604325bb3c5c5ee2c2279015694aff4fd52b8d008fe75c37b5d4aa4",
+      "target_dir": "runtimes/ironbug/1.26.1",
+      "notes": "Contains net48 Ironbug.Console.exe + netstandard2.0 Ironbug.HVAC/Core/EPDoc DLLs + HVACTemplates. At install time, lbt-mcp runtime sync NTFS-hardlinks OpenStudio 3.11.0 CSharp DLLs into runtimes/ironbug/1.26.1/ with zero duplicate installer bytes."
+    },
+    "lbt_measures": {
+      "version": "0.3.3",
+      "tag": "v0.3.3",
+      "filename": "lbt-measures-v0.3.3.tar.gz",
+      "url": "https://github.com/ladybug-tools/lbt-measures/archive/refs/tags/v0.3.3.tar.gz",
+      "size": 387256,
+      "sha256": "ebbe7c433f6f958b4a9167282e3ae8bd101ae71857653a4d8c944febc36e6487",
+      "target_dir": "runtimes/lbt_home/resources/measures"
+    },
+    "honeybee_openstudio_gem": {
+      "version": "2.38.23",
+      "tag": "v2.38.23",
+      "filename": "honeybee-openstudio-gem-v2.38.23.tar.gz",
+      "url": "https://github.com/ladybug-tools/honeybee-openstudio-gem/archive/refs/tags/v2.38.23.tar.gz",
+      "size": 901651,
+      "sha256": "ae6dbd6916b80180a5268058b5c1f97b8262d44ca9005dd72c751fd613afc93c",
+      "target_dir": "runtimes/lbt_home/resources/measures/honeybee_openstudio_gem/lib"
+    },
+    "urbanopt": {
+      "version": "1.4.0-rc1",
+      "tag": "v1.4.0.rc1",
+      "filename": "URBANoptCLI-1.4.0-rc1.88da6b9791-Windows.exe",
+      "url": "https://github.com/urbanopt/urbanopt-cli/releases/download/v1.4.0.rc1/URBANoptCLI-1.4.0-rc1.88da6b9791-Windows.exe",
+      "size": 1004090573,
+      "sha256": "bdc7ed1a63525c3d3003f65843a919be0ea3686d0386edc6edf733088daa849e",
+      "optional_pack": true,
+      "pack_target_dir": "runtimes/urbanopt-cli-1.4.0",
+      "openstudio_ruby_target_dir": "runtimes/openstudio/3.11.0/Ruby"
+    }
+  },
+  "corresponding_sources": {
+    "gmsh": {
+      "version": "4.15.2",
+      "archive": "gmsh-4.15.2-source.tgz",
+      "relpath": "sources/gmsh-4.15.2-source.tgz",
+      "url": "https://gmsh.info/src/gmsh-4.15.2-source.tgz",
+      "size": 18496049,
+      "sha256": "be3f66f225d27ba9fa014f07e83169285da8a051b0e8ab7103d88066b39bdd3e"
+    },
+    "geos": {
+      "version": "3.14.1",
+      "archive": "geos-3.14.1.tar.bz2",
+      "relpath": "sources/geos-3.14.1.tar.bz2",
+      "url": "https://download.osgeo.org/geos/geos-3.14.1.tar.bz2",
+      "size": 7013834,
+      "sha256": "3c20919cda9a505db07b5216baa980bacdaa0702da715b43f176fb07eff7e716"
+    },
+    "ironbug": {
+      "version": "1.26.1",
+      "archive": "Ironbug-1.26.1.tar.gz",
+      "relpath": "sources/Ironbug-1.26.1.tar.gz",
+      "url": "https://github.com/MingboPeng/Ironbug/archive/refs/tags/v1.26.1.tar.gz",
+      "size": 25745201,
+      "sha256": "9ea1daa3b85499e9068f6faf652f2f2e7fac974406109a024aafad901299d428"
+    }
+  }
+}

@@ -15,6 +15,7 @@ Ladybug Tools MCP 是基于 FastMCP 构建、面向代理应用的 MCP 服务。
 - [适用人群](#适用人群)
 - [核心概念](#核心概念)
 - [快速开始](#快速开始)
+- [代理客户端配置指南](#代理客户端配置指南)
 - [Web View 预览模式](#web-view-预览模式)
 - [首次使用](#首次使用)
 - [工作流示例](#工作流示例)
@@ -79,127 +80,99 @@ Flowerpot 是 Ladybug Tools MCP 与其他交互界面交换信息的中间层。
 
 ## 快速开始
 
-基础建模需要 [uv](https://docs.astral.sh/uv/getting-started/installation/) 和一个 MCP 客户端。uv 自动准备 Python 3.12 与依赖；无需克隆仓库。Git 用于 Garden 版本管理，缺少 Git 不影响创建 Garden。
+### Windows x86_64 一体化离线安装包
 
-### 安装向导
+Windows x86_64 推荐使用 [GitHub Releases](https://github.com/LoftyTao/ladybug-tools-mcp/releases) 提供的**一体化离线安装包**（`lbt-mcp-<ver>-win-x64-setup.exe`，例如 `lbt-mcp-1.2.3-win-x64-setup.exe`）。
+安装器采用当前用户安装方式（无需管理员权限），内置 Python `3.12`、`lbt-mcp` 及其依赖、Radiance `5.4 (2023-11-05)`、OpenStudio SDK `3.11.0`、未修改的 EnergyPlus `25.2.0`、Ironbug `1.26.1`（配合自包含 `IronbugBridge.exe`，无需额外安装 `.NET` 运行时）、LBT Measures、`pyHygroThermFEM-Fairyfly` + `gmsh`（THERM）、`lbt-rune-viewer`（三维预览器）、内置 Agent Skill（`ladybug-tools-mcp-use`）、可选 Flowerpot Grasshopper 组件以及开源许可证与声明文件。
 
-`1.2.3` 是固定的发布版本。使用下面的命令从 PyPI 安装；本地验证时，也可以通过 `--from <绝对 wheel 路径>` 使用同一个向导。
+#### 可选 URBANopt 离线扩展包
 
-`1.2.3` 将新安装的默认路径改为 `~/.ladybug-tools-mcp/tools` 和 `~/Gardens`，先检查 Rhino 8 的 Windows 默认安装位置，再读取安装记录；已有安装的向导提供卸载选项。升级时保留已保存的路径。
+街区尺度 Dragonfly URBANopt 工作流使用独立的**可选 URBANopt 离线扩展包**（`lbt-mcp-<ver>-win-x64-urbanopt.lbtpack`，例如 `lbt-mcp-1.2.3-win-x64-urbanopt.lbtpack`），内含 URBANopt CLI `1.4.0-rc1`、`OpenStudio/Ruby` 与运行时 Gems。
 
-```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install
-```
+- 将 `lbt-mcp-<ver>-win-x64-urbanopt.lbtpack` 放在 `lbt-mcp-<ver>-win-x64-setup.exe` 同级目录，安装器会自动识别并供勾选安装；
+- 也可在安装后随时通过 `lbt-mcp pack install` / `lbt-mcp pack remove` 进行安装或卸载。
 
-Windows、Linux 和 macOS 使用同一终端向导。选择运行环境目录、Garden 目录、是否自动配置 Codex，以及是否安装 Flowerpot / Grasshopper。下载完成后重启客户端。
+#### 默认目录与非 ASCII / 含空格路径处理
 
-默认按当前用户安装，Garden 位于 `~/Gardens`，独立于程序和 uv 缓存。自动配置保留其他 MCP 服务与设置；同名冲突会停止并说明处理方式。首次下载包含科学计算依赖，可能需要数分钟；当前 Luigi 依赖由 uv 自动构建纯 Python wheel，无需编译器。
+- **默认 `<LBT_MCP_HOME>`**：当 Windows 用户配置目录路径为纯 ASCII 且不含空格时，默认为 `%LOCALAPPDATA%\lbt-mcp`。
+- **自动回退**：当 `%LOCALAPPDATA%` 或用户目录包含空格或非 ASCII 字符（如中文用户名）时，安装器会自动默认选择 `C:\lbt-mcp`，因为 Radiance、OpenStudio、EnergyPlus 等模拟引擎要求运行时路径为无空格纯 ASCII。
+- **自定义路径**：若手动选择含空格或非 ASCII 字符的安装目录，安装器会弹出警告，`lbt-mcp doctor` 也会给出提示。
+- **Garden 工作区**：默认位于 `%USERPROFILE%\Gardens`，始终独立于 `<LBT_MCP_HOME>` 之外，升级或卸载时都会保留用户模型、气象文件、模拟运行和 Git 版本历史；`LADYBUG_TOOLS_GARDENS_ROOT` 支持空格与中文路径。
+- **零全局环境污染**：安装器不会修改 Windows 全局 `PATH`、`RAYPATH` 或 `~/.env_uo.bat`。运行时路径保存在 `<LBT_MCP_HOME>\config\runtime.json`，并直接同步到内置虚拟环境的 Ladybug Tools SDK `config.json` 中。
 
-只生成配置、不修改客户端配置：
-
-```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install --generate-config
-```
-
-使用本地 wheel 时，将它同时作为启动包和安装包；构建文件名类似 `lbt_mcp-1.2.3-py3-none-any.whl`：
+#### 安装目录结构
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow --from <绝对 wheel 路径> lbt-mcp install --wheel <绝对 wheel 路径>
+<LBT_MCP_HOME>\                         # 默认：%LOCALAPPDATA%\lbt-mcp（路径含空格/非ASCII时自动为 C:\lbt-mcp）
+├── bin\
+│   └── lbt-mcp.exe                     # 原生 Rust stdio 启动器与 CLI 入口
+├── app\
+│   ├── current.json                    # 当前活动版本指针
+│   ├── current\                        # 当前活动版本目录
+│   │   ├── venv\                       # 可重定位 Python 3.12 虚拟环境
+│   │   ├── skills\
+│   │   │   └── ladybug-tools-mcp-use\  # 内置 Agent Skill 与参考文档
+│   │   └── grasshopper\                # 打包的 Flowerpot .ghuser 用户对象
+│   └── releases\<ver>\                 # 按版本号存放的发布载荷
+├── config\
+│   ├── runtime.json                    # 内置与自定义的模拟引擎路径配置
+│   ├── installation.json               # 安装记录（schema_version: 1）
+│   └── packs\                          # 已安装的 .lbtpack 清单回执
+├── runtimes\
+│   ├── python\3.12.16\                 # 便携版 Python 3.12 运行时
+│   ├── openstudio\3.11.0\              # OpenStudio SDK 3.11.0（bin/、CSharp/openstudio/ 与未修改的 EnergyPlus 25.2.0）
+│   ├── radiance\5.4\                   # Radiance 5.4 (2023-11-05) radbin + radlib
+│   ├── ironbug\1.26.1\                 # Ironbug 1.26.1 程序集
+│   ├── lbt_home\resources\measures\    # LBT Measures 与 honeybee-openstudio-gem
+│   └── urbanopt-cli-1.4.0\             # 仅在安装 URBANopt 扩展包后出现
+├── LICENSE                             # GNU AGPL-3.0-only
+└── licenses\                           # THIRD_PARTY_NOTICES.md、CORRESPONDING_SOURCE.md、SOURCE_MANIFEST.json、components\
+
+%USERPROFILE%\
+├── .ladybug-tools-mcp\installation.json # 供 Rhino/Grasshopper Flowerpot 读取的用户指针记录（schema_version: 1）
+└── Gardens\                             # 默认 Gardens 根目录（位于 <LBT_MCP_HOME> 外，卸载时保留）
 ```
 
-生成的输出是 Codex TOML 配置块，其中包含已安装 Python、Garden 根目录和安装记录路径。手动配置 Codex 时，将该配置块复制到 `~/.codex/config.toml`。
+### CLI 诊断、运行时、扩展包与 Flowerpot 命令
 
-这两个环境变量按目标系统当前用户的主目录生成，常见默认值如下：
-
-| 系统 | `LADYBUG_TOOLS_GARDENS_ROOT` | `LADYBUG_TOOLS_MCP_INSTALLATION` |
-| --- | --- | --- |
-| Windows | `%USERPROFILE%\Gardens` | `%USERPROFILE%\.ladybug-tools-mcp\installation.json` |
-| macOS | `/Users/<用户名>/Gardens` | `/Users/<用户名>/.ladybug-tools-mcp/installation.json` |
-| Linux | `/home/<用户名>/Gardens` | `/home/<用户名>/.ladybug-tools-mcp/installation.json` |
-
-安装器会写入展开后的绝对路径，也支持系统重定向的用户主目录；MCP 客户端不需要解析 `%USERPROFILE%`、`$HOME` 或 `~`。Garden 目录可在向导中选择，也可以通过参数同时指定两个路径：
+通过 `<LBT_MCP_HOME>\bin\lbt-mcp.exe`（或在 Python 环境中使用 `lbt-mcp`）执行服务启动、状态查询、诊断检查、运行时同步、扩展包和 Flowerpot 管理：
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install --garden-dir "<Garden 绝对目录>" --state "<installation.json 绝对路径>"
+lbt-mcp serve                                          # 启动 stdio MCP 服务（缺省子命令时的默认行为）
+lbt-mcp status [--home <dir>] [--state <file>]         # 查看当前 <LBT_MCP_HOME>、版本、启动器与 Gardens 路径
+lbt-mcp doctor [--home <dir>] [--smoke]                # 校验安装记录、ASCII/空格路径安全性、SDK config.json 同步、许可证与 Rune/THERM；--smoke 执行引擎子进程探针
+lbt-mcp runtime list|sync|set|reset                    # 查看、同步到 SDK config.json、覆盖或重置模拟引擎路径
+lbt-mcp pack install <file.lbtpack> [--home <dir>]     # 校验 SHA-256 并安装离线 .lbtpack 扩展包
+lbt-mcp pack list [--home <dir>]                       # 列出已安装的扩展包
+lbt-mcp pack remove <name> [--home <dir>]              # 卸载扩展包自有文件并重新同步 SDK 配置
+lbt-mcp flowerpot install [--grasshopper-dir <dir>]    # 安装可选 Rhino 8 / Grasshopper Flowerpot 组件
+lbt-mcp flowerpot uninstall [--state <file>]           # 卸载未修改的 Flowerpot 组件
 ```
-
-显式选择的 Garden 目录优先于已有安装记录；未指定时保留原选择，再使用默认目录。安装记录路径优先级为 `--state`、`LADYBUG_TOOLS_MCP_INSTALLATION`、系统默认路径。升级、查看状态和卸载时继续使用同一个 `--state`。Flowerpot 使用自定义记录时，启动 Rhino 的环境中也须将 `LADYBUG_TOOLS_MCP_INSTALLATION` 指向同一文件。
-
-其他 MCP 客户端可以使用同一个已安装 Python，并采用标准 stdio 配置：
-
-```json
-{
-  "mcpServers": {
-    "lbt-mcp": {
-      "command": "<已安装的 Python>",
-      "args": ["-I", "-m", "ladybug_tools_mcp.server"],
-      "env": {
-        "LADYBUG_TOOLS_GARDENS_ROOT": "<Garden 目录>",
-        "LADYBUG_TOOLS_MCP_INSTALLATION": "<安装记录路径>"
-      }
-    }
-  }
-}
-```
-
-OpenCode2 2.0.12 使用下面的本地服务配置：
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "lbt-mcp": {
-      "type": "local",
-      "command": ["<已安装的 Python>", "-I", "-m", "ladybug_tools_mcp.server"],
-      "environment": {
-        "LADYBUG_TOOLS_GARDENS_ROOT": "<Garden 目录>",
-        "LADYBUG_TOOLS_MCP_INSTALLATION": "<安装记录路径>"
-      },
-      "timeout": 120000
-    }
-  }
-}
-```
-
-升级时退出正在使用 MCP 的客户端及 Rhino，再运行所选新版本的安装命令。版本固定，不自动升级。卸载保留 Garden 与用户修改过的文件：
-
-```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 uninstall
-```
-
-### 客户端预配置
-
-`1.2.2` 可在向导中多选 Codex、Claude Code、Gemini CLI、OpenCode、OpenCode2、Hermes、OpenClaw、ZCode、Kimi Code、Devin、Qoder、CodeBuddy、WorkBuddy、Cline、Cursor 和 VS Code 等客户端。查看完整选项：
-
-`1.2.3` 还包含 `deepseek-harness` 预配置，导出官方 `@deepseek-ai/dsh-mcp-client` 所需的 `cordis.patch.yml` 插入项；将其合并到当前 Harness 的用户级或 profile 配置中。
-
-```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 clients
-```
-
-可重复使用 `--client` 选择多个客户端，并用 `--output-dir` 导出配置与导入说明；`--generate-config` 会准备持久运行环境，但不自动修改客户端配置。Codex 可以由向导自动配置，其他客户端需按导出的说明导入。
 
 ### Flowerpot 与平台范围
 
-Flowerpot 为可选项。Windows / Rhino 8 用户选中后，重启 Grasshopper，在组件搜索中输入 `FP` 或到 `Flowerpot` 分类中拖入七个组件。Rhino、Ladybug Tools for Grasshopper 和 Ironbug 按工作流另行安装。已有源码组件和画布保留开发路径回退。
+Flowerpot 为可选项。Windows / Rhino 8 用户可在安装过程中勾选，或运行 `lbt-mcp flowerpot install`，然后重启 Grasshopper，在组件搜索中输入 `FP` 或从 `Flowerpot` 分类拖入七个组件（`FP Create Garden`、`FP Garden List`、`FP Honeybee Link`、`FP Dragonfly Link`、`FP Energy Properties Input`、`FP Radiance Properties Input`、`FP Detail HVAC`）。Rhino、Ladybug Tools for Grasshopper 和 Ironbug 仍需按工作流另行安装。详见[组件说明](src/grasshopper_components/README.md)。
 
-`1.2.2` 新增 **FP Dragonfly Link**：七个组件统一放在一个 Flowerpot 子栏内，沿用 LBT 的 Exposure 分组方式，在子栏内部区分 Garden、模型交接、属性和 HVAC。已有 Garden 可通过 FP Garden List 配合 Grasshopper 的 List Item 选择；气象、数据序列和模型操作继续使用原生 Ladybug Tools 组件。详见[组件说明](src/grasshopper_components/README.md)。
-
-Windows x86_64 优先完成原生验收；Linux x86_64 和 macOS Apple Silicon 通过同一 CI 流程验证基础 MCP。Flowerpot 仅保留 Windows Rhino/Grasshopper 边界；Fairyfly/THERM 现已内置跨平台 `pyHygroThermFEM-Fairyfly` C++20 求解器与无头 Gmsh Q4 网格划分器，可在 Windows、Linux 与 macOS 上运行稳态、瞬态及热湿耦合模拟（无需额外安装外部 LBNL THERM）。已发布版本见 [Release Notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases)，自动分发验收见 [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml)。
+Windows x86_64 是主要的一体化离线验收平台；Linux x86_64 和 macOS Apple Silicon 通过同一 CI 流程基于 PyPI / 源码构建包运行基础 MCP 与单元/契约检查。Flowerpot 仅保留 Windows Rhino/Grasshopper 边界；Fairyfly/THERM 已内置跨平台 `pyHygroThermFEM-Fairyfly` C++20 求解器与无头 Gmsh Q4 网格划分器，可在 Windows、Linux 与 macOS 上直接运行稳态、瞬态及热湿耦合模拟（无需额外安装外部 LBNL THERM）。详见 [Release Notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases) 与 [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml)。
 
 ### 模拟运行环境
 
-模拟工具继续提供，外部引擎按需准备。THERM 模拟已由内置 `pyHygroThermFEM-Fairyfly` 与 `gmsh` 跨平台提供，其余引擎沿用现有运行矩阵：
+Windows 离线安装包已内置下表所示的模拟运行时（URBANopt 通过可选 `.lbtpack` 扩展包提供）。若使用源码或 PyPI 环境，可通过 `LB_Get_Runtime_Config` 或 `lbt-mcp doctor --smoke` 检查已安装引擎。
 
-Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.3` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.10.0](https://github.com/NREL/OpenStudio/releases/tag/v3.10.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | 内置 `pyHygroThermFEM-Fairyfly` + `gmsh` |
+Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | Ironbug | URBANopt CLI | THERM | 3D Viewer |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `v1.2.3` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NREL/OpenStudio/releases/tag/v3.11.0) | 25.2.0 | [1.26.1](https://github.com/MingboPeng/Ironbug/releases/tag/v1.26.1) | [1.4.0-rc1](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1)（可选扩展包） | 内置 `pyHygroThermFEM-Fairyfly` + `gmsh` | 内置 `lbt-rune-viewer` |
 
-使用 `LB_Get_Runtime_Config` 检查已安装引擎，并获取缺失运行环境的配置指引。
+### PyPI 与源码开发
 
-### 源码开发
+在 Linux、macOS 或自定义 Python 3.12 环境中，可通过 [uv](https://docs.astral.sh/uv/getting-started/installation/) 从 PyPI 安装：
 
-修改本项目时才需要源码环境：
+```text
+uv venv --python 3.12
+uv pip install --prerelease allow lbt-mcp==1.2.3
+```
+
+修改本项目时可配置源码开发环境：
 
 ```text
 git clone https://github.com/LoftyTao/ladybug-tools-mcp.git
@@ -208,13 +181,170 @@ uv venv --python 3.12
 uv pip install --prerelease allow -e .
 ```
 
+源码构建 wheel 支持 `LBT_MCP_REQUIRE_HYGROTHERM_NATIVE=1`、`LBT_MCP_REQUIRE_IRONBUG_BRIDGE=1` 与 `LBT_MCP_REQUIRE_RUNE_VIEWER=1`；Windows 离线安装包及对应源码包通过 `scripts/distribution/build_windows_bundle.py` 和 `scripts/distribution/build_corresponding_source.py` 生成。
+
+## 代理客户端配置指南
+
+请按各代理客户端的配置格式手动添加 MCP 服务：
+
+- **命令（`command`）**：`<LBT_MCP_HOME>\bin\lbt-mcp.exe`
+- **参数（`args`）**：`["serve"]`
+- **环境变量（`env`）**：
+  - `LADYBUG_TOOLS_GARDENS_ROOT`：Garden 根目录（默认 `%USERPROFILE%\Gardens`，位于 `<LBT_MCP_HOME>` 之外）
+  - `LADYBUG_TOOLS_MCP_HOME`（可选）：显式指定 `<LBT_MCP_HOME>`（直接调用 `<LBT_MCP_HOME>\bin\lbt-mcp.exe` 时启动器会自动根据上级目录识别）
+
+> **提示**：运行 `<LBT_MCP_HOME>\bin\lbt-mcp.exe status` 可查看本机展开后的绝对路径。多数 MCP 客户端不会自动展开 `%LOCALAPPDATA%` 或 `%USERPROFILE%`，请将 `<LBT_MCP_HOME>`（如 `C:\lbt-mcp` 或 `C:\Users\<user>\AppData\Local\lbt-mcp`）和 `<GARDENS_ROOT>`（如 `C:\Users\<user>\Gardens`）替换为实际绝对路径（JSON 字符串中需写作 `\\`，TOML 中可使用单引号字面量 `'...'`）。
+
+### Codex（`~/.codex/config.toml`）
+
+将以下内容合并到 `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）：
+
+```toml
+[mcp_servers.lbt-mcp]
+command = '<LBT_MCP_HOME>\bin\lbt-mcp.exe'
+args = ["serve"]
+startup_timeout_sec = 60
+required = true
+
+[mcp_servers.lbt-mcp.env]
+LADYBUG_TOOLS_GARDENS_ROOT = '<GARDENS_ROOT>'
+# 可选：
+# LADYBUG_TOOLS_MCP_HOME = '<LBT_MCP_HOME>'
+```
+
+### Claude Code（`.mcp.json` / `claude mcp add-json`）
+
+项目级 `.mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "lbt-mcp": {
+      "type": "stdio",
+      "command": "<LBT_MCP_HOME>\\bin\\lbt-mcp.exe",
+      "args": ["serve"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>"
+      }
+    }
+  }
+}
+```
+
+或通过命令行注册到用户级配置（仅传入内层服务对象，切勿覆盖 `~/.claude.json`）：
+
+```text
+claude mcp add-json --scope user lbt-mcp '{"type":"stdio","command":"<LBT_MCP_HOME>\\bin\\lbt-mcp.exe","args":["serve"],"env":{"LADYBUG_TOOLS_GARDENS_ROOT":"<GARDENS_ROOT>"}}'
+```
+
+### Cursor（`~/.cursor/mcp.json`）
+
+合并到用户级 `~/.cursor/mcp.json` 或项目级 `.cursor/mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "lbt-mcp": {
+      "command": "<LBT_MCP_HOME>\\bin\\lbt-mcp.exe",
+      "args": ["serve"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>"
+      }
+    }
+  }
+}
+```
+
+### VS Code（`.vscode/mcp.json`）
+
+合并到项目级 `.vscode/mcp.json`（或在 VS Code 中执行 `MCP: Open User Configuration`；不要写入编辑器 `settings.json`）：
+
+```json
+{
+  "servers": {
+    "lbt-mcp": {
+      "type": "stdio",
+      "command": "<LBT_MCP_HOME>\\bin\\lbt-mcp.exe",
+      "args": ["serve"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>"
+      }
+    }
+  }
+}
+```
+
+### Gemini CLI（`~/.gemini/settings.json`）
+
+合并到用户级 `~/.gemini/settings.json` 或项目级 `.gemini/settings.json`：
+
+```json
+{
+  "mcpServers": {
+    "lbt-mcp": {
+      "command": "<LBT_MCP_HOME>\\bin\\lbt-mcp.exe",
+      "args": ["serve"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>"
+      }
+    }
+  }
+}
+```
+
+### OpenCode / OpenCode 2（`opencode.json`）
+
+合并到 `opencode.json`（或 `~/.config/opencode/opencode.json`）：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "lbt-mcp": {
+      "type": "local",
+      "command": ["<LBT_MCP_HOME>\\bin\\lbt-mcp.exe", "serve"],
+      "environment": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>"
+      },
+      "timeout": 120000
+    }
+  }
+}
+```
+
+如需在 `opencode.json` 中同时配置本地 Skill 路径，可在 OpenCode 1 中添加 `"skills": { "paths": ["<LBT_MCP_HOME>\\app\\current\\skills\\ladybug-tools-mcp-use"] }`，或在 OpenCode 2 中添加 `"skills": ["<LBT_MCP_HOME>\\app\\current\\skills\\ladybug-tools-mcp-use"]`。
+
+### 通用 stdio MCP 客户端与内置 Agent Skill 路径
+
+对于其他标准 stdio MCP 客户端，可按以下结构合并（直接调用 `<LBT_MCP_HOME>\bin\lbt-mcp.exe` 时 `LADYBUG_TOOLS_MCP_HOME` 可省略）：
+
+```json
+{
+  "mcpServers": {
+    "lbt-mcp": {
+      "command": "<LBT_MCP_HOME>\\bin\\lbt-mcp.exe",
+      "args": ["serve"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>",
+        "LADYBUG_TOOLS_MCP_HOME": "<LBT_MCP_HOME>"
+      }
+    }
+  }
+}
+```
+
+离线安装内置的 Agent Skill 位于：
+
+```text
+<LBT_MCP_HOME>\app\current\skills\ladybug-tools-mcp-use
+```
+
+`lbt-mcp serve` 也会通过 FastMCP `SkillProvider` 将该 Skill 作为 MCP 资源提供给客户端；对于需要从本地磁盘读取 Skills 的客户端，请将该完整目录（含其参考文件）复制或指向客户端的 Skills 目录。
+
 ## Web View 预览模式
 
-Web View 模式为建模过程提供本地 vtk.js 预览。
-代理创建或编辑 Honeybee、Dragonfly、Fairyfly 或 VisualizationSet 成果时，宿主应用可以显示当前 Garden 的预览。
-
-预览服务在本地 `127.0.0.1` 运行。
-在客户端的浏览器或侧边栏中打开返回的网址，即可查看 Garden 的变化。
+Web View 模式通过原生 GPU 加速的 Rune 三维预览器（`lbt-rune-viewer`）直接连接 Garden，提供实时建模渲染、模型检查与双向空间批注体验。
+当代理创建、编辑或校验 Honeybee / Dragonfly 模型时，`lbt-rune-viewer` 会以原生 wgpu 渲染建筑几何，支持 CAD 视角控制、剖切、按属性着色和三维对象点选。
 
 ### 开启
 
@@ -227,12 +357,16 @@ Web View 模式为建模过程提供本地 vtk.js 预览。
 代理通过 MCP 代码模式调用：
 
 ```text
-GD_Web_View_Start_Mode(garden_root, name="...", port=None)
+GD_Web_View_Start_Mode(garden_root, name="...", open_window=True)
 ```
 
-开启后，服务会在 Garden 中创建本地预览会话，使用内置本地 `vtk.js`（由 `/vendor/vtk.js` 离线提供，无需访问外部 CDN）在 `127.0.0.1` 启动工作台并返回 `viewer.url`（例如 `http://127.0.0.1:<port>/`）。工作台支持 `steps[]` 时间轴滑块、图层/对象显隐开关、标准相机视角按钮（`Ax`、`Top`、`Front`、`Back`、`Left`、`Right`、`Fit`）、二维色标图例叠加层，以及 HTML/SVG 成果预览页签。
+开启后，服务会在 `<garden>/tmp/web_view/` 下初始化原子协议文件（`session.json`、`present.json`、`interaction_state.json`），自动基于 Garden 的基础 Honeybee 或 Dragonfly 模型初始化 `present.json`（Dragonfly 会按需转换到 `tmp/web_view/models/`），并在 `open_window=True` 且存在图形显示环境时拉起 `lbt-rune-viewer` 桌面窗口（无头或仅协议同步场景可传 `open_window=False`）。
 
-打开返回的 `viewer.url` 即可显示预览。
+### 视角控制、读取上下文与截图
+
+- `GD_Web_View_Present`：控制三维视口的显示模式（`view_type`）、着色方式（`color_by`）、高亮对象（`highlight_targets`）、隔离模式（`isolation_mode`）、校验问题叠加（`validation_issues`）、相机视角（`camera`）、剖切面（`section`）与空间标注（`callouts`）。
+- `GD_Web_View_Get_Context`：从 `interaction_state.json` 读取用户在视口中选中的对象、三维空间批注、当前视角和待处理意图，并可原子地将已处理的批注标记为已解决。
+- `GD_Web_View_Capture`：按“实时 `lbt-rune-viewer` 截图握手 -> 无头 `lbt-rune-viewer --snap` -> 离屏 VTK 兜底”三级链路将当前视角截图保存到 `<garden>/tmp/web_view/captures/`。
 
 ### 关闭
 
@@ -242,30 +376,20 @@ GD_Web_View_Start_Mode(garden_root, name="...", port=None)
 GD_Web_View_Stop_Mode(garden_root)
 ```
 
-这会停止后续自动预览，并关闭已经启动的对应本地预览服务。
-`tmp/web_view/` 中的预览历史会保留。
+这会停止后续自动推送到 `present.json`，并关闭由当前会话启动的 `lbt-rune-viewer` 窗口进程。
+`tmp/web_view/` 中的协议历史会保留。
 
 ### 与普通模式的区别
 
-普通模式下，建模工具将文件写入 Garden，并返回精简的目标引用、摘要和回执。
-服务不会启动预览窗口，也不会在每次编辑后自动导出预览文件。
+普通模式下，建模工具将文件写入 Garden，并返回精简的目标引用、摘要和回执，不会启动 `lbt-rune-viewer`，也不会在编辑后自动写入 `tmp/web_view/present.json`。
 
-Web View 模式下，Honeybee、Dragonfly、Fairyfly 和 VisualizationSet 的主要操作会自动导出由会话管理的 `.vtkjs` 预览，保存于：
-
-```text
-<garden>/tmp/web_view/previews/
-```
-
-预览页面会轮询 Garden 的会话状态，并自动加载最新的 `.vtkjs` 文件，无需手动刷新。
-这些自动预览用于当前会话，不属于用户明确要求导出的正式成果。
-如果需要长期保存和重复使用的成果，仍应让代理通过 `LB_Export_Visualization_Set`（`export_format="vtkjs"`）导出可视化集。
-
-当省略 `port`（`None`）时，本地预览服务会自动绑定 `127.0.0.1` 的临时空闲端口（`0`）；当传入显式 `port` 且该端口已被占用时，启动会明确报错，不会静默切换到其他端口或让浏览器继续显示旧 Garden。
+Web View 模式下，代码模式中的 Honeybee 建模/编辑、`HB_Validate_Model` 校验以及 Dragonfly 建模操作会在每个执行块结束时合并刷新一次 `<garden>/tmp/web_view/present.json`；`lbt-rune-viewer` 检测到同路径模型内容变化后会自动原地重载并保留您当前的相机视角。
+这些会话文件属于本地预览状态，不属于用户明确要求导出的正式成果。
+如果需要长期保存和重复使用的成果（如 `html`、`svg`、`png`、`vtkjs`、`vtk`、`vtp`、`vsf`、`pkl`），仍应让代理通过 `LB_Export_Visualization_Set` 显式导出可视化集。
 
 ## 首次使用
 
-在代理应用中配置好 MCP 服务后，新建一个任务并直接描述您的 Garden 或建模需求。
-在 Codex 中，将 `install --generate-config` 输出的配置块复制到 `~/.codex/config.toml`，重启后直接描述 Garden 或建模任务。
+按照[代理客户端配置指南](#代理客户端配置指南)完成配置（将 `command` 设为 `<LBT_MCP_HOME>\bin\lbt-mcp.exe`、参数设为 `["serve"]`）后，重启客户端并新建会话，直接描述您的 Garden 或建模需求即可。
 
 在可承受的范围内选择能力较强、上下文窗口较大的模型，有助于多步骤建模与模拟工作流更稳定地执行。
 
@@ -371,7 +495,13 @@ Web View 模式下，Honeybee、Dragonfly、Fairyfly 和 VisualizationSet 的主
 
 ## 开源许可证
 
-Ladybug Tools MCP 采用 GNU 通用公共许可证第三版（GPL v3），与 Ladybug Tools 项目的开源许可证一致。
+Ladybug Tools MCP 采用 GNU Affero 通用公共许可证第三版（**`AGPL-3.0-only`**，见 [LICENSE](LICENSE)），与 Ladybug Tools Core SDK 保持一致。
+
+第三方组件许可证、署名与随附二进制声明见 [licenses/THIRD_PARTY_NOTICES.md](licenses/THIRD_PARTY_NOTICES.md)，AGPL 与 LGPL 组件（`lbt-mcp`、LBT Core SDKs、`gmsh`、`GEOS`、`Ironbug 1.26.1`）的对应源码获取说明见 [licenses/CORRESPONDING_SOURCE.md](licenses/CORRESPONDING_SOURCE.md)：
+
+- **Radiance**：“This product includes Radiance software (http://radsite.lbl.gov/) developed by the Lawrence Berkeley National Laboratory (http://www.lbl.gov/).”
+- **EnergyPlus**：在随附 OpenStudio 运行时内未修改地分发 **EnergyPlus version 25.2.0**；本项目未获得美国能源部（DOE）或劳伦斯伯克利国家实验室（LBNL）的背书。
+- **OpenStudio(R)**：依据 BSD-3-Clause 许可证随附 **OpenStudio(R)** 3.11.0 运行时组件（保留未修改的 EnergyPlus 子目录，裁剪的非运行时目录详见 [licenses/THIRD_PARTY_NOTICES.md](licenses/THIRD_PARTY_NOTICES.md)）；本项目未获得 NREL 或 Alliance for Sustainable Energy 的背书。
 
 ## 联系方式
 

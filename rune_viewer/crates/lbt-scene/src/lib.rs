@@ -6,7 +6,9 @@ pub mod parser;
 pub mod triangulate;
 pub mod types;
 
-pub use color::{color_for_object, resolve_scene_colors};
+pub use color::{
+    build_legend, color_for_object, color_for_object_in_scene, resolve_scene_colors,
+};
 pub use parser::{load_hbjson_file, load_hbjson_str, SceneError};
 pub use triangulate::orientation_label;
 pub use types::*;

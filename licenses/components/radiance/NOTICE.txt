@@ -1,0 +1,8 @@
+Radiance 5.4 (rad5R4)
+=====================
+
+This product includes Radiance software (http://radsite.lbl.gov/) developed by the Lawrence Berkeley National Laboratory (http://www.lbl.gov/).
+
+Distribution notes:
+- Included: Radiance 5.4 command-line raytracing binaries and library data (`bin/`, `lib/`).
+- Excluded/pruned from Windows offline runtime: `rvu.exe` and LGPL Qt5 DLLs (`Qt5Core.dll`, `Qt5Gui.dll`, `Qt5Widgets.dll`, `platforms/`, `imageformats/`).

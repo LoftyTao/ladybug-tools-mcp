@@ -123,12 +123,12 @@ pub fn resolve_contained_path(garden_root: &Path, relative_path: &str) -> Result
             )));
         }
     }
-    if let (Ok(canon_root), Ok(canon_cand)) = (garden_root.canonicalize(), candidate.canonicalize()) {
-        if !canon_cand.starts_with(&canon_root) {
-            return Err(BridgeError::InvalidPath(format!(
-                "resolved path escapes Garden root: {relative_path:?}"
-            )));
-        }
+    if let (Ok(canon_root), Ok(canon_cand)) = (garden_root.canonicalize(), candidate.canonicalize())
+        && !canon_cand.starts_with(&canon_root)
+    {
+        return Err(BridgeError::InvalidPath(format!(
+            "resolved path escapes Garden root: {relative_path:?}"
+        )));
     }
     Ok(candidate)
 }

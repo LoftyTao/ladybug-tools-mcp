@@ -1,28 +1,37 @@
-"""Local MCP launcher and installer. Environment management belongs to uv."""
+"""Local MCP server, runtime manager, pack manager, diagnostics, and Flowerpot CLI."""
 
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
-import subprocess
 import sys
 import tempfile
-import tomllib
-from zipfile import ZipFile
-from email.parser import Parser
 
-from ladybug_tools_mcp import __version__
 from flowerpot.installation import installation_path, read_installation
-from ladybug_tools_mcp_clients import CLIENTS, render_client
-
+from ladybug_tools_mcp import __version__
+from ladybug_tools_mcp.runtime_home import (
+    RUNTIME_CONFIG_KEYS,
+    atomic_write_json,
+    default_runtime_config,
+    home_installation_path,
+    install_pack,
+    list_packs,
+    read_runtime_config,
+    remove_pack,
+    resolve_home_dir,
+    resolved_runtime_config,
+    run_doctor,
+    sync_sdk_configs,
+    user_installation_path,
+    write_installation_records,
+    write_runtime_config,
+)
 
 PACKAGE = "lbt-mcp"
-SKILL = "ladybug-tools-mcp-use"
 
 
 def configure_stdio() -> None:
@@ -41,6 +50,21 @@ def digest(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def file_bytes(path: Path) -> bytes | None:
+    return path.read_bytes() if path.is_file() else None
+
+
+def atomic_write(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=".ladybug-tools-")
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def validate_grasshopper_manifest(source: Path) -> dict:
     """Validate the packaged Flowerpot index before copying user objects."""
     try:
@@ -57,7 +81,8 @@ def validate_grasshopper_manifest(source: Path) -> dict:
             raise ValueError("Invalid Grasshopper manifest entry.")
         asset = source / filename
         if (
-            name in names or filename in files
+            name in names
+            or filename in files
             or entry.get("category") != "Flowerpot"
             or entry.get("subcategory") != "Flowerpot"
             or entry.get("exposure") not in {2, 4, 8, 16, 32, 64, 128}
@@ -75,147 +100,6 @@ def validate_grasshopper_manifest(source: Path) -> dict:
     return manifest
 
 
-def atomic_write(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=".ladybug-tools-")
-    try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(content)
-        os.replace(temporary, path)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
-
-
-def file_bytes(path: Path) -> bytes | None:
-    return path.read_bytes() if path.is_file() else None
-
-
-def uv_command() -> str:
-    executable = shutil.which("uv")
-    if not executable:
-        raise RuntimeError("Install uv first: https://docs.astral.sh/uv/getting-started/installation/")
-    return str(absolute(executable))
-
-
-def tool_environment(directory: Path) -> dict[str, str]:
-    bin_dir = directory / "bin"
-    return {**os.environ, "UV_TOOL_DIR": str(directory), "UV_TOOL_BIN_DIR": str(bin_dir),
-            "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", "")}
-
-
-def tool_python(directory: Path) -> Path:
-    return directory / PACKAGE / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-
-
-def isolated_instruction(command: str) -> str:
-    return f"uvx --isolated --python 3.12 --prerelease allow {PACKAGE}@{__version__} {command}"
-
-
-def check_not_running_in_target(python: Path, command: str) -> None:
-    # Compare paths without following POSIX venv symlinks to the shared base Python.
-    if os.path.normcase(os.path.abspath(sys.executable)) == os.path.normcase(str(python.absolute())):
-        raise RuntimeError("Run the installer outside its target environment:\n" + isolated_instruction(command))
-
-
-def ask_path(label: str, default: Path) -> Path:
-    return absolute(input(f"{label} [{default}]: ").strip() or default)
-
-
-def ask_yes(label: str, default: bool) -> bool:
-    answer = input(f"{label} [{'Y/n' if default else 'y/N'}]: ").strip().lower()
-    if not answer:
-        return default
-    if answer not in {"y", "yes", "n", "no"}:
-        raise ValueError("Answer yes or no.")
-    return answer in {"y", "yes"}
-
-
-def normalize_clients(values: list[str]) -> list[str]:
-    if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
-        raise ValueError("Client selection must be a list of client IDs.")
-    if values == ["all"]:
-        return list(CLIENTS)
-    if values == ["none"]:
-        return []
-    unknown = [value for value in values if value not in CLIENTS]
-    if unknown:
-        raise ValueError("Unknown client selection: " + ", ".join(unknown) + ". Run lbt-mcp clients.")
-    return list(dict.fromkeys(values))
-
-
-def ask_clients(default: list[str]) -> list[str]:
-    print("Client presets (comma-separated numbers or IDs; 0 = runtime only, all = every preset):")
-    choices = list(CLIENTS)
-    for index, client in enumerate(choices, 1):
-        mode = "automatic or export" if client == "codex" else "export / import guide"
-        print(f"  {index}. {CLIENTS[client]['label']} [{client}] - {mode}")
-    answer = input(f"Clients [{', '.join(default) or 'none'}]: ").strip()
-    if not answer:
-        return default
-    values = []
-    for token in answer.split(","):
-        token = token.strip()
-        if token == "0":
-            token = "none"
-        elif token.isdecimal():
-            index = int(token)
-            if not 1 <= index <= len(choices):
-                raise ValueError("Client number is outside the displayed list.")
-            token = choices[index - 1]
-        values.append(token)
-    return normalize_clients(values)
-
-
-def preset_updates(clients: list[str], server: dict, skill_source: Path | None,
-                   output: Path | None, replace: bool, reserved: set[Path]):
-    """Generate importable fragments; these exports are never managed client files."""
-    changes, expected, results, rendered = {}, {}, [], {}
-    connected_note = (
-        "Generated files do not mean the client has connected or loaded Skills."
-        if skill_source is not None
-        else "Generated files do not mean the client has connected."
-    )
-    guide = [f"# lbt-mcp {__version__} client presets", "",
-             "Merge only the lbt-mcp entry into the selected client's configuration.",
-             "Do not replace an entire existing configuration with a fragment.",
-             connected_note,
-             "Use the paths only on the machine where this MCP runtime is installed.", ""]
-
-    def add_export(path: Path, content: str):
-        if path in reserved or path in changes:
-            raise ValueError(f"Preset output overlaps another installation file: {path}")
-        existing, data = file_bytes(path), content.encode("utf-8")
-        if path.is_symlink():
-            raise ValueError(f"Refusing to export through a symlink: {path}")
-        if existing is not None and existing != data and not replace:
-            raise FileExistsError(f"Preset export differs: {path}. Choose another --output-dir or use --replace for a backup.")
-        if existing != data:
-            changes[path], expected[path] = data, existing
-
-    for client in clients:
-        info = CLIENTS[client]
-        content = render_client(client, server, skill_source)
-        rendered[client] = content
-        entry = {"client": client, **info,
-                 "status": "guide" if info["format"] == "text" else "generated"}
-        if output:
-            suffix = "md" if info["format"] == "text" else info["format"]
-            path = output / f"lbt-mcp-{client}.{suffix}"
-            add_export(path, content)
-            entry["path"] = str(path)
-        results.append(entry)
-        guide.extend([f"## {info['label']} ({client})", "", info["instructions"], "",
-                      f"Reference: {info['docs']}", ""])
-    if output and clients:
-        if skill_source is not None and any(client != "devin-cloud" for client in clients):
-            guide.extend(["## Bundled Skill", "", str(skill_source), "",
-                          "Copy the complete ladybug-tools-mcp-use folder, including its references,",
-                          "to the selected client's documented Skills directory or use its import UI.",
-                          "An MCP resource is separate from client-side Skill discovery.", ""])
-        add_export(output / "lbt-mcp-README.md", "\n".join(guide))
-    return changes, expected, results, rendered
-
-
 def grasshopper_directory() -> Path:
     if sys.platform != "win32":
         raise RuntimeError("Flowerpot's verified first release supports Windows with Rhino 8.")
@@ -231,54 +115,24 @@ def grasshopper_directory() -> Path:
             except (OSError, TypeError, ValueError):
                 pass
         else:
-            raise RuntimeError("Rhino 8 was not found. Select its Grasshopper UserObjects directory with --grasshopper-dir if it is installed elsewhere.")
+            raise RuntimeError(
+                "Rhino 8 was not found. Select its Grasshopper UserObjects directory with --grasshopper-dir if it is installed elsewhere."
+            )
     appdata = os.environ.get("APPDATA")
     if not appdata:
         raise RuntimeError("APPDATA is unavailable; cannot locate Grasshopper UserObjects.")
     return absolute(Path(appdata) / "Grasshopper/UserObjects/Flowerpot")
 
 
-def configuration(python: Path, gardens: Path, state: Path) -> dict:
-    return {
-        "command": str(python),
-        "args": ["-I", "-m", "ladybug_tools_mcp.server"],
-        "env": {
-            "LADYBUG_TOOLS_GARDENS_ROOT": str(gardens),
-            "LADYBUG_TOOLS_MCP_INSTALLATION": str(state),
-        },
-        "startup_timeout_sec": 60,
-        "required": True,
-    }
-
-
-def codex_update(path: Path, server: dict, previous: dict, replace: bool):
-    import tomlkit
-
-    content = file_bytes(path)
-    document = tomlkit.parse(content.decode("utf-8-sig") if content else "")
-    servers = document.setdefault("mcp_servers", tomlkit.table())
-    current = servers.get(PACKAGE)
-    prior = previous.get("codex") or {}
-    owned = prior.get("path") == str(path) and current == prior.get("installed")
-    if current is not None and current != server and not owned and not replace:
-        raise FileExistsError(f"Existing MCP configuration differs: {path}. Use --replace to back it up and replace this server only.")
-    original = prior.get("original") if owned else (current.unwrap() if current is not None else None)
-    servers[PACKAGE] = server
-    updated = tomlkit.dumps(document).encode("utf-8")
-    assert tomllib.loads(updated.decode("utf-8"))["mcp_servers"][PACKAGE] == server
-    return updated, {"path": str(path), "installed": server, "original": original}, content
-
-
-def owned_asset_paths(record: dict) -> dict[str, dict]:
-    result = {}
+def _owned_grasshopper_paths(record: dict) -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    gh_root_raw = record.get("grasshopper_dir")
     for item in record.get("assets", []):
-        kind = item["kind"]
-        if kind == "skill":
-            root = absolute(record["skills_dir"]) / SKILL
-        elif kind == "grasshopper":
-            root = absolute(record["grasshopper_dir"])
-        else:
-            raise ValueError("Unknown installed asset kind.")
+        if item.get("kind") != "grasshopper":
+            continue
+        if not isinstance(gh_root_raw, str) or not gh_root_raw:
+            raise ValueError("Installation record missing grasshopper_dir for Flowerpot asset.")
+        root = absolute(gh_root_raw)
         path = absolute(item["path"])
         path.relative_to(root)
         if path == root:
@@ -287,65 +141,20 @@ def owned_asset_paths(record: dict) -> dict[str, dict]:
     return result
 
 
-def asset_updates(resources: Path, skills: Path | None, gh: Path | None, previous: dict, replace: bool):
-    old = owned_asset_paths(previous)
-    changes, assets, kept, expected = {}, [], [], {}
-    groups = []
-    if skills and (resources / "skills" / SKILL).is_dir():
-        groups.append((resources / "skills" / SKILL, skills / SKILL, "skill"))
-    if gh:
-        source = resources / "grasshopper"
-        manifest = validate_grasshopper_manifest(source)
-        if manifest.get("version") != __version__:
-            raise ValueError("Grasshopper assets do not match this release.")
-        groups.append((source, gh, "grasshopper"))
-    for source, destination, kind in groups:
-        if not source.is_dir():
-            raise FileNotFoundError(f"Distribution assets missing: {source}")
-        for item in sorted(source.rglob("*")):
-            if not item.is_file():
-                continue
-            path = destination / item.relative_to(source)
-            data = item.read_bytes()
-            existing = file_bytes(path)
-            known = old.get(str(path), {}).get("sha256")
-            if existing is not None and existing != data and digest(existing) != known and not replace:
-                raise FileExistsError(f"Modified or unmanaged asset: {path}. Use --replace to keep a backup and replace it.")
-            if existing != data:
-                changes[path] = data
-                expected[path] = existing
-            assets.append({"path": str(path), "kind": kind, "sha256": digest(data)})
-    wanted = {item["path"] for item in assets}
-    for name, item in old.items():
-        if name in wanted:
-            continue
-        if item["kind"] == "skill" and skills is None:
-            assets.append(item)
-            continue
-        path = Path(name)
-        content = file_bytes(path)
-        if content is not None:
-            if digest(content) == item["sha256"]:
-                changes[path] = None
-                expected[path] = content
-            else:
-                kept.append(name)
-    return changes, assets, kept, expected
-
-
-def commit_files(changes: dict[Path, bytes | None], before: dict[Path, bytes | None]) -> list[str]:
+def _commit_files(changes: dict[Path, bytes | None], before: dict[Path, bytes | None]) -> list[str]:
     """Back up existing files and roll back partial writes on a local failure."""
     for path in changes:
         if path.is_symlink() or file_bytes(path) != before[path]:
-            raise RuntimeError(f"File changed during installation or is a symlink; retry: {path}")
-    backups, written = [], []
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            raise RuntimeError(f"File changed during operation or is a symlink; retry: {path}")
+    backups: list[str] = []
+    written: list[Path] = []
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     try:
         for path, content in changes.items():
             if path.is_symlink():
                 raise ValueError(f"Refusing to replace a symlink: {path}")
             if file_bytes(path) != before[path]:
-                raise RuntimeError(f"File changed during installation; retry: {path}")
+                raise RuntimeError(f"File changed during operation; retry: {path}")
             if before[path] is not None:
                 backup = path.with_name(path.name + ".ladybug-backup-" + stamp)
                 atomic_write(backup, before[path])
@@ -365,278 +174,455 @@ def commit_files(changes: dict[Path, bytes | None], before: dict[Path, bytes | N
     return backups
 
 
-def runtime_details(python: Path) -> dict:
-    code = (
-        "import json, pathlib, ladybug_tools_mcp; "
-        "import ladybug_tools_mcp.server; "
-        "p=pathlib.Path(ladybug_tools_mcp.__file__).resolve(); "
-        "print(json.dumps({'version':ladybug_tools_mcp.__version__,"
-        "'package_root':str(p.parent.parent),'resources':str(p.parent/'resources')}))"
-    )
-    completed = subprocess.run([str(python), "-I", "-c", code], check=True, text=True, capture_output=True)
-    details = json.loads(completed.stdout)
-    if details["version"] != __version__:
-        raise ValueError("Installed MCP version does not match the installer.")
-    return details
-
-
-def wheel_requirement(path: Path | None) -> str:
-    if path is None:
-        return f"{PACKAGE}=={__version__}"
-    path = absolute(path)
-    with ZipFile(path) as archive:
-        entries = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
-        if len(entries) != 1:
-            raise ValueError("Wheel must contain exactly one distribution.")
-        metadata = Parser().parsestr(archive.read(entries[0]).decode("utf-8"))
-        if metadata["Name"].replace("_", "-") != PACKAGE or metadata["Version"] != __version__:
-            raise ValueError("Wheel name/version does not match this installer.")
-    return str(path)
-
-
-def install(args) -> dict:
-    configure_stdio()
-    state = absolute(args.state)
-    state_before = file_bytes(state)
-    previous = read_installation(str(state))
-    if previous and not args.yes:
-        if not sys.stdin.isatty():
-            raise ValueError("Interactive install requires a terminal. Use --yes with explicit options for automation.")
-        action = input("Existing installation: [I]nstall/update, [U]ninstall, or [Q]uit [I]: ").strip().lower()
-        if action in {"u", "uninstall"}:
-            return uninstall(args)
-        if action in {"q", "quit"}:
-            return {"status": "cancelled"}
-        if action not in {"", "i", "install", "update"}:
-            raise ValueError("Choose install, uninstall, or quit.")
-    requested = getattr(args, "client", None)
-    clients = normalize_clients(requested if requested is not None else previous.get("client_presets", ["codex"]))
-    output = absolute(args.output_dir) if getattr(args, "output_dir", None) else None
-    uv = uv_command()
-    tools_dir = absolute(args.tool_dir or previous.get("tool_dir") or Path.home() / ".ladybug-tools-mcp" / "tools")
-    gardens = absolute(args.garden_dir or previous.get("gardens_root") or Path.home() / "Gardens")
-    codex = absolute(args.codex_config or (previous.get("codex") or {}).get("path") or Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "config.toml")
-    skills = absolute(args.skills_dir or previous.get("skills_dir") or Path.home() / ".agents/skills")
-    gh_enabled = args.grasshopper if args.grasshopper is not None else bool(previous.get("grasshopper_dir"))
+def _install_grasshopper_assets(gh_dir: Path, previous: dict, *, replace: bool) -> dict:
     import ladybug_tools_mcp
+
     resources = Path(ladybug_tools_mcp.__file__).resolve().parent / "resources"
-    has_local_skills = (resources / "skills" / SKILL / "SKILL.md").is_file()
-    if not args.yes:
-        if not sys.stdin.isatty():
-            raise ValueError("Interactive install requires a terminal. Use --yes with explicit options for automation.")
-        print(f"Ladybug Tools MCP {__version__}")
-        tools_dir = ask_path("Runtime directory", tools_dir)
-        gardens = ask_path("Garden directory", gardens)
-        clients = ask_clients(clients)
-        if "codex" in clients:
-            codex_prompt = (
-                "Configure Codex and install local Skills?"
-                if has_local_skills
-                else "Configure Codex?"
+    source = resources / "grasshopper"
+    if not source.is_dir():
+        source = Path(__file__).resolve().parent / "grasshopper_components" / "user_objects"
+    manifest = validate_grasshopper_manifest(source)
+    if manifest.get("version") != __version__:
+        raise ValueError("Grasshopper assets do not match this release.")
+
+    old = _owned_grasshopper_paths(previous)
+    changes: dict[Path, bytes | None] = {}
+    expected: dict[Path, bytes | None] = {}
+    assets: list[dict] = []
+    kept: list[str] = []
+
+    for item in sorted(source.rglob("*")):
+        if not item.is_file():
+            continue
+        dest = gh_dir / item.relative_to(source)
+        data = item.read_bytes()
+        existing = file_bytes(dest)
+        known = old.get(str(dest), {}).get("sha256")
+        if existing is not None and existing != data and digest(existing) != known and not replace:
+            raise FileExistsError(
+                f"Modified or unmanaged asset: {dest}. Use --replace to keep a backup and replace it."
             )
-            args.generate_config = not ask_yes(codex_prompt, not args.generate_config)
-        if clients and output is None:
-            answer = input("Save preset files to a directory (blank = print only): ").strip()
-            output = absolute(answer) if answer else None
-        gh_enabled = ask_yes("Install Flowerpot integration (Grasshopper / Rhino 8 on Windows)?", gh_enabled)
-    configure_codex = "codex" in clients and not args.generate_config
-    if configure_codex and previous.get("codex") and previous["codex"]["path"] != str(codex):
-        raise ValueError("Uninstall before changing the managed Codex configuration path.")
-    if not configure_codex and previous.get("assets") and previous.get("skills_dir") != str(skills):
-        raise ValueError("Keep the installed Skills directory when only generating configuration.")
-    gh = None
-    if gh_enabled:
-        if sys.platform != "win32":
-            raise RuntimeError("Flowerpot's verified first release supports Windows with Rhino 8.")
-        try:
-            gh = absolute(args.grasshopper_dir or previous.get("grasshopper_dir") or grasshopper_directory())
-        except RuntimeError as error:
-            if args.yes:
-                raise
-            print(error)
-            answer = input("Grasshopper UserObjects/Flowerpot directory (blank = skip Flowerpot): ").strip()
-            gh = absolute(answer) if answer else None
-        else:
-            if not args.yes:
-                gh = ask_path("Grasshopper component directory", gh)
-    python = tool_python(tools_dir)
-    check_not_running_in_target(python, "install")
-    cache_dir = absolute(subprocess.run([uv, "cache", "dir"], check=True, capture_output=True, text=True).stdout.strip())
-    if (
-        gardens.is_relative_to(tools_dir)
-        or tools_dir.is_relative_to(gardens)
-        or gardens.is_relative_to(cache_dir)
-        or cache_dir.is_relative_to(gardens)
-    ):
-        raise ValueError("The Garden directory must be outside the runtime directory and uv cache.")
-    if previous and previous["tool_dir"] != str(tools_dir):
-        raise ValueError("Uninstall the existing runtime before changing its directory. Gardens are retained.")
-    if output and (output.is_relative_to(tools_dir) or output.is_relative_to(cache_dir)):
-        raise ValueError("Preset exports must be outside the runtime directory and uv cache.")
-    if not args.yes:
-        print(f"Runtime: {python}\nGardens: {gardens}")
-        print(f"Codex: {codex if configure_codex else 'not modified'}")
-        print(f"Preset output: {output or 'terminal'}")
-    server = configuration(python, gardens, state)
-    config_bytes, config_record, config_before = (None, None, None)
-    if configure_codex:
-        config_bytes, config_record, config_before = codex_update(codex, server, previous, args.replace)
-    changes, assets, kept, expected = asset_updates(resources, skills if configure_codex else None, gh, previous, args.replace)
-    if config_bytes is not None and config_before != config_bytes:
-        changes[codex] = config_bytes
-        expected[codex] = config_before
-    command = [uv, "tool", "install", "--python", "3.12", "--prerelease", "allow", "--force"]
-    if args.wheel:
-        command.extend(["--reinstall-package", PACKAGE])
-    command.append(wheel_requirement(args.wheel))
-    wheel_hash = digest(absolute(args.wheel).read_bytes()) if args.wheel else None
-    details = None
-    if previous.get("version") == __version__ and previous.get("wheel_sha256") == wheel_hash:
-        try:
-            details = runtime_details(python)
-        except (OSError, ValueError, subprocess.SubprocessError):
-            pass
-    if details is None:
-        try:
-            subprocess.run(command, env=tool_environment(tools_dir), check=True)
-        except subprocess.CalledProcessError as error:
-            raise RuntimeError("uv could not prepare the runtime. Close MCP clients and Rhino, check the error above, then retry this command. Client settings and Gardens were retained.") from error
-        details = runtime_details(python)
-    bundled_skill_root = Path(details["resources"]) / "skills"
-    skill_source = bundled_skill_root if (bundled_skill_root / SKILL / "SKILL.md").is_file() else None
-    export_changes, export_expected, presets, rendered = preset_updates(
-        clients, server, skill_source, output, args.replace,
-        {state, codex, *changes, *(Path(asset["path"]) for asset in assets)},
-    )
-    changes.update(export_changes)
-    expected.update(export_expected)
-    for entry in presets:
-        if entry["client"] == "codex" and configure_codex:
-            entry["status"] = "configured"
-    gardens.mkdir(parents=True, exist_ok=True)
-    record = {
-        **previous,
-        "schema_version": 1, "version": __version__, "wheel_sha256": wheel_hash, "tool_dir": str(tools_dir),
-        "python": str(python), "package_root": details["package_root"],
-        "gardens_root": str(gardens), "skills_dir": str(skills),
-        "grasshopper_dir": str(gh) if gh else None,
-        "codex": config_record if config_record else previous.get("codex"), "assets": assets,
-        "client_presets": clients,
+        if existing != data:
+            changes[dest] = data
+            expected[dest] = existing
+        assets.append({"path": str(dest), "kind": "grasshopper", "sha256": digest(data)})
+
+    wanted = {entry["path"] for entry in assets}
+    for name, item in old.items():
+        if name in wanted:
+            continue
+        path = Path(name)
+        content = file_bytes(path)
+        if content is not None:
+            if digest(content) == item["sha256"]:
+                changes[path] = None
+                expected[path] = content
+            else:
+                kept.append(name)
+
+    backups = _commit_files(changes, expected) if changes else []
+    return {
+        "grasshopper_dir": str(gh_dir),
+        "assets": assets,
+        "backups": backups,
+        "preserved_files": kept,
     }
-    changes[state] = (json.dumps(record, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-    expected[state] = state_before
-    backups = commit_files(changes, expected)
-    for entry in presets:
-        if not output and entry["status"] != "configured":
-            print(f"\n# {entry['label']} - {entry['status']}\n{entry['instructions']}\n")
-            print(rendered[entry["client"]])
-    return {"version": __version__, "python": str(python), "gardens_root": str(gardens),
-            "state": str(state), "codex_configured": configure_codex, "client_presets": presets,
-            "bundled_skills": str(skill_source) if skill_source else None,
-            "grasshopper": str(gh) if gh else None, "backups": backups, "preserved_files": kept}
 
 
-def uninstall(args) -> dict:
-    state = absolute(args.state)
-    state_before = file_bytes(state)
-    record = read_installation(str(state))
+def _resolve_state_path(state_arg: str | Path | None, home_arg: str | Path | None) -> Path:
+    if state_arg is not None:
+        return absolute(state_arg)
+    if home_arg is not None:
+        home_rec = home_installation_path(home_arg)
+        if home_rec.is_file():
+            return home_rec
+    return Path(installation_path())
+
+
+def _cmd_serve(args) -> int:
+    state_arg = getattr(args, "state", None)
+    home_arg = getattr(args, "home", None)
+    resolved_state = _resolve_state_path(state_arg, home_arg)
+    settings: dict = {}
+    if resolved_state.is_file():
+        settings = read_installation(str(resolved_state))
+        os.environ.setdefault("LADYBUG_TOOLS_MCP_INSTALLATION", str(resolved_state))
+    else:
+        settings = read_installation()
+    if settings:
+        if settings.get("gardens_root"):
+            os.environ.setdefault("LADYBUG_TOOLS_GARDENS_ROOT", settings["gardens_root"])
+        if settings.get("home"):
+            os.environ.setdefault("LADYBUG_TOOLS_MCP_HOME", settings["home"])
+    elif home_arg is not None:
+        os.environ.setdefault("LADYBUG_TOOLS_MCP_HOME", str(resolve_home_dir(home_arg)))
+
+    from ladybug_tools_mcp.server import mcp
+
+    mcp.run(show_banner=False)
+    return 0
+
+
+def _cmd_status(args) -> dict:
+    resolved_state = _resolve_state_path(args.state, args.home)
+    home_dir = resolve_home_dir(args.home, state_path=resolved_state if resolved_state.is_file() else None)
+    record = read_installation(str(resolved_state)) if resolved_state.is_file() else {}
+    if not record and home_installation_path(home_dir).is_file():
+        record = read_installation(str(home_installation_path(home_dir)))
+    if not record and args.home is None and args.state is None and user_installation_path().is_file():
+        candidate = read_installation(str(user_installation_path()))
+        if not candidate.get("home") or Path(candidate["home"]).expanduser().resolve() == home_dir:
+            record = candidate
     if not record:
-        return {"status": "not_installed"}
-    python = Path(record["python"])
-    tools_dir = absolute(record["tool_dir"])
-    if python != tool_python(tools_dir):
-        raise ValueError("Installation record has an unexpected Python location.")
-    check_not_running_in_target(python, "uninstall")
-    if not args.yes:
-        print(f"Runtime: {tools_dir}\nManaged Codex config: {(record.get('codex') or {}).get('path') or 'none'}")
-        print(f"Flowerpot: {record.get('grasshopper_dir') or 'none'}\nGardens retained: {record['gardens_root']}")
-        print("Only unchanged managed integrations will be removed; modified files will remain.")
-    if not args.yes and (not sys.stdin.isatty() or not ask_yes("Uninstall MCP and its unmodified integrations? Gardens will remain.", False)):
-        return {"status": "cancelled"}
-    changes, kept, expected = {}, [], {}
-    for name, item in owned_asset_paths(record).items():
+        return {
+            "status": "not_installed",
+            "version": __version__,
+            "home": str(home_dir),
+            "state": str(resolved_state),
+            "packs": list_packs(home_dir),
+        }
+    return {
+        "home": str(home_dir),
+        **record,
+        "status": "installed",
+        "state": str(resolved_state),
+        "packs": list_packs(home_dir),
+    }
+
+
+def _cmd_runtime_list(args) -> dict:
+    home_dir = resolve_home_dir(args.home)
+    return {
+        "home": str(home_dir),
+        "raw": read_runtime_config(home_dir),
+        "resolved": resolved_runtime_config(home_dir),
+    }
+
+
+def _cmd_runtime_sync(args) -> dict:
+    home_dir = resolve_home_dir(args.home)
+    sync_res = sync_sdk_configs(
+        home_dir,
+        site_packages=args.site_packages,
+        gardens_root=args.gardens,
+    )
+
+    gh_assets_info = None
+    gh_dir_resolved = None
+    if args.grasshopper_dir is not None:
+        gh_dir_resolved = absolute(args.grasshopper_dir)
+        prior_rec = (
+            read_installation(str(home_installation_path(home_dir)))
+            if home_installation_path(home_dir).is_file()
+            else {}
+        )
+        gh_assets_info = _install_grasshopper_assets(gh_dir_resolved, prior_rec, replace=True)
+
+    inst_info = None
+    has_existing_inst = home_installation_path(home_dir).is_file()
+    if args.gardens is not None or has_existing_inst or args.version or args.launcher or gh_dir_resolved:
+        existing = read_installation(str(home_installation_path(home_dir))) if has_existing_inst else {}
+        gardens = args.gardens or existing.get("gardens_root") or (Path.home() / "Gardens")
+        inst_info = write_installation_records(
+            home_dir,
+            gardens_root=gardens,
+            site_packages=args.site_packages,
+            launcher=args.launcher,
+            version=args.version,
+            grasshopper_dir=gh_dir_resolved,
+            assets=gh_assets_info["assets"] if gh_assets_info else None,
+            state_path=args.state,
+        )
+
+    return {
+        "status": "synced",
+        **sync_res,
+        "grasshopper": gh_assets_info,
+        "installation": inst_info,
+    }
+
+
+def _cmd_runtime_set(args) -> dict:
+    key = args.key
+    if key not in RUNTIME_CONFIG_KEYS:
+        raise ValueError(f"Unknown runtime config key {key!r}. Valid keys: {', '.join(RUNTIME_CONFIG_KEYS)}")
+    home_dir = resolve_home_dir(args.home)
+    cfg = read_runtime_config(home_dir)
+    if key == "standards_extension_folders":
+        val_str = args.value.strip()
+        if val_str.startswith("["):
+            parsed = json.loads(val_str)
+            if not isinstance(parsed, list):
+                raise ValueError("standards_extension_folders must be a JSON list or comma-separated paths.")
+            cfg[key] = [str(item) for item in parsed]
+        elif not val_str:
+            cfg[key] = []
+        else:
+            cfg[key] = [part.strip() for part in val_str.split(",") if part.strip()]
+    else:
+        cfg[key] = args.value
+    write_runtime_config(cfg, home_dir)
+    sync_res = None if args.no_sync else sync_sdk_configs(home_dir, site_packages=args.site_packages)
+    return {
+        "status": "updated",
+        "home": str(home_dir),
+        "key": key,
+        "value": cfg[key],
+        "sync": sync_res,
+    }
+
+
+def _cmd_runtime_reset(args) -> dict:
+    home_dir = resolve_home_dir(args.home)
+    defaults = default_runtime_config(home_dir)
+    if args.key:
+        if args.key not in RUNTIME_CONFIG_KEYS:
+            raise ValueError(f"Unknown runtime config key {args.key!r}.")
+        cfg = read_runtime_config(home_dir)
+        cfg[args.key] = defaults[args.key]
+    else:
+        cfg = defaults
+    write_runtime_config(cfg, home_dir)
+    sync_res = sync_sdk_configs(home_dir, site_packages=args.site_packages)
+    return {
+        "status": "reset",
+        "home": str(home_dir),
+        "key": args.key or "all",
+        "sync": sync_res,
+    }
+
+
+def _cmd_flowerpot_install(args) -> dict:
+    if sys.platform != "win32" and args.grasshopper_dir is None:
+        raise RuntimeError("Flowerpot's verified first release supports Windows with Rhino 8.")
+    state_path = _resolve_state_path(args.state, args.home)
+    previous = read_installation(str(state_path)) if state_path.is_file() else {}
+    if not previous and user_installation_path().is_file():
+        previous = read_installation(str(user_installation_path()))
+
+    gh_dir = absolute(
+        args.grasshopper_dir or previous.get("grasshopper_dir") or grasshopper_directory()
+    )
+    gh_res = _install_grasshopper_assets(gh_dir, previous, replace=args.replace)
+
+    home_dir = resolve_home_dir(args.home, state_path=state_path)
+    if previous.get("home") or (home_dir / "config").is_dir():
+        gardens = previous.get("gardens_root") or os.environ.get("LADYBUG_TOOLS_GARDENS_ROOT") or (Path.home() / "Gardens")
+        write_installation_records(
+            home_dir,
+            gardens_root=gardens,
+            python=previous.get("python"),
+            package_root=previous.get("package_root"),
+            launcher=previous.get("launcher"),
+            version=previous.get("version"),
+            distribution_mode=previous.get("distribution_mode") or "offline_bundle",
+            grasshopper_dir=gh_dir,
+            assets=gh_res["assets"],
+            state_path=state_path if args.state else None,
+        )
+    else:
+        import flowerpot
+
+        gardens = Path(previous.get("gardens_root") or os.environ.get("LADYBUG_TOOLS_GARDENS_ROOT") or (Path.home() / "Gardens")).expanduser().resolve()
+        gardens.mkdir(parents=True, exist_ok=True)
+        record = {
+            **previous,
+            "schema_version": 1,
+            "version": previous.get("version") or __version__,
+            "python": previous.get("python") or str(Path(sys.executable).resolve()),
+            "package_root": previous.get("package_root") or str(Path(flowerpot.__file__).resolve().parents[1]),
+            "gardens_root": str(gardens),
+            "grasshopper_dir": str(gh_dir),
+            "assets": gh_res["assets"],
+        }
+        atomic_write_json(state_path, record)
+
+    return {"status": "installed", **gh_res, "state": str(state_path)}
+
+
+def _cmd_flowerpot_uninstall(args) -> dict:
+    state_path = _resolve_state_path(args.state, args.home)
+    record = read_installation(str(state_path)) if state_path.is_file() else {}
+    if not record:
+        return {"status": "not_installed", "state": str(state_path)}
+
+    changes: dict[Path, bytes | None] = {}
+    expected: dict[Path, bytes | None] = {}
+    kept: list[str] = []
+    removed: list[str] = []
+    for name, item in _owned_grasshopper_paths(record).items():
         path = Path(name)
         data = file_bytes(path)
         if data is not None:
             if digest(data) == item["sha256"]:
                 changes[path] = None
                 expected[path] = data
+                removed.append(name)
             else:
                 kept.append(name)
-    codex = record.get("codex")
-    if codex:
-        import tomlkit
-        path = Path(codex["path"])
-        data = file_bytes(path)
-        if data is not None:
-            document = tomlkit.parse(data.decode("utf-8-sig"))
-            servers = document.get("mcp_servers", {})
-            if servers.get(PACKAGE) == codex["installed"]:
-                if codex["original"] is None:
-                    del servers[PACKAGE]
-                else:
-                    servers[PACKAGE] = codex["original"]
-                changes[path] = tomlkit.dumps(document).encode("utf-8")
-                expected[path] = data
-            elif PACKAGE in servers:
-                kept.append(str(path))
-    # A failed or manually removed runtime must not strand the user's config,
-    # Skills, or Garden behind an unremovable installation record.
-    if python.exists():
-        subprocess.run([uv_command(), "tool", "uninstall", PACKAGE], env=tool_environment(tools_dir), check=True)
-    changes[state] = None
-    expected[state] = state_before
-    backups = commit_files(changes, expected)
-    return {"status": "uninstalled", "gardens_root": record["gardens_root"],
-            "preserved_files": kept, "backups": backups}
+
+    backups = _commit_files(changes, expected) if changes else []
+
+    remaining_assets = [item for item in record.get("assets", []) if item.get("kind") != "grasshopper"]
+    updated = {**record, "grasshopper_dir": None, "assets": remaining_assets}
+
+    targets = [state_path]
+    if updated.get("home"):
+        targets.append(home_installation_path(updated["home"]))
+    if user_installation_path().is_file():
+        targets.append(user_installation_path())
+    seen: set[Path] = set()
+    for target in targets:
+        if target in seen or not target.is_file():
+            continue
+        seen.add(target)
+        atomic_write_json(target, updated)
+
+    return {
+        "status": "uninstalled",
+        "removed_files": removed,
+        "preserved_files": kept,
+        "backups": backups,
+        "state": str(state_path),
+    }
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=PACKAGE,
+        description="Ladybug Tools MCP server, runtime configuration, pack manager, and Flowerpot tools.",
+    )
+    parser.add_argument("--version", action="version", version=__version__)
+    subparsers = parser.add_subparsers(dest="command")
+
+    serve_p = subparsers.add_parser("serve", help="Run the stdio MCP server (default).")
+    serve_p.add_argument("--home", type=Path, help="Runtime home directory.")
+    serve_p.add_argument("--state", type=Path, help="Installation record path.")
+
+    status_p = subparsers.add_parser("status", help="Show installation and pack status.")
+    status_p.add_argument("--home", type=Path, help="Runtime home directory.")
+    status_p.add_argument("--state", type=Path, help="Installation record path.")
+
+    doctor_p = subparsers.add_parser("doctor", help="Diagnose runtime health and SDK config sync.")
+    doctor_p.add_argument("--home", type=Path, help="Runtime home directory.")
+    doctor_p.add_argument("--smoke", action="store_true", help="Run subprocess binary health probes.")
+    doctor_p.add_argument("--site-packages", type=Path, help="Override target venv site-packages.")
+
+    rt_p = subparsers.add_parser("runtime", help="Inspect, sync, set, or reset runtime configuration.")
+    rt_sub = rt_p.add_subparsers(dest="runtime_command", required=True)
+
+    rt_list = rt_sub.add_parser("list", help="Show raw and resolved runtime.json entries.")
+    rt_list.add_argument("--home", type=Path)
+
+    rt_sync = rt_sub.add_parser("sync", help="Sync SDK config.json files and pyvenv.cfg from runtime.json.")
+    rt_sync.add_argument("--home", type=Path)
+    rt_sync.add_argument("--site-packages", type=Path)
+    rt_sync.add_argument("--gardens", type=Path, help="Gardens root directory (must be outside --home).")
+    rt_sync.add_argument("--version", help="Release version string to record in installation.json.")
+    rt_sync.add_argument("--launcher", type=Path, help="Launcher executable path.")
+    rt_sync.add_argument("--grasshopper-dir", type=Path, help="Optional Grasshopper UserObjects/Flowerpot directory.")
+    rt_sync.add_argument("--state", type=Path, help="Optional explicit installation record path.")
+
+    rt_set = rt_sub.add_parser("set", help="Set a runtime.json key and sync SDK configs.")
+    rt_set.add_argument("key", help="Runtime configuration key.")
+    rt_set.add_argument("value", help="Value or path to assign.")
+    rt_set.add_argument("--home", type=Path)
+    rt_set.add_argument("--site-packages", type=Path)
+    rt_set.add_argument("--no-sync", action="store_true", help="Do not sync SDK configs after updating runtime.json.")
+
+    rt_reset = rt_sub.add_parser("reset", help="Reset runtime.json to <home>/runtimes defaults and sync.")
+    rt_reset.add_argument("key", nargs="?", help="Optional single key to reset.")
+    rt_reset.add_argument("--home", type=Path)
+    rt_reset.add_argument("--site-packages", type=Path)
+
+    pack_p = subparsers.add_parser("pack", help="Manage optional .lbtpack offline runtime packs.")
+    pack_sub = pack_p.add_subparsers(dest="pack_command", required=True)
+
+    pack_install = pack_sub.add_parser("install", help="Verify and install a .lbtpack archive.")
+    pack_install.add_argument("file", type=Path, help="Path to .lbtpack archive.")
+    pack_install.add_argument("--home", type=Path)
+    pack_install.add_argument("--force", action="store_true", help="Replace existing pack or conflicting files.")
+    pack_install.add_argument("--site-packages", type=Path)
+
+    pack_list = pack_sub.add_parser("list", help="List installed packs.")
+    pack_list.add_argument("--home", type=Path)
+
+    pack_remove = pack_sub.add_parser("remove", help="Remove an installed pack.")
+    pack_remove.add_argument("name", help="Pack name to remove.")
+    pack_remove.add_argument("--home", type=Path)
+    pack_remove.add_argument("--site-packages", type=Path)
+
+    fp_p = subparsers.add_parser("flowerpot", help="Install or uninstall Grasshopper Flowerpot user objects.")
+    fp_sub = fp_p.add_subparsers(dest="flowerpot_command", required=True)
+
+    fp_install = fp_sub.add_parser("install", help="Install Flowerpot .ghuser components.")
+    fp_install.add_argument("--grasshopper-dir", type=Path)
+    fp_install.add_argument("--replace", action="store_true")
+    fp_install.add_argument("--state", type=Path)
+    fp_install.add_argument("--home", type=Path)
+
+    fp_uninstall = fp_sub.add_parser("uninstall", help="Uninstall unmodified Flowerpot .ghuser components.")
+    fp_uninstall.add_argument("--state", type=Path)
+    fp_uninstall.add_argument("--home", type=Path)
+
+    return parser
 
 
 def main(argv=None) -> int:
-    configure_stdio()
-    parser = argparse.ArgumentParser(prog=PACKAGE, description="Ladybug Tools MCP server and local installation wizard.")
-    parser.add_argument("--version", action="version", version=__version__)
-    commands = parser.add_subparsers(dest="command")
-    commands.add_parser("serve", help="Run the stdio MCP server (default).")
-    commands.add_parser("clients", help="List available client presets without installing or changing settings.")
-    for name in ("install", "uninstall", "status"):
-        command = commands.add_parser(name)
-        command.add_argument("--state", default=installation_path(), help="Installation record path (for separate test profiles).")
-        if name != "status":
-            command.add_argument("--yes", action="store_true", help="Use defaults without interactive prompts; conflicts still fail.")
-        if name == "install":
-            command.add_argument("--tool-dir", type=Path)
-            command.add_argument("--garden-dir", type=Path)
-            command.add_argument("--codex-config", type=Path)
-            command.add_argument("--skills-dir", type=Path)
-            command.add_argument("--grasshopper", action=argparse.BooleanOptionalAction, default=None)
-            command.add_argument("--grasshopper-dir", type=Path)
-            command.add_argument("--client", action="append", choices=[*CLIENTS, "all", "none"],
-                                 help="Select a client preset; repeat for multiple clients. New installs default to codex.")
-            command.add_argument("--output-dir", type=Path, help="Save selected presets and import instructions here; otherwise print them.")
-            command.add_argument("--generate-config", action="store_true", help="Prepare runtime and generate selected presets without changing client settings or local Skills.")
-            command.add_argument("--replace", action="store_true", help="Back up and replace conflicting MCP settings or integration files.")
-            command.add_argument("--wheel", type=Path, help="Use a local wheel of this version instead of PyPI.")
+    parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command in (None, "serve"):
-        settings = read_installation()
-        if settings:
-            os.environ.setdefault("LADYBUG_TOOLS_GARDENS_ROOT", settings["gardens_root"])
-        from ladybug_tools_mcp.server import mcp
-        mcp.run(show_banner=False)
-        return 0
+        return _cmd_serve(args)
+
+    configure_stdio()
     try:
-        if args.command == "clients":
-            result = [{"client": client, **info, "automatic_configuration": client == "codex"}
-                      for client, info in CLIENTS.items()]
-        elif args.command == "install":
-            result = install(args)
-        elif args.command == "uninstall":
-            result = uninstall(args)
+        exit_code = 0
+        if args.command == "status":
+            result = _cmd_status(args)
+        elif args.command == "doctor":
+            result = run_doctor(
+                home=args.home,
+                smoke=args.smoke,
+                site_packages=args.site_packages,
+            )
+            exit_code = 0 if result.get("ok") else 1
+        elif args.command == "runtime":
+            if args.runtime_command == "list":
+                result = _cmd_runtime_list(args)
+            elif args.runtime_command == "sync":
+                result = _cmd_runtime_sync(args)
+            elif args.runtime_command == "set":
+                result = _cmd_runtime_set(args)
+            else:
+                result = _cmd_runtime_reset(args)
+        elif args.command == "pack":
+            if args.pack_command == "install":
+                result = install_pack(
+                    args.file,
+                    home=args.home,
+                    force=args.force,
+                    site_packages=args.site_packages,
+                )
+            elif args.pack_command == "list":
+                result = {"home": str(resolve_home_dir(args.home)), "packs": list_packs(args.home)}
+            else:
+                result = remove_pack(
+                    args.name,
+                    home=args.home,
+                    site_packages=args.site_packages,
+                )
+        elif args.command == "flowerpot":
+            if args.flowerpot_command == "install":
+                result = _cmd_flowerpot_install(args)
+            else:
+                result = _cmd_flowerpot_uninstall(args)
         else:
-            result = read_installation(str(absolute(args.state))) or {"status": "not_installed"}
+            parser.error(f"Unknown command: {args.command}")
+            return 2
+
         print(json.dumps(result, indent=2, ensure_ascii=False))
-        return 0
-    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        return exit_code
+    except (OSError, ValueError, RuntimeError) as error:
         print(f"{PACKAGE}: {error}", file=sys.stderr)
         return 1
 

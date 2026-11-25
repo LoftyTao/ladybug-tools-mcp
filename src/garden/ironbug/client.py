@@ -91,6 +91,9 @@ class IronbugBridgeClient:
         prepend: list[str] = []
         if self._paths.openstudio_csharp_dir:
             prepend.append(str(self._paths.openstudio_csharp_dir))
+            os_bin = self._paths.openstudio_csharp_dir.parent.parent / "bin"
+            if os_bin.is_dir():
+                prepend.append(str(os_bin))
         prepend.append(str(self._paths.ironbug_dir))
         existing_path = env.get("PATH", "")
         env["PATH"] = os.pathsep.join([*prepend, existing_path]) if existing_path else os.pathsep.join(prepend)
@@ -120,15 +123,25 @@ class IronbugBridgeClient:
         if self._proc is not None:
             self.close(force=True)
 
-        cmd = [
-            self._paths.dotnet_exe,
-            "--roll-forward",
-            "Major",
-            str(self._paths.bridge_dll),
-            "--ironbug-dir",
-            str(self._paths.ironbug_dir),
-            "--serve",
-        ]
+        if self._paths.is_self_contained and self._paths.bridge_exe is not None:
+            cmd = [
+                str(self._paths.bridge_exe),
+                "--ironbug-dir",
+                str(self._paths.ironbug_dir),
+                "--serve",
+            ]
+        else:
+            if not self._paths.dotnet_exe:
+                raise RuntimeError("dotnet executable is required when IronbugBridge is not self-contained.")
+            cmd = [
+                self._paths.dotnet_exe,
+                "--roll-forward",
+                "Major",
+                str(self._paths.bridge_dll),
+                "--ironbug-dir",
+                str(self._paths.ironbug_dir),
+                "--serve",
+            ]
         if self._paths.openstudio_csharp_dir:
             cmd.extend(["--openstudio-csharp-dir", str(self._paths.openstudio_csharp_dir)])
 
@@ -319,8 +332,20 @@ def get_bridge_client(*, require_openstudio: bool = True) -> IronbugBridgeClient
             if (
                 not require_openstudio
                 and _CLIENT_KEY.openstudio_csharp_dir is not None
-                and (_CLIENT_KEY.ironbug_dir, _CLIENT_KEY.dotnet_exe, _CLIENT_KEY.bridge_dll)
-                == (paths.ironbug_dir, paths.dotnet_exe, paths.bridge_dll)
+                and (
+                    _CLIENT_KEY.ironbug_dir,
+                    _CLIENT_KEY.dotnet_exe,
+                    _CLIENT_KEY.bridge_dll,
+                    _CLIENT_KEY.bridge_exe,
+                    _CLIENT_KEY.is_self_contained,
+                )
+                == (
+                    paths.ironbug_dir,
+                    paths.dotnet_exe,
+                    paths.bridge_dll,
+                    paths.bridge_exe,
+                    paths.is_self_contained,
+                )
             ):
                 return _CLIENT_INSTANCE
         if _CLIENT_INSTANCE is not None:

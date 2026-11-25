@@ -3,7 +3,12 @@ name = "lbt-viewer-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Native GPU desktop and headless HBJSON/Garden viewer powered by Rune and wgpu."
+description = "Rune-powered Honeybee 3D architectural CAD studio UI, browser WASM app, and headless snapshot runner."
+
+[lib]
+name = "lbt_viewer_app"
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
 
 [[bin]]
 name = "lbt-rune-viewer"
@@ -12,9 +17,27 @@ path = "src/main.rs"
 [dependencies]
 lbt-scene = { workspace = true }
 lbt-renderer-wgpu = { workspace = true }
-lbt-mcp-bridge = { workspace = true }
-rune = { workspace = true }
+rune-kit = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 glam = { workspace = true }
 wgpu = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+lbt-mcp-bridge = { workspace = true }
+rune = { workspace = true, features = ["tooling"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rune = { workspace = true, features = ["webgl"] }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Headers",
+    "HtmlCanvasElement",
+    "Location",
+    "Navigator",
+    "RequestInit",
+    "Response",
+    "Window",
+] }

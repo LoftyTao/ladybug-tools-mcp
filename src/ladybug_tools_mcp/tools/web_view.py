@@ -21,18 +21,21 @@ from ladybug_tools_mcp.contracts import (
     validate_output,
 )
 from web_view import (
+    can_open_rune_window,
     capture_web_view,
     discover_rune_viewer_binary,
+    discover_rune_web_bundle_dir,
     ensure_initial_interaction_state,
     ensure_initial_present,
     get_web_view_context,
     interaction_state_file_path,
+    is_rune_viewer_running,
     launch_rune_viewer,
     present_file_path,
-    start_preview_url_fallback,
+    start_rune_web_server,
     start_web_view_session,
-    stop_preview_url_fallback,
     stop_rune_viewer,
+    stop_rune_web_server,
     stop_web_view_session,
     update_present,
 )
@@ -44,6 +47,9 @@ class WebViewSessionResult(ToolResultModel):
     session: dict[str, Any] | None = None
     session_path: str | None = None
     viewer: dict[str, Any] | None = None
+    rune_viewer: dict[str, Any] | None = None
+    web_url: str | None = None
+    web_server: dict[str, Any] | None = None
     present: dict[str, Any] | None = None
     present_path: str | None = None
     interaction_state_path: str | None = None
@@ -93,11 +99,11 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name="GD_Web_View_Start_Mode",
         description=(
-            "Start the Garden-local 3D viewer coordination session (native Rune 3D viewer protocol "
-            "and/or offline vtk.js local URL workbench). Automatically seeds tmp/web_view/present.json "
-            "from the Garden's base Honeybee model if present so the viewer never opens blank."
+            "Start the Garden-local Rune 3D viewer coordination session and optionally launch "
+            "the native lbt-rune-viewer desktop window. Automatically seeds tmp/web_view/present.json "
+            "from the Garden's base Honeybee or Dragonfly model if present."
         ),
-        tags={"preview", "rune", "vtkjs", "web-view"},
+        tags={"preview", "rune", "viewer", "web-view"},
         timeout=30,
     )
     def start_web_view_mode(
@@ -107,8 +113,8 @@ def register(mcp: FastMCP) -> None:
         ],
         name: Annotated[
             str,
-            Field(description="Human-readable viewer session name."),
-        ] = "Code Mode vtk.js Preview",
+            Field(description="Human-readable Rune 3D viewer session name."),
+        ] = "Rune 3D Preview",
         preview_kinds: Annotated[
             list[
                 Literal[
@@ -124,58 +130,36 @@ def register(mcp: FastMCP) -> None:
                 description="Optional preview kinds such as object_edit, base_honeybee_model, base_dragonfly_model, search_highlight, or analysis_overlay."
             ),
         ] = None,
-        port: Annotated[
+        open_window: Annotated[
+            bool,
+            Field(
+                description="Whether to spawn the native lbt-rune-viewer desktop window (set False for headless/protocol-only sessions; gracefully falls back with a warning if the binary or display is unavailable)."
+            ),
+        ] = True,
+        serve_web: Annotated[
+            bool,
+            Field(
+                description="Whether to serve the browser-native WASM Rune Web View on local loopback HTTP so the user can view and operate the 3D scene directly in a browser."
+            ),
+        ] = True,
+        web_port: Annotated[
             int | None,
             Field(
-                description="Optional local loopback port (1-65535). When omitted, binds an ephemeral port; when specified and already occupied, raises a port conflict error.",
-                ge=1,
+                description="Optional local loopback HTTP port for the browser Web View server (defaults to an available ephemeral port).",
+                ge=1024,
                 le=65535,
             ),
         ] = None,
-        viewer_backend: Annotated[
-            Literal["auto", "rune", "web"],
-            Field(
-                description="Viewer backend: 'auto' (native Rune when open_window=True without explicit port, else local web workbench fallback), 'rune' (native Rune protocol without web server/vtkjs exports), or 'web' (local vtk.js HTTP server)."
-            ),
-        ] = "auto",
-        open_window: Annotated[
-            bool,
-            Field(description="Whether to spawn the lbt-rune-viewer desktop window for this Garden."),
-        ] = False,
         preserve_history: Annotated[
             bool,
             Field(description="Preserve existing session preview steps and present revision history when restarting."),
         ] = True,
     ) -> WebViewSessionResult:
-        """Enable local Web View Mode and prepare viewer protocol files."""
+        """Enable Rune Web View Mode and prepare viewer protocol files + local browser server."""
         root = Path(garden_root).expanduser().resolve()
         GardenManifest.read(root)
         rune_bin = discover_rune_viewer_binary()
-
-        use_web_server = (
-            viewer_backend == "web"
-            or (viewer_backend == "auto" and (not open_window or port is not None or rune_bin is None))
-        )
-        if use_web_server:
-            viewer = start_preview_url_fallback(garden_root=str(root), name=name, port=port)
-            viewer["backend"] = viewer_backend
-            viewer["web_fallback_active"] = True
-            viewer["rune_available"] = rune_bin is not None
-            if rune_bin is not None:
-                viewer["rune_binary"] = str(rune_bin)
-        else:
-            stop_preview_url_fallback(garden_root=str(root))
-            viewer = {
-                "ui": "Rune 3D Viewer",
-                "library": "rune-wgpu",
-                "mode": "rune_viewer",
-                "backend": "rune",
-                "web_fallback_active": False,
-                "local_only": True,
-                "rune_available": rune_bin is not None,
-            }
-            if rune_bin is not None:
-                viewer["rune_binary"] = str(rune_bin)
+        web_bundle = discover_rune_web_bundle_dir()
 
         present = ensure_initial_present(
             garden_root=root,
@@ -184,19 +168,68 @@ def register(mcp: FastMCP) -> None:
         )
         ensure_initial_interaction_state(root, model_path=present.get("model_path"))
 
-        if open_window and viewer_backend != "web":
-            if rune_bin is not None:
+        viewer: dict[str, Any] = {
+            "ui": "Rune 3D Viewer",
+            "library": "rune-wgpu",
+            "mode": "rune_viewer",
+            "backend": "rune",
+            "local_only": True,
+            "rune_available": rune_bin is not None,
+            "web_bundle_available": web_bundle is not None,
+        }
+        if rune_bin is not None:
+            viewer["rune_binary"] = str(rune_bin)
+
+        warnings_list: list[str] = []
+        if open_window:
+            can_open, headless_reason = can_open_rune_window()
+            if not can_open:
+                window_status = "skipped_headless"
+                if headless_reason:
+                    viewer["rune_launch_warning"] = headless_reason
+                    warnings_list.append(headless_reason)
+            elif rune_bin is not None:
                 launch_info = launch_rune_viewer(garden_root=root, binary_path=rune_bin)
                 viewer["rune_process"] = launch_info
                 viewer["pid"] = launch_info.get("pid")
-            elif viewer_backend == "rune":
-                raise FileNotFoundError(
-                    "lbt-rune-viewer binary not found. Set LBT_RUNE_VIEWER_BIN or build rune_viewer first."
-                )
+                window_status = str(launch_info.get("status") or "started")
             else:
-                viewer["rune_launch_warning"] = (
-                    "lbt-rune-viewer binary not found; using local web fallback server."
+                window_status = "binary_not_found"
+                warn = (
+                    "lbt-rune-viewer binary not found; protocol files remain active in tmp/web_view/."
                 )
+                viewer["rune_launch_warning"] = warn
+                warnings_list.append(warn)
+        else:
+            window_status = "already_running" if is_rune_viewer_running(root) else "not_requested"
+        viewer["window_status"] = window_status
+
+        web_info: dict[str, Any] | None = None
+        web_url: str | None = None
+        if serve_web:
+            if web_bundle is not None:
+                web_info = start_rune_web_server(
+                    garden_root=root,
+                    port=web_port or 0,
+                    bundle_dir=web_bundle,
+                )
+                web_url = str(web_info.get("url") or "")
+                web_status = str(web_info.get("status") or "started")
+                viewer["url"] = web_url
+                viewer["web_url"] = web_url
+                viewer["web_port"] = web_info.get("port")
+                viewer["web_server"] = web_info
+            else:
+                web_status = "bundle_not_found"
+                web_warn = (
+                    "Rune browser WASM bundle not found under rune_viewer/target/web/; "
+                    "run scripts/build_rune_web.py to enable browser preview."
+                )
+                viewer["web_launch_warning"] = web_warn
+                warnings_list.append(web_warn)
+        else:
+            web_status = "not_requested"
+        viewer["web_status"] = web_status
 
         result = start_web_view_session(
             garden_root=str(root),
@@ -206,28 +239,37 @@ def register(mcp: FastMCP) -> None:
             preserve_history=preserve_history,
         )
         result["viewer"] = viewer
+        result["web_url"] = web_url
+        result["web_server"] = web_info
         result["present"] = present
         result["present_path"] = str(present_file_path(root))
         result["interaction_state_path"] = str(interaction_state_file_path(root))
-        result["summary_view"]["viewer_backend"] = viewer.get("backend")
+        result["summary_view"]["viewer_backend"] = "rune"
+        result["summary_view"]["window_status"] = window_status
+        result["summary_view"]["web_status"] = web_status
+        if web_url:
+            result["summary_view"]["web_url"] = web_url
+        result["summary_view"]["rune_available"] = rune_bin is not None
         result["summary_view"]["present_revision"] = present.get("revision")
         result["summary_view"]["model_path"] = present.get("model_path")
-        if "url" in viewer:
-            result["summary_view"]["viewer_url"] = viewer["url"]
-            result["summary_view"]["viewer_port"] = viewer["port"]
         result["report"] = make_report(
             status="ok",
-            message="Web View mode started.",
+            message=(
+                f"Rune Web View mode started (browser URL: {web_url})."
+                if web_url
+                else "Rune Web View mode started."
+            ),
+            warnings=warnings_list,
         )
         return validate_output(WebViewSessionResult, result)
 
     @mcp.tool(
         name="GD_Web_View_Stop_Mode",
         description=(
-            "Stop Garden Web View Mode by marking the local preview session inactive, closing any "
-            "local fallback URL server, and stopping any tracked lbt-rune-viewer window process."
+            "Stop Garden Rune Web View Mode by marking the local preview session inactive and "
+            "stopping any tracked lbt-rune-viewer window process and browser HTTP server."
         ),
-        tags={"preview", "rune", "vtkjs", "web-view"},
+        tags={"preview", "rune", "viewer", "web-view"},
         timeout=20,
     )
     def stop_web_view_mode(
@@ -236,19 +278,25 @@ def register(mcp: FastMCP) -> None:
             Field(description="Garden root path containing garden.json, usually GD_Create['garden_root']."),
         ],
     ) -> WebViewSessionResult:
-        """Disable Web View Mode for a Garden."""
+        """Disable Rune Web View Mode for a Garden."""
         result = stop_web_view_session(garden_root=garden_root)
-        result["url_fallback"] = stop_preview_url_fallback(garden_root=garden_root)
-        result["rune_viewer"] = stop_rune_viewer(garden_root=garden_root)
+        rune_stop = stop_rune_viewer(garden_root=garden_root)
+        web_stop = stop_rune_web_server(garden_root=garden_root)
+        result["rune_viewer"] = rune_stop
+        result["web_server"] = web_stop
         result["viewer"] = {
             "status": "stopped",
-            "ui": "Local sidebar viewer",
-            "library": "vtk.js",
-            "mode": "mcp_app_preview",
+            "ui": "Rune 3D Viewer",
+            "library": "rune-wgpu",
+            "mode": "rune_viewer",
+            "backend": "rune",
+            "local_only": True,
+            "window_status": rune_stop.get("status"),
+            "web_status": web_stop.get("status"),
         }
         result["report"] = make_report(
             status="ok",
-            message="Web View mode stopped.",
+            message="Rune Web View mode stopped.",
         )
         return validate_output(WebViewSessionResult, result)
 
@@ -273,7 +321,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         model_target: Annotated[
             BuildingModelTargetRef | None,
-            Field(description="Optional Garden model target (defaults to current or base Honeybee model)."),
+            Field(description="Optional Garden model target (defaults to current or base Honeybee/Dragonfly model)."),
         ] = None,
         color_by: Annotated[
             Literal[
@@ -284,10 +332,9 @@ def register(mcp: FastMCP) -> None:
                 "program_type",
                 "construction_set",
                 "hvac",
-                "wwr",
             ]
             | None,
-            Field(description="Face/room coloring mode: type, boundary_condition, story, zone, program_type, construction_set, hvac, or wwr."),
+            Field(description="Face/room coloring mode: type, boundary_condition, story, zone, program_type, construction_set, or hvac."),
         ] = None,
         highlight_targets: Annotated[
             list[BuildingObjectTargetRef] | None,

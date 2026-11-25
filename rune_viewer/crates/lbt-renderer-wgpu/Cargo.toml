@@ -3,13 +3,15 @@ name = "lbt-renderer-wgpu"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "wgpu 3D building geometry renderer and offscreen capture pipeline for lbt-rune-viewer."
+description = "wgpu 3D building geometry renderer, embedded Rune compositor pipeline, and offscreen capture pipeline for lbt-rune-viewer."
 
 [dependencies]
 lbt-scene = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }
 glam = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 png = { workspace = true }
 pollster = { workspace = true }
 
@@ -21,3 +23,6 @@ wgpu = { workspace = true, features = ["dx12"] }
 
 [target.'cfg(all(not(target_vendor = "apple"), not(target_arch = "wasm32"), not(target_os = "windows")))'.dependencies]
 wgpu = { workspace = true, features = ["vulkan"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { workspace = true, features = ["webgl"] }

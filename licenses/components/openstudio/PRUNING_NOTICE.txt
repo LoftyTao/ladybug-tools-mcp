@@ -1,0 +1,6 @@
+OpenStudio(R) 3.11.0 Runtime Staging & Pruning Notice
+=============================================================
+
+- Included in Standard Windows Installer: `bin/` (excluding `openstudiolib.lib`), `CSharp/openstudio/` (x64 bindings from NuGet `NREL.OpenStudio.win` `3.11.0`, `BSD-3-Clause`; `x86/` omitted; hardlinked into `runtimes/ironbug/1.26.1/` at install/sync time), and the unmodified `EnergyPlus/` subdirectory (`EnergyPlus version 25.2.0`).
+- Pruned non-runtime directories/files: `Python/`, `Perl/`, `Radiance/`, `include/`, `Examples/`, and `lib/openstudiolib.lib`.
+- `Ruby/`: omitted from the Standard Windows Installer and distributed only in the optional URBANopt 1.4.0-rc1 `.lbtpack` extension pack.

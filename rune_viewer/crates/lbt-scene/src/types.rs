@@ -108,12 +108,12 @@ impl Bounds3 {
 
     /// Expand bounds to include a single 3D point.
     pub fn expand_point(&mut self, point: [f32; 3]) {
-        for i in 0..3 {
-            if point[i] < self.min[i] {
-                self.min[i] = point[i];
+        for (i, &coord) in point.iter().enumerate() {
+            if coord < self.min[i] {
+                self.min[i] = coord;
             }
-            if point[i] > self.max[i] {
-                self.max[i] = point[i];
+            if coord > self.max[i] {
+                self.max[i] = coord;
             }
         }
     }
@@ -272,6 +272,25 @@ pub struct ObjectRecord {
     pub centroid: [f32; 3],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_object_id: Option<u32>,
+    /// Owning Room's `object_id` (`Some(room_id)` for a Room and all descendant Faces, Apertures,
+    /// Doors, and Shades; `None` for orphaned geometry and ShadeMeshes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_room_id: Option<u32>,
+    /// `true` for Model-level orphaned geometry (and its descendants) and top-level `ShadeMesh`es.
+    #[serde(default)]
+    pub is_orphaned: bool,
+    /// `true` for glazed `Door` objects (`Door.is_glass == true`).
+    #[serde(default)]
+    pub is_glass: bool,
+    /// `true` for `indoor_shades` attached to a Room, Face, Aperture, or Door.
+    #[serde(default)]
+    pub is_indoor_shade: bool,
+    /// `true` for detached context shades (`Shade.is_detached` / `ShadeMesh.is_detached`).
+    #[serde(default)]
+    pub is_detached_shade: bool,
+    /// `true` when this shade record was parsed from `Model.shade_meshes` (`ShadeMesh`).
+    #[serde(default)]
+    pub is_shade_mesh: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub face_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -292,8 +311,46 @@ pub struct ObjectRecord {
     pub area: Option<f64>,
 }
 
-/// Attribute coloring modes supported by the viewer and Garden `present.json`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+/// Single categorical swatch or continuous ramp stop in a Ladybug Tools [`LegendData`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegendEntry {
+    /// Stable semantic/i18n key (e.g. `"wall"`, `"roof"`, `"outdoors"`, `"unassigned"`,
+    /// raw attribute value, or `"0%"`..`"100%"` for continuous WWR stops).
+    pub key: String,
+    /// Default English human-readable label matching `honeybee-display` / Ladybug conventions.
+    pub label: String,
+    /// Normalized sRGB RGBA swatch color in `[0.0, 1.0]`.
+    pub color_srgb: [f32; 4],
+    /// Count of matching objects in the scene for this entry/bin.
+    pub count: usize,
+}
+
+/// Structured Ladybug Tools legend specification derived from a [`SceneData`] and [`ColorBy`] mode.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegendData {
+    /// Semantic mode key matching [`ColorBy::as_str`] (e.g. `"type"`, `"boundary_condition"`, `"wwr"`).
+    pub key: String,
+    /// Default English legend title (e.g. `"Face Type"`, `"Boundary Condition"`, `"Window-to-Wall Ratio"`).
+    pub title: String,
+    /// `true` for continuous numeric color ramps (e.g. WWR), `false` for discrete categorical legends.
+    pub is_continuous: bool,
+    /// Ordered swatch entries (canonical `honeybee-display` order for Type/BC, elevation/alphabetical
+    /// order for room attributes, or low-to-high tick stops for continuous WWR).
+    pub entries: Vec<LegendEntry>,
+    /// Minimum numeric domain value for continuous legends (e.g. `Some(0.0)` for WWR).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_val: Option<f32>,
+    /// Maximum numeric domain value for continuous legends (e.g. `Some(100.0)` for WWR).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_val: Option<f32>,
+    /// Unit string for continuous legends (e.g. `Some("%")`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+}
+
+/// Attribute coloring modes supported by the viewer and Garden `present.json`,
+/// matching official Honeybee SDK / `honeybee-display` preset modes.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ColorBy {
     #[default]
@@ -304,12 +361,11 @@ pub enum ColorBy {
     ProgramType,
     ConstructionSet,
     Hvac,
-    Wwr,
 }
 
 impl ColorBy {
     /// All supported `ColorBy` variants in UI order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 7] = [
         Self::Type,
         Self::BoundaryCondition,
         Self::Story,
@@ -317,7 +373,6 @@ impl ColorBy {
         Self::ProgramType,
         Self::ConstructionSet,
         Self::Hvac,
-        Self::Wwr,
     ];
 
     /// Canonical snake_case protocol value.
@@ -330,8 +385,28 @@ impl ColorBy {
             Self::ProgramType => "program_type",
             Self::ConstructionSet => "construction_set",
             Self::Hvac => "hvac",
-            Self::Wwr => "wwr",
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for ColorBy {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        let parsed = match raw.trim().to_ascii_lowercase().as_str() {
+            "type" | "face_type" => Self::Type,
+            "boundary_condition" | "bc" => Self::BoundaryCondition,
+            "story" => Self::Story,
+            "zone" => Self::Zone,
+            "program_type" | "program" => Self::ProgramType,
+            "construction_set" | "construction" => Self::ConstructionSet,
+            "hvac" => Self::Hvac,
+            // Gracefully fall back to Type for removed/legacy modes (e.g. "wwr") in saved JSON.
+            _ => Self::Type,
+        };
+        Ok(parsed)
     }
 }
 
@@ -379,6 +454,13 @@ impl SceneData {
     /// Return true when the scene contains no mesh or edge geometry.
     pub fn is_empty(&self) -> bool {
         self.vertices.is_empty() && self.edge_vertices.is_empty()
+    }
+
+    /// Look up the owning Room record for `object_id`, if it belongs to a Room.
+    pub fn owner_room(&self, object_id: u32) -> Option<&ObjectRecord> {
+        let rec = self.object_by_id(object_id)?;
+        let room_id = rec.owner_room_id?;
+        self.object_by_id(room_id)
     }
 }
 
@@ -1008,5 +1090,14 @@ mod tests {
         assert_eq!(receipt_val["schema_version"], "1");
         let decoded_receipt: CaptureReceipt = serde_json::from_value(receipt_val).unwrap();
         assert_eq!(decoded_receipt, receipt);
+
+        // Resilient ColorBy deserialization: legacy/unknown values like "wwr" fall back to Type.
+        let legacy_present: PresentCommand =
+            serde_json::from_str(r#"{"revision": 2, "color_by": "wwr"}"#).unwrap();
+        assert_eq!(legacy_present.color_by, ColorBy::Type);
+        let unknown_color: ColorBy = serde_json::from_str(r#""some_future_mode""#).unwrap();
+        assert_eq!(unknown_color, ColorBy::Type);
+        let valid_color: ColorBy = serde_json::from_str(r#""program_type""#).unwrap();
+        assert_eq!(valid_color, ColorBy::ProgramType);
     }
 }

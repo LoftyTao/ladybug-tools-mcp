@@ -9,7 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from garden.manifest import GardenManifest, garden_lock, utc_now_iso, write_json_file
-from garden.paths import resolve_contained_path
+from garden.paths import resolve_contained_path, slugify_name
 from ladybug_tools_mcp.contracts import BuildingObjectTargetRef
 
 SCHEMA_VERSION = "1"
@@ -36,7 +36,6 @@ SUPPORTED_COLOR_BY = (
     "program_type",
     "construction_set",
     "hvac",
-    "wwr",
 )
 SUPPORTED_ISOLATION_MODES = ("highlight", "ghost_context", "isolate")
 SUPPORTED_CAMERA_PRESETS = (
@@ -267,10 +266,32 @@ def _normalize_dict_list(items: Any, *, field_name: str) -> list[dict[str, Any]]
     return normalized
 
 
+def _export_dragonfly_preview_hbjson(root: Path, df_target: dict[str, Any]) -> str | None:
+    """Convert a Dragonfly model into a Garden-contained preview HBJSON for Rune."""
+    from garden.dragonfly_core.model_io import load_dragonfly_model
+
+    df_model = load_dragonfly_model(root, df_target)
+    if not getattr(df_model, "buildings", None):
+        return None
+    hb_models = df_model.to_honeybee(object_per_model="District", use_multiplier=False)
+    if not hb_models:
+        return None
+    model_id = str(
+        df_target.get("model_identifier") or getattr(df_model, "identifier", None) or "dragonfly"
+    )
+    rel_path = f"{WEB_VIEW_DIR_RELATIVE_PATH}/models/{slugify_name(model_id)}.hbjson"
+    preview_path = resolve_contained_path(root, rel_path, label="Dragonfly preview HBJSON")
+    write_json_file(preview_path, hb_models[0].to_dict(), ensure_ascii=False)
+    return rel_path
+
+
 def _resolve_present_model(
     root: Path,
     manifest: GardenManifest,
     model_target: dict[str, Any] | None = None,
+    *,
+    existing_model_path: str | None = None,
+    refresh_derived: bool = True,
 ) -> tuple[str | None, dict[str, Any] | None]:
     if model_target is not None:
         raw_target = (
@@ -287,6 +308,18 @@ def _resolve_present_model(
 
             _, resolved = resolve_model_target(root, raw_target)
             return resolved.get("path"), resolved
+        if domain == "dragonfly":
+            from garden.dragonfly_core.model_io import resolve_model_target as resolve_df_target
+
+            _, resolved = resolve_df_target(root, raw_target)
+            if (
+                not refresh_derived
+                and isinstance(existing_model_path, str)
+                and existing_model_path.endswith(".hbjson")
+                and (root / existing_model_path).is_file()
+            ):
+                return existing_model_path, resolved
+            return _export_dragonfly_preview_hbjson(root, resolved), resolved
         model_id = raw_target.get("model_identifier") or raw_target.get("id")
         for candidate in manifest.models:
             if (
@@ -302,6 +335,16 @@ def _resolve_present_model(
         if isinstance(path_val, str) and path_val.strip():
             return path_val.strip().replace("\\", "/"), dict(base)
         return None, dict(base)
+    base_df = manifest.base_dragonfly_model
+    if isinstance(base_df, dict):
+        if (
+            not refresh_derived
+            and isinstance(existing_model_path, str)
+            and existing_model_path.endswith(".hbjson")
+            and (root / existing_model_path).is_file()
+        ):
+            return existing_model_path, dict(base_df)
+        return _export_dragonfly_preview_hbjson(root, dict(base_df)), dict(base_df)
     return None, None
 
 
@@ -395,9 +438,23 @@ def update_present(
         base = existing or {}
 
         effective_model_target = model_target if model_target is not None else base.get("model_target")
-        model_path, resolved_model_target = _resolve_present_model(root, manifest, effective_model_target)
-        if model_path is None and model_target is None and manifest.base_honeybee_model is not None:
-            model_path, resolved_model_target = _resolve_present_model(root, manifest, None)
+        model_path, resolved_model_target = _resolve_present_model(
+            root,
+            manifest,
+            effective_model_target,
+            existing_model_path=base.get("model_path"),
+            refresh_derived=(model_target is not None),
+        )
+        if model_path is None and model_target is None and (
+            manifest.base_honeybee_model is not None or manifest.base_dragonfly_model is not None
+        ):
+            model_path, resolved_model_target = _resolve_present_model(
+                root,
+                manifest,
+                None,
+                existing_model_path=base.get("model_path"),
+                refresh_derived=True,
+            )
 
         eff_view_type = _normalize_enum(
             view_type if view_type is not None else base.get("view_type", "model"),
@@ -427,10 +484,15 @@ def update_present(
                 for item in _normalize_dict_list(base.get("highlight_targets"), field_name="highlight_targets")
             ]
 
-        eff_issues = _normalize_dict_list(
-            validation_issues if validation_issues is not None else base.get("validation_issues"),
-            field_name="validation_issues",
-        )
+        if validation_issues is not None:
+            eff_issues = _normalize_dict_list(validation_issues, field_name="validation_issues")
+        elif view_type == "model" and base.get("view_type") == "validation":
+            eff_issues = []
+        else:
+            eff_issues = _normalize_dict_list(
+                base.get("validation_issues"),
+                field_name="validation_issues",
+            )
         eff_callouts = _normalize_dict_list(
             callouts if callouts is not None else base.get("callouts"),
             field_name="callouts",

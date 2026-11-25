@@ -59,7 +59,7 @@ OPTIONS:
   --garden <dir>         Live-sync with <garden>/tmp/web_view/ protocol files
   --snap <out.png>       Render a fast headless GPU snapshot PNG and exit
   --view <preset>        Camera preset: axon|top|north|south|east|west|fit|fit_highlights|keep
-  --color-by <mode>      Color mode: type|boundary_condition|story|zone|program_type|construction_set|hvac|wwr
+  --color-by <mode>      Color mode: type|boundary_condition|story|zone|program_type|construction_set|hvac
   --section-z <meters>   Enable horizontal Z section cut at elevation (meters)
   --width <px>           Headless snapshot width in pixels (default: 1280)
   --height <px>          Headless snapshot height in pixels (default: 720)
@@ -173,7 +173,6 @@ pub fn parse_color_by(raw: &str) -> Result<ColorBy, String> {
         "program_type" | "program" => Ok(ColorBy::ProgramType),
         "construction_set" | "construction" | "constr" => Ok(ColorBy::ConstructionSet),
         "hvac" => Ok(ColorBy::Hvac),
-        "wwr" => Ok(ColorBy::Wwr),
         other => Err(format!("unsupported --color-by value: {other}")),
     }
 }

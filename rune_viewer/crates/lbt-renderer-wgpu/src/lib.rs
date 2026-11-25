@@ -1,14 +1,22 @@
-//! wgpu 3D building renderer and offscreen PNG/picking pipeline.
+//! wgpu 3D building renderer, embedded Rune compositor pipeline, ray picking, and offscreen PNG pipeline.
 
 pub mod camera;
+pub mod core;
+pub mod embedded;
 pub mod error;
 pub mod palette;
+pub mod raypick;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod renderer;
 
 pub use camera::OrbitCamera;
+pub use core::{PickHit, RenderState};
+pub use embedded::EmbeddedSceneRenderer;
 pub use error::RendererError;
-pub use palette::{color_for_object, resolve_scene_colors};
-pub use renderer::{BuildingRenderer, PickHit, RenderState};
+pub use palette::{color_for_object, color_for_object_in_scene, resolve_scene_colors};
+pub use raypick::pick_scene_ray;
+#[cfg(not(target_arch = "wasm32"))]
+pub use renderer::BuildingRenderer;
 
 use lbt_scene::{ColorBy, IsolationMode, SceneData};
 
@@ -32,7 +40,7 @@ impl Default for RendererConfig {
     }
 }
 
-/// Legacy placeholder kept temporarily until `lbt-viewer-app` switches to [`BuildingRenderer`].
+/// Legacy placeholder kept for pure-CPU metadata inspection in tests.
 #[derive(Clone, Debug, Default)]
 pub struct RendererStub {
     pub config: RendererConfig,

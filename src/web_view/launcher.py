@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Any
@@ -19,10 +20,11 @@ from web_view.protocol import (
 _VIEWER_PROCESSES: dict[str, subprocess.Popen[Any]] = {}
 _PROCESS_LOCK = threading.Lock()
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def discover_rune_viewer_binary() -> Path | None:
-    """Discover ``lbt-rune-viewer`` via env var, workspace target dirs, or PATH."""
+    """Discover ``lbt-rune-viewer`` via env var, workspace target dirs, packaged resources, or PATH."""
     exe_name = "lbt-rune-viewer.exe" if os.name == "nt" else "lbt-rune-viewer"
     candidates: list[Path] = []
 
@@ -39,6 +41,7 @@ def discover_rune_viewer_binary() -> Path | None:
         [
             _REPO_ROOT / "rune_viewer" / "target" / "release" / exe_name,
             _REPO_ROOT / "rune_viewer" / "target" / "debug" / exe_name,
+            _PACKAGE_ROOT / "ladybug_tools_mcp" / "resources" / "rune_viewer" / exe_name,
         ]
     )
     for candidate in candidates:
@@ -50,6 +53,44 @@ def discover_rune_viewer_binary() -> Path | None:
         if found:
             return Path(found).resolve()
     return None
+
+
+def discover_rune_web_bundle_dir() -> Path | None:
+    """Discover the built browser WASM bundle directory containing index.html, app.js, app_bg.wasm."""
+    candidates: list[Path] = []
+    env_override = os.environ.get("LBT_RUNE_WEB_DIR")
+    if env_override and env_override.strip():
+        candidates.append(Path(env_override.strip()).expanduser())
+
+    candidates.extend(
+        [
+            _REPO_ROOT / "rune_viewer" / "target" / "web",
+            _PACKAGE_ROOT / "ladybug_tools_mcp" / "resources" / "rune_viewer" / "web",
+        ]
+    )
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if (
+            (resolved / "index.html").is_file()
+            and (resolved / "app.js").is_file()
+            and (resolved / "app_bg.wasm").is_file()
+        ):
+            return resolved
+    return None
+
+
+def can_open_rune_window() -> tuple[bool, str | None]:
+    """Return whether launching a desktop GUI window is supported in the current environment."""
+    if os.environ.get("LBT_RUNE_VIEWER_NO_WINDOW", "").strip().lower() in {"1", "true", "yes"}:
+        return False, "GUI window launch disabled by LBT_RUNE_VIEWER_NO_WINDOW."
+    if sys.platform.startswith("linux") and not (
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    ):
+        return (
+            False,
+            "No DISPLAY or WAYLAND_DISPLAY environment variable detected (headless Linux).",
+        )
+    return True, None
 
 
 def _is_pid_alive(pid: int | None) -> bool:

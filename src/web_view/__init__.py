@@ -1,28 +1,32 @@
-"""Local Web View session state, preview payloads, and Code Mode auto-preview."""
+"""Local Rune 3D Web View session state, protocol coordination, and Code Mode auto-preview."""
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
-import zipfile
 
 from garden.manifest import GardenManifest, utc_now_iso, write_json_file
 from garden.paths import (
     resolve_contained_path,
-    slugify_name,
     to_posix_relative,
     windows_path_key,
 )
 from web_view.launcher import (
+    can_open_rune_window,
     discover_rune_viewer_binary,
+    discover_rune_web_bundle_dir,
     is_rune_viewer_running,
     launch_rune_viewer,
     run_headless_snap,
     stop_rune_viewer,
+)
+from web_view.server import (
+    get_rune_web_server_info,
+    start_rune_web_server,
+    stop_all_rune_web_servers,
+    stop_rune_web_server,
 )
 from web_view.protocol import (
     CAPTURES_DIR_RELATIVE_PATH,
@@ -45,18 +49,8 @@ from web_view.protocol import (
     write_interaction_state,
     write_present,
 )
-from web_view.viewer import (
-    POLL_INTERVAL_MS,
-    VENDOR_VTKJS_PATH,
-    fallback_viewer_html,
-    start_preview_url_fallback,
-    stop_preview_url_fallback,
-)
 
 SESSION_RELATIVE_PATH = "tmp/web_view/session.json"
-VTKJS_ARTIFACT_TYPE = "visualization_vtkjs"
-HTML_ARTIFACT_TYPE = "visualization_html"
-SVG_ARTIFACT_TYPE = "visualization_svg"
 SUPPORTED_PREVIEW_KINDS = (
     "base_honeybee_model",
     "base_dragonfly_model",
@@ -64,11 +58,13 @@ SUPPORTED_PREVIEW_KINDS = (
     "search_highlight",
     "analysis_overlay",
 )
-GEOMETRY_POLICY = "Use Ladybug Tools SDK/MCP exported vtkjs artifacts."
+GEOMETRY_POLICY = (
+    "Render Garden Honeybee (.hbjson) and Dragonfly-derived scenes natively "
+    "in lbt-rune-viewer via tmp/web_view/present.json."
+)
 _MODEL_PREVIEW_KINDS = {
     "honeybee": "base_honeybee_model",
     "dragonfly": "base_dragonfly_model",
-    "fairyfly": "object_edit",
 }
 _CHART_TYPES = {
     "hourly_plot",
@@ -111,11 +107,14 @@ def _read_session(garden_root: Path) -> dict[str, Any] | None:
 
 def _default_data_sources() -> dict[str, str]:
     return {
-        "primary_geometry": VTKJS_ARTIFACT_TYPE,
+        "primary_geometry": "honeybee_hbjson",
         "geometry_policy": GEOMETRY_POLICY,
         "manifest": "garden.json",
         "session": SESSION_RELATIVE_PATH,
-        "vtkjs_vendor": "/vendor/vtk.js",
+        "present": PRESENT_RELATIVE_PATH,
+        "interaction_state": INTERACTION_STATE_RELATIVE_PATH,
+        "capture_request": CAPTURE_REQUEST_RELATIVE_PATH,
+        "captures_dir": CAPTURES_DIR_RELATIVE_PATH,
     }
 
 
@@ -128,12 +127,12 @@ def read_web_view_session(*, garden_root: str) -> dict[str, Any] | None:
 def start_web_view_session(
     *,
     garden_root: str,
-    name: str = "Local Web View",
+    name: str = "Rune 3D Preview",
     preview_kinds: list[str] | tuple[str, ...] | None = None,
     viewer_metadata: dict[str, Any] | None = None,
     preserve_history: bool = True,
 ) -> dict[str, Any]:
-    """Start or refresh a Web View session for one Garden."""
+    """Start or refresh a Rune Web View session for one Garden."""
     root, manifest = _resolve_garden(garden_root)
     kinds = tuple(preview_kinds or SUPPORTED_PREVIEW_KINDS)
     invalid = [kind for kind in kinds if kind not in SUPPORTED_PREVIEW_KINDS]
@@ -156,12 +155,11 @@ def start_web_view_session(
         else f"web_view_{uuid4().hex[:12]}"
     )
     default_viewer = {
-        "ui": "Local sidebar viewer",
-        "library": "vtk.js",
-        "mode": "mcp_app_preview",
-        "vendor_url": "/vendor/vtk.js",
-        "backend": "web",
-        "web_fallback_active": True,
+        "ui": "Rune 3D Viewer",
+        "library": "rune-wgpu",
+        "mode": "rune_viewer",
+        "backend": "rune",
+        "local_only": True,
     }
     if isinstance(viewer_metadata, dict):
         viewer_info = {**default_viewer, **viewer_metadata}
@@ -216,86 +214,6 @@ def stop_web_view_session(*, garden_root: str) -> dict[str, Any]:
     }
 
 
-def _vtkjs_artifacts(garden_root: Path, manifest: GardenManifest) -> list[dict[str, Any]]:
-    artifacts: list[dict[str, Any]] = []
-    for artifact in manifest.artifacts:
-        if artifact.get("artifact_type") != VTKJS_ARTIFACT_TYPE:
-            continue
-        relative_path = artifact.get("path")
-        if not isinstance(relative_path, str) or not relative_path.strip():
-            raise ValueError("Garden artifact requires a non-empty path.")
-        normalized_path = relative_path.strip().replace("\\", "/")
-        absolute_path = (garden_root / normalized_path).resolve()
-        absolute_path.relative_to(garden_root)
-        if not absolute_path.is_file():
-            raise ValueError(f"Garden artifact file was not found: {normalized_path}")
-        item = dict(artifact)
-        item["path"] = normalized_path
-        item["absolute_path"] = str(absolute_path)
-        artifacts.append(item)
-    artifacts.sort(
-        key=lambda item: (
-            str(item.get("created_at") or ""),
-            str(item.get("path") or ""),
-            str(item.get("name") or ""),
-        ),
-        reverse=True,
-    )
-    return artifacts
-
-
-def _html_svg_artifacts(garden_root: Path, manifest: GardenManifest) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    for artifact in manifest.artifacts:
-        relative_path = artifact.get("path")
-        if not isinstance(relative_path, str) or not relative_path.strip():
-            continue
-        normalized = relative_path.strip().replace("\\", "/")
-        suffix = Path(normalized).suffix.lower()
-        atype = artifact.get("artifact_type")
-        if atype not in {HTML_ARTIFACT_TYPE, SVG_ARTIFACT_TYPE} and suffix not in {".html", ".htm", ".svg"}:
-            continue
-        absolute_path = (garden_root / normalized).resolve()
-        try:
-            absolute_path.relative_to(garden_root)
-        except ValueError:
-            continue
-        if not absolute_path.is_file():
-            continue
-        kind = "svg" if suffix == ".svg" or atype == SVG_ARTIFACT_TYPE else "html"
-        items.append(
-            {
-                "name": artifact.get("name") or absolute_path.stem,
-                "path": normalized,
-                "artifact_type": atype or f"visualization_{kind}",
-                "format": kind,
-                "created_at": artifact.get("created_at"),
-                "revision": _hash_file(absolute_path),
-                "size_bytes": absolute_path.stat().st_size,
-            }
-        )
-    items.sort(
-        key=lambda item: (
-            str(item.get("created_at") or ""),
-            str(item.get("path") or ""),
-            str(item.get("name") or ""),
-        ),
-        reverse=True,
-    )
-    return items
-
-
-def _viewer_source(artifact: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "kind": "vtkjs_artifact",
-        "artifact_type": VTKJS_ARTIFACT_TYPE,
-        "artifact_name": artifact.get("name"),
-        "artifact_path": artifact["path"],
-        "absolute_path": artifact["absolute_path"],
-        "source": artifact.get("source", {}),
-    }
-
-
 def _resolve_active_session(garden_root: Path, preview_kind: str) -> dict[str, Any]:
     if preview_kind not in SUPPORTED_PREVIEW_KINDS:
         allowed = ", ".join(SUPPORTED_PREVIEW_KINDS)
@@ -312,16 +230,27 @@ def _resolve_active_session(garden_root: Path, preview_kind: str) -> dict[str, A
     return session
 
 
-def _append_preview_step(
+def record_present_step(
     *,
-    root: Path,
-    session: dict[str, Any],
+    garden_root: str | Path,
     preview_kind: str,
     label: str,
-    viewer_source: dict[str, Any],
-    source_tool: str | None,
-    summary: dict[str, Any] | None,
+    present: dict[str, Any],
+    source_tool: str | None = None,
+    summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Append a local preview step backed by ``tmp/web_view/present.json``."""
+    root, _ = _resolve_garden(str(garden_root))
+    session = _resolve_active_session(root, preview_kind)
+    viewer_source = {
+        "kind": "rune_present",
+        "present_revision": present.get("revision"),
+        "view_type": present.get("view_type"),
+        "model_path": present.get("model_path"),
+        "color_by": present.get("color_by"),
+        "highlight_count": len(present.get("highlight_targets") or []),
+        "validation_issue_count": len(present.get("validation_issues") or []),
+    }
     step = {
         "id": f"step_{len(session.get('steps', [])) + 1:04d}",
         "preview_kind": preview_kind,
@@ -340,85 +269,10 @@ def _append_preview_step(
         "summary_view": {
             "active_step_id": step["id"],
             "preview_kind": preview_kind,
-            "artifact_path": viewer_source["artifact_path"],
+            "present_revision": present.get("revision"),
+            "model_path": present.get("model_path"),
         },
     }
-
-
-def record_preview_step(
-    *,
-    garden_root: str,
-    preview_kind: str,
-    label: str,
-    vtkjs_artifact_path: str | None = None,
-    source_tool: str | None = None,
-    summary: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Append a local preview step backed by a Garden ``.vtkjs`` artifact."""
-    root, manifest = _resolve_garden(garden_root)
-    session = _resolve_active_session(root, preview_kind)
-    artifacts = _vtkjs_artifacts(root, manifest)
-    if vtkjs_artifact_path is None:
-        if not artifacts:
-            raise ValueError(
-                "No visualization_vtkjs artifact is registered in this Garden. "
-                "Export a VisualizationSet with LB_Export_Visualization_Set first."
-            )
-        artifact = artifacts[0]
-    else:
-        requested = vtkjs_artifact_path.strip().replace("\\", "/")
-        artifact = next((item for item in artifacts if item.get("path") == requested), None)
-        if artifact is None:
-            raise ValueError(
-                f"Web View previews require a Garden-registered {VTKJS_ARTIFACT_TYPE} "
-                f"artifact; got {requested!r}."
-            )
-    return _append_preview_step(
-        root=root,
-        session=session,
-        preview_kind=preview_kind,
-        label=label,
-        viewer_source=_viewer_source(artifact),
-        source_tool=source_tool,
-        summary=summary,
-    )
-
-
-def record_preview_file_step(
-    *,
-    garden_root: str,
-    preview_kind: str,
-    label: str,
-    vtkjs_file_path: str,
-    source_tool: str | None = None,
-    summary: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Append a local preview step backed by a session-managed ``.vtkjs`` file."""
-    root, _ = _resolve_garden(garden_root)
-    session = _resolve_active_session(root, preview_kind)
-    path = Path(vtkjs_file_path).expanduser().resolve()
-    path.relative_to(root)
-    if path.suffix.lower() != ".vtkjs":
-        raise ValueError(f"Web View preview file must be a .vtkjs file; got {path}")
-    if not path.is_file():
-        raise ValueError(f"Web View preview file was not found: {path}")
-    viewer_source = {
-        "kind": "session_vtkjs_file",
-        "artifact_type": VTKJS_ARTIFACT_TYPE,
-        "artifact_name": path.stem,
-        "artifact_path": to_posix_relative(path, root),
-        "absolute_path": str(path),
-        "source": {"storage": "web_view_session"},
-    }
-    return _append_preview_step(
-        root=root,
-        session=session,
-        preview_kind=preview_kind,
-        label=label,
-        viewer_source=viewer_source,
-        source_tool=source_tool,
-        summary=summary,
-    )
 
 
 def record_preview_failure(
@@ -457,246 +311,6 @@ def record_preview_failure(
             "source_tool": source_tool,
             "status": "failed",
         },
-    }
-
-
-def get_web_view_config(*, garden_root: str) -> dict[str, Any]:
-    """Return the Web View config consumed by the local viewer."""
-    root, manifest = _resolve_garden(garden_root)
-    session = _read_session(root)
-    if session is None:
-        session = start_web_view_session(garden_root=str(root))["session"]
-    steps = list(session.get("steps", []))
-    active_step_id = session.get("active_step_id")
-    active_step = next(
-        (step for step in steps if step.get("id") == active_step_id),
-        steps[-1] if steps else None,
-    )
-    artifacts = _vtkjs_artifacts(root, manifest)
-    latest_artifact = _viewer_source(artifacts[0]) if artifacts else None
-    return {
-        "schema_version": "1",
-        "active": bool(session.get("active", False)),
-        "local_only": True,
-        "garden": {
-            "garden_root": str(root),
-            "garden_target": manifest.target(),
-            "name": manifest.name,
-        },
-        "viewer": session.get("viewer", {}),
-        "data_sources": session.get("data_sources", _default_data_sources()),
-        "preview_kinds": session.get("preview_kinds", list(SUPPORTED_PREVIEW_KINDS)),
-        "steps": steps,
-        "active_step": active_step,
-        "latest_vtkjs_artifact": latest_artifact,
-        "html_svg_artifacts": _html_svg_artifacts(root, manifest),
-    }
-
-
-def _hash_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _resolve_artifact_file(
-    *,
-    garden_root: Path,
-    artifact_path: str,
-    allowed_suffixes: tuple[str, ...] = (".vtkjs",),
-) -> Path:
-    normalized = artifact_path.strip().replace("\\", "/")
-    if not normalized:
-        raise ValueError("Preview artifact path must be a non-empty Garden-relative path.")
-    path = (garden_root / normalized).resolve()
-    try:
-        path.relative_to(garden_root)
-    except ValueError as exc:
-        raise ValueError("Preview artifacts must stay inside the Garden.") from exc
-    if path.suffix.lower() not in allowed_suffixes:
-        allowed = ", ".join(allowed_suffixes)
-        raise ValueError(f"Preview artifact must end with ({allowed}); got {normalized!r}.")
-    if not path.is_file():
-        raise ValueError(f"Preview artifact file was not found: {normalized}.")
-    return path
-
-
-def _artifact_from_source(
-    *, garden_root: Path, source: dict[str, Any] | None
-) -> dict[str, Any] | None:
-    if not source:
-        return None
-    artifact_path = source.get("artifact_path")
-    if not isinstance(artifact_path, str) or not artifact_path:
-        return None
-    path = _resolve_artifact_file(garden_root=garden_root, artifact_path=artifact_path)
-    return {
-        "name": source.get("artifact_name") or path.stem,
-        "path": artifact_path.replace("\\", "/"),
-        "kind": source.get("kind") or "vtkjs_artifact",
-        "artifact_type": source.get("artifact_type"),
-        "source": source.get("source", {}),
-        "revision": _hash_file(path),
-        "size_bytes": path.stat().st_size,
-    }
-
-
-def _extract_vtkjs_scene_metadata(path: Path) -> dict[str, Any] | None:
-    try:
-        with zipfile.ZipFile(path, "r") as zf:
-            if "index.json" not in zf.namelist():
-                return None
-            index_data = json.loads(zf.read("index.json").decode("utf-8"))
-    except Exception:
-        return None
-    scene = index_data.get("scene") if isinstance(index_data, dict) else None
-    if not isinstance(scene, list):
-        return None
-    scene_items: list[dict[str, Any]] = []
-    legends: list[dict[str, Any]] = []
-    for entry in scene:
-        if not isinstance(entry, dict):
-            continue
-        prop = entry.get("property") if isinstance(entry.get("property"), dict) else {}
-        scene_items.append(
-            {
-                "name": entry.get("name") or "Layer",
-                "hidden": bool(entry.get("hidden", False)),
-                "diffuseColor": prop.get("diffuseColor"),
-            }
-        )
-        metadata_list = entry.get("metadata")
-        if isinstance(metadata_list, list):
-            for meta in metadata_list:
-                if not isinstance(meta, dict):
-                    continue
-                lpar = meta.get("legend_parameters")
-                if isinstance(lpar, dict):
-                    legends.append(
-                        {
-                            "layer": entry.get("name"),
-                            "unit": meta.get("unit"),
-                            "title": lpar.get("title") or meta.get("unit") or entry.get("name"),
-                            "min": lpar.get("min"),
-                            "max": lpar.get("max"),
-                            "decimal_count": lpar.get("decimal_count", 2),
-                            "segment_count": lpar.get("segment_count"),
-                            "colors": lpar.get("colors"),
-                            "continuous_legend": lpar.get("continuous_legend", False),
-                        }
-                    )
-    return {
-        "scene_items": scene_items,
-        "legends": legends,
-        "lookup_tables": index_data.get("lookupTables") or {},
-    }
-
-
-def read_preview_state(*, garden_root: str) -> dict[str, Any]:
-    """Return compact state for the local vtk.js preview workbench."""
-    root = Path(garden_root).expanduser().resolve()
-    config = get_web_view_config(garden_root=str(root))
-    steps = list(config.get("steps", []))
-    active_step = config.get("active_step")
-    artifact = (
-        _artifact_from_source(garden_root=root, source=active_step.get("viewer_source"))
-        if isinstance(active_step, dict)
-        else None
-    )
-    if artifact is None and isinstance(config.get("latest_vtkjs_artifact"), dict):
-        artifact = _artifact_from_source(
-            garden_root=root, source=config["latest_vtkjs_artifact"]
-        )
-    hydrated_steps: list[dict[str, Any]] = []
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        item = dict(step)
-        vs = step.get("viewer_source")
-        if isinstance(vs, dict) and isinstance(vs.get("artifact_path"), str):
-            try:
-                item["artifact"] = _artifact_from_source(garden_root=root, source=vs)
-            except Exception:
-                item["artifact"] = None
-        hydrated_steps.append(item)
-
-    return {
-        "schema_version": "1",
-        "active": bool(config.get("active", False)),
-        "garden": config.get("garden", {}),
-        "viewer": {
-            "ui": "Local sidebar viewer",
-            "library": "vtk.js",
-            "mode": "local_url_preview",
-            "vendor_url": "/vendor/vtk.js",
-            "offline_bundled": VENDOR_VTKJS_PATH.is_file(),
-        },
-        "poll_interval_ms": POLL_INTERVAL_MS,
-        "preview_kinds": config.get("preview_kinds", []),
-        "steps": hydrated_steps,
-        "active_step": active_step,
-        "artifact": artifact,
-        "html_svg_artifacts": config.get("html_svg_artifacts", []),
-        "report": {
-            "status": "ready" if artifact else "waiting_for_vtkjs",
-            "message": (
-                "A vtk.js preview is available."
-                if artifact
-                else "No vtk.js preview has been recorded for this Garden yet."
-            ),
-        },
-    }
-
-
-def read_preview_artifact(
-    *,
-    garden_root: str,
-    artifact_path: str,
-    revision: str | None = None,
-) -> dict[str, Any]:
-    """Return a Garden-local ``.vtkjs`` preview payload for the sidebar viewer."""
-    root = Path(garden_root).expanduser().resolve()
-    path = _resolve_artifact_file(garden_root=root, artifact_path=artifact_path)
-    actual_revision = _hash_file(path)
-    if revision and revision != actual_revision:
-        raise ValueError(
-            "Preview artifact revision changed; refresh preview state before loading it."
-        )
-    payload: dict[str, Any] = {
-        "schema_version": "1",
-        "path": artifact_path.replace("\\", "/"),
-        "revision": actual_revision,
-        "size_bytes": path.stat().st_size,
-        "mime_type": "application/vnd.vtkjs",
-        "encoding": "base64",
-        "payload_base64": base64.b64encode(path.read_bytes()).decode("ascii"),
-    }
-    scene_meta = _extract_vtkjs_scene_metadata(path)
-    if scene_meta is not None:
-        payload["scene_metadata"] = scene_meta
-    return payload
-
-
-def read_preview_document(*, garden_root: str, artifact_path: str) -> dict[str, Any]:
-    """Read a Garden-local HTML or SVG visualization artifact for inline workbench preview."""
-    root = Path(garden_root).expanduser().resolve()
-    path = _resolve_artifact_file(
-        garden_root=root,
-        artifact_path=artifact_path,
-        allowed_suffixes=(".html", ".htm", ".svg"),
-    )
-    mime = (
-        "image/svg+xml; charset=utf-8"
-        if path.suffix.lower() == ".svg"
-        else "text/html; charset=utf-8"
-    )
-    return {
-        "schema_version": "1",
-        "path": artifact_path.replace("\\", "/"),
-        "mime_type": mime,
-        "body": path.read_bytes(),
     }
 
 
@@ -740,7 +354,7 @@ def _is_2d_chart_visualization(
     arguments: Any = None,
     result: Any = None,
 ) -> bool:
-    """Return True for 2D chart VisualizationSets that must never convert to 3D vtkjs."""
+    """Return True for 2D chart VisualizationSets that must not hijack the 3D Rune viewport."""
     if tool_name == "LB_Chart_To_Visualization_Set":
         return True
     if isinstance(arguments, dict):
@@ -750,7 +364,10 @@ def _is_2d_chart_visualization(
     if isinstance(result, dict):
         summary = result.get("summary_view")
         if isinstance(summary, dict):
-            if any(k in summary for k in ("chart_dimensions", "comfort_polygon", "comfort_percentages", "windrose")):
+            if any(
+                k in summary
+                for k in ("chart_dimensions", "comfort_polygon", "comfort_percentages", "windrose")
+            ):
                 return True
             src = summary.get("source")
             if isinstance(src, dict) and src.get("producer") in _CHART_PRODUCERS:
@@ -829,46 +446,25 @@ def extract_changed_targets(*, result: Any, arguments: Any = None) -> list[dict[
     return collected
 
 
-def _export_session_vtkjs(
-    *,
-    garden_root: str,
-    visualization_set: dict[str, Any],
-    name: str,
-) -> str:
-    from ladybug_display.visualization import VisualizationSet
-
-    root = Path(garden_root).expanduser().resolve()
-    output_dir = root / "tmp" / "web_view" / "previews"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    vis_set = VisualizationSet.from_dict(visualization_set)
-    vtkjs_path = Path(
-        vis_set.to_vtkjs(output_folder=str(output_dir), file_name=name)
-    ).resolve()
-    vtkjs_path.relative_to(root)
-    return str(vtkjs_path)
-
-
 def preview_event_garden_root(
     *,
     arguments: Any,
     result: Any,
     tool_name: str = "",
 ) -> str | None:
-    """Return a normalized Garden key when a tool call produced a preview-worthy result."""
+    """Return a normalized Garden key when a tool call produced a 3D Rune preview update."""
     if _is_2d_chart_visualization(tool_name=tool_name, arguments=arguments, result=result):
         return None
-    visualization_result = isinstance(result, dict) and any(
-        isinstance(result.get(key), dict)
-        for key in ("visualization_set", "visualization_set_target")
-    )
-    receipt = result.get("artifact_receipt") if isinstance(result, dict) else None
-    vtkjs_receipt = (
-        receipt
-        if isinstance(receipt, dict) and receipt.get("artifact_type") == VTKJS_ARTIFACT_TYPE
-        else None
-    )
     model_target = _persisted_model_target(result)
-    if not visualization_result and vtkjs_receipt is None and model_target is None:
+    has_supported_model = (
+        model_target is not None and model_target.get("domain") in {"honeybee", "dragonfly"}
+    )
+    is_hb_validation = (
+        tool_name == "HB_Validate_Model"
+        and isinstance(result, dict)
+        and "issues" in result
+    )
+    if not has_supported_model and not is_hb_validation:
         return None
     garden_root = _find_garden_root(arguments) or _find_garden_root(result)
     if not garden_root:
@@ -883,22 +479,21 @@ def maybe_record_code_mode_preview(
     result: Any,
     changed_targets: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Update ``present.json`` and/or record a Web View preview after a significant Code Mode tool."""
+    """Update ``present.json`` and record a Rune Web View step after a Code Mode tool."""
     if _is_2d_chart_visualization(tool_name=tool_name, arguments=arguments, result=result):
         return
-    visualization_result = isinstance(result, dict) and any(
-        isinstance(result.get(key), dict)
-        for key in ("visualization_set", "visualization_set_target")
-    )
-    receipt = result.get("artifact_receipt") if isinstance(result, dict) else None
-    vtkjs_receipt = (
-        receipt
-        if isinstance(receipt, dict) and receipt.get("artifact_type") == VTKJS_ARTIFACT_TYPE
-        else None
+
+    is_hb_validation = (
+        tool_name == "HB_Validate_Model"
+        and isinstance(result, dict)
+        and "issues" in result
     )
     model_target = _persisted_model_target(result)
-    if not visualization_result and vtkjs_receipt is None and model_target is None:
+    if not is_hb_validation and (
+        model_target is None or model_target.get("domain") not in {"honeybee", "dragonfly"}
+    ):
         return
+
     garden_root = _find_garden_root(arguments) or _find_garden_root(result)
     if not garden_root:
         return
@@ -908,61 +503,76 @@ def maybe_record_code_mode_preview(
 
     preview_kind = (
         "analysis_overlay"
-        if (visualization_result or vtkjs_receipt is not None)
+        if is_hb_validation
         else _MODEL_PREVIEW_KINDS.get(str((model_target or {}).get("domain")), "object_edit")
     )
-    viewer = session.get("viewer") if isinstance(session.get("viewer"), dict) else {}
-    web_fallback_active = bool(viewer.get("web_fallback_active", viewer.get("backend") != "rune"))
 
     try:
-        if vtkjs_receipt is not None:
-            absolute_path = vtkjs_receipt.get("absolute_path")
-            if web_fallback_active and isinstance(absolute_path, str) and absolute_path:
-                record_preview_file_step(
+        if is_hb_validation:
+            issues = [item for item in (result.get("issues") or []) if isinstance(item, dict)]
+            summary_view = (
+                result.get("summary_view") if isinstance(result.get("summary_view"), dict) else {}
+            )
+            val_model_target = (
+                summary_view.get("model_target")
+                if isinstance(summary_view.get("model_target"), dict)
+                else None
+            )
+            if issues:
+                present = update_present(
+                    garden_root=garden_root,
+                    view_type="validation",
+                    model_target=val_model_target,
+                    validation_issues=issues,
+                    highlight_targets=[],
+                    camera=None,
+                    title=f"Validation: {len(issues)} issue(s)",
+                )
+                record_present_step(
                     garden_root=garden_root,
                     preview_kind="analysis_overlay",
-                    label="Exported vtk.js preview",
-                    vtkjs_file_path=absolute_path,
+                    label=f"Validation overlay after {tool_name}",
+                    present=present,
                     source_tool=tool_name,
-                    summary={"artifact_path": vtkjs_receipt.get("artifact_path")},
+                    summary=summary_view,
                 )
-            return
-
-        preview_name = slugify_name(f"{len(session.get('steps', [])) + 1:04d}_{tool_name}")
-        if visualization_result:
-            if not web_fallback_active:
-                return
-            vis_set = result.get("visualization_set")
-            if not isinstance(vis_set, dict):
-                from garden.visualize.artifacts import load_visualization_set
-
-                vis_set = load_visualization_set(
+            else:
+                effective_targets = list(changed_targets) if changed_targets else []
+                present = update_present(
                     garden_root=garden_root,
-                    visualization_set_target=result["visualization_set_target"],
+                    view_type="highlight" if effective_targets else "model",
+                    model_target=val_model_target,
+                    highlight_targets=effective_targets,
+                    isolation_mode="highlight",
+                    validation_issues=[],
+                    camera=None,
+                    title=f"Code Mode: {tool_name}",
                 )
-            vtkjs_path = _export_session_vtkjs(
-                garden_root=garden_root,
-                visualization_set=vis_set,
-                name=preview_name,
-            )
-            record_preview_file_step(
-                garden_root=garden_root,
-                preview_kind="analysis_overlay",
-                label=f"Code Mode preview after {tool_name}",
-                vtkjs_file_path=vtkjs_path,
-                source_tool=tool_name,
-                summary=result.get("summary_view", {}) if isinstance(result, dict) else {},
-            )
+                record_present_step(
+                    garden_root=garden_root,
+                    preview_kind="object_edit" if effective_targets else "base_honeybee_model",
+                    label=f"Rune preview after {tool_name}",
+                    present=present,
+                    source_tool=tool_name,
+                    summary=summary_view,
+                )
             return
 
         domain = (model_target or {}).get("domain")
+        summary_view = (
+            result.get("summary_view")
+            if isinstance(result, dict) and isinstance(result.get("summary_view"), dict)
+            else {}
+        )
         if domain == "honeybee":
             effective_targets = (
                 list(changed_targets)
                 if changed_targets
                 else extract_changed_targets(result=result, arguments=arguments)
             )
-            update_present(
+            step_kind = "object_edit" if effective_targets else "base_honeybee_model"
+            preview_kind = step_kind
+            present = update_present(
                 garden_root=garden_root,
                 view_type="highlight" if effective_targets else "model",
                 model_target=model_target,
@@ -971,59 +581,32 @@ def maybe_record_code_mode_preview(
                 camera=None,
                 title=f"Code Mode: {tool_name}",
             )
-            if not web_fallback_active:
-                return
-            from garden.visualize.honeybee import honeybee_model_to_visualization_set
-
-            visualization = honeybee_model_to_visualization_set(
+            record_present_step(
                 garden_root=garden_root,
-                model_target=model_target,
-                color_by="type",
-                include_wireframe=True,
-                name=preview_name,
-                return_visualization_set=True,
-            )
-        elif domain == "fairyfly":
-            if not web_fallback_active:
-                return
-            from garden.fairyfly.model import fairyfly_model_to_visualization_set
-
-            visualization = fairyfly_model_to_visualization_set(
-                garden_root=garden_root,
-                model_target=model_target,
-                color_by="material",
-                include_boundaries=True,
-                name=preview_name,
-                return_visualization_set=True,
+                preview_kind=step_kind,
+                label=f"Rune preview after {tool_name}",
+                present=present,
+                source_tool=tool_name,
+                summary=summary_view,
             )
         elif domain == "dragonfly":
-            if not web_fallback_active:
-                return
-            from garden.dragonfly_core.display import dragonfly_model_to_visualization_set
-
-            visualization = dragonfly_model_to_visualization_set(
+            present = update_present(
                 garden_root=garden_root,
+                view_type="model",
                 model_target=model_target,
-                color_by="type",
-                include_wireframe=True,
-                name=preview_name,
-                return_visualization_set=True,
+                highlight_targets=[],
+                isolation_mode="highlight",
+                camera=None,
+                title=f"Code Mode: {tool_name}",
             )
-        else:
-            return
-        vtkjs_path = _export_session_vtkjs(
-            garden_root=garden_root,
-            visualization_set=visualization["visualization_set"],
-            name=preview_name,
-        )
-        record_preview_file_step(
-            garden_root=garden_root,
-            preview_kind=preview_kind,
-            label=f"Code Mode preview after {tool_name}",
-            vtkjs_file_path=vtkjs_path,
-            source_tool=tool_name,
-            summary=visualization.get("summary_view", {}),
-        )
+            record_present_step(
+                garden_root=garden_root,
+                preview_kind="base_dragonfly_model",
+                label=f"Rune preview after {tool_name}",
+                present=present,
+                source_tool=tool_name,
+                summary=summary_view,
+            )
     except Exception as exc:  # pragma: no cover - exercised through integration failures
         record_preview_failure(
             garden_root=garden_root,
@@ -1093,7 +676,9 @@ def _load_capture_visualization_set(
             )
             return VisualizationSet.from_dict(vis_dict)
 
-    raise ValueError("No Honeybee, Dragonfly, or VisualizationSet model is available to capture in this Garden.")
+    raise ValueError(
+        "No Honeybee, Dragonfly, or VisualizationSet model is available to capture in this Garden."
+    )
 
 
 def capture_web_view(
@@ -1317,18 +902,17 @@ __all__ = [
     "CAPTURES_DIR_RELATIVE_PATH",
     "CAPTURE_REQUEST_RELATIVE_PATH",
     "INTERACTION_STATE_RELATIVE_PATH",
-    "POLL_INTERVAL_MS",
     "PRESENT_RELATIVE_PATH",
     "SUPPORTED_PREVIEW_KINDS",
-    "VENDOR_VTKJS_PATH",
+    "can_open_rune_window",
     "capture_output_paths",
     "capture_web_view",
     "discover_rune_viewer_binary",
+    "discover_rune_web_bundle_dir",
     "ensure_initial_interaction_state",
     "ensure_initial_present",
     "extract_changed_targets",
-    "fallback_viewer_html",
-    "get_web_view_config",
+    "get_rune_web_server_info",
     "get_web_view_context",
     "interaction_state_file_path",
     "is_rune_viewer_running",
@@ -1341,18 +925,15 @@ __all__ = [
     "read_capture_receipt",
     "read_interaction_state",
     "read_present",
-    "read_preview_artifact",
-    "read_preview_document",
-    "read_preview_state",
     "read_web_view_session",
+    "record_present_step",
     "record_preview_failure",
-    "record_preview_file_step",
-    "record_preview_step",
     "run_headless_snap",
-    "start_preview_url_fallback",
+    "start_rune_web_server",
     "start_web_view_session",
-    "stop_preview_url_fallback",
+    "stop_all_rune_web_servers",
     "stop_rune_viewer",
+    "stop_rune_web_server",
     "stop_web_view_session",
     "update_present",
     "write_capture_request",

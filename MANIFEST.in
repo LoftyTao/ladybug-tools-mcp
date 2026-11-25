@@ -1,12 +1,20 @@
+include LICENSE
 include requirements.in requirements.txt
+recursive-include licenses *
+recursive-include rune_viewer *
+recursive-include vendor/rune *
+recursive-include scripts/distribution/launcher *
 recursive-include src/ironbug_bridge *.cs *.csproj
 recursive-include src/grasshopper_components/user_objects *.ghuser *.json
 recursive-include src/grasshopper_components *.py
-recursive-include src/web_view/vendor *.js
 recursive-include src/pyhygrothermfem_native *
 recursive-include vendor/pyHygroThermFEM-Fairyfly *
 prune docs
 prune tests
+prune rune_viewer/target
+prune vendor/rune/.git
+prune vendor/rune/target
+prune scripts/distribution/launcher/target
 prune src/ironbug_bridge/bin
 prune src/ironbug_bridge/obj
 prune vendor/pyHygroThermFEM-Fairyfly/.git

@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "project": "lbt-mcp",
+  "version": "1.2.3",
+  "license": "AGPL-3.0-only",
+  "corresponding_source_archive": "lbt-mcp-1.2.3-corresponding-source.tar.zst",
+  "entries": [
+    {
+      "id": "ladybug-tools-mcp",
+      "name": "ladybug-tools-mcp",
+      "package_name": "lbt-mcp",
+      "version": "1.2.3",
+      "license": "AGPL-3.0-only",
+      "kind": "primary_application",
+      "bundled_in_standard": true,
+      "requires_corresponding_source": true,
+      "source_type": "repo_sdist",
+      "source_url": "https://github.com/LoftyTao/ladybug-tools-mcp",
+      "archive_name": null,
+      "sha256": null,
+      "included_paths": [
+        "LICENSE",
+        "pyproject.toml",
+        "MANIFEST.in",
+        "src/",
+        "rune_viewer/",
+        "vendor/rune/",
+        "vendor/pyHygroThermFEM-Fairyfly/",
+        "scripts/distribution/launcher/",
+        "licenses/"
+      ],
+      "license_files": [
+        "LICENSE"
+      ]
+    },
+    {
+      "id": "lbt-rune-viewer",
+      "name": "Rune 3D Viewer (lbt-rune-viewer)",
+      "version": "0.1.0",
+      "license": "GPL-3.0-or-later AND MIT AND OFL-1.1",
+      "kind": "copyleft_binary_component",
+      "bundled_in_standard": true,
+      "requires_corresponding_source": true,
+      "source_type": "in_repo_workspace",
+      "source_url": "https://github.com/LoftyTao/ladybug-tools-mcp",
+      "archive_name": null,
+      "sha256": null,
+      "included_paths": [
+        "rune_viewer/",
+        "vendor/rune/"
+      ],
+      "license_files": [
+        "licenses/components/rune_viewer/LICENSE",
+        "licenses/components/rune_viewer/THIRD_PARTY_NOTICES.md",
+        "licenses/components/rune_viewer/OFL.txt",
+        "licenses/components/rune_viewer/CARGO_CRATE_LICENSES.md"
+      ]
+    },
+    {
+      "id": "gmsh",
+      "name": "Gmsh",
+      "version": "4.15.2",
+      "license": "GPL-2.0-or-later",
+      "kind": "copyleft_binary_dependency",
+      "bundled_in_standard": true,
+      "requires_corresponding_source": true,
+      "source_type": "upstream_tarball",
+      "source_url": "https://gmsh.info/src/gmsh-4.15.2-source.tgz",
+      "archive_name": "gmsh-4.15.2-source.tgz",
+      "sha256": "be3f66f225d27ba9fa014f07e83169285da8a051b0e8ab7103d88066b39bdd3e",
+      "binary_artifacts": [
+        "site-packages/gmsh*",
+        "gmsh-*.dll"
+      ],
+      "license_files": [
+        "licenses/components/gmsh/LICENSE.txt"
+      ]
+    },
+    {
+      "id": "geos",
+      "name": "GEOS (shapely.libs geos_c)",
+      "version": "3.14.1",
+      "license": "LGPL-2.1-only",
+      "kind": "copyleft_binary_dependency",
+      "bundled_in_standard": true,
+      "requires_corresponding_source": true,
+      "source_type": "upstream_tarball",
+      "source_url": "https://download.osgeo.org/geos/geos-3.14.1.tar.bz2",
+      "archive_name": "geos-3.14.1.tar.bz2",
+      "sha256": "3c20919cda9a505db07b5216baa980bacdaa0702da715b43f176fb07eff7e716",
+      "binary_artifacts": [
+        "site-packages/shapely.libs/geos_c-*.dll",
+        "site-packages/shapely.libs/geos-*.dll"
+      ],
+      "license_files": [
+        "licenses/components/geos/COPYING",
+        "licenses/components/geos/LICENSE_GEOS"
+      ]
+    },
+    {
+      "id": "ironbug",
+      "name": "Ironbug",
+      "version": "1.26.1",
+      "license": "LGPL-3.0-or-later",
+      "kind": "copyleft_binary_dependency",
+      "bundled_in_standard": true,
+      "requires_corresponding_source": true,
+      "source_type": "upstream_tarball",
+      "source_url": "https://github.com/MingboPeng/Ironbug/archive/refs/tags/v1.26.1.tar.gz",
+      "archive_name": "Ironbug-1.26.1.tar.gz",
+      "sha256": "9ea1daa3b85499e9068f6faf652f2f2e7fac974406109a024aafad901299d428",
+      "binary_artifacts": [
+        "runtimes/ironbug/1.26.1/Ironbug.Console.exe",
+        "runtimes/ironbug/1.26.1/Ironbug.HVAC.dll",
+        "runtimes/ironbug/1.26.1/Ironbug.Core.dll",
+        "runtimes/ironbug/1.26.1/Ironbug.EPDoc.dll"
+      ],
+      "license_files": [
+        "licenses/components/ironbug/LICENSE"
+      ]
+    },
+    {
+      "id": "dss_python_backend",
+      "name": "DSS-Python Backend / KLUSolveX (Optional DES / OpenDSS)",
+      "version": "optional-des-opendss",
+      "license": "LGPL-3.0-only AND LGPL-2.1-or-later AND BSD-3-Clause",
+      "kind": "optional_copyleft_binary_dependency",
+      "bundled_in_standard": false,
+      "requires_corresponding_source": true,
+      "requires_corresponding_source_if_distributed": true,
+      "source_type": "upstream_repositories",
+      "source_url": "https://github.com/dss-extensions/dss_python_backend",
+      "companion_source_urls": [
+        "https://github.com/dss-extensions/dss_capi",
+        "https://github.com/dss-extensions/klusolve"
+      ],
+      "archive_name": null,
+      "sha256": null,
+      "binary_artifacts": [
+        "dss_python_backend (optional DES/OpenDSS)",
+        "klusolvex*.dll (optional DES/OpenDSS)"
+      ],
+      "license_files": [
+        "licenses/components/dss_opendss/LICENSE.LGPL3",
+        "licenses/components/dss_opendss/LICENSE.BSD3",
+        "licenses/components/dss_opendss/OPENDSS_LICENSE",
+        "licenses/components/dss_opendss/KLUSOLVEX_LICENSE.txt"
+      ]
+    }
+  ]
+}

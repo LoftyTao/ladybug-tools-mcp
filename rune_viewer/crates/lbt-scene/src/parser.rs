@@ -1,6 +1,6 @@
 //! HBJSON parser converting Honeybee `Model` files into [`SceneData`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -16,6 +16,22 @@ use crate::triangulate::{
 use crate::types::{
     Bounds3, EdgeVertex, MeshVertex, ObjectKind, ObjectRecord, ObjectTargetRef, SceneData,
 };
+
+/// Inward normal inset (in meters) applied to Room `Surface`-BC faces and their coplanar subfaces
+/// so adjacent interior walls/floors/ceilings between neighboring rooms never z-fight or ghost
+/// while keeping exact per-room face picking in Room Edit Mode.
+pub const ROOM_SURFACE_INSET_M: f64 = 0.002;
+
+/// Capped fallback normal offset (in meters) for unpunchable subfaces on an inset Room `Surface`
+/// face so the subface stays cleanly on its own room's side of the shared midplane.
+const SURFACE_SUBFACE_FALLBACK_OFFSET_M: f64 = 0.0008;
+
+/// Spatial tolerance (in meters) for detecting coincident duplicate same-type same-normal surfaces.
+const DUPLICATE_CENTROID_TOL_M: f64 = 1e-3;
+const DUPLICATE_PLANE_TOL_M: f64 = 1e-3;
+const DUPLICATE_BOUNDS_TOL_M: f32 = 2e-3;
+const DUPLICATE_NORMAL_DOT_MIN: f64 = 0.99;
+const SPATIAL_CELL_SIZE_M: f64 = 0.05;
 
 /// Errors produced when reading or parsing a Honeybee `.hbjson` model.
 #[derive(Debug)]
@@ -391,6 +407,84 @@ fn build_target(
     target
 }
 
+#[derive(Clone)]
+struct SurfaceSignature {
+    kind: ObjectKind,
+    type_key: String,
+    centroid: DVec3,
+    normal: DVec3,
+    area: f64,
+    bounds: Bounds3,
+}
+
+impl SurfaceSignature {
+    fn from_raw(
+        kind: ObjectKind,
+        type_key: impl Into<String>,
+        centroid: [f32; 3],
+        normal: [f32; 3],
+        area: f64,
+        bounds: Bounds3,
+    ) -> Option<Self> {
+        if !area.is_finite() || area <= 1e-12 || !bounds.is_valid() {
+            return None;
+        }
+        let c = DVec3::new(
+            f64::from(centroid[0]),
+            f64::from(centroid[1]),
+            f64::from(centroid[2]),
+        );
+        let n = DVec3::new(
+            f64::from(normal[0]),
+            f64::from(normal[1]),
+            f64::from(normal[2]),
+        );
+        if !c.is_finite() || !n.is_finite() || n.length_squared() <= 1e-12 {
+            return None;
+        }
+        Some(Self {
+            kind,
+            type_key: type_key.into().trim().to_ascii_lowercase(),
+            centroid: c,
+            normal: n.normalize(),
+            area,
+            bounds,
+        })
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        if self.kind != other.kind || self.type_key != other.type_key {
+            return false;
+        }
+        if self.normal.dot(other.normal) <= DUPLICATE_NORMAL_DOT_MIN {
+            return false;
+        }
+        let diff = self.centroid - other.centroid;
+        if diff.length() > DUPLICATE_CENTROID_TOL_M {
+            return false;
+        }
+        if diff.dot(other.normal).abs() > DUPLICATE_PLANE_TOL_M {
+            return false;
+        }
+        let area_tol = (1e-3_f64).max(0.01 * self.area.max(other.area));
+        if (self.area - other.area).abs() > area_tol {
+            return false;
+        }
+        (0..3).all(|i| {
+            (self.bounds.min[i] - other.bounds.min[i]).abs() <= DUPLICATE_BOUNDS_TOL_M
+                && (self.bounds.max[i] - other.bounds.max[i]).abs() <= DUPLICATE_BOUNDS_TOL_M
+        })
+    }
+}
+
+fn spatial_cell(p: DVec3) -> (i64, i64, i64) {
+    (
+        (p.x / SPATIAL_CELL_SIZE_M).floor() as i64,
+        (p.y / SPATIAL_CELL_SIZE_M).floor() as i64,
+        (p.z / SPATIAL_CELL_SIZE_M).floor() as i64,
+    )
+}
+
 struct SceneBuilder {
     garden_id: Option<String>,
     model_identifier: String,
@@ -401,6 +495,7 @@ struct SceneBuilder {
     indices: Vec<u32>,
     edge_vertices: Vec<EdgeVertex>,
     objects: Vec<ObjectRecord>,
+    surface_grid: HashMap<(i64, i64, i64), Vec<SurfaceSignature>>,
 }
 
 impl SceneBuilder {
@@ -415,6 +510,7 @@ impl SceneBuilder {
             indices: Vec::new(),
             edge_vertices: Vec::new(),
             objects: Vec::new(),
+            surface_grid: HashMap::new(),
         }
     }
 
@@ -422,6 +518,28 @@ impl SceneBuilder {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
         id
+    }
+
+    /// Return `true` if a coincident identical same-type same-normal surface was already emitted.
+    fn is_coincident_duplicate(&self, sig: &SurfaceSignature) -> bool {
+        let (cx, cy, cz) = spatial_cell(sig.centroid);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    if let Some(bucket) = self.surface_grid.get(&(cx + dx, cy + dy, cz + dz))
+                        && bucket.iter().any(|existing| sig.matches(existing))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn register_surface(&mut self, sig: SurfaceSignature) {
+        let cell = spatial_cell(sig.centroid);
+        self.surface_grid.entry(cell).or_default().push(sig);
     }
 
     fn push_triangulated_geometry(&mut self, geom: &TriangulatedGeometry, object_id: u32) {
@@ -435,32 +553,60 @@ impl SceneBuilder {
         self.scene_bounds.merge(&geom.bounds);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_shade(
         &mut self,
         raw: RawShade,
         is_indoor: bool,
         parent_object_id: Option<u32>,
+        owner_room_id: Option<u32>,
         parent_map: BTreeMap<String, String>,
         room_meta: &RoomMetadata,
     ) {
-        let object_id = self.alloc_id();
-        let face3d = convert_face3d(raw.geometry, self.unit_scale);
-        let geom = triangulate_face3d(
-            &face3d.boundary,
-            &face3d.holes,
-            face3d.plane,
-            object_id,
-            ObjectKind::Shade,
-        );
-        self.push_triangulated_geometry(&geom, object_id);
-
+        // Per honeybee-core (`_basewithshade.py` & `shade.py`), parented shades are never detached.
+        let is_detached_shade = if parent_object_id.is_some() {
+            false
+        } else {
+            raw.is_detached.unwrap_or(false)
+        };
         let shade_subtype = if is_indoor {
             "IndoorShade"
-        } else if raw.is_detached.unwrap_or(false) {
+        } else if is_detached_shade {
             "ContextShade"
         } else {
             "OutdoorShade"
         };
+
+        let face3d = convert_face3d(raw.geometry, self.unit_scale);
+        let probe_id = self.next_id;
+        let geom = triangulate_face3d(
+            &face3d.boundary,
+            &face3d.holes,
+            face3d.plane,
+            probe_id,
+            ObjectKind::Shade,
+        );
+
+        let sig = SurfaceSignature::from_raw(
+            ObjectKind::Shade,
+            shade_subtype,
+            geom.centroid,
+            geom.normal,
+            geom.area,
+            geom.bounds,
+        );
+        if let Some(ref s) = sig
+            && self.is_coincident_duplicate(s)
+        {
+            return;
+        }
+
+        let object_id = self.alloc_id();
+        debug_assert_eq!(object_id, probe_id);
+        if let Some(s) = sig {
+            self.register_surface(s);
+        }
+        self.push_triangulated_geometry(&geom, object_id);
 
         let target = build_target(
             self.garden_id.as_deref(),
@@ -478,6 +624,12 @@ impl SceneBuilder {
             bounds: geom.bounds,
             centroid: geom.centroid,
             parent_object_id,
+            owner_room_id,
+            is_orphaned: owner_room_id.is_none(),
+            is_glass: false,
+            is_indoor_shade: is_indoor,
+            is_detached_shade,
+            is_shade_mesh: false,
             face_type: Some(shade_subtype.to_owned()),
             boundary_condition: None,
             story: room_meta.story.clone(),
@@ -491,7 +643,14 @@ impl SceneBuilder {
     }
 
     fn add_shade_mesh(&mut self, raw: RawShadeMesh) {
-        let object_id = self.alloc_id();
+        // Per honeybee-schema (`model.py`) & honeybee-core (`shademesh.py`), ShadeMesh.is_detached defaults to True.
+        let is_detached_shade = raw.is_detached.unwrap_or(true);
+        let shade_subtype = if is_detached_shade {
+            "ContextShade"
+        } else {
+            "OutdoorShade"
+        };
+
         let verts: Vec<DVec3> = raw
             .geometry
             .vertices
@@ -499,6 +658,8 @@ impl SceneBuilder {
             .map(|p| p.into_dvec3(self.unit_scale))
             .collect();
 
+        let probe_id = self.next_id;
+        let mut mesh_geoms: Vec<(TriangulatedGeometry, Option<SurfaceSignature>)> = Vec::new();
         let mut total_area = 0.0_f64;
         let mut weighted_centroid = DVec3::ZERO;
         let mut mesh_bounds = Bounds3::empty();
@@ -512,21 +673,50 @@ impl SceneBuilder {
             if poly.len() < 3 {
                 continue;
             }
-            let geom = triangulate_face3d(&poly, &[], None, object_id, ObjectKind::Shade);
-            if !geom.vertices.is_empty() && !geom.indices.is_empty() {
-                let base_vertex = self.vertices.len() as u32;
-                self.vertices.extend_from_slice(&geom.vertices);
-                self.indices
-                    .extend(geom.indices.iter().map(|&idx| base_vertex + idx));
+            let geom = triangulate_face3d(&poly, &[], None, probe_id, ObjectKind::Shade);
+            let sig = SurfaceSignature::from_raw(
+                ObjectKind::Shade,
+                shade_subtype,
+                geom.centroid,
+                geom.normal,
+                geom.area,
+                geom.bounds,
+            );
+            if let Some(ref s) = sig
+                && (self.is_coincident_duplicate(s)
+                    || mesh_geoms
+                        .iter()
+                        .any(|(_, prev_sig)| prev_sig.as_ref().is_some_and(|p| s.matches(p))))
+            {
+                continue;
             }
             mesh_bounds.merge(&geom.bounds);
-            all_edge_loops.extend(geom.edge_loops);
+            all_edge_loops.extend(geom.edge_loops.clone());
             total_area += geom.area;
             weighted_centroid += DVec3::new(
                 f64::from(geom.centroid[0]),
                 f64::from(geom.centroid[1]),
                 f64::from(geom.centroid[2]),
             ) * geom.area;
+            mesh_geoms.push((geom, sig));
+        }
+
+        if mesh_geoms.is_empty() {
+            return;
+        }
+
+        let object_id = self.alloc_id();
+        debug_assert_eq!(object_id, probe_id);
+        for (geom, sig) in mesh_geoms {
+            if let Some(s) = sig {
+                self.register_surface(s);
+            }
+            if !geom.vertices.is_empty() && !geom.indices.is_empty() {
+                let base_vertex = self.vertices.len() as u32;
+                self.vertices.extend_from_slice(&geom.vertices);
+                self.indices
+                    .extend(geom.indices.iter().map(|&idx| base_vertex + idx));
+            }
         }
 
         append_deduplicated_edges(&all_edge_loops, object_id, &mut self.edge_vertices);
@@ -537,12 +727,6 @@ impl SceneBuilder {
             [c.x as f32, c.y as f32, c.z as f32]
         } else {
             mesh_bounds.center()
-        };
-
-        let shade_subtype = if raw.is_detached.unwrap_or(false) {
-            "ContextShade"
-        } else {
-            "OutdoorShade"
         };
 
         let target = build_target(
@@ -561,6 +745,12 @@ impl SceneBuilder {
             bounds: mesh_bounds,
             centroid,
             parent_object_id: None,
+            owner_room_id: None,
+            is_orphaned: true,
+            is_glass: false,
+            is_indoor_shade: false,
+            is_detached_shade,
+            is_shade_mesh: true,
             face_type: Some(shade_subtype.to_owned()),
             boundary_condition: None,
             story: None,
@@ -573,23 +763,46 @@ impl SceneBuilder {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_aperture(
         &mut self,
         raw: RawAperture,
         parsed_geom: ParsedFace3D,
         normal_offset: [f32; 3],
         parent_object_id: Option<u32>,
+        owner_room_id: Option<u32>,
         parent_map: BTreeMap<String, String>,
         room_meta: &RoomMetadata,
     ) -> f64 {
-        let object_id = self.alloc_id();
+        let probe_id = self.next_id;
         let mut geom = triangulate_face3d(
             &parsed_geom.boundary,
             &parsed_geom.holes,
             parsed_geom.plane,
-            object_id,
+            probe_id,
             ObjectKind::Aperture,
         );
+
+        let sig = SurfaceSignature::from_raw(
+            ObjectKind::Aperture,
+            "aperture",
+            geom.centroid,
+            geom.normal,
+            geom.area,
+            geom.bounds,
+        );
+        if let Some(ref s) = sig
+            && self.is_coincident_duplicate(s)
+        {
+            return 0.0;
+        }
+
+        let object_id = self.alloc_id();
+        debug_assert_eq!(object_id, probe_id);
+        if let Some(s) = sig {
+            self.register_surface(s);
+        }
+
         offset_geometry(&mut geom, normal_offset);
         self.push_triangulated_geometry(&geom, object_id);
 
@@ -618,6 +831,12 @@ impl SceneBuilder {
             bounds: geom.bounds,
             centroid: geom.centroid,
             parent_object_id,
+            owner_room_id,
+            is_orphaned: owner_room_id.is_none(),
+            is_glass: false,
+            is_indoor_shade: false,
+            is_detached_shade: false,
+            is_shade_mesh: false,
             face_type: None,
             boundary_condition: bc,
             story: room_meta.story.clone(),
@@ -634,6 +853,7 @@ impl SceneBuilder {
                 shade,
                 true,
                 Some(object_id),
+                owner_room_id,
                 shade_parent.clone(),
                 room_meta,
             );
@@ -643,6 +863,7 @@ impl SceneBuilder {
                 shade,
                 false,
                 Some(object_id),
+                owner_room_id,
                 shade_parent.clone(),
                 room_meta,
             );
@@ -650,23 +871,49 @@ impl SceneBuilder {
         area
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_door(
         &mut self,
         raw: RawDoor,
         parsed_geom: ParsedFace3D,
         normal_offset: [f32; 3],
         parent_object_id: Option<u32>,
+        owner_room_id: Option<u32>,
         parent_map: BTreeMap<String, String>,
         room_meta: &RoomMetadata,
     ) {
-        let object_id = self.alloc_id();
+        let is_glass = raw.is_glass.unwrap_or(false);
+        let door_type_str = if is_glass { "GlassDoor" } else { "Door" };
+
+        let probe_id = self.next_id;
         let mut geom = triangulate_face3d(
             &parsed_geom.boundary,
             &parsed_geom.holes,
             parsed_geom.plane,
-            object_id,
+            probe_id,
             ObjectKind::Door,
         );
+
+        let sig = SurfaceSignature::from_raw(
+            ObjectKind::Door,
+            door_type_str,
+            geom.centroid,
+            geom.normal,
+            geom.area,
+            geom.bounds,
+        );
+        if let Some(ref s) = sig
+            && self.is_coincident_duplicate(s)
+        {
+            return;
+        }
+
+        let object_id = self.alloc_id();
+        debug_assert_eq!(object_id, probe_id);
+        if let Some(s) = sig {
+            self.register_surface(s);
+        }
+
         offset_geometry(&mut geom, normal_offset);
         self.push_triangulated_geometry(&geom, object_id);
 
@@ -674,11 +921,6 @@ impl SceneBuilder {
             .boundary_condition
             .and_then(RawBoundaryCondition::into_name)
             .or_else(|| Some("Outdoors".to_owned()));
-        let door_type = if raw.is_glass.unwrap_or(false) {
-            Some("GlassDoor".to_owned())
-        } else {
-            Some("Door".to_owned())
-        };
 
         let mut shade_parent = parent_map.clone();
         shade_parent.insert("door_identifier".to_owned(), raw.identifier.clone());
@@ -699,7 +941,13 @@ impl SceneBuilder {
             bounds: geom.bounds,
             centroid: geom.centroid,
             parent_object_id,
-            face_type: door_type,
+            owner_room_id,
+            is_orphaned: owner_room_id.is_none(),
+            is_glass,
+            is_indoor_shade: false,
+            is_detached_shade: false,
+            is_shade_mesh: false,
+            face_type: Some(door_type_str.to_owned()),
             boundary_condition: bc,
             story: room_meta.story.clone(),
             zone: room_meta.zone.clone(),
@@ -715,6 +963,7 @@ impl SceneBuilder {
                 shade,
                 true,
                 Some(object_id),
+                owner_room_id,
                 shade_parent.clone(),
                 room_meta,
             );
@@ -724,6 +973,7 @@ impl SceneBuilder {
                 shade,
                 false,
                 Some(object_id),
+                owner_room_id,
                 shade_parent.clone(),
                 room_meta,
             );
@@ -734,10 +984,11 @@ impl SceneBuilder {
         &mut self,
         raw: RawFace,
         parent_object_id: Option<u32>,
+        owner_room_id: Option<u32>,
         room_identifier: Option<&str>,
         room_meta: &RoomMetadata,
-    ) -> FaceStats {
-        let face_id = self.alloc_id();
+    ) -> Option<FaceStats> {
+        let probe_id = self.next_id;
         let host_face3d = convert_face3d(raw.geometry, self.unit_scale);
 
         let mut parsed_apertures: Vec<(RawAperture, ParsedFace3D)> =
@@ -758,14 +1009,13 @@ impl SceneBuilder {
             parsed_doors.push((dr, fg));
         }
 
-        let host_tri = triangulate_host_face(
+        let mut host_tri = triangulate_host_face(
             &host_face3d.boundary,
             &host_face3d.holes,
             &subface_loops,
             host_face3d.plane,
-            face_id,
+            probe_id,
         );
-        self.push_triangulated_geometry(&host_tri.geometry, face_id);
 
         let face_type = raw
             .face_type
@@ -784,6 +1034,45 @@ impl SceneBuilder {
                     "Outdoors".to_owned()
                 }
             });
+
+        // Deduplicate coincident identical same-type same-normal faces BEFORE applying Room Surface inset.
+        let sig = SurfaceSignature::from_raw(
+            ObjectKind::Face,
+            &face_type,
+            host_tri.gross_centroid,
+            host_tri.geometry.normal,
+            host_tri.gross_area,
+            host_tri.gross_bounds,
+        );
+        if let Some(ref s) = sig
+            && self.is_coincident_duplicate(s)
+        {
+            return None;
+        }
+
+        let face_id = self.alloc_id();
+        debug_assert_eq!(face_id, probe_id);
+        if let Some(s) = sig {
+            self.register_surface(s);
+        }
+
+        // Adjacent Room `Surface`-BC faces share identical world coordinates with opposite normals.
+        // Inset each Room `Surface`-BC face (and its coplanar subfaces) inward along `-normal`
+        // by 2 mm so neighboring rooms never z-fight or ghost while keeping per-room picking intact.
+        let is_room_surface_bc =
+            owner_room_id.is_some() && boundary_condition.eq_ignore_ascii_case("Surface");
+        let surface_inset_vec = if is_room_surface_bc {
+            [
+                -host_tri.geometry.normal[0] * ROOM_SURFACE_INSET_M as f32,
+                -host_tri.geometry.normal[1] * ROOM_SURFACE_INSET_M as f32,
+                -host_tri.geometry.normal[2] * ROOM_SURFACE_INSET_M as f32,
+            ]
+        } else {
+            [0.0, 0.0, 0.0]
+        };
+
+        offset_geometry(&mut host_tri.geometry, surface_inset_vec);
+        self.push_triangulated_geometry(&host_tri.geometry, face_id);
 
         let mut face_parent_map = BTreeMap::new();
         if let Some(room_id) = room_identifier {
@@ -807,6 +1096,12 @@ impl SceneBuilder {
             bounds: host_tri.geometry.bounds,
             centroid: host_tri.geometry.centroid,
             parent_object_id,
+            owner_room_id,
+            is_orphaned: owner_room_id.is_none(),
+            is_glass: false,
+            is_indoor_shade: false,
+            is_detached_shade: false,
+            is_shade_mesh: false,
             face_type: Some(face_type.clone()),
             boundary_condition: Some(boundary_condition.clone()),
             story: room_meta.story.clone(),
@@ -818,32 +1113,54 @@ impl SceneBuilder {
             area: Some(host_tri.gross_area),
         });
 
-        let subface_offset = [
-            host_tri.geometry.normal[0] * host_tri.subface_offset_m as f32,
-            host_tri.geometry.normal[1] * host_tri.subface_offset_m as f32,
-            host_tri.geometry.normal[2] * host_tri.subface_offset_m as f32,
-        ];
-
         let mut child_parent_map = face_parent_map;
         child_parent_map.insert("face_identifier".to_owned(), raw.identifier);
 
+        let host_normal = host_tri.geometry.normal;
+        let compute_subface_offset = |idx: usize| -> [f32; 3] {
+            let coplanar = host_tri.subface_coplanar.get(idx).copied().unwrap_or(false);
+            let fallback_m = host_tri.subface_offsets.get(idx).copied().unwrap_or(0.0);
+            let effective_fallback = if is_room_surface_bc && coplanar && fallback_m > 0.0 {
+                fallback_m.min(SURFACE_SUBFACE_FALLBACK_OFFSET_M)
+            } else {
+                fallback_m
+            };
+            let base = if is_room_surface_bc && coplanar {
+                surface_inset_vec
+            } else {
+                [0.0, 0.0, 0.0]
+            };
+            [
+                base[0] + host_normal[0] * effective_fallback as f32,
+                base[1] + host_normal[1] * effective_fallback as f32,
+                base[2] + host_normal[2] * effective_fallback as f32,
+            ]
+        };
+
+        let mut sub_idx = 0_usize;
         let mut ap_area_sum = 0.0_f64;
         for (ap, fg) in parsed_apertures {
+            let offset = compute_subface_offset(sub_idx);
+            sub_idx += 1;
             ap_area_sum += self.add_aperture(
                 ap,
                 fg,
-                subface_offset,
+                offset,
                 Some(face_id),
+                owner_room_id,
                 child_parent_map.clone(),
                 room_meta,
             );
         }
         for (dr, fg) in parsed_doors {
+            let offset = compute_subface_offset(sub_idx);
+            sub_idx += 1;
             self.add_door(
                 dr,
                 fg,
-                subface_offset,
+                offset,
                 Some(face_id),
+                owner_room_id,
                 child_parent_map.clone(),
                 room_meta,
             );
@@ -853,6 +1170,7 @@ impl SceneBuilder {
                 shade,
                 true,
                 Some(face_id),
+                owner_room_id,
                 child_parent_map.clone(),
                 room_meta,
             );
@@ -862,6 +1180,7 @@ impl SceneBuilder {
                 shade,
                 false,
                 Some(face_id),
+                owner_room_id,
                 child_parent_map.clone(),
                 room_meta,
             );
@@ -874,7 +1193,7 @@ impl SceneBuilder {
                 Some((ap_area_sum / host_tri.gross_area).clamp(0.0, 1.0) as f32);
         }
 
-        FaceStats {
+        Some(FaceStats {
             bounds: host_tri.geometry.bounds,
             centroid: host_tri.geometry.centroid,
             gross_area: host_tri.gross_area,
@@ -882,7 +1201,7 @@ impl SceneBuilder {
             is_wall,
             is_floor: face_type.eq_ignore_ascii_case("Floor"),
             is_outdoors,
-        }
+        })
     }
 
     fn add_room(&mut self, raw: RawRoom) -> Option<(f32, String)> {
@@ -922,6 +1241,12 @@ impl SceneBuilder {
             bounds: Bounds3::empty(),
             centroid: [0.0, 0.0, 0.0],
             parent_object_id: None,
+            owner_room_id: Some(room_id),
+            is_orphaned: false,
+            is_glass: false,
+            is_indoor_shade: false,
+            is_detached_shade: false,
+            is_shade_mesh: false,
             face_type: None,
             boundary_condition: None,
             story: room_meta.story.clone(),
@@ -943,7 +1268,15 @@ impl SceneBuilder {
         let mut all_wall_ap_area = 0.0_f64;
 
         for face in raw.faces {
-            let stats = self.add_face(face, Some(room_id), Some(&raw.identifier), &room_meta);
+            let Some(stats) = self.add_face(
+                face,
+                Some(room_id),
+                Some(room_id),
+                Some(&raw.identifier),
+                &room_meta,
+            ) else {
+                continue;
+            };
             room_bounds.merge(&stats.bounds);
             face_area_sum += stats.gross_area;
             weighted_centroid += DVec3::new(
@@ -973,13 +1306,14 @@ impl SceneBuilder {
                 shade,
                 true,
                 Some(room_id),
+                Some(room_id),
                 room_shade_parent.clone(),
                 &room_meta,
             );
-            if !room_bounds.is_valid() {
-                if let Some(rec) = self.objects.get(shade_start) {
-                    room_bounds.merge(&rec.bounds);
-                }
+            if !room_bounds.is_valid()
+                && let Some(rec) = self.objects.get(shade_start)
+            {
+                room_bounds.merge(&rec.bounds);
             }
         }
         for shade in raw.outdoor_shades.into_iter().chain(raw.shades) {
@@ -988,13 +1322,14 @@ impl SceneBuilder {
                 shade,
                 false,
                 Some(room_id),
+                Some(room_id),
                 room_shade_parent.clone(),
                 &room_meta,
             );
-            if !room_bounds.is_valid() {
-                if let Some(rec) = self.objects.get(shade_start) {
-                    room_bounds.merge(&rec.bounds);
-                }
+            if !room_bounds.is_valid()
+                && let Some(rec) = self.objects.get(shade_start)
+            {
+                room_bounds.merge(&rec.bounds);
             }
         }
 
@@ -1043,7 +1378,11 @@ struct FaceStats {
 /// Load and triangulate a Honeybee `.hbjson` model file from disk.
 pub fn load_hbjson_file(path: &Path, garden_id: Option<&str>) -> Result<SceneData, SceneError> {
     let contents = fs::read_to_string(path)?;
-    load_hbjson_str(&contents, garden_id, Some(path.to_string_lossy().into_owned()))
+    load_hbjson_str(
+        &contents,
+        garden_id,
+        Some(path.to_string_lossy().into_owned()),
+    )
 }
 
 /// Parse and triangulate a Honeybee `.hbjson` model from an in-memory JSON string.
@@ -1053,12 +1392,12 @@ pub fn load_hbjson_str(
     source_path: Option<String>,
 ) -> Result<SceneData, SceneError> {
     let raw: RawModel = serde_json::from_str(json_str)?;
-    if let Some(model_type) = raw.model_type.as_deref() {
-        if model_type != "Model" {
-            return Err(SceneError::InvalidModel(format!(
-                "Expected type 'Model', got '{model_type}'"
-            )));
-        }
+    if let Some(model_type) = raw.model_type.as_deref()
+        && model_type != "Model"
+    {
+        return Err(SceneError::InvalidModel(format!(
+            "Expected type 'Model', got '{model_type}'"
+        )));
     }
     let model_identifier = raw
         .identifier
@@ -1085,18 +1424,34 @@ pub fn load_hbjson_str(
 
     let empty_meta = RoomMetadata::default();
     for face in raw.orphaned_faces {
-        builder.add_face(face, None, None, &empty_meta);
+        builder.add_face(face, None, None, None, &empty_meta);
     }
     for mut ap in raw.orphaned_apertures {
         let fg = convert_face3d(std::mem::take(&mut ap.geometry), builder.unit_scale);
-        builder.add_aperture(ap, fg, [0.0, 0.0, 0.0], None, BTreeMap::new(), &empty_meta);
+        builder.add_aperture(
+            ap,
+            fg,
+            [0.0, 0.0, 0.0],
+            None,
+            None,
+            BTreeMap::new(),
+            &empty_meta,
+        );
     }
     for mut dr in raw.orphaned_doors {
         let fg = convert_face3d(std::mem::take(&mut dr.geometry), builder.unit_scale);
-        builder.add_door(dr, fg, [0.0, 0.0, 0.0], None, BTreeMap::new(), &empty_meta);
+        builder.add_door(
+            dr,
+            fg,
+            [0.0, 0.0, 0.0],
+            None,
+            None,
+            BTreeMap::new(),
+            &empty_meta,
+        );
     }
     for shade in raw.orphaned_shades {
-        builder.add_shade(shade, false, None, BTreeMap::new(), &empty_meta);
+        builder.add_shade(shade, false, None, None, BTreeMap::new(), &empty_meta);
     }
     for shade_mesh in raw.shade_meshes {
         builder.add_shade_mesh(shade_mesh);

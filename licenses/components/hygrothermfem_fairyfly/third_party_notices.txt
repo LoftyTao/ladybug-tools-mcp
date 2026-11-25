@@ -1,0 +1,30 @@
+Third-party notices
+===================
+
+The native extension in pyHygroThermFEM-Fairyfly is built from vendored upstream
+LBNL and Eigen C++ sources. Verbatim license and copyright files present in
+those source checkouts (plus the build-time pybind11 header license) are copied
+into the third_party_licenses directory:
+
+* HygroThermFEM/LICENSE (v_1.0.80 + local patches in patches/hygrothermfem-v1.0.80.patch)
+* KeffCavity/LICENSE (Version_1.1.10; BSD-3-Clause LBNL variant)
+* LBNLCPPCommon/LICENSE (v0.19)
+* Windows-CalcEngine/License.txt (Version_1.0.78)
+* pybind11/LICENSE (BSD-3-Clause; Wenzel Jakob)
+* Eigen/LICENSE and the accompanying COPYING.README, COPYING.MPL2,
+  COPYING.BSD, COPYING.APACHE, and COPYING.MINPACK notices
+
+These files preserve upstream notices. They do not by themselves establish
+redistribution clearance for a combined source or binary package.
+pyHygroThermFEM-Fairyfly's own code is licensed under BSD-3-Clause (see the
+LICENSE file). This project does not claim ISO/CEN standards certification.
+
+The LBNL licenses are preserved verbatim, including their government-rights
+notices and additional terms concerning voluntarily provided enhancements;
+the BSD label is not a substitute for those texts. pybind11's header code
+is a native build input, not merely an external build tool.
+
+Separately installed libraryfemtherm (0.24.0, BSD-3-Clause LBNL variant), click,
+and its Windows dependency colorama keep their own distribution notices.
+Fairyfly and fairyfly-next-therm / fairyfly-next-grasshopper are separate
+AGPL-3.0 packages, not relicensed by this file and not bundled in this wheel.

@@ -15,6 +15,7 @@ Through natural-language conversation, users can use the core capabilities of La
 - [User Groups](#user-groups)
 - [Core Concepts](#core-concepts)
 - [Quick Start](#quick-start)
+- [Agent Client Configuration Guide](#agent-client-configuration-guide)
 - [Web View Mode](#web-view-mode)
 - [First Use](#first-use)
 - [Workflow Examples](#workflow-examples)
@@ -78,135 +79,99 @@ Because we want users to keep as much attention as possible on the interaction w
 
 ## Quick Start
 
-Basic modeling needs [uv](https://docs.astral.sh/uv/getting-started/installation/) and an MCP client. uv prepares Python 3.12 and the dependencies automatically; no repository checkout is required. Git enables Garden version history, but Garden creation also works without it.
+### Windows x86_64 Integrated Offline Installer
 
-### Installation wizard
+On Windows x86_64, the recommended distribution is the **Integrated Offline Installer** (`lbt-mcp-<ver>-win-x64-setup.exe`, e.g., `lbt-mcp-1.2.3-win-x64-setup.exe`) from [GitHub Releases](https://github.com/LoftyTao/ladybug-tools-mcp/releases).
+It installs per-user without administrator rights and bundles Python `3.12`, `lbt-mcp`, Radiance `5.4 (2023-11-05)`, OpenStudio SDK `3.11.0`, unmodified EnergyPlus `25.2.0`, Ironbug `1.26.1` (with a self-contained `IronbugBridge.exe` requiring no external `.NET` runtime), LBT Measures, `pyHygroThermFEM-Fairyfly` + `gmsh` (THERM), `lbt-rune-viewer` (3D Viewer), the bundled Agent Skill (`ladybug-tools-mcp-use`), optional Flowerpot Grasshopper assets, and license notices.
 
-`1.2.3` is the pinned release version. Install it from PyPI with the command below. For local validation, the same wizard accepts a wheel with `--from <absolute-wheel-path>`.
+#### Optional URBANopt Offline Pack
 
-Version `1.2.3` defaults new installations to `~/.ladybug-tools-mcp/tools` and `~/Gardens`, checks Rhino 8's usual Windows location before its installation record, and offers uninstall from an existing installation's wizard. Saved paths are retained on upgrade.
+District-scale Dragonfly URBANopt workflows use the separate **Optional URBANopt Offline Pack** (`lbt-mcp-<ver>-win-x64-urbanopt.lbtpack`, e.g., `lbt-mcp-1.2.3-win-x64-urbanopt.lbtpack`), which adds URBANopt CLI `1.4.0-rc1`, `OpenStudio/Ruby`, and runtime Gems.
 
-```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install
-```
+- Place `lbt-mcp-<ver>-win-x64-urbanopt.lbtpack` beside `lbt-mcp-<ver>-win-x64-setup.exe` to detect and install it automatically during setup, or
+- Install or remove it later with `lbt-mcp pack install` / `lbt-mcp pack remove`.
 
-The same terminal wizard runs on Windows, Linux, and macOS. Choose runtime and Garden directories, automatic Codex configuration, and optional Flowerpot / Grasshopper integration. Restart the client after installation.
+#### Default Paths and Non-ASCII / Space Path Handling
 
-Installation is per user. Gardens default to `~/Gardens`, outside the runtime and uv cache. Unrelated MCP settings are retained; conflicting settings or edited assets stop installation with instructions. The first download includes scientific dependencies and can take several minutes. uv automatically builds the current pure-Python Luigi dependency; no compiler is needed.
+- **Default `<LBT_MCP_HOME>`**: `%LOCALAPPDATA%\lbt-mcp` when the Windows user profile path contains only ASCII characters and no spaces.
+- **Automatic fallback**: `C:\lbt-mcp` when `%LOCALAPPDATA%` or the user profile path contains spaces or non-ASCII characters, because simulation engines such as Radiance, OpenStudio, and EnergyPlus expect ASCII, space-free runtime paths.
+- **Custom paths**: If you choose a directory with spaces or non-ASCII characters in the installer, setup displays a warning and `lbt-mcp doctor` flags it.
+- **Gardens workspace**: Defaults to `%USERPROFILE%\Gardens` and is always kept **outside** `<LBT_MCP_HOME>`, so models, weather files, simulation runs, and Git histories remain intact across upgrades and uninstalls. Spaces and Unicode characters inside Garden paths (via `LADYBUG_TOOLS_GARDENS_ROOT`) are supported.
+- **Zero global environment pollution**: Setup never modifies system `PATH`, `RAYPATH`, or `~/.env_uo.bat`. Runtime paths are stored in `<LBT_MCP_HOME>\config\runtime.json` and synchronized into the bundled virtual environment's Ladybug Tools SDK `config.json` files.
 
-To install the runtime and print settings without changing client configuration:
-
-```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install --generate-config
-```
-
-For a local wheel, use the wheel for both bootstrap and installation; the built file is named like `lbt_mcp-1.2.3-py3-none-any.whl`:
+#### Installed Folder Layout
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow --from <absolute-wheel-path> lbt-mcp install --wheel <absolute-wheel-path>
+<LBT_MCP_HOME>\                         # Default: %LOCALAPPDATA%\lbt-mcp (or C:\lbt-mcp if profile has spaces/non-ASCII)
+├── bin\
+│   └── lbt-mcp.exe                     # Native Rust stdio launcher and CLI entrypoint
+├── app\
+│   ├── current.json                    # Active release pointer
+│   ├── current\                        # Active release directory
+│   │   ├── venv\                       # Relocatable Python 3.12 virtual environment
+│   │   ├── skills\
+│   │   │   └── ladybug-tools-mcp-use\  # Bundled Agent Skill and references
+│   │   └── grasshopper\                # Packaged Flowerpot .ghuser user objects
+│   └── releases\<ver>\                 # Versioned release payload
+├── config\
+│   ├── runtime.json                    # Bundled and override simulation engine paths
+│   ├── installation.json               # Installation record (schema_version: 1)
+│   └── packs\                          # Installed .lbtpack receipts
+├── runtimes\
+│   ├── python\3.12.16\                 # Portable Python 3.12 runtime
+│   ├── openstudio\3.11.0\              # OpenStudio SDK 3.11.0 (bin/, CSharp/openstudio/, unmodified EnergyPlus 25.2.0)
+│   ├── radiance\5.4\                   # Radiance 5.4 (2023-11-05) radbin + radlib
+│   ├── ironbug\1.26.1\                 # Ironbug 1.26.1 assemblies
+│   ├── lbt_home\resources\measures\    # LBT Measures and honeybee-openstudio-gem
+│   └── urbanopt-cli-1.4.0\             # Present only when URBANopt .lbtpack is installed
+├── LICENSE                             # GNU AGPL-3.0-only
+└── licenses\                           # THIRD_PARTY_NOTICES.md, CORRESPONDING_SOURCE.md, SOURCE_MANIFEST.json, components\
+
+%USERPROFILE%\
+├── .ladybug-tools-mcp\installation.json # User pointer record (schema_version: 1) for Rhino/Grasshopper Flowerpot
+└── Gardens\                             # Default Gardens root (outside <LBT_MCP_HOME>, preserved on uninstall)
 ```
 
-The generated output is a Codex TOML block containing the installed Python path, the Garden root, and the installation record. Copy that block into `~/.codex/config.toml` when configuring Codex manually.
+### CLI Diagnostics, Runtime, Pack, and Flowerpot Commands
 
-The two environment values use the current user's home directory on the target system. Typical defaults are:
-
-| System | `LADYBUG_TOOLS_GARDENS_ROOT` | `LADYBUG_TOOLS_MCP_INSTALLATION` |
-| --- | --- | --- |
-| Windows | `%USERPROFILE%\Gardens` | `%USERPROFILE%\.ladybug-tools-mcp\installation.json` |
-| macOS | `/Users/<user>/Gardens` | `/Users/<user>/.ladybug-tools-mcp/installation.json` |
-| Linux | `/home/<user>/Gardens` | `/home/<user>/.ladybug-tools-mcp/installation.json` |
-
-The installer writes resolved absolute paths, including redirected home directories; MCP clients do not need to expand `%USERPROFILE%`, `$HOME`, or `~`. Choose the Garden directory in the wizard, or select both paths explicitly:
+Run `<LBT_MCP_HOME>\bin\lbt-mcp.exe` (or `lbt-mcp` inside a Python environment) for server execution, diagnostics, runtime management, optional packs, and Flowerpot integration:
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install --garden-dir "<absolute-garden-directory>" --state "<absolute-installation.json>"
+lbt-mcp serve                                          # Start the stdio MCP server (default when no subcommand is given)
+lbt-mcp status [--home <dir>] [--state <file>]         # Show active <LBT_MCP_HOME>, version, launcher, and Gardens root
+lbt-mcp doctor [--home <dir>] [--smoke]                # Validate paths, SDK config sync, licenses, Rune viewer, and (--smoke) run engine probes
+lbt-mcp runtime list|sync|set|reset                    # Inspect, sync to SDK config.json, override, or reset engine paths
+lbt-mcp pack install <file.lbtpack> [--home <dir>]     # Verify SHA-256 digests and install an offline .lbtpack extension
+lbt-mcp pack list [--home <dir>]                       # List installed extension packs
+lbt-mcp pack remove <name> [--home <dir>]              # Remove pack-owned files and re-sync SDK configs
+lbt-mcp flowerpot install [--grasshopper-dir <dir>]    # Install optional Rhino 8 / Grasshopper Flowerpot components
+lbt-mcp flowerpot uninstall [--state <file>]           # Remove unmodified Flowerpot components
 ```
 
-An explicit Garden choice overrides the saved installation; otherwise the saved choice is retained before using the default. `--state` overrides `LADYBUG_TOOLS_MCP_INSTALLATION`, which overrides the default record location. Keep using the same `--state` for later upgrades/status/uninstall. When Flowerpot uses a custom record, Rhino must inherit `LADYBUG_TOOLS_MCP_INSTALLATION` pointing to that same file.
+### Flowerpot and Platform Scope
 
-Other MCP clients can use the same installed Python with standard stdio configuration:
+Flowerpot is optional. On Windows with Rhino 8, enable it during setup or run `lbt-mcp flowerpot install`, restart Grasshopper, then search for `FP` or drag the seven components from the `Flowerpot` category (`FP Create Garden`, `FP Garden List`, `FP Honeybee Link`, `FP Dragonfly Link`, `FP Energy Properties Input`, `FP Radiance Properties Input`, and `FP Detail HVAC`). Install Rhino, Ladybug Tools for Grasshopper, and Ironbug separately as required by your Grasshopper workflow. See [the component guide](src/grasshopper_components/README.md).
 
-```json
-{
-  "mcpServers": {
-    "lbt-mcp": {
-      "command": "<installed-python>",
-      "args": ["-I", "-m", "ladybug_tools_mcp.server"],
-      "env": {
-        "LADYBUG_TOOLS_GARDENS_ROOT": "<garden-directory>",
-        "LADYBUG_TOOLS_MCP_INSTALLATION": "<installation-record>"
-      }
-    }
-  }
-}
-```
+Windows x86_64 is the primary integrated offline platform. Linux x86_64 and macOS Apple Silicon run the same core MCP and unit/contract checks in CI from PyPI or source packages; Flowerpot retains a Windows Rhino/Grasshopper boundary, while Fairyfly/THERM uses the bundled cross-platform `pyHygroThermFEM-Fairyfly` C++20 solver and headless Gmsh Q4 mesher across Windows, Linux, and macOS (no external LBNL THERM installation required). See [GitHub Releases](https://github.com/LoftyTao/ladybug-tools-mcp/releases) and the [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml) for published release evidence.
 
-OpenCode2 2.0.12 uses this local server shape:
+### Simulation Runtimes
 
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "lbt-mcp": {
-      "type": "local",
-      "command": ["<installed-python>", "-I", "-m", "ladybug_tools_mcp.server"],
-      "environment": {
-        "LADYBUG_TOOLS_GARDENS_ROOT": "<garden-directory>",
-        "LADYBUG_TOOLS_MCP_INSTALLATION": "<installation-record>"
-      },
-      "timeout": 120000
-    }
-  }
-}
-```
+The Windows offline installer bundles the simulation runtimes below (with URBANopt provided via the optional `.lbtpack` extension). In source or PyPI setups, use `LB_Get_Runtime_Config` or `lbt-mcp doctor --smoke` to inspect active engines.
 
-For upgrades, close clients using MCP and Rhino, then run the chosen new version's installer. Versions stay fixed until you explicitly upgrade. Uninstall keeps Gardens and user-edited files:
+Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | Ironbug | URBANopt CLI | THERM | 3D Viewer |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `v1.2.3` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NREL/OpenStudio/releases/tag/v3.11.0) | 25.2.0 | [1.26.1](https://github.com/MingboPeng/Ironbug/releases/tag/v1.26.1) | [1.4.0-rc1](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) (optional pack) | Bundled `pyHygroThermFEM-Fairyfly` + `gmsh` | Bundled `lbt-rune-viewer` |
+
+### PyPI and Source Development Setup
+
+On Linux, macOS, or custom Python 3.12 environments, you can install from PyPI with [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 uninstall
+uv venv --python 3.12
+uv pip install --prerelease allow lbt-mcp==1.2.3
 ```
 
-### Client presets
-
-Version `1.2.2` adds selectable presets for Codex, Claude Code, Gemini CLI, OpenCode, OpenCode2, Hermes Agent, OpenClaw, ZCode, Kimi Code, Devin, Qoder, CodeBuddy, WorkBuddy, Cline, Cursor and VS Code. List the exact preset IDs without changing client settings:
-
-Version `1.2.3` also includes the `deepseek-harness` preset. It exports a `cordis.patch.yml` insert row for the official `@deepseek-ai/dsh-mcp-client`; merge it into the active Harness home or profile patch.
-
-```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 clients
-```
-
-Choose multiple clients in the terminal wizard, or repeat `--client`. For example:
-
-```text
-uvx --isolated --python 3.12 --prerelease allow lbt-mcp@1.2.3 install --client opencode2 --client hermes --client workbuddy --generate-config --output-dir "<preset-directory>"
-```
-
-`--client all` selects every preset; `--client none` installs only the runtime and any selected Flowerpot integration. `--generate-config` still prepares the persistent runtime. Exported files use its absolute Python path and the selected Garden and installation-record paths. Without `--output-dir`, generated fragments print in the terminal. With it, each client gets a separate file and `lbt-mcp-README.md` explains where to merge/import it. Existing differing export files require `--replace` and receive backups.
-
-Codex retains automatic configuration. The other first-batch presets require import into the client; generating a preset does not confirm that client is installed or connected. OpenCode and OpenCode2 are separate choices; the `opencode2` preset targets the tested 2.0.12 format, while `opencode2-native` is for clients verified against the native V2 schema. Devin Cloud gets a guide instead of local paths. Unselected clients and manually imported settings remain unchanged; exported files remain after uninstall.
-
-### Flowerpot and platform scope
-
-Flowerpot is optional. On Windows with Rhino 8, select it in the wizard, restart Grasshopper, then search for `FP` or drag the seven components from the `Flowerpot` category. Install Rhino, Ladybug Tools for Grasshopper, and Ironbug separately as required by the workflow. Existing source components retain their development-path fallback.
-
-Version `1.2.2` adds **FP Dragonfly Link**: seven components in a single Flowerpot subcategory, internally grouped into Garden, models, properties and HVAC using LBT-style exposure groups. Use FP Garden List with Grasshopper's List Item to choose an existing Garden; native Ladybug Tools components handle weather, data collections and model operations. See [the component guide](src/grasshopper_components/README.md).
-
-Windows x86_64 is the primary native acceptance platform. Linux x86_64 and macOS Apple Silicon run the same basic MCP checks in CI. Flowerpot retains a Windows Rhino/Grasshopper boundary; Fairyfly/THERM uses the bundled cross-platform `pyHygroThermFEM-Fairyfly` C++20 solver and headless Gmsh Q4 mesher across Windows, Linux, and macOS (steady-state, transient, and hygrothermal workflows require no external THERM installation). See the [release notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases) and [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml) for published release evidence.
-
-### Simulation runtimes
-
-Simulation tools remain available; prepare external engines only for the workflows that need them. THERM simulations run directly via the bundled `pyHygroThermFEM-Fairyfly` engine and `gmsh`:
-
-Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | OpenStudio App | URBANopt CLI | THERM |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.3` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.10.0](https://github.com/NREL/OpenStudio/releases/tag/v3.10.0) | 25.1.0 | [1.11.1](https://github.com/openstudiocoalition/OpenStudioApplication/releases/tag/v1.11.1) | [1.4.0](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) | Bundled `pyHygroThermFEM-Fairyfly` + `gmsh` |
-
-Use `LB_Get_Runtime_Config` to check installed engines and obtain setup guidance for any missing runtime.
-
-### Source development
-
-A source environment is needed when changing the project:
+For source development and custom builds:
 
 ```text
 git clone https://github.com/LoftyTao/ladybug-tools-mcp.git
@@ -215,12 +180,170 @@ uv venv --python 3.12
 uv pip install --prerelease allow -e .
 ```
 
+Source wheel builds support `LBT_MCP_REQUIRE_HYGROTHERM_NATIVE=1`, `LBT_MCP_REQUIRE_IRONBUG_BRIDGE=1`, and `LBT_MCP_REQUIRE_RUNE_VIEWER=1`; the Windows offline installer and corresponding-source bundle are built via `scripts/distribution/build_windows_bundle.py` and `scripts/distribution/build_corresponding_source.py`.
+
+## Agent Client Configuration Guide
+
+Configure your MCP client manually using the installed launcher and `serve` argument:
+
+- **Command**: `<LBT_MCP_HOME>\bin\lbt-mcp.exe`
+- **Args**: `["serve"]`
+- **Environment**:
+  - `LADYBUG_TOOLS_GARDENS_ROOT`: your Gardens root directory (default `%USERPROFILE%\Gardens`, kept outside `<LBT_MCP_HOME>`)
+  - `LADYBUG_TOOLS_MCP_HOME` (optional): explicit `<LBT_MCP_HOME>` path (`lbt-mcp.exe` auto-detects `<LBT_MCP_HOME>` from its parent directory when omitted)
+
+> **Tip**: Run `<LBT_MCP_HOME>\bin\lbt-mcp.exe status` to print the resolved absolute paths for your machine. Most MCP clients do not expand `%LOCALAPPDATA%` or `%USERPROFILE%`, so replace `<LBT_MCP_HOME>` (e.g., `C:\lbt-mcp` or `C:\Users\<user>\AppData\Local\lbt-mcp`) and `<GARDENS_ROOT>` (e.g., `C:\Users\<user>\Gardens`) with actual absolute paths (escaped with `\\` inside JSON strings, or single-quoted `'...'` literal strings in TOML).
+
+### Codex (`~/.codex/config.toml`)
+
+Merge into `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`):
+
+```toml
+[mcp_servers.lbt-mcp]
+command = '<LBT_MCP_HOME>\bin\lbt-mcp.exe'
+args = ["serve"]
+startup_timeout_sec = 60
+required = true
+
+[mcp_servers.lbt-mcp.env]
+LADYBUG_TOOLS_GARDENS_ROOT = '<GARDENS_ROOT>'
+# Optional:
+# LADYBUG_TOOLS_MCP_HOME = '<LBT_MCP_HOME>'
+```
+
+### Claude Code (`.mcp.json` / `claude mcp add-json`)
+
+Project `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "lbt-mcp": {
+      "type": "stdio",
+      "command": "<LBT_MCP_HOME>\\bin\\lbt-mcp.exe",
+      "args": ["serve"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>"
+      }
+    }
+  }
+}
+```
+
+Or register at user scope via CLI (pass only the inner server object; do not replace `~/.claude.json`):
+
+```text
+claude mcp add-json --scope user lbt-mcp '{"type":"stdio","command":"<LBT_MCP_HOME>\\bin\\lbt-mcp.exe","args":["serve"],"env":{"LADYBUG_TOOLS_GARDENS_ROOT":"<GARDENS_ROOT>"}}'
+```
+
+### Cursor (`~/.cursor/mcp.json`)
+
+Merge into `~/.cursor/mcp.json` (user scope) or `.cursor/mcp.json` (project scope):
+
+```json
+{
+  "mcpServers": {
+    "lbt-mcp": {
+      "command": "<LBT_MCP_HOME>\\bin\\lbt-mcp.exe",
+      "args": ["serve"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>"
+      }
+    }
+  }
+}
+```
+
+### VS Code (`.vscode/mcp.json`)
+
+Merge into `.vscode/mcp.json` (or run `MCP: Open User Configuration` in VS Code; do not put this in `settings.json`):
+
+```json
+{
+  "servers": {
+    "lbt-mcp": {
+      "type": "stdio",
+      "command": "<LBT_MCP_HOME>\\bin\\lbt-mcp.exe",
+      "args": ["serve"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>"
+      }
+    }
+  }
+}
+```
+
+### Gemini CLI (`~/.gemini/settings.json`)
+
+Merge into `~/.gemini/settings.json` (user scope) or `.gemini/settings.json` (project scope):
+
+```json
+{
+  "mcpServers": {
+    "lbt-mcp": {
+      "command": "<LBT_MCP_HOME>\\bin\\lbt-mcp.exe",
+      "args": ["serve"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>"
+      }
+    }
+  }
+}
+```
+
+### OpenCode / OpenCode 2 (`opencode.json`)
+
+Merge into `opencode.json` (or `~/.config/opencode/opencode.json`):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "lbt-mcp": {
+      "type": "local",
+      "command": ["<LBT_MCP_HOME>\\bin\\lbt-mcp.exe", "serve"],
+      "environment": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>"
+      },
+      "timeout": 120000
+    }
+  }
+}
+```
+
+To also wire the local Skill path in `opencode.json`, add `"skills": { "paths": ["<LBT_MCP_HOME>\\app\\current\\skills\\ladybug-tools-mcp-use"] }` (OpenCode 1) or `"skills": ["<LBT_MCP_HOME>\\app\\current\\skills\\ladybug-tools-mcp-use"]` (OpenCode 2).
+
+### Generic stdio MCP Clients & Bundled Agent Skill
+
+For any standard stdio MCP client, configure `command`, `args`, and `env` as follows (omit `LADYBUG_TOOLS_MCP_HOME` if you rely on `<LBT_MCP_HOME>\bin\lbt-mcp.exe` auto-detection):
+
+```json
+{
+  "mcpServers": {
+    "lbt-mcp": {
+      "command": "<LBT_MCP_HOME>\\bin\\lbt-mcp.exe",
+      "args": ["serve"],
+      "env": {
+        "LADYBUG_TOOLS_GARDENS_ROOT": "<GARDENS_ROOT>",
+        "LADYBUG_TOOLS_MCP_HOME": "<LBT_MCP_HOME>"
+      }
+    }
+  }
+}
+```
+
+The bundled Agent Skill is installed at:
+
+```text
+<LBT_MCP_HOME>\app\current\skills\ladybug-tools-mcp-use
+```
+
+`lbt-mcp serve` also exposes this Skill as an MCP resource via FastMCP `SkillProvider`. For clients that load Skills directly from disk, copy or point the client to the complete `<LBT_MCP_HOME>\app\current\skills\ladybug-tools-mcp-use` folder (including its supporting references).
+
 ## Web View Mode
 
-Web View Mode provides a local vtk.js preview for live modeling sessions.
-It lets a host application render the current Garden preview through vtk.js while an agent creates or edits Honeybee, Dragonfly, Fairyfly, or VisualizationSet outputs.
-
-The viewer runs locally at `127.0.0.1`. Open the returned URL in your client’s browser or sidebar to follow changes to the current Garden.
+Web View Mode connects your Garden directly to the native GPU-accelerated Rune 3D viewer (`lbt-rune-viewer`) for live modeling, inspection, and bidirectional spatial annotation.
+While an agent creates, edits, or validates Honeybee or Dragonfly models, `lbt-rune-viewer` renders the live Garden geometry with native wgpu rendering, CAD camera controls, section cuts, attribute coloring, and 3D object picking.
 
 ### Enable
 
@@ -233,12 +356,16 @@ Enable Web View Mode for this Garden, then create or edit the Honeybee model.
 Through MCP Code Mode, the agent calls:
 
 ```text
-GD_Web_View_Start_Mode(garden_root, name="...", port=None)
+GD_Web_View_Start_Mode(garden_root, name="...", open_window=True)
 ```
 
-Starting the mode creates a Garden-local session and serves a completely offline workbench (using locally bundled `vtk.js` at `/vendor/vtk.js` with no external CDN dependency) on `127.0.0.1`, returning `viewer.url` (for example `http://127.0.0.1:<port>/`). The workbench provides a `steps[]` timeline scrubber, layer/actor visibility toggles, standard view camera buttons (`Ax`, `Top`, `Front`, `Back`, `Left`, `Right`, `Fit`), a 2D colorbar/legend overlay, and an HTML/SVG artifact preview tab.
+Starting the mode initializes the atomic Garden protocol files under `<garden>/tmp/web_view/` (`session.json`, `present.json`, and `interaction_state.json`), seeds `present.json` from the Garden's base Honeybee or Dragonfly model (converting Dragonfly buildings into `tmp/web_view/models/` for preview), and launches `lbt-rune-viewer` when `open_window=True` and a GUI display is available (pass `open_window=False` for headless or protocol-only sessions).
 
-Open the returned `viewer.url` to display the preview.
+### Direct, Inspect, and Capture
+
+- `GD_Web_View_Present`: direct the viewport (`view_type`, `color_by`, `highlight_targets`, `isolation_mode`, `validation_issues`, `camera`, `section`, `callouts`, `title`, and `note`).
+- `GD_Web_View_Get_Context`: read user-selected targets, 3D spatial annotation pins, viewport camera state, and pending intents from `interaction_state.json`, and optionally resolve pins atomically.
+- `GD_Web_View_Capture`: capture a PNG verification screenshot under `<garden>/tmp/web_view/captures/` via the live `lbt-rune-viewer` handshake first, headless `lbt-rune-viewer --snap` second, or offscreen VTK fallback third.
 
 ### Close
 
@@ -248,29 +375,20 @@ Ask the agent to stop Web View Mode, or call:
 GD_Web_View_Stop_Mode(garden_root)
 ```
 
-This disables future automatic previews and stops the matching local fallback viewer if one was started.
-Preview history under `tmp/web_view/` is preserved.
+This disables future automatic `present.json` updates and stops any tracked `lbt-rune-viewer` process.
+Protocol history under `tmp/web_view/` is preserved.
 
 ### Difference From Ordinary Mode
 
-In ordinary mode, modeling tools write Garden files and return compact targets, summaries, and receipts.
-No viewer server is started, and no automatic preview file is exported after every edit.
+In ordinary mode, modeling tools write Garden files and return compact targets, summaries, and receipts without launching `lbt-rune-viewer` or writing `tmp/web_view/present.json` after edits.
 
-In Web View Mode, significant Honeybee, Dragonfly, Fairyfly, and VisualizationSet operations automatically export session-managed `.vtkjs` previews under:
-
-```text
-<garden>/tmp/web_view/previews/
-```
-
-The viewer polls Garden session state and reloads the latest `.vtkjs` package without a manual refresh.
-These automatic previews are local session state, not formal user-requested Garden artifacts.
-If you need a durable reusable artifact, still ask the agent to export a VisualizationSet with `LB_Export_Visualization_Set` (`export_format="vtkjs"`).
-
-When `port` is omitted (`None`), the local viewer binds an ephemeral `127.0.0.1` port (`0`) automatically; when an explicit `port` is provided and already occupied, startup fails clearly with a port conflict error instead of silently switching ports or pointing the browser at an older Garden.
+In Web View Mode, significant Honeybee, `HB_Validate_Model`, and Dragonfly operations in Code Mode automatically flush coalesced updates to `<garden>/tmp/web_view/present.json`, and `lbt-rune-viewer` reloads changed geometry in place while keeping your current camera pose.
+These session files are local preview state, not formal user-requested Garden artifacts.
+If you need a durable reusable export (`html`, `svg`, `png`, `vtkjs`, `vtk`, `vtp`, `vsf`, or `pkl`), ask the agent to export a VisualizationSet with `LB_Export_Visualization_Set`.
 
 ## First Use
 
-After the MCP server is configured in your agent application, start a new thread and describe your Garden or modeling task directly. In Codex, copy the block printed by `install --generate-config` into `~/.codex/config.toml`, restart Codex, then describe the Garden or modeling task directly.
+After configuring your MCP client according to the [Agent Client Configuration Guide](#agent-client-configuration-guide) (pointing `command` to `<LBT_MCP_HOME>\bin\lbt-mcp.exe` with `args = ["serve"]`), restart the client, start a new thread, and describe your Garden or modeling task directly.
 
 Choosing a capable model with a large context window helps multi-step modeling and simulation workflows run more reliably.
 
@@ -377,7 +495,13 @@ Beyond that, the implementation core of this project remains the [Ladybug Tools 
 
 ## Open Source License
 
-Ladybug Tools MCP is released under the GNU General Public License Version 3 (GPL v3), consistent with the open source license used by the Ladybug Tools project.
+Ladybug Tools MCP is licensed under the GNU Affero General Public License v3.0 only (**`AGPL-3.0-only`**, see [LICENSE](LICENSE)), consistent with the Ladybug Tools Core SDKs.
+
+Third-party component licenses, attributions, and bundled binary notices are documented in [licenses/THIRD_PARTY_NOTICES.md](licenses/THIRD_PARTY_NOTICES.md), and corresponding source availability instructions for AGPL and LGPL components (`lbt-mcp`, LBT Core SDKs, `gmsh`, `GEOS`, and `Ironbug 1.26.1`) are detailed in [licenses/CORRESPONDING_SOURCE.md](licenses/CORRESPONDING_SOURCE.md):
+
+- **Radiance**: "This product includes Radiance software (http://radsite.lbl.gov/) developed by the Lawrence Berkeley National Laboratory (http://www.lbl.gov/)."
+- **EnergyPlus**: Redistributes **EnergyPlus version 25.2.0** unmodified inside the bundled OpenStudio runtime; this product is not endorsed by the U.S. Department of Energy (DOE) or Lawrence Berkeley National Laboratory (LBNL).
+- **OpenStudio(R)**: Redistributes **OpenStudio(R)** 3.11.0 runtime libraries under the BSD-3-Clause license (with the unmodified EnergyPlus subdirectory retained and non-runtime SDK directories documented in [licenses/THIRD_PARTY_NOTICES.md](licenses/THIRD_PARTY_NOTICES.md)); this product is not endorsed by NREL or the Alliance for Sustainable Energy.
 
 ## Contact
 

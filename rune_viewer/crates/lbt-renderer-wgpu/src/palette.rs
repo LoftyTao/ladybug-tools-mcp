@@ -1,6 +1,6 @@
 //! Color space conversion helpers and re-exports of `lbt_scene` architectural palettes.
 
-pub use lbt_scene::{color_for_object, resolve_scene_colors};
+pub use lbt_scene::{color_for_object, color_for_object_in_scene, resolve_scene_colors};
 
 /// Convert an sRGB component `[0, 1]` to linear space.
 #[inline]

@@ -23,14 +23,14 @@ from ladybug_tools_mcp.contracts import make_report
 
 REQUIRED_RUNTIME_VERSIONS: dict[str, str] = {
     "radiance": "5.4",
-    "openstudio": "3.10.0",
-    "energyplus": "25.1.0",
+    "openstudio": "3.11.0",
+    "energyplus": "25.2.0",
     "urbanopt": "1.4.0",
-    "ironbug_console": "1.22.0.0",
+    "ironbug_console": "1.26",
 }
 
 OPENSTUDIO_ENERGYPLUS_VERSIONS: dict[str, str] = {
-    "3.10.0": "25.1.0",
+    "3.11.0": "25.2.0",
 }
 
 RUNTIME_SEARCH_ROOTS: list[Path] = [
@@ -429,13 +429,34 @@ def _urbanopt_grid_service_config(recipe: str, cli_gem_bundle: Path | None) -> d
     }
 
 
-def _urbanopt_path_updates(cli_path: str | None) -> dict[str, Any]:
+def _openstudio_root_from_path(openstudio_path: str | Path | None) -> Path | None:
+    if not openstudio_path:
+        return None
+    p = Path(openstudio_path).expanduser()
+    return p.parent if p.name.lower() == "bin" else p
+
+
+def _urbanopt_path_updates(
+    cli_path: str | None,
+    openstudio_path: str | None = None,
+) -> dict[str, Any]:
     if not cli_path:
         return {"prepend": [], "env": {}}
     base = Path(cli_path)
     ruby_bin = base / "ruby" / "bin"
     gem_bin = _first_existing_glob(str(base / "gems" / "ruby" / "*" / "bin"))
-    prepend = [str(p) for p in [ruby_bin, *([gem_bin] if gem_bin else [])] if p.is_dir()]
+    os_root = _openstudio_root_from_path(openstudio_path or getattr(energy_folders, "openstudio_path", None))
+    os_bin = (os_root / "bin") if os_root else None
+
+    prepend: list[str] = []
+    seen_prepend: set[str] = set()
+    for p in (os_bin, ruby_bin, gem_bin):
+        if p is not None and p.is_dir():
+            key = str(p).lower()
+            if key not in seen_prepend:
+                seen_prepend.add(key)
+                prepend.append(str(p))
+
     env: dict[str, str] = {"PATH": os.pathsep.join(prepend)}
     gem_home = gem_bin.parent if gem_bin else None
     if gem_home and gem_home.is_dir():
@@ -458,10 +479,28 @@ def _urbanopt_path_updates(cli_path: str | None) -> dict[str, Any]:
         env["UO_OPENSTUDIO_RUNTIME_GEMFILE_PATH"] = str(os_gemfile)
         env["UO_GEMFILE_PATH"] = str(os_gemfile)
         env["UO_BUNDLE_INSTALL_PATH"] = str(os_gemfile.parent)
-    openstudio_ruby = base / "OpenStudio" / "Ruby"
-    if openstudio_ruby.is_dir():
+
+    openstudio_ruby: Path | None = None
+    cli_os_ruby = base / "OpenStudio" / "Ruby"
+    if cli_os_ruby.is_dir():
+        openstudio_ruby = cli_os_ruby
+    elif os_root is not None and (os_root / "Ruby").is_dir():
+        openstudio_ruby = os_root / "Ruby"
+
+    if openstudio_ruby is not None:
         env["RUBYLIB"] = str(openstudio_ruby)
-        env["RUBY_DLL_PATH"] = str(openstudio_ruby)
+
+    dll_paths: list[str] = []
+    seen_dll: set[str] = set()
+    for p in (os_bin, openstudio_ruby):
+        if p is not None and p.is_dir():
+            key = str(p).lower()
+            if key not in seen_dll:
+                seen_dll.add(key)
+                dll_paths.append(str(p))
+    if dll_paths:
+        env["RUBY_DLL_PATH"] = os.pathsep.join(dll_paths)
+
     return {"prepend": prepend, "env": env}
 
 
@@ -469,10 +508,27 @@ def _urbanopt_version_from_dir(path: str | None) -> str | None:
     if not path:
         return None
     match = re.search(r"URBANopt-cli-(\d+(?:\.\d+)+)", str(path), re.IGNORECASE)
-    return match.group(1) if match else None
+    if match:
+        return match.group(1)
+    cli_dir = Path(path).expanduser()
+    if cli_dir.is_dir():
+        gem_spec = _first_existing_glob(str(cli_dir / "gems" / "ruby" / "*" / "gems" / "urbanopt-cli-*"))
+        if gem_spec:
+            m = re.search(r"urbanopt-cli-(\d+(?:\.\d+)+)", gem_spec.name, re.IGNORECASE)
+            if m:
+                return m.group(1)
+        version_file = cli_dir / "VERSION"
+        if version_file.is_file():
+            try:
+                m = re.search(r"(\d+(?:\.\d+)+)", version_file.read_text(encoding="utf-8"))
+                if m:
+                    return m.group(1)
+            except OSError:
+                pass
+    return None
 
 
-def _urbanopt_config() -> dict[str, Any]:
+def _urbanopt_config(openstudio_path: str | None = None) -> dict[str, Any]:
     folders = dragonfly_energy_folders
     configured_path = _normalized_path(getattr(folders, "urbanopt_cli_path", None))
     detected = getattr(folders, "_urbanopt_version_str", None) or _urbanopt_version_from_dir(configured_path)
@@ -522,7 +578,7 @@ def _urbanopt_config() -> dict[str, Any]:
             "candidates": setup_candidates,
             "generatable": any(item["exists"] for item in setup_candidates),
         },
-        "path_updates": _urbanopt_path_updates(cli_path),
+        "path_updates": _urbanopt_path_updates(cli_path, openstudio_path=openstudio_path),
     }
     _apply_runtime_requirement("urbanopt", record)
     return record
@@ -543,14 +599,24 @@ def _dist_info_record(package_path: Path, package_name: str, required_version: s
     }
 
 
+def _format_sdk_version(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (tuple, list)):
+        parts = [str(item).strip() for item in value if item is not None and str(item).strip() != ""]
+        return ".".join(parts) if parts else None
+    text = str(value).strip()
+    return text or None
+
+
 def _des_gmt_config() -> dict[str, Any]:
     scripts_path = Path(str(getattr(hb_folders, "python_scripts_path", "") or "")).expanduser()
     package_path = Path(str(getattr(hb_folders, "python_package_path", "") or "")).expanduser()
     ext = ".exe" if os.name == "nt" else ""
     uo_des, thermalnetwork = scripts_path / f"uo_des{ext}", scripts_path / f"thermalnetwork{ext}"
-    gmt_ver = str(getattr(dragonfly_energy_folders, "UO_GMT_VERSION", "") or "") or None
-    tn_ver = str(getattr(dragonfly_energy_folders, "UO_TN_VERSION", "") or "") or None
-    mbl_ver = str(getattr(dragonfly_energy_folders, "MBL_VERSION", "") or "") or None
+    gmt_ver = _format_sdk_version(getattr(dragonfly_energy_folders, "UO_GMT_VERSION", None))
+    tn_ver = _format_sdk_version(getattr(dragonfly_energy_folders, "UO_TN_VERSION", None))
+    mbl_ver = _format_sdk_version(getattr(dragonfly_energy_folders, "MBL_VERSION", None))
 
     packages = {
         "geojson_modelica_translator": _dist_info_record(package_path, "geojson_modelica_translator", gmt_ver),
@@ -621,7 +687,9 @@ def _des_gmt_config() -> dict[str, Any]:
 def _ironbug_console_config(openstudio_cli_version: str | None = None) -> dict[str, Any]:
     from garden.ironbug.runtime import (
         _repo_or_packaged_bridge_dll,
+        _repo_or_packaged_bridge_exe,
         inspect_ironbug_openstudio_compatibility,
+        is_self_contained_bridge_dir,
         read_pe_file_version,
         resolve_ironbug_console_exe,
         resolve_ironbug_dir,
@@ -632,11 +700,29 @@ def _ironbug_console_config(openstudio_cli_version: str | None = None) -> dict[s
     exe = resolve_ironbug_console_exe(ib_dir)
     os_cs_dir = resolve_openstudio_csharp_dir(ib_dir)
     bridge_dll = _repo_or_packaged_bridge_dll()
+    bridge_exe = _repo_or_packaged_bridge_exe()
+    if bridge_exe is None and bridge_dll is not None:
+        exe_name = "IronbugBridge.exe" if os.name == "nt" else "IronbugBridge"
+        candidate_exe = bridge_dll.with_name(exe_name)
+        if candidate_exe.is_file() and is_self_contained_bridge_dir(bridge_dll.parent):
+            bridge_exe = candidate_exe
+    bridge_self_contained = bool(
+        bridge_exe and bridge_exe.is_file() and is_self_contained_bridge_dir(bridge_exe.parent)
+    )
     dotnet_exe = shutil.which("dotnet")
     path_str = str(ib_dir) if ib_dir else getattr(energy_folders, "ironbug_path", None)
     exe_str = str(exe) if exe else getattr(energy_folders, "ironbug_exe", None)
 
     sdk_ib_path = _normalized_path(getattr(energy_folders, "ironbug_path", None))
+    if os.environ.get("LADYBUG_TOOLS_IRONBUG_PATH"):
+        ib_source = "env:LADYBUG_TOOLS_IRONBUG_PATH"
+    elif ib_dir and sdk_ib_path and str(ib_dir).lower() == sdk_ib_path.lower():
+        ib_source = "sdk_config"
+    elif ib_dir:
+        ib_source = "filesystem_scan"
+    else:
+        ib_source = "not_found"
+
     ib_version = getattr(energy_folders, "ironbug_version_str", None)
     if (ib_dir and sdk_ib_path and str(ib_dir).lower() != sdk_ib_path.lower()) or not ib_version:
         ib_version = (
@@ -659,6 +745,7 @@ def _ironbug_console_config(openstudio_cli_version: str | None = None) -> dict[s
 
     record: dict[str, Any] = {
         "name": "ironbug_console",
+        "source": ib_source,
         "path": path_str,
         "path_exists": bool(path_str and Path(path_str).expanduser().is_dir()),
         "exe": exe_str,
@@ -675,7 +762,11 @@ def _ironbug_console_config(openstudio_cli_version: str | None = None) -> dict[s
         "compatibility_warnings": compat.get("compatibility_warnings") or [],
         "dotnet_available": bool(dotnet_exe),
         "dotnet_exe": dotnet_exe,
+        "bridge_dll": str(bridge_dll) if bridge_dll else None,
         "bridge_dll_exists": bool(bridge_dll and bridge_dll.is_file()),
+        "bridge_exe": str(bridge_exe) if bridge_exe else None,
+        "bridge_exe_exists": bool(bridge_exe and bridge_exe.is_file()),
+        "bridge_self_contained": bridge_self_contained,
         **_ENGINE_HELP["ironbug_console"],
     }
     return _apply_runtime_requirement("ironbug_console", record)
@@ -691,6 +782,7 @@ def _radiance_config() -> dict[str, Any]:
         version = None
     record: dict[str, Any] = {
         "name": "radiance",
+        "source": "sdk_config" if path else "not_found",
         "path": path,
         "path_exists": bool(path and Path(path).expanduser().is_dir()),
         "bin_path": bin_path,
@@ -701,6 +793,45 @@ def _radiance_config() -> dict[str, Any]:
         **_ENGINE_HELP["radiance"],
     }
     return _apply_runtime_requirement("radiance", record)
+
+
+def _active_runtime_home() -> Path | None:
+    env_home = os.environ.get("LADYBUG_TOOLS_MCP_HOME")
+    if isinstance(env_home, str) and env_home.strip():
+        return Path(env_home.strip()).expanduser().resolve()
+    try:
+        from flowerpot.installation import read_installation
+
+        rec = read_installation()
+        if isinstance(rec, dict) and isinstance(rec.get("home"), str) and rec["home"].strip():
+            return Path(rec["home"].strip()).expanduser().resolve()
+    except Exception:
+        pass
+    return None
+
+
+def _classify_runtime_source(name: str, engine: dict[str, Any], active_home: Path | None) -> str:
+    existing = str(engine.get("source") or "not_found")
+    if name == "ironbug_console" and (
+        os.environ.get("LADYBUG_TOOLS_IRONBUG_PATH") or os.environ.get("LADYBUG_TOOLS_OPENSTUDIO_CSHARP_PATH")
+    ):
+        return "external_override"
+    if name == "des_gmt" and os.environ.get(URBANOPT_PYTHON_CONFIG_ENV_VAR):
+        return "external_override"
+    if name == "therm":
+        return "bundled" if engine.get("available") else existing
+    if active_home is None:
+        return existing
+    candidate = engine.get("path") or engine.get("exe")
+    if not isinstance(candidate, str) or not candidate.strip():
+        return existing
+    try:
+        resolved = Path(candidate).expanduser().resolve()
+    except OSError:
+        return existing
+    if resolved.is_relative_to(active_home):
+        return "bundled"
+    return "external_override"
 
 
 def _path_prepend_values(engines: dict[str, dict[str, Any]]) -> list[str]:
@@ -749,11 +880,16 @@ def get_ladybug_tools_config() -> dict[str, Any]:
         "radiance": _radiance_config(),
         "openstudio": openstudio,
         "energyplus": _select_energyplus_config(openstudio),
-        "urbanopt": _urbanopt_config(),
+        "urbanopt": _urbanopt_config(openstudio_path=openstudio.get("path")),
         "des_gmt": _des_gmt_config(),
         "therm": therm,
         "ironbug_console": ironbug_console,
     }
+    active_home = _active_runtime_home()
+    for engine_name, engine_record in engines.items():
+        engine_record["runtime_source"] = _classify_runtime_source(
+            engine_name, engine_record, active_home
+        )
     measures = {
         "lbt_measures_path": _path_record(energy_folders.lbt_measures_path),
         "openstudio_results_measure_path": _path_record(energy_folders.openstudio_results_measure_path),

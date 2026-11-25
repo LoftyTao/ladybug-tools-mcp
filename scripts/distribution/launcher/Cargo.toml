@@ -1,0 +1,9 @@
+[package]
+name = "lbt-mcp"
+version = "1.2.3"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[[bin]]
+name = "lbt-mcp"
+path = "src/main.rs"

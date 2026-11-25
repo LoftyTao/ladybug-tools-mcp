@@ -7,13 +7,12 @@ import importlib
 import json
 from pathlib import Path
 import re
-import socket
 import threading
 from typing import Any
-import urllib.request
 from unittest import mock
 
 from fastmcp import Client, FastMCP
+from fastmcp.exceptions import ToolError
 from fastmcp.experimental.transforms.code_mode import CodeMode
 import pytest
 
@@ -26,7 +25,6 @@ from ladybug_tools_mcp.code_mode import (
 from ladybug_tools_mcp.registry import _TOOL_FAMILIES, register_tools
 from ladybug_tools_mcp.server import create_mcp
 import web_view
-from web_view import VENDOR_VTKJS_PATH, fallback_viewer_html, stop_preview_url_fallback
 
 
 def _parse_tool_result(res: Any) -> dict[str, Any]:
@@ -537,37 +535,17 @@ def test_multiformat_model_export_and_destructive_annotations(
     asyncio.run(_run())
 
 
-def test_offline_web_view_workbench_and_port_support(tmp_path: Path, raw_mcp: FastMCP) -> None:
-    """Verify bundled /vendor/vtk.js, zero CDN links, workbench UI, HTML/SVG tab, and port conflict handling."""
-    assert VENDOR_VTKJS_PATH.is_file()
-    assert VENDOR_VTKJS_PATH.stat().st_size > 100_000
-
-    html = fallback_viewer_html()
-    assert "unpkg.com" not in html
-    assert 'src="/vendor/vtk.js"' in html
-    for expected_ui in (
-        'id="step-slider"',
-        'id="layers-panel"',
-        'id="legend-overlay"',
-        'id="tab-docs"',
-        'id="doc-frame"',
-        'id="axon"',
-        'id="top"',
-        'id="front"',
-        'id="back"',
-        'id="left"',
-        'id="right"',
-        'id="fit"',
-    ):
-        assert expected_ui in html
+def test_rune_web_view_replaces_legacy_vtkjs_workbench(tmp_path: Path, raw_mcp: FastMCP) -> None:
+    """Verify legacy vtk.js workbench files and args are removed and Rune protocol tools work end-to-end."""
+    repo_root = Path(__file__).resolve().parents[1]
+    assert not (repo_root / "src" / "web_view" / "viewer.py").exists()
+    assert not (repo_root / "src" / "web_view" / "vendor" / "vtk.js").exists()
 
     g1 = (tmp_path / "wv_g1").as_posix()
-    g2 = (tmp_path / "wv_g2").as_posix()
 
     async def _run() -> None:
         async with Client(raw_mcp) as client:
             await _call(client, "GD_Create", {"name": "wv_g1", "root_dir": g1})
-            await _call(client, "GD_Create", {"name": "wv_g2", "root_dir": g2})
             await _call(client, "HB_Create_Model", {"garden_root": g1, "identifier": "wv_hb"})
             await _call(
                 client,
@@ -581,113 +559,54 @@ def test_offline_web_view_workbench_and_port_support(tmp_path: Path, raw_mcp: Fa
                     "height": 3.0,
                 },
             )
-            vis = await _call(
-                client,
-                "LB_Honeybee_To_Visualization_Set",
-                {
-                    "garden_root": g1,
-                    "color_by": "type",
-                    "name": "wv_vis",
-                    "return_visualization_set": False,
-                },
-            )
-            vtkjs_exp = await _call(
-                client,
-                "LB_Export_Visualization_Set",
-                {
-                    "garden_root": g1,
-                    "export_format": "vtkjs",
-                    "visualization_set_target": vis["visualization_set_target"],
-                    "name": "wv_scene",
-                },
-            )
-            svg_exp = await _call(
-                client,
-                "LB_Export_Visualization_Set",
-                {
-                    "garden_root": g1,
-                    "export_format": "svg",
-                    "visualization_set_target": vis["visualization_set_target"],
-                    "name": "wv_plan",
-                },
-            )
 
-            # Find a free loopback port, then start g1 on that explicit port.
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-                probe.bind(("127.0.0.1", 0))
-                explicit_port = probe.getsockname()[1]
-
-            try:
-                started = await _call(
+            # Removed legacy vtk.js arguments (port, viewer_backend) must be rejected cleanly.
+            with pytest.raises(ToolError, match="Unexpected keyword argument"):
+                await _call(
                     client,
                     "GD_Web_View_Start_Mode",
-                    {"garden_root": g1, "name": "Offline Workbench", "port": explicit_port},
+                    {"garden_root": g1, "port": 18080, "open_window": False},
                 )
-                assert started["viewer"]["port"] == explicit_port
-                assert started["viewer"]["url"] == f"http://127.0.0.1:{explicit_port}/"
-                assert started["viewer"]["vendor_url"] == "/vendor/vtk.js"
-
-                web_view.record_preview_file_step(
-                    garden_root=g1,
-                    preview_kind="analysis_overlay",
-                    label="Step 1 scene",
-                    vtkjs_file_path=vtkjs_exp["artifact_receipt"]["absolute_path"],
-                    source_tool="LB_Export_Visualization_Set",
+            with pytest.raises(ToolError, match="Unexpected keyword argument"):
+                await _call(
+                    client,
+                    "GD_Web_View_Start_Mode",
+                    {"garden_root": g1, "viewer_backend": "web", "open_window": False},
                 )
 
-                base_url = started["viewer"]["url"].rstrip("/")
-                with urllib.request.urlopen(f"{base_url}/", timeout=5) as resp:
-                    assert resp.status == 200
-                    body = resp.read().decode("utf-8")
-                    assert "unpkg.com" not in body
-                    assert "/vendor/vtk.js" in body
+            started = await _call(
+                client,
+                "GD_Web_View_Start_Mode",
+                {"garden_root": g1, "name": "Rune Workbench", "open_window": False},
+            )
+            assert started["viewer"]["backend"] == "rune"
+            assert started["viewer"]["library"] == "rune-wgpu"
+            assert Path(started["present_path"]).is_file()
+            assert Path(started["interaction_state_path"]).is_file()
+            assert started["present"]["model_path"] == "models/honeybee/wv_hb.hbjson"
 
-                with urllib.request.urlopen(f"{base_url}/vendor/vtk.js", timeout=5) as resp:
-                    assert resp.status == 200
-                    js_bytes = resp.read()
-                    assert len(js_bytes) == VENDOR_VTKJS_PATH.stat().st_size
+            presented = await _call(
+                client,
+                "GD_Web_View_Present",
+                {"garden_root": g1, "color_by": "story", "camera": "axon"},
+            )
+            assert presented["revision"] == 2
+            assert presented["color_by"] == "story"
 
-                with urllib.request.urlopen(f"{base_url}/api/state", timeout=5) as resp:
-                    state_json = json.loads(resp.read().decode("utf-8"))
-                    assert len(state_json["steps"]) == 1
-                    assert state_json["steps"][0]["label"] == "Step 1 scene"
-                    assert len(state_json["html_svg_artifacts"]) == 1
-                    assert state_json["html_svg_artifacts"][0]["path"] == svg_exp["artifact_path"]
+            ctx = await _call(client, "GD_Web_View_Get_Context", {"garden_root": g1})
+            assert ctx["selected_targets"] == []
 
-                with urllib.request.urlopen(
-                    f"{base_url}/api/artifact?path={vtkjs_exp['artifact_path']}",
-                    timeout=5,
-                ) as resp:
-                    art_json = json.loads(resp.read().decode("utf-8"))
-                    assert art_json["scene_metadata"]["scene_items"]
-
-                with urllib.request.urlopen(
-                    f"{base_url}/api/document?path={svg_exp['artifact_path']}",
-                    timeout=5,
-                ) as resp:
-                    assert resp.status == 200
-                    assert "image/svg+xml" in resp.headers.get("Content-Type", "")
-                    assert "<svg" in resp.read().decode("utf-8")
-
-                # Explicit port conflict on g2 must raise a clear error.
-                with pytest.raises(Exception, match="already in use|port"):
-                    await _call(
+            with mock.patch("web_view.is_rune_viewer_running", return_value=False):
+                with mock.patch("web_view.discover_rune_viewer_binary", return_value=None):
+                    cap = await _call(
                         client,
-                        "GD_Web_View_Start_Mode",
-                        {"garden_root": g2, "port": explicit_port},
+                        "GD_Web_View_Capture",
+                        {"garden_root": g1, "view": "axon", "width": 320, "height": 240},
                     )
+            assert Path(cap["absolute_path"]).is_file()
 
-                # Ephemeral port (port=None) succeeds on g2.
-                g2_started = await _call(
-                    client,
-                    "GD_Web_View_Start_Mode",
-                    {"garden_root": g2},
-                )
-                assert g2_started["viewer"]["port"] != explicit_port
-                assert g2_started["viewer"]["port"] > 0
-            finally:
-                stop_preview_url_fallback(garden_root=g1)
-                stop_preview_url_fallback(garden_root=g2)
+            stopped = await _call(client, "GD_Web_View_Stop_Mode", {"garden_root": g1})
+            assert stopped["session"]["active"] is False
 
     asyncio.run(_run())
 
@@ -702,15 +621,25 @@ def test_docs_manifest_and_stale_token_reconciliation() -> None:
 
     for doc in (readme_en, readme_zh, wv_readme):
         assert "LB_Set_To_VTKJS" not in doc
+        assert "/vendor/vtk.js" not in doc
         assert "LB_Export_Visualization_Set" in doc
-        assert "/vendor/vtk.js" in doc
-        assert "port" in doc
+        assert "GD_Web_View_Start_Mode" in doc
+        assert "GD_Web_View_Present" in doc
+        assert "lbt-rune-viewer" in doc
 
-    assert "3.11.0" not in readme_en
-    assert "3.11.0" not in readme_zh
-    assert "3.10.0" in readme_en
-    assert "3.10.0" in readme_zh
-    assert "src/web_view/vendor" in manifest_in
+    assert "3.10.0" not in readme_en
+    assert "3.10.0" not in readme_zh
+    assert "25.1.0" not in readme_en
+    assert "25.1.0" not in readme_zh
+    for doc in (readme_en, readme_zh):
+        assert "3.11.0" in doc
+        assert "25.2.0" in doc
+        assert "1.26.1" in doc
+        assert "AGPL-3.0" in doc
+        assert "Radiance software (http://radsite.lbl.gov/)" in doc
+        assert "--generate-config" not in doc
+        assert "ladybug_tools_mcp_clients" not in doc
+    assert "src/web_view/vendor" not in manifest_in
 
     # Verify all owned src/**/*.py files remain free of unregistered MCP tool tokens.
     registered_names: set[str] = set()
@@ -728,7 +657,8 @@ def test_docs_manifest_and_stale_token_reconciliation() -> None:
         root / "src" / "ladybug_tools_mcp" / "tools" / "flowerpot.py",
         root / "src" / "garden" / "model_export.py",
         root / "src" / "web_view" / "__init__.py",
-        root / "src" / "web_view" / "viewer.py",
+        root / "src" / "web_view" / "protocol.py",
+        root / "src" / "web_view" / "launcher.py",
     ]
     token_re = re.compile(r"\b(?:GD|HB|DF|EP|RAD|LB|FF|FP|IB)_[A-Z][A-Za-z0-9_]*\b")
     stale_hits: list[str] = []
