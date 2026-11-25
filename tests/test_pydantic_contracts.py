@@ -8,6 +8,7 @@ import json
 import warnings
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import pytest
 from fastmcp import Client, FastMCP
@@ -22,6 +23,16 @@ from garden.energy.constructionsets import (
 )
 from garden.fairyfly.availability import fairyfly_tools_enabled
 from garden.honeybee_core.targets import normalize_honeybee_model_target
+from garden.ironbug._schemas import (
+    validate_air_loops,
+    validate_ironbug_components,
+    validate_ironbug_specification,
+    validate_plant_loops,
+    validate_thermal_zones,
+    validate_vrf_systems,
+)
+from garden.ironbug.runtime import IronbugRuntimeUnavailable
+from garden.ironbug.service import _runtime_blocked_response
 from garden.ironbug.targets import normalize_ironbug_model_target
 from garden.manifest import CURRENT_SCHEMA_VERSION, GardenManifest
 from ladybug_tools_mcp.contracts import (
@@ -33,6 +44,7 @@ from ladybug_tools_mcp.contracts import (
     GardenTargetRef,
     IronbugModelTargetRef,
     LibraryObjectTargetRef,
+    MappingReadMixin,
     MutationResultModel,
     RunTargetRef,
     SkyTargetRef,
@@ -41,6 +53,14 @@ from ladybug_tools_mcp.contracts import (
 )
 from ladybug_tools_mcp.registry import register_tools
 from ladybug_tools_mcp.server import create_mcp
+from ladybug_tools_mcp.tools.ironbug import (
+    ApplyToModelResult,
+    DescribeComponentsResult,
+    InspectSystemResult,
+    IronbugSystemMutationResult,
+    ListComponentsResult,
+    ValidateSystemResult,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _MAX_INPUT_SCHEMA_BYTES = 20 * 1024
@@ -53,6 +73,20 @@ _REPRESENTATIVE_SCHEMA_TOOLS = (
     "LB_Get_Runtime_Config",
     "LB_Calculate_Comfort",
     "RAD_Create_Sky_Asset",
+    "IB_Configure_Loops",
+    "IB_Upsert_Components",
+    "IB_Validate_System",
+    "IB_List_Components",
+)
+_IRONBUG_TOOLS = (
+    "IB_List_Components",
+    "IB_Describe_Component",
+    "IB_Create_System",
+    "IB_Upsert_Components",
+    "IB_Configure_Loops",
+    "IB_Inspect_System",
+    "IB_Validate_System",
+    "IB_Apply_To_Model",
 )
 _IRONPYTHON_CORE_FILES = (
     Path("src/flowerpot/runtime.py"),
@@ -79,6 +113,47 @@ def _extract_text(res: Any) -> str:
         if isinstance(text, str) and text.strip():
             parts.append(text)
     return "\n".join(parts)
+
+
+def _extract_schema_text(res: Any) -> str:
+    data = getattr(res, "data", None)
+    if isinstance(data, str):
+        return data
+    blocks = [
+        text
+        for block in getattr(res, "content", []) or []
+        if isinstance((text := getattr(block, "text", None)), str) and text.strip()
+    ]
+    if blocks:
+        return "\n".join(blocks)
+    return _extract_text(res)
+
+
+def _parse_json_tool_result(res: Any) -> dict[str, Any]:
+    structured = getattr(res, "structured_content", None)
+    if isinstance(structured, dict):
+        return structured
+    data = getattr(res, "data", None)
+    if isinstance(data, dict):
+        return data
+    for block in getattr(res, "content", []) or []:
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text.strip():
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return parsed
+            return {"value": parsed}
+    raise AssertionError(f"Unable to parse FastMCP tool result: {res!r}")
+
+
+def _collect_pydantic_warnings(caught: list[warnings.WarningMessage]) -> list[str]:
+    return [
+        f"{w.category.__name__}: {w.message}"
+        for w in caught
+        if "PydanticSerializationUnexpectedValue" in str(w.message)
+        or "PydanticSerializationUnexpectedValue" in w.category.__name__
+        or "Pydantic" in w.category.__name__
+    ]
 
 
 def _extract_markdown_section(doc: str, tool_name: str) -> str:
@@ -150,12 +225,10 @@ def test_code_mode_get_schema_exposes_real_return_fields() -> None:
 
 
 def test_schema_size_budget() -> None:
-    """All non-Ironbug tools must stay within 20 KB inputSchema and 5 KB outputSchema."""
+    """All registered MCP tools (including Ironbug) must stay within 20 KB inputSchema and 5 KB outputSchema."""
     tools = _list_registered_tools()
     oversized: list[str] = []
     for tool in tools:
-        if tool.name.startswith("IB_"):
-            continue
         in_bytes = len(json.dumps(tool.parameters or {}).encode("utf-8"))
         out_bytes = len(json.dumps(tool.output_schema or {}).encode("utf-8"))
         if in_bytes > _MAX_INPUT_SCHEMA_BYTES or out_bytes > _MAX_OUTPUT_SCHEMA_BYTES:
@@ -199,13 +272,7 @@ def test_zero_pydantic_serialization_warnings(tmp_path: Path) -> None:
         warnings.simplefilter("always")
         asyncio.run(_invoke())
 
-    pydantic_warnings = [
-        f"{w.category.__name__}: {w.message}"
-        for w in caught
-        if "PydanticSerializationUnexpectedValue" in str(w.message)
-        or "PydanticSerializationUnexpectedValue" in w.category.__name__
-        or "Pydantic" in w.category.__name__
-    ]
+    pydantic_warnings = _collect_pydantic_warnings(caught)
     assert pydantic_warnings == [], f"Unexpected Pydantic warnings: {pydantic_warnings}"
 
 
@@ -461,10 +528,381 @@ def test_mapping_read_mixin_dict_lookup_and_zero_warnings() -> None:
         revalidated = MutationResultModel.model_validate(res.model_dump(exclude_none=True))
         dumped = revalidated.model_dump_json()
     assert json.loads(dumped)["target"]["id"] == "df_1"
-    pydantic_warnings = [
-        w
-        for w in caught
-        if "PydanticSerializationUnexpectedValue" in str(w.message)
-        or "Pydantic" in w.category.__name__
-    ]
-    assert pydantic_warnings == []
+    assert _collect_pydantic_warnings(caught) == []
+
+
+def test_ironbug_service_schema_validation() -> None:
+    """Ironbug service schemas validate valid authoring payloads and reject malformed/extra keys."""
+    assert validate_ironbug_components(None) == {}
+
+    dict_comps = validate_ironbug_components(
+        {
+            "fan_1": {
+                "type": "IB_FanOnOff",
+                "fields": {"FanTotalEfficiency": 0.65},
+                "output_variables": [
+                    "Fan Electricity Rate",
+                    {"variable_name": "Fan Air Mass Flow Rate", "reporting_frequency": "Timestep"},
+                ],
+                "ems_sensors": [
+                    {
+                        "name": "FanPower",
+                        "key_name": "*",
+                        "output_variable": "Fan Electricity Rate",
+                    }
+                ],
+            },
+            "fcu_1": {
+                "type": "IB_ZoneHVACFourPipeFanCoil",
+                "wiring": {"fan": "fan_1"},
+            },
+        }
+    )
+    assert set(dict_comps) == {"fan_1", "fcu_1"}
+    assert dict_comps["fan_1"]["output_variables"][1]["reporting_frequency"] == "Timestep"
+    assert dict_comps["fan_1"]["ems_sensors"][0]["name"] == "FanPower"
+    assert dict_comps["fcu_1"]["wiring"] == {"fan": "fan_1"}
+
+    list_comps = validate_ironbug_components(
+        [
+            {
+                "id": "chiller_1",
+                "type": "IB_ChillerElectricEIR",
+                "fields": {"ReferenceCOP": 5.5},
+                "output_variables": ["Chiller Electricity Rate"],
+                "ems_sensors": ["chiller_sensor"],
+            },
+            {
+                "id": "pump_1",
+                "type": "IB_PumpVariableSpeed",
+                "wiring": {"set_schedule": "sched_1"},
+            },
+        ]
+    )
+    assert set(list_comps) == {"chiller_1", "pump_1"}
+    assert "id" not in list_comps["chiller_1"]
+    assert list_comps["chiller_1"]["fields"] == {"ReferenceCOP": 5.5}
+    assert list_comps["pump_1"]["wiring"] == {"set_schedule": "sched_1"}
+
+    zones = validate_thermal_zones(
+        [
+            {
+                "room_name": "Room_1",
+                "air_terminal": "vav_1",
+                "zone_equipments": ["fcu_1"],
+                "output_variables": ["Zone Mean Air Temperature"],
+                "ems_sensors": [
+                    {"name": "ZTemp", "key_name": "*", "output_variable": "Zone Mean Air Temperature"}
+                ],
+            }
+        ]
+    )
+    assert zones is not None and len(zones) == 1
+    assert zones[0]["room_name"] == "Room_1"
+
+    air_loops = validate_air_loops(
+        [
+            {
+                "name": "VAV_AirLoop",
+                "sizing_system": "ahu_sizing",
+                "supply": ["oa_sys", "fan_1"],
+                "demand_zones": ["Room_1"],
+            }
+        ]
+    )
+    assert air_loops is not None and len(air_loops) == 1
+    assert air_loops[0]["name"] == "VAV_AirLoop"
+
+    plant_loops = validate_plant_loops(
+        [
+            {
+                "name": "CHWLoop",
+                "loop_type": "Cooling",
+                "design_loop_exit_temperature": 6.7,
+                "loop_design_temperature_difference": 5.6,
+                "supply": ["pump_1"],
+                "supply_branches": [["chiller_1"]],
+                "demand_branches": [["cc_1"]],
+                "bypass_pipes": {"supply": True, "demand": None},
+            }
+        ]
+    )
+    assert plant_loops is not None and len(plant_loops) == 1
+    assert plant_loops[0]["bypass_pipes"] == {"supply": True, "demand": None}
+
+    vrf_systems = validate_vrf_systems([{"vrf": "vrf_outdoor", "terminals": ["vrf_term_1"]}])
+    assert vrf_systems is not None and len(vrf_systems) == 1
+    assert vrf_systems[0]["vrf"] == "vrf_outdoor"
+
+    official_spec = {
+        "$type": "Ironbug.HVAC.IB_HVACSystem, Ironbug.HVAC",
+        "DisplayName": "ImportedSystem",
+        "AirLoops": [{"$type": "Ironbug.HVAC.IB_AirLoopHVAC, Ironbug.HVAC"}],
+        "PlantLoops": [],
+    }
+    validated_spec = validate_ironbug_specification(official_spec)
+    assert isinstance(validated_spec, dict)
+    assert validated_spec["$type"] == "Ironbug.HVAC.IB_HVACSystem, Ironbug.HVAC"
+    assert validated_spec["AirLoops"] == [{"$type": "Ironbug.HVAC.IB_AirLoopHVAC, Ironbug.HVAC"}]
+
+    with pytest.raises(ValueError):
+        validate_ironbug_components({"fan_1": {"type": "IB_FanOnOff", "unexpected_extra": True}})
+    with pytest.raises(ValueError):
+        validate_ironbug_components([{"id": "fan_1", "type": "IB_FanOnOff", "unexpected_extra": True}])
+    with pytest.raises(ValueError):
+        validate_thermal_zones([{"room_name": "Room_1", "unexpected_extra": True}])
+    with pytest.raises(ValueError):
+        validate_air_loops([{"name": "AHU_1", "unexpected_extra": True}])
+    with pytest.raises(ValueError):
+        validate_plant_loops([{"name": "CHWLoop", "unexpected_extra": True}])
+    with pytest.raises(ValueError):
+        validate_vrf_systems([{"vrf": "vrf_1", "terminals": ["t1"], "unexpected_extra": True}])
+
+    for ems_field in ("ems_sensors", "ems_internal_variables", "ems_actuators"):
+        with pytest.raises(ValueError):
+            validate_ironbug_components({"c1": {"type": "IB_FanOnOff", ems_field: [{}]}})
+
+    with pytest.raises(ValueError):
+        validate_ironbug_components([{"type": "IB_FanOnOff"}])
+    with pytest.raises(ValueError):
+        validate_ironbug_components([{"id": "   ", "type": "IB_FanOnOff"}])
+
+    for bad_dt in (0, 0.0, -5.0):
+        with pytest.raises(ValueError):
+            validate_plant_loops([{"name": "CHWLoop", "loop_design_temperature_difference": bad_dt}])
+
+
+def test_ironbug_output_contracts_and_blocked_hydration(tmp_path: Path) -> None:
+    """Ironbug outputs preserve MappingReadMixin, compact blocked responses, loose category input, and Code Mode budgets."""
+    del tmp_path
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+
+        sample_cases: list[tuple[type[Any], dict[str, Any], str, Any, str]] = [
+            (
+                ListComponentsResult,
+                {
+                    "matches": [{"type_name": "IB_PumpVariableSpeed", "category": "pump"}],
+                    "total_matched": 1,
+                    "report": {"status": "ok", "message": "listed"},
+                },
+                "total_matched",
+                1,
+                "unknown_category",
+            ),
+            (
+                DescribeComponentsResult,
+                {
+                    "components": [
+                        {
+                            "type_name": "IB_ChillerElectricEIR",
+                            "category": "plant_equipment",
+                            "core_fields": [
+                                {"name": "ReferenceCOP", "type": "number", "default": 5.5},
+                            ],
+                        }
+                    ],
+                    "not_found": [],
+                    "report": {"status": "ok", "message": "described"},
+                },
+                "not_found",
+                [],
+                "missing_field",
+            ),
+            (
+                IronbugSystemMutationResult,
+                {
+                    "target": {"target_type": "ironbug_model", "id": "hvac_1", "path": "models/ironbug/hvac_1.json"},
+                    "ironbug_model_target": {
+                        "target_type": "ironbug_model",
+                        "id": "hvac_1",
+                        "path": "models/ironbug/hvac_1.json",
+                    },
+                    "summary_view": {"air_loop_count": 1},
+                    "persistence_receipt": {"status": "persisted", "persisted_path": "models/ironbug/hvac_1.json"},
+                    "report": {"status": "ok", "message": "mutated"},
+                },
+                "summary_view",
+                {"air_loop_count": 1},
+                "missing_field",
+            ),
+            (
+                InspectSystemResult,
+                {
+                    "target": {"target_type": "ironbug_model", "id": "hvac_1", "path": "models/ironbug/hvac_1.json"},
+                    "summary_view": {"component_count": 2},
+                    "draft": {"components": {}},
+                    "report": {"status": "ok", "message": "inspected"},
+                },
+                "draft",
+                {"components": {}},
+                "missing_field",
+            ),
+            (
+                ValidateSystemResult,
+                {
+                    "valid": True,
+                    "ready": True,
+                    "target": {"target_type": "ironbug_model", "id": "hvac_1", "path": "models/ironbug/hvac_1.json"},
+                    "openstudio_summary": {"thermal_zones": 1},
+                    "system_summary": {"air_loop_count": 0},
+                    "report": {"status": "ok", "message": "valid"},
+                },
+                "openstudio_summary",
+                {"thermal_zones": 1},
+                "forward_translator",
+            ),
+            (
+                ApplyToModelResult,
+                {
+                    "target": {"target_type": "honeybee_model", "id": "hb_1", "model_identifier": "hb_1"},
+                    "updated_model_target": {
+                        "target_type": "honeybee_model",
+                        "id": "hb_1",
+                        "model_identifier": "hb_1",
+                    },
+                    "detailed_hvac_identifier": "hvac_1_detailed_hvac",
+                    "report": {"status": "ok", "message": "applied"},
+                },
+                "detailed_hvac_identifier",
+                "hvac_1_detailed_hvac",
+                "dragonfly_model_target",
+            ),
+        ]
+
+        for model_cls, payload, present_key, expected_val, missing_key in sample_cases:
+            validated = model_cls.model_validate(payload)
+            assert isinstance(validated, MappingReadMixin)
+            assert validated[present_key] == expected_val
+            assert validated.get(present_key) == expected_val
+            assert validated.get(missing_key, "fallback") == "fallback"
+            assert present_key in validated
+            assert missing_key not in validated
+            with pytest.raises(KeyError):
+                _ = validated[missing_key]
+
+        desc_res = DescribeComponentsResult.model_validate(
+            {
+                "components": [
+                    {
+                        "type_name": "IB_ChillerElectricEIR",
+                        "category": "plant_equipment",
+                        "core_fields": [
+                            {"name": "ReferenceCOP", "type": "number", "default": 5.5},
+                        ],
+                    }
+                ],
+                "not_found": [],
+                "report": {"status": "ok", "message": "described"},
+            }
+        )
+        assert desc_res["components"][0]["core_fields"][0]["default"] == 5.5
+
+        blocked_raw = _runtime_blocked_response(
+            IronbugRuntimeUnavailable("missing", missing=["dotnet"], details={"dotnet_exe": None})
+        )
+        blocked_res = ValidateSystemResult.model_validate(blocked_raw)
+        assert blocked_res["blocked"] is True
+        assert blocked_res.openstudio_summary is None
+        assert "openstudio_summary" not in blocked_res
+        blocked_dumped = blocked_res.model_dump(exclude_none=True)
+        assert blocked_dumped["blocked"] is True
+        assert "openstudio_summary" not in blocked_dumped
+        assert len(json.dumps(blocked_dumped).encode("utf-8")) < 1024
+
+        raw_mcp = register_tools(FastMCP("ib-contracts-test", strict_input_validation=True))
+        bridge_calls: list[tuple[str, dict[str, Any]]] = []
+
+        class _FakeBridgeClient:
+            def call(
+                self,
+                method: str,
+                payload: dict[str, Any],
+                timeout: float = 30.0,
+            ) -> dict[str, Any]:
+                del timeout
+                bridge_calls.append((method, dict(payload)))
+                if payload.get("category") == "nonexistent_cat":
+                    return {
+                        "matches": [],
+                        "categories": {"pump": 2, "fan": 3},
+                        "total_catalog_types": 5,
+                        "total_matched": 0,
+                        "offset": 0,
+                        "truncated": False,
+                        "unknown_category": "nonexistent_cat",
+                        "valid_categories": ["fan", "pump"],
+                    }
+                return {
+                    "matches": [
+                        {
+                            "type_name": "IB_PumpVariableSpeed",
+                            "category": "pump",
+                            "base_type": "IB_Pump",
+                            "summary": "Variable speed hydronic pump.",
+                        }
+                    ],
+                    "categories": {"pump": 1},
+                    "total_catalog_types": 1,
+                    "total_matched": 1,
+                    "offset": 0,
+                    "truncated": False,
+                }
+
+        async def _invoke_ib_list() -> tuple[dict[str, Any], dict[str, Any]]:
+            async with Client(raw_mcp) as client:
+                res_pump = await client.call_tool(
+                    "IB_List_Components",
+                    {"category": "Pump", "limit": 10},
+                )
+                assert not getattr(res_pump, "is_error", False), f"IB_List_Components('Pump') failed: {res_pump!r}"
+                res_unknown = await client.call_tool(
+                    "IB_List_Components",
+                    {"category": "nonexistent_cat"},
+                )
+                assert not getattr(res_unknown, "is_error", False), (
+                    f"IB_List_Components('nonexistent_cat') failed: {res_unknown!r}"
+                )
+                return _parse_json_tool_result(res_pump), _parse_json_tool_result(res_unknown)
+
+        with mock.patch("garden.ironbug.service.get_bridge_client", return_value=_FakeBridgeClient()):
+            pump_payload, unknown_payload = asyncio.run(_invoke_ib_list())
+
+        assert bridge_calls[0][0] == "catalog"
+        assert bridge_calls[0][1]["category"] == "pump"
+        assert pump_payload["report"]["status"] == "ok"
+        assert pump_payload["matches"][0]["type_name"] == "IB_PumpVariableSpeed"
+
+        assert bridge_calls[1][0] == "catalog"
+        assert bridge_calls[1][1]["category"] == "nonexistent_cat"
+        assert unknown_payload["report"]["status"] == "warning"
+        assert unknown_payload["unknown_category"] == "nonexistent_cat"
+        assert unknown_payload["valid_categories"] == ["fan", "pump"]
+
+        code_mode_mcp = create_mcp()
+
+        async def _fetch_ironbug_full_schemas() -> tuple[str, str]:
+            async with Client(code_mode_mcp) as client:
+                all_res = await client.call_tool(
+                    "get_schema",
+                    {"tools": list(_IRONBUG_TOOLS), "detail": "full"},
+                )
+                cfg_res = await client.call_tool(
+                    "get_schema",
+                    {"tools": ["IB_Configure_Loops"], "detail": "full"},
+                )
+                return _extract_schema_text(all_res), _extract_schema_text(cfg_res)
+
+        all_full_doc, cfg_full_doc = asyncio.run(_fetch_ironbug_full_schemas())
+        all_full_items = json.loads(all_full_doc)
+        assert {item["name"] for item in all_full_items} == set(_IRONBUG_TOOLS)
+        cfg_full_items = json.loads(cfg_full_doc)
+        assert [item["name"] for item in cfg_full_items] == ["IB_Configure_Loops"]
+        assert len(json.dumps(all_full_items).encode("utf-8")) < 45 * 1024
+        assert len(json.dumps(cfg_full_items).encode("utf-8")) < 10 * 1024
+        assert len(all_full_doc.encode("utf-8")) < 80 * 1024
+        assert len(cfg_full_doc.encode("utf-8")) < 15 * 1024
+
+    pydantic_warnings = _collect_pydantic_warnings(caught)
+    assert pydantic_warnings == [], f"Unexpected Pydantic warnings: {pydantic_warnings}"

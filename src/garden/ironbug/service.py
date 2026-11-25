@@ -25,6 +25,14 @@ from garden.honeybee_core.model_io import (
     save_honeybee_model,
 )
 from garden.honeybee_core.targets import normalize_honeybee_object_target
+from garden.ironbug._schemas import (
+    validate_air_loops,
+    validate_ironbug_components,
+    validate_ironbug_specification,
+    validate_plant_loops,
+    validate_thermal_zones,
+    validate_vrf_systems,
+)
 from garden.ironbug.client import IronbugBridgeError, get_bridge_client
 from garden.ironbug.runtime import IronbugRuntimeUnavailable
 from garden.ironbug.store import (
@@ -99,33 +107,9 @@ def _garden_root(value: str) -> Path:
     return Path(value).expanduser().resolve()
 
 
-def _normalize_components_input(
-    components: dict[str, dict[str, Any]] | list[dict[str, Any]] | None,
-) -> dict[str, dict[str, Any]]:
-    if components is None:
-        return {}
-    if isinstance(components, dict):
-        normalized: dict[str, dict[str, Any]] = {}
-        for comp_id, spec in components.items():
-            key = str(comp_id).strip()
-            if not key:
-                raise ValueError("Component id must not be empty.")
-            if not isinstance(spec, dict):
-                raise ValueError(f"Component '{key}' specification must be a dict.")
-            normalized[key] = dict(spec)
-        return normalized
-    if isinstance(components, list):
-        normalized = {}
-        for item in components:
-            if not isinstance(item, dict):
-                raise ValueError("Each component item must be a dict with 'id' and 'type'.")
-            key = str(item.get("id") or "").strip()
-            if not key:
-                raise ValueError("Each component item in list form requires a non-empty 'id'.")
-            spec = {k: v for k, v in item.items() if k != "id"}
-            normalized[key] = spec
-        return normalized
-    raise ValueError("components must be a dict mapping id -> spec, or a list of dicts with 'id'.")
+def _compact_openstudio_summary(raw: dict[str, Any] | None) -> dict[str, int]:
+    """Return only non-zero OpenStudio object counts for compact summary views."""
+    return {str(k): int(v) for k, v in (raw or {}).items() if v}
 
 
 def list_ironbug_components(
@@ -568,6 +552,12 @@ def create_ironbug_system(
     if specification is not None and template is not None:
         raise ValueError("Pass either specification or template, not both.")
 
+    normalized_spec = (
+        validate_ironbug_specification(specification)
+        if specification is not None
+        else None
+    )
+
     root = _garden_root(garden_root)
     manifest = GardenManifest.read(root)
     clean_id = str(identifier).strip()
@@ -577,11 +567,11 @@ def create_ironbug_system(
     extra_warnings: list[str] = []
     try:
         client = get_bridge_client()
-        if specification is not None:
+        if normalized_spec is not None:
             spec_json = (
-                specification
-                if isinstance(specification, str)
-                else json.dumps(specification, ensure_ascii=False)
+                normalized_spec
+                if isinstance(normalized_spec, str)
+                else json.dumps(normalized_spec, ensure_ascii=False)
             )
             if editable:
                 parsed = client.call("reverse_parse", {"specification_json": spec_json})
@@ -683,7 +673,7 @@ def upsert_ironbug_components(
             "without an authoring draft. Updating components without replace=true would overwrite "
             "the imported specification; pass replace=true to discard it and author from a new draft."
         )
-    incoming = _normalize_components_input(components)
+    incoming = validate_ironbug_components(components)
     removed_ids = [str(x).strip() for x in (remove_ids or []) if str(x).strip()]
     if not incoming and not removed_ids and not replace:
         raise ValueError(
@@ -799,13 +789,13 @@ def configure_ironbug_loops(
     if display_name is not None:
         next_draft["display_name"] = display_name
     if thermal_zones is not None:
-        next_draft["thermal_zones"] = list(thermal_zones)
+        next_draft["thermal_zones"] = validate_thermal_zones(thermal_zones)
     if air_loops is not None:
-        next_draft["air_loops"] = list(air_loops)
+        next_draft["air_loops"] = validate_air_loops(air_loops)
     if plant_loops is not None:
-        next_draft["plant_loops"] = list(plant_loops)
+        next_draft["plant_loops"] = validate_plant_loops(plant_loops)
     if vrf_systems is not None:
-        next_draft["vrf_systems"] = list(vrf_systems)
+        next_draft["vrf_systems"] = validate_vrf_systems(vrf_systems)
     if energy_management_system is not None:
         next_draft["energy_management_system"] = energy_management_system.strip() or None
     if electric_load_center is not None:
@@ -1223,6 +1213,7 @@ def validate_ironbug_system(
     ready = valid and not blocking_issues
     status = "ok" if ready else "invalid"
     forward_translator = val.get("forward_translator")
+    raw_openstudio_summary = val.get("openstudio_summary") or {}
     summary_view: dict[str, Any] = {
         "garden_target": manifest.target(),
         "target": target,
@@ -1230,7 +1221,7 @@ def validate_ironbug_system(
         "ready": ready,
         "blocking_issue_count": len(blocking_issues),
         "warning_count": len(warnings),
-        "openstudio_summary": val.get("openstudio_summary") or {},
+        "openstudio_summary": _compact_openstudio_summary(raw_openstudio_summary),
     }
     if forward_translator is not None:
         summary_view["forward_translator"] = forward_translator
@@ -1244,7 +1235,7 @@ def validate_ironbug_system(
         "warnings": warnings,
         "blocking_issues": blocking_issues,
         "thermal_zones": system_zones,
-        "openstudio_summary": val.get("openstudio_summary") or {},
+        "openstudio_summary": raw_openstudio_summary,
         "system_summary": val.get("system_summary") or {},
         "room_check": room_check,
         "summary_view": summary_view,
@@ -1419,7 +1410,7 @@ def apply_ironbug_to_model(
                     "detailed_hvac_identifier": hvac_id,
                     "affected_room2d_count": len(affected),
                     "affected_room2d_identifiers": affected,
-                    "openstudio_summary": val.get("openstudio_summary") or {},
+                    "openstudio_summary": _compact_openstudio_summary(val.get("openstudio_summary")),
                 },
                 "persistence_receipt": receipt,
                 "report": make_report(
@@ -1616,7 +1607,7 @@ def apply_ironbug_to_model(
             "detailed_hvac_identifier": hvac_id,
             "selected_room_count": len(all_selected_ids),
             "room_identifiers": all_selected_ids,
-            "openstudio_summary": val.get("openstudio_summary") or {},
+            "openstudio_summary": _compact_openstudio_summary(val.get("openstudio_summary")),
         },
         "persistence_receipt": receipt,
         "report": make_report(

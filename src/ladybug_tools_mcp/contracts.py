@@ -209,6 +209,9 @@ class _MappingReadMixin:
         return isinstance(key, str) and key in self._present_keys()
 
 
+MappingReadMixin = _MappingReadMixin
+
+
 class GardenTargetRef(_MappingReadMixin, BaseModel):
     """Base typed reference for Garden-managed targets and artifacts."""
 
@@ -435,6 +438,7 @@ __all__ = [
     "GardenTargetRef",
     "IronbugModelTargetRef",
     "LibraryObjectTargetRef",
+    "MappingReadMixin",
     "MutationResultModel",
     "PersistenceReceiptModel",
     "QueryResultModel",
