@@ -1,4 +1,14 @@
-//! wgpu 3D building renderer and offscreen PNG capture pipeline.
+//! wgpu 3D building renderer and offscreen PNG/picking pipeline.
+
+pub mod camera;
+pub mod error;
+pub mod palette;
+pub mod renderer;
+
+pub use camera::OrbitCamera;
+pub use error::RendererError;
+pub use palette::{color_for_object, resolve_scene_colors};
+pub use renderer::{BuildingRenderer, PickHit, RenderState};
 
 use lbt_scene::{ColorBy, IsolationMode, SceneData};
 
@@ -22,7 +32,7 @@ impl Default for RendererConfig {
     }
 }
 
-/// Placeholder renderer entry point until the wgpu pipeline is implemented.
+/// Legacy placeholder kept temporarily until `lbt-viewer-app` switches to [`BuildingRenderer`].
 #[derive(Clone, Debug, Default)]
 pub struct RendererStub {
     pub config: RendererConfig,
