@@ -1,0 +1,48 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/lbt-scene",
+    "crates/lbt-renderer-wgpu",
+    "crates/lbt-mcp-bridge",
+    "crates/lbt-viewer-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+# Rune carries local patches on top of published crates.io versions; Cargo requires
+# `[patch.crates-io]` to live in the root workspace Cargo.toml.
+[patch.crates-io]
+wgpu-hal = { path = "../vendor/rune/vendor/wgpu-hal" }
+naga = { path = "../vendor/rune/vendor/naga" }
+winit = { path = "../vendor/rune/vendor/winit" }
+sctk-adwaita = { path = "../vendor/rune/vendor/sctk-adwaita" }
+parley_engine = { path = "../vendor/rune/vendor/parley_engine" }
+accesskit_windows = { path = "../vendor/rune/vendor/accesskit_windows" }
+accesskit_atspi_common = { path = "../vendor/rune/vendor/accesskit_atspi_common" }
+accesskit_macos = { path = "../vendor/rune/vendor/accesskit_macos" }
+
+[workspace.dependencies]
+lbt-scene = { path = "crates/lbt-scene" }
+lbt-renderer-wgpu = { path = "crates/lbt-renderer-wgpu" }
+lbt-mcp-bridge = { path = "crates/lbt-mcp-bridge" }
+
+rune = { path = "../vendor/rune/crates/rune", features = ["tooling"] }
+
+wgpu = { version = "~30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl"] }
+bytemuck = { version = "1.25", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+png = "0.18"
+pollster = "1"
+glam = "0.29"
+earcutr = "0.4"
+
+# Match vendor/rune's dev debug-info profile so Windows linking stays well within memory limits.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

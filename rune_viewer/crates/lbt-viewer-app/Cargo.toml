@@ -1,0 +1,20 @@
+[package]
+name = "lbt-viewer-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Native GPU desktop and headless HBJSON/Garden viewer powered by Rune and wgpu."
+
+[[bin]]
+name = "lbt-rune-viewer"
+path = "src/main.rs"
+
+[dependencies]
+lbt-scene = { workspace = true }
+lbt-renderer-wgpu = { workspace = true }
+lbt-mcp-bridge = { workspace = true }
+rune = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+glam = { workspace = true }
+wgpu = { workspace = true }

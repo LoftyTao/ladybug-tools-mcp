@@ -15,3 +15,4 @@ src/pyhygrothermfem_fairyfly/_native*.pyd
 src/pyhygrothermfem_fairyfly/_native*.so
 src/pyhygrothermfem_fairyfly/_build_source.json
 resources/
+rune_viewer/target/
