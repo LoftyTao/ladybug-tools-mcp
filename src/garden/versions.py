@@ -19,6 +19,7 @@ from ladybug_tools_mcp.contracts import (
 AUTHORING_PATHS = ("garden.json", "models", "libraries")
 GIT_USER_NAME = "Ladybug Tools MCP"
 GIT_USER_EMAIL = "ladybug-tools-mcp@example.invalid"
+GIT_LOG_OUTPUT_ENCODING = "UTF-8"
 
 
 def _resolve_garden_root(garden_root: str) -> Path:
@@ -36,11 +37,20 @@ def _run_git(
 ) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
-            ["git", "-C", str(root), *args],
+            [
+                "git",
+                "-C",
+                str(root),
+                "-c",
+                f"i18n.logOutputEncoding={GIT_LOG_OUTPUT_ENCODING}",
+                *args,
+            ],
             check=check,
             capture_output=True,
             stdin=subprocess.DEVNULL,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except FileNotFoundError as exc:
         raise RuntimeError(
@@ -135,6 +145,8 @@ def _commit_authoring_truth(
             f"user.name={GIT_USER_NAME}",
             "-c",
             f"user.email={GIT_USER_EMAIL}",
+            "-c",
+            "i18n.commitEncoding=UTF-8",
             "commit",
             "-m",
             subject,
