@@ -7,5 +7,6 @@ description = "Atomic file-protocol bridge for <garden>/tmp/web_view/ (present, 
 
 [dependencies]
 lbt-scene = { workspace = true }
+lbt-renderer-wgpu = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
