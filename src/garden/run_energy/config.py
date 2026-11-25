@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
+import tempfile
 import unicodedata
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from honeybee_energy.config import folders as energy_folders
 from ladybug_tools_mcp.contracts import make_report
-from garden.manifest import GardenManifest
-from garden.paths import to_posix_relative
+from garden.manifest import GardenManifest, garden_lock
+from garden.paths import resolve_contained_path, to_posix_relative
 
 WEATHER_TARGET_TYPE = "weather_file"
 _WEATHER_QUERY_STOPWORDS = {"weather", "epw", "file", "climate", "data"}
@@ -303,80 +306,159 @@ def import_local_weather_folder(
 ) -> dict[str, Any]:
     """Copy a local EPW/DDY/STAT folder into a Garden and register it."""
     garden_root_path = Path(garden_root).expanduser().resolve()
-    manifest = GardenManifest.read(garden_root_path)
-    source = Path(source_path).expanduser().resolve()
-    if not source.exists():
-        raise ValueError(f"Local weather source not found: {source_path}")
-    epw_path, ddy_path, stat_path = _find_weather_siblings(source)
-    weather_identifier = _safe_weather_identifier(identifier or epw_path.stem)
-    destination = garden_root_path / "imports" / "weather" / weather_identifier
-    if destination.exists():
-        if not overwrite:
-            existing = next((target for target in manifest.weather_files if target.get("identifier") == weather_identifier), None)
-            if existing is not None:
-                return {
-                    "target": existing,
-                    "weather_target": existing,
-                    "weather_file_target": existing,
-                    "weather_file": existing,
-                    "summary_view": {
-                        "garden_target": manifest.target(),
-                        "identifier": weather_identifier,
-                        "status": "already_registered",
-                    },
-                    "report": make_report(
-                        status="ok",
-                        message=f"Local weather already registered: {weather_identifier}",
-                    ),
-                }
-            raise ValueError(
-                f"Weather destination already exists but is not registered: {to_posix_relative(destination, garden_root_path)}"
-            )
-        shutil.rmtree(destination)
-    destination.mkdir(parents=True, exist_ok=True)
-    copied_epw = destination / epw_path.name
-    shutil.copy2(epw_path, copied_epw)
-    copied_ddy = None
-    copied_stat = None
-    if ddy_path is not None:
-        copied_ddy = destination / ddy_path.name
-        shutil.copy2(ddy_path, copied_ddy)
-    if stat_path is not None:
-        copied_stat = destination / stat_path.name
-        shutil.copy2(stat_path, copied_stat)
+    with garden_lock(garden_root_path):
+        manifest = GardenManifest.read(garden_root_path)
+        source = Path(source_path).expanduser().resolve()
+        if not source.exists():
+            raise ValueError(f"Local weather source not found: {source_path}")
+        epw_path, ddy_path, stat_path = _find_weather_siblings(source)
+        weather_identifier = _safe_weather_identifier(identifier or epw_path.stem)
+        weather_relative = f"imports/weather/{weather_identifier}"
+        destination = garden_root_path / "imports" / "weather" / weather_identifier
+        weather_parent = destination.parent
+        safe_destination = resolve_contained_path(
+            garden_root_path, weather_relative, label="Weather destination"
+        )
+        if os.path.normcase(str(destination)) != os.path.normcase(str(safe_destination)):
+            raise ValueError("Weather destination must not traverse a symlink.")
 
-    filename_meta = parse_weather_filename_metadata(epw_path.name)
-    epw_loc = parse_epw_location_metadata(copied_epw)
-    station = epw_loc.get("station") or filename_meta.get("station") or epw_path.stem
-    epw_sha256 = compute_file_sha256(copied_epw)
-    source_metadata: dict[str, Any] = {
-        "source": "local_weather",
-        "source_path": str(source),
-        "station": station,
-        "wmo_station": epw_loc.get("wmo_station"),
-        "dataset_version": filename_meta.get("dataset_version"),
-        "epw_sha256": epw_sha256,
-        "file_name": epw_path.name,
-        "search_terms": [
-            term for term in (weather_identifier, epw_path.stem, station) if term
-        ],
-    }
-    source_metadata = {k: v for k, v in source_metadata.items() if v is not None}
-    target = make_garden_weather_target(
-        garden_root=garden_root_path,
-        manifest=manifest,
-        identifier=weather_identifier,
-        epw_path=copied_epw,
-        ddy_path=copied_ddy,
-        stat_path=copied_stat,
-        metadata=source_metadata,
-    )
-    manifest.weather_files = [
-        item for item in manifest.weather_files if item.get("identifier") != weather_identifier
-    ]
-    manifest.weather_files.append(target)
-    manifest.weather_files.sort(key=lambda item: str(item.get("identifier", "")))
-    manifest.write(garden_root_path)
+        if destination.exists():
+            if not destination.is_dir():
+                raise ValueError("Weather destination exists but is not a directory.")
+            if not overwrite:
+                existing = next(
+                    (
+                        target
+                        for target in manifest.weather_files
+                        if target.get("identifier") == weather_identifier
+                    ),
+                    None,
+                )
+                if existing is not None:
+                    return {
+                        "target": existing,
+                        "weather_target": existing,
+                        "weather_file_target": existing,
+                        "weather_file": existing,
+                        "summary_view": {
+                            "garden_target": manifest.target(),
+                            "identifier": weather_identifier,
+                            "status": "already_registered",
+                        },
+                        "report": make_report(
+                            status="ok",
+                            message=f"Local weather already registered: {weather_identifier}",
+                        ),
+                    }
+                raise ValueError(
+                    "Weather destination already exists but is not registered: "
+                    f"{to_posix_relative(destination, garden_root_path)}"
+                )
+
+        weather_parent.mkdir(parents=True, exist_ok=True)
+        stage_directory = Path(
+            tempfile.mkdtemp(prefix=".weather-stage-", dir=weather_parent)
+        )
+        backup_directory = (
+            weather_parent / f".weather-backup-{uuid4().hex}"
+            if destination.exists()
+            else None
+        )
+        published = False
+
+        try:
+            # Stage every source file before moving the destination. The source can
+            # itself be inside that destination when overwrite=True.
+            shutil.copy2(epw_path, stage_directory / epw_path.name)
+            if ddy_path is not None:
+                shutil.copy2(ddy_path, stage_directory / ddy_path.name)
+            if stat_path is not None:
+                shutil.copy2(stat_path, stage_directory / stat_path.name)
+
+            if backup_directory is not None:
+                os.replace(destination, backup_directory)
+            os.replace(stage_directory, destination)
+            published = True
+
+            filename_meta = parse_weather_filename_metadata(epw_path.name)
+            epw_loc = parse_epw_location_metadata(destination / epw_path.name)
+            station = epw_loc.get("station") or filename_meta.get("station") or epw_path.stem
+            epw_sha256 = compute_file_sha256(destination / epw_path.name)
+            source_metadata: dict[str, Any] = {
+                "source": "local_weather",
+                "source_path": str(source),
+                "station": station,
+                "wmo_station": epw_loc.get("wmo_station"),
+                "dataset_version": filename_meta.get("dataset_version"),
+                "epw_sha256": epw_sha256,
+                "file_name": epw_path.name,
+                "search_terms": [
+                    term for term in (weather_identifier, epw_path.stem, station) if term
+                ],
+            }
+            source_metadata = {
+                key: value for key, value in source_metadata.items() if value is not None
+            }
+            target = make_garden_weather_target(
+                garden_root=garden_root_path,
+                manifest=manifest,
+                identifier=weather_identifier,
+                epw_path=destination / epw_path.name,
+                ddy_path=(destination / ddy_path.name) if ddy_path is not None else None,
+                stat_path=(destination / stat_path.name) if stat_path is not None else None,
+                metadata=source_metadata,
+            )
+            manifest.weather_files = [
+                item
+                for item in manifest.weather_files
+                if item.get("identifier") != weather_identifier
+            ]
+            manifest.weather_files.append(target)
+            manifest.weather_files.sort(key=lambda item: str(item.get("identifier", "")))
+            manifest.write(garden_root_path)
+        except BaseException as exc:
+            rollback_error = None
+            if published and destination.exists():
+                try:
+                    shutil.rmtree(destination)
+                except OSError as rollback_exc:
+                    rollback_error = f"could not remove the failed weather import: {rollback_exc}"
+            if backup_directory is not None and backup_directory.exists():
+                if destination.exists():
+                    rollback_error = rollback_error or (
+                        "the previous weather directory cannot be restored because "
+                        f"the destination is occupied: {destination}"
+                    )
+                else:
+                    try:
+                        os.replace(backup_directory, destination)
+                    except OSError as rollback_exc:
+                        rollback_error = (
+                            rollback_error
+                            or f"could not restore the previous weather directory: {rollback_exc}"
+                        )
+            if rollback_error:
+                retained = []
+                if backup_directory is not None and backup_directory.exists():
+                    retained.append(str(backup_directory))
+                if published and destination.exists():
+                    retained.append(str(destination))
+                retained_text = (
+                    f" Recovery data retained at: {', '.join(retained)}."
+                    if retained
+                    else ""
+                )
+                raise RuntimeError(
+                    "Local weather import failed and rollback was incomplete: "
+                    f"{rollback_error}.{retained_text}"
+                ) from exc
+            raise
+        finally:
+            if stage_directory.exists():
+                shutil.rmtree(stage_directory, ignore_errors=True)
+
+        if backup_directory is not None:
+            shutil.rmtree(backup_directory, ignore_errors=True)
     return {
         "target": target,
         "weather_target": target,
