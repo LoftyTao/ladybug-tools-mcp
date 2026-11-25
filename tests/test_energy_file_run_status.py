@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sqlite3
+from types import SimpleNamespace
+
+import pytest
 
 from garden.manifest import GardenManifest
-from garden.run_energy import files
+from garden.run_energy import files, results
+from garden.run_energy.annual import _absolute_output_path, _run_record_by_id
 
 
 def _garden_with_osm(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -152,3 +157,84 @@ def test_osm_measures_only_success_ignores_stale_failure_markers(
     assert not (run_dir / "run.log").exists()
     assert not (run_dir / "failed.job").exists()
     assert not stale_out_osw.exists()
+
+
+@pytest.mark.parametrize(
+    ("suffix", "contents", "engine", "old_version"),
+    [
+        (
+            ".osm",
+            "OS:Version,\n {751cdc50-66f8-4f8f-ad43-1b184ceb7656}, !- Handle\n 3.11.0;",
+            "OpenStudio",
+            "3.10.0",
+        ),
+        (".idf", "! VERSION, 24.1;\nTimestep, 6;\nVersion, 25.2; !- Version", "EnergyPlus", "25.1.0"),
+    ],
+)
+def test_newer_export_is_blocked_before_engine_or_run_directory_changes(
+    tmp_path, monkeypatch, suffix, contents, engine, old_version
+) -> None:
+    root, _, epw, run_dir = _garden_with_osm(tmp_path)
+    model = root / f"new{suffix}"
+    model.write_text(contents, encoding="utf-8")
+    previous_sql = run_dir / "eplusout.sql"
+    previous_sql.write_bytes(b"previous run evidence")
+    monkeypatch.setattr(
+        files, "energy_folders",
+        SimpleNamespace(openstudio_version_str="3.10.0", energyplus_version_str="25.1.0"),
+    )
+
+    def unexpected_run(*args, **kwargs):
+        pytest.fail("Engine was invoked after a blocked version preflight")
+
+    monkeypatch.setattr(files, "run_osw", unexpected_run)
+    monkeypatch.setattr(files, "run_idf", unexpected_run)
+    reply = files.run_simulation_file(
+        garden_root=str(root), file_path=str(model), epw_path=str(epw), run_id="blocked_version"
+    )
+
+    info = reply["summary_view"]["preflight"]
+    assert (info["status"], info["engine"], info["runtime_version"]) == ("blocked", engine, old_version)
+    assert info["code"] == "input_version_newer_than_runtime"
+    assert reply["summary_view"]["status"] == "failed"
+    assert reply["summary_view"]["run_folder"] is None
+    stored = _run_record_by_id(root, "blocked_version")
+    assert stored["preflight"] == info
+    assert previous_sql.read_bytes() == b"previous run evidence"
+    with pytest.raises(ValueError, match="no owned sql output"):
+        _absolute_output_path(root, stored, "sql")
+    with pytest.raises(ValueError, match="has not completed successfully"):
+        results.read_energy_result_data(garden_root=str(root), run_id="blocked_version")
+
+
+@pytest.mark.parametrize(
+    ("err_text", "valid_sql", "expected"),
+    [
+        ("", True, "failed"),
+        ("** Fatal ** Invalid input\nEnergyPlus Terminated.", True, "failed"),
+        ("EnergyPlus Completed Successfully", False, "failed"),
+        ("EnergyPlus Completed Successfully", True, "completed"),
+    ],
+)
+def test_idf_status_requires_real_completion_evidence(tmp_path, monkeypatch, err_text, valid_sql, expected):
+    root, _, _, _ = _garden_with_osm(tmp_path)
+    model = root / "model.idf"
+    model.write_text("Version, 25.1;", encoding="utf-8")
+    monkeypatch.setattr(files, "energy_folders", SimpleNamespace(energyplus_version_str="25.1.0"))
+
+    def fake_run_idf(idf_path, *args, **kwargs):
+        run_dir = Path(idf_path).parent
+        sql = run_dir / "eplusout.sql"
+        err = run_dir / "eplusout.err"
+        if valid_sql:
+            with sqlite3.connect(sql) as conn:
+                conn.execute("CREATE TABLE simulation (id INTEGER)")
+        else:
+            sql.write_text("unreadable SQL", encoding="utf-8")
+        err.write_text(err_text, encoding="utf-8")
+        return str(sql), None, None, None, str(err)
+
+    monkeypatch.setattr(files, "run_idf", fake_run_idf)
+    reply = files.run_idf_file(garden_root=str(root), idf_path=str(model))
+    assert reply["summary_view"]["status"] == expected
+    assert reply["summary_view"]["outputs"]["err"]["exists"]

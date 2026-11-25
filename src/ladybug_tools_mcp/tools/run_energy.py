@@ -944,7 +944,7 @@ def register(mcp: FastMCP) -> None:
         ] = None,
         output_names: Annotated[
             list[str] | None,
-            Field(description="Optional exact EnergyPlus SQL output names to read in one call for multi-series charts. Provide only one of output_name or output_names."),
+            Field(description="Up to 25 exact EnergyPlus SQL output names. Provide only one of output_name or output_names."),
         ] = None,
         output_query: Annotated[
             str | None,
@@ -972,16 +972,20 @@ def register(mcp: FastMCP) -> None:
         ] = False,
         max_values: Annotated[
             int,
-            Field(ge=0, description="Maximum values per DataCollection when include_values is true."),
+            Field(ge=0, description="Maximum preview values per series, subject to a 1024-value budget across the response. Set save_data_collections=true for complete series."),
         ] = 24,
         max_collections: Annotated[
             int,
-            Field(ge=1, description="Maximum DataCollection summaries to return."),
+            Field(ge=1, description="Maximum DataCollection summaries per SQL output. At most 50 summaries and 50 geometry matches across the call."),
         ] = 10,
         max_outputs: Annotated[
             int,
-            Field(ge=1, description="Maximum SQL outputs selected by output_query/unit/data_type/object_type filters."),
+            Field(ge=1, description="Maximum SQL outputs selected by filters, capped at 25."),
         ] = 25,
+        collection_offset: Annotated[
+            int,
+            Field(ge=0, description="Zero-based page offset within each SQL output and its geometry matches. Use next_collection_offset with an exact output_name."),
+        ] = 0,
         save_data_collections: Annotated[
             bool,
             Field(description="Persist each returned DataCollection as a Garden ladybug_data_collection target and return data_collection_targets. Keep false for inventory-only reads; set true with include_values=false before passing targets into generic visualize tools."),
@@ -1027,6 +1031,7 @@ def register(mcp: FastMCP) -> None:
                 max_values=max_values,
                 max_collections=max_collections,
                 max_outputs=max_outputs,
+                collection_offset=collection_offset,
                 save_data_collections=save_data_collections,
                 match_to=match_to,
                 model_target=dump_target(model_target),

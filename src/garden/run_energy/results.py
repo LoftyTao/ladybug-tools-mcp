@@ -27,7 +27,6 @@ from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import slugify_name, to_posix_relative
 from garden.run_energy.annual import (
     _absolute_output_path,
-    _outputs_map,
     _run_id_from_target_or_value,
     _run_record_by_id,
 )
@@ -35,6 +34,9 @@ from garden.run_energy.output_requests import read_energy_output_request
 
 HOURLY_PLOT_HTML_ARTIFACT_TYPE = "energy_result_hourly_plot_html"
 MONTHLY_CHART_HTML_ARTIFACT_TYPE = "energy_result_monthly_chart_html"
+MAX_RESULT_OUTPUTS = 25
+MAX_RESULT_COLLECTIONS = 50
+MAX_RESULT_INLINE_VALUES = 1024
 
 _MONTHLY_CHART_TIME_INTERVALS = {
     "as_is",
@@ -60,6 +62,12 @@ def _sql_result(
 ) -> tuple[str, Path, Any, dict[str, Any]]:
     resolved_run_id = _run_id_from_target_or_value(run_target=run_target, run_id=run_id)
     record = _run_record_by_id(garden_root, resolved_run_id)
+    target_garden = (run_target or {}).get("garden_id")
+    record_garden = (record.get("target") or {}).get("garden_id")
+    if target_garden and record_garden and target_garden != record_garden:
+        raise ValueError("The Energy run target belongs to a different Garden.")
+    if record.get("recipe") in {"openstudio_osm", "energyplus_idf"} and record.get("status") != "completed":
+        raise ValueError(f"Energy file run {resolved_run_id} has not completed successfully.")
     sql_path = _absolute_output_path(garden_root, record, "sql")
     return resolved_run_id, sql_path, SQLiteResult(str(sql_path)), record
 
@@ -247,8 +255,10 @@ def _data_collection_identifier(
     run_id: str,
     output_name: str,
     collection_index: int,
+    run_period_index: int | None = None,
 ) -> str:
-    return f"{run_id}_{output_name}_{collection_index}"
+    period = f"_period_{run_period_index}" if run_period_index is not None else ""
+    return f"{run_id}{period}_{output_name}_{collection_index}"
 
 
 def _collection_summary(
@@ -371,9 +381,8 @@ def _result_data_next_step_guidance(
     outputs = ", ".join(str(item["output_name"]) for item in truncated[:5])
     return (
         "collections_truncated=true for one or more outputs. Reuse the existing "
-        "collection_count, returned_collection_count, and collections_truncated "
-        "fields; increase max_collections or narrow filters before charting all "
-        f"zones. Truncated outputs include: {outputs}."
+        "next_collection_offset with the exact output_name to read the next page "
+        f"before charting all zones. Truncated outputs include: {outputs}."
     )
 
 
@@ -426,6 +435,7 @@ def read_energy_result_data(
     max_values: int = 24,
     max_collections: int = 10,
     max_outputs: int = 25,
+    collection_offset: int = 0,
     save_data_collections: bool = False,
     match_to: str = "none",
     model_target: dict[str, Any] | None = None,
@@ -440,6 +450,8 @@ def read_energy_result_data(
         raise ValueError("max_collections must be positive.")
     if max_outputs <= 0:
         raise ValueError("max_outputs must be positive.")
+    if collection_offset < 0:
+        raise ValueError("collection_offset must be zero or greater.")
     match_mode = str(match_to or "none").strip().lower().replace("-", "_")
     if match_mode not in {"none", "rooms", "faces", "auto"}:
         raise ValueError("match_to must be one of: none, rooms, faces, auto.")
@@ -452,6 +464,9 @@ def read_energy_result_data(
     )
     if output_names is not None and not exact_output_names:
         raise ValueError("output_names must include at least one output name.")
+    if len(exact_output_names) > MAX_RESULT_OUTPUTS:
+        raise ValueError(f"Provide at most {MAX_RESULT_OUTPUTS} output names per call.")
+    exact_output_names = list(dict.fromkeys(exact_output_names))
     garden_root_path = _garden_root(garden_root)
     manifest = GardenManifest.read(garden_root_path)
     resolved_run_id, sql_path, sql, record = _sql_result(
@@ -474,6 +489,7 @@ def read_energy_result_data(
         "object_type": object_type,
     }
     has_filters = any(value is not None for value in filters.values())
+    output_filter_truncated = False
     if exact_output_names:
         requested_output_names = exact_output_names
     elif has_filters:
@@ -487,9 +503,12 @@ def read_energy_result_data(
                 data_type=data_type,
                 object_type=object_type,
             )
-        ][:max_outputs]
+        ]
         if not requested_output_names:
             raise ValueError("No Energy SQL outputs matched the requested filters.")
+        output_limit = min(max_outputs, MAX_RESULT_OUTPUTS)
+        output_filter_truncated = len(requested_output_names) > output_limit
+        requested_output_names = requested_output_names[:output_limit]
     else:
         requested_output_names = []
     output_request = _output_request_summary(
@@ -536,20 +555,27 @@ def read_energy_result_data(
     total_collection_count = 0
     collections_by_output: list[dict[str, Any]] = []
     all_collections_by_output: dict[str, list[Any]] = {}
+    # Reserve half for matched geometry when both representations are requested.
+    preview_budget = MAX_RESULT_INLINE_VALUES // (2 if match_mode != "none" else 1)
     for current_output_name in requested_output_names:
         collections = _data_collections(sql, current_output_name, run_period_index)
-        all_collections_by_output[current_output_name] = collections
-        visible_collections = collections[:max_collections]
+        if match_mode != "none":
+            all_collections_by_output[current_output_name] = collections
+        limit = min(max_collections, MAX_RESULT_COLLECTIONS - len(summaries))
+        end = collection_offset + limit
+        visible_collections = collections[collection_offset:end]
+        has_more = end < len(collections)
         total_collection_count += len(collections)
         collections_by_output.append(
             {
                 "output_name": current_output_name,
                 "collection_count": len(collections),
                 "returned_collection_count": len(visible_collections),
-                "collections_truncated": len(collections) > len(visible_collections),
+                "collections_truncated": has_more,
+                "next_collection_offset": end if has_more else None,
             }
         )
-        for collection_index, collection in enumerate(visible_collections):
+        for collection_index, collection in enumerate(visible_collections, collection_offset):
             output_info = _normalize_output_info(
                 output_info_by_name.get(current_output_name),
                 output_name=current_output_name,
@@ -563,7 +589,7 @@ def read_energy_result_data(
                 collection,
                 output_name=current_output_name,
                 include_values=include_values,
-                max_values=max_values,
+                max_values=min(max_values, preview_budget),
                 output_parameter=parameter,
                 result_context={
                     "run_id": resolved_run_id,
@@ -577,6 +603,7 @@ def read_energy_result_data(
                     ),
                 },
             )
+            preview_budget -= len(summary.get("values", ()))
             if save_data_collections:
                 saved = save_data_collection(
                     garden_root=garden_root_path,
@@ -585,6 +612,7 @@ def read_energy_result_data(
                         run_id=resolved_run_id,
                         output_name=current_output_name,
                         collection_index=collection_index,
+                        run_period_index=run_period_index,
                     ),
                     source={
                         "producer": "read_energy_result_data",
@@ -619,7 +647,10 @@ def read_energy_result_data(
             "sql_path": to_posix_relative(sql_path, garden_root_path),
             "output_name": output_name,
             "output_names": requested_output_names,
+            "outputs_truncated": output_filter_truncated,
             "run_period_index": run_period_index,
+            "collection_offset": collection_offset,
+            "inline_value_limit": MAX_RESULT_INLINE_VALUES,
             "result_context": result_context,
             "collection_count": total_collection_count,
             "returned_collection_count": len(summaries),
@@ -658,6 +689,8 @@ def read_energy_result_data(
             include_values=include_values,
             max_values=max_values,
             max_collections=max_collections,
+            collection_offset=collection_offset,
+            run_period_index=run_period_index,
             save_data_collections=save_data_collections,
         )
         response["geometry_matches"] = matched_payload
@@ -872,6 +905,8 @@ def _monthly_chart_series(
                 "series_index": index,
                 "label": label,
                 "collection_index": collection_index,
+                "run_period_index": item.get("run_period_index"),
+                "aggregation": time_interval,
                 "time_interval": interval,
                 "time_interval_guidance": _time_interval_guidance(
                     interval,
@@ -954,6 +989,11 @@ def energy_result_monthly_chart_to_html(
             {
                 "output_name": summary["output_name"],
                 "collection_index": summary["collection_index"],
+                "run_period_index": summary["run_period_index"],
+                "unit": summary["unit"],
+                "data_type": summary["data_type"],
+                "aggregation": summary["aggregation"],
+                "analysis_period": summary.get("analysis_period"),
                 "label": summary["label"],
                 "time_interval": summary["time_interval"],
             }
@@ -1170,12 +1210,16 @@ def _attach_geometry_matches(
     include_values: bool,
     max_values: int,
     max_collections: int,
+    collection_offset: int,
+    run_period_index: int | None,
     save_data_collections: bool,
 ) -> dict[str, Any]:
     model = _resolve_honeybee_model_for_run(garden_root_path, record, model_target)
     matched_rooms: list[dict[str, Any]] = []
     matched_faces: list[dict[str, Any]] = []
     saved_targets: list[dict[str, Any]] = []
+    match_pages: list[dict[str, Any]] = []
+    preview_budget = MAX_RESULT_INLINE_VALUES // 2
     sql_rel = to_posix_relative(sql_path, garden_root_path)
 
     for output_name, collections in collections_by_output.items():
@@ -1189,6 +1233,10 @@ def _attach_geometry_matches(
             else:
                 effective_mode = "rooms"
 
+        remaining = MAX_RESULT_COLLECTIONS - len(matched_rooms) - len(matched_faces)
+        end = collection_offset + min(remaining, max_collections)
+        preview_slice = slice(collection_offset, end)
+        provenance = {"run_id": run_id, "sql_path": sql_rel, "run_period_index": run_period_index}
         if effective_mode == "rooms":
             room_tuples = match_rooms_to_data(
                 collections,
@@ -1197,7 +1245,8 @@ def _attach_geometry_matches(
                 space_based=space_based,
                 zone_correct_mult=zone_correct_mult,
             )
-            for idx, (room, coll, multiplier) in enumerate(room_tuples[:max_collections]):
+            total_matches = len(room_tuples)
+            for idx, (room, coll, multiplier) in enumerate(room_tuples[preview_slice], collection_offset):
                 values = [
                     float(v)
                     for v in (getattr(coll, "values", []) or [])
@@ -1214,6 +1263,8 @@ def _attach_geometry_matches(
                     "effective_multiplier": multiplier,
                     "output_name": output_name,
                     "unit": _header_value(header, "unit") if header else None,
+                    "time_interval": _collection_time_interval(coll),
+                    "result_context": provenance,
                     "value_count": len(values),
                     "minimum": min(values) if values else None,
                     "maximum": max(values) if values else None,
@@ -1222,17 +1273,22 @@ def _attach_geometry_matches(
                 }
                 if include_values:
                     raw = list(getattr(coll, "values", []) or [])
-                    entry["values"] = raw[:max_values]
+                    entry["values"] = raw[:min(max_values, preview_budget)]
+                    preview_budget -= len(entry["values"])
                     entry["values_truncated"] = len(raw) > len(entry["values"])
                 if save_data_collections:
                     saved = save_data_collection(
                         garden_root=garden_root_path,
                         data_collection=coll,
-                        identifier=f"{run_id}_{output_name}_room_{room.identifier}_{idx}",
+                        identifier=_data_collection_identifier(
+                            run_id=run_id,
+                            output_name=f"{output_name}_room_{room.identifier}",
+                            collection_index=idx,
+                            run_period_index=run_period_index,
+                        ),
                         source={
                             "producer": "match_rooms_to_data",
-                            "run_id": run_id,
-                            "sql_path": sql_rel,
+                            **provenance,
                             "output_name": output_name,
                             "room_identifier": room.identifier,
                             "effective_multiplier": multiplier,
@@ -1241,10 +1297,11 @@ def _attach_geometry_matches(
                     entry["data_collection_target"] = saved["target"]
                     saved_targets.append(saved["target"])
                 matched_rooms.append(entry)
-        elif effective_mode == "faces":
+        else:
             top_faces = [*model.faces, *model.orphaned_apertures, *model.orphaned_doors]
             face_tuples = match_faces_to_data(collections, top_faces)
-            for idx, (face_obj, coll) in enumerate(face_tuples[:max_collections]):
+            total_matches = len(face_tuples)
+            for idx, (face_obj, coll) in enumerate(face_tuples[preview_slice], collection_offset):
                 values = [
                     float(v)
                     for v in (getattr(coll, "values", []) or [])
@@ -1264,6 +1321,8 @@ def _attach_geometry_matches(
                     "parent_identifier": getattr(parent, "identifier", None),
                     "output_name": output_name,
                     "unit": _header_value(header, "unit") if header else None,
+                    "time_interval": _collection_time_interval(coll),
+                    "result_context": provenance,
                     "value_count": len(values),
                     "minimum": min(values) if values else None,
                     "maximum": max(values) if values else None,
@@ -1272,17 +1331,22 @@ def _attach_geometry_matches(
                 }
                 if include_values:
                     raw = list(getattr(coll, "values", []) or [])
-                    entry["values"] = raw[:max_values]
+                    entry["values"] = raw[:min(max_values, preview_budget)]
+                    preview_budget -= len(entry["values"])
                     entry["values_truncated"] = len(raw) > len(entry["values"])
                 if save_data_collections:
                     saved = save_data_collection(
                         garden_root=garden_root_path,
                         data_collection=coll,
-                        identifier=f"{run_id}_{output_name}_face_{face_obj.identifier}_{idx}",
+                        identifier=_data_collection_identifier(
+                            run_id=run_id,
+                            output_name=f"{output_name}_face_{face_obj.identifier}",
+                            collection_index=idx,
+                            run_period_index=run_period_index,
+                        ),
                         source={
                             "producer": "match_faces_to_data",
-                            "run_id": run_id,
-                            "sql_path": sql_rel,
+                            **provenance,
                             "output_name": output_name,
                             "face_identifier": face_obj.identifier,
                         },
@@ -1290,6 +1354,12 @@ def _attach_geometry_matches(
                     entry["data_collection_target"] = saved["target"]
                     saved_targets.append(saved["target"])
                 matched_faces.append(entry)
+        match_pages.append({
+            "output_name": output_name,
+            "match_mode": effective_mode,
+            "total_match_count": total_matches,
+            "next_collection_offset": end if end < total_matches else None,
+        })
 
     return {
         "match_mode": match_mode,
@@ -1299,6 +1369,7 @@ def _attach_geometry_matches(
         "matched_rooms": matched_rooms,
         "matched_faces": matched_faces,
         "matched_data_collection_targets": saved_targets,
+        "matches_by_output": match_pages,
     }
 
 

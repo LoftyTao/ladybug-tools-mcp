@@ -8,15 +8,18 @@ import re
 import shutil
 from typing import Any
 
+from honeybee_energy.config import folders as energy_folders
 from honeybee_energy.result.eui import eui_from_sql
 from honeybee_energy.result.osw import OSW
 from honeybee_energy.run import run_idf, run_osw, to_openstudio_sim_folder
 
 from ladybug_tools_mcp.contracts import make_report
+from garden.ironbug.runtime import extract_osm_version
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import to_posix_relative
 from garden.run_energy.annual import (
     _capture_recipe_stdio,
+    _err_text_stats,
     _ENERGY_RUN_LEDGER,
     _run_index_path,
     _normalize_run_id,
@@ -27,6 +30,7 @@ from garden.run_energy.annual import (
     load_and_configure_measures,
 )
 from garden.run_energy.config import WEATHER_TARGET_TYPE
+from garden.run_energy.simulate_runner import _parse_version_tuple
 from garden.run_ledger import serialized_run_start
 
 IDF_FILE_RECIPE = "energyplus_idf"
@@ -46,6 +50,7 @@ OSM_OUTPUT_NAMES = (
     "run_log",
     "failed_job",
 )
+_IDF_VERSION_RE = re.compile(r"(?:\A|;)\s*Version\s*,\s*(\d+\.\d+(?:\.\d+)?)\s*;", re.I)
 
 
 def _garden_root(value: str | Path) -> Path:
@@ -242,6 +247,7 @@ def _response(
             "input_file_path": record.get("input_file_path"),
             "workflow_path": record.get("workflow_path"),
             "run_folder": record.get("run_folder"),
+            "preflight": record.get("preflight"),
             "outputs": _outputs_map(record),
         },
         "report": make_report(
@@ -337,6 +343,72 @@ def _mark_file_setup_failed(
     _upsert_record(garden_root, record)
 
 
+def _prepare_file_run_folder(
+    garden_root: Path,
+    run_dir: Path,
+    record: dict[str, Any],
+    source: Path,
+    output_names: tuple[str, ...],
+) -> bool:
+    is_osm = record["recipe"] == OSM_FILE_RECIPE
+    engine = "OpenStudio" if is_osm else "EnergyPlus"
+    with source.open(encoding="utf-8-sig", errors="replace") as stream:
+        header = stream.read(16384)
+    header = re.sub(r"![^\r\n]*", "", header)
+    if is_osm:
+        declared = extract_osm_version(osm_text=header)
+        installed = energy_folders.openstudio_version_str
+    else:
+        match = _IDF_VERSION_RE.search(header)
+        declared = match.group(1) if match else None
+        installed = energy_folders.energyplus_version_str
+    source_version = _parse_version_tuple(declared or "")
+    runtime_version = _parse_version_tuple(installed or "")
+    preflight = {
+        "engine": engine,
+        "input_version": declared,
+        "runtime_version": installed,
+        "status": "unknown",
+    }
+    record["preflight"] = preflight
+    if source_version and runtime_version:
+        # Engine schemas are selected by major/minor. Patch revisions share the schema.
+        if source_version[:2] > runtime_version[:2]:
+            preflight.update(status="blocked", code="input_version_newer_than_runtime")
+            record["run_folder"] = None
+            _mark_file_setup_failed(
+                garden_root,
+                record,
+                f"{source.suffix.upper()} requires {engine} {declared}, but the configured "
+                f"runtime is {installed}. Use a compatible export or configure a newer runtime.",
+                output_names,
+            )
+            return False
+        preflight["status"] = "passed"
+    _ENERGY_RUN_LEDGER.prepare_folder(
+        _run_index_path(garden_root), record["run_folder"], recipe=record["recipe"]
+    )
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _upsert_record(garden_root, record)
+    return True
+
+
+def _energyplus_output_problem(outputs: dict[str, Path | None]) -> str | None:
+    sql, err = outputs.get("sql"), outputs.get("err")
+    if sql is None or err is None:
+        return "EnergyPlus did not produce the required SQL and ERR output files."
+    try:
+        stats = _err_text_stats(err)
+        if stats["fatal_count"] or stats["terminated"] or not stats["completed_successfully"]:
+            return "The EnergyPlus ERR file does not confirm a successful simulation."
+        with sql.open("rb") as stream:
+            if stream.read(16) != b"SQLite format 3\x00":
+                return "EnergyPlus did not produce a valid SQLite output file."
+    except OSError as exc:
+        return f"Could not verify the EnergyPlus outputs: {exc}"
+    return None
+
+
 @serialized_run_start
 def _prepare_osm_file_run(
     *,
@@ -391,12 +463,6 @@ def _prepare_osm_file_run(
         recipe=OSM_FILE_RECIPE,
     )
     run_folder = to_posix_relative(run_dir, garden_root_path)
-    _ENERGY_RUN_LEDGER.prepare_folder(
-        _run_index_path(garden_root_path),
-        run_folder,
-        recipe=OSM_FILE_RECIPE,
-    )
-    run_dir.mkdir(parents=True, exist_ok=True)
     record: dict[str, Any] = {
         "run_id": resolved_run_id,
         "target": target,
@@ -416,7 +482,8 @@ def _prepare_osm_file_run(
     }
     if normalized_measures:
         record["measures"] = normalized_measures
-    _upsert_record(garden_root_path, record)
+    if not _prepare_file_run_folder(garden_root_path, run_dir, record, resolved_osm, OSM_OUTPUT_NAMES):
+        return {"manifest": manifest, "record": record, "workflow_path": None, "reused": False}
     try:
         _clear_idf_native_outputs(garden_root_path, run_dir)
         _clear_osm_run_diagnostics(run_dir)
@@ -500,12 +567,6 @@ def _prepare_idf_file_run(
         recipe=IDF_FILE_RECIPE,
     )
     run_folder = to_posix_relative(run_dir, garden_root_path)
-    _ENERGY_RUN_LEDGER.prepare_folder(
-        _run_index_path(garden_root_path),
-        run_folder,
-        recipe=IDF_FILE_RECIPE,
-    )
-    run_dir.mkdir(parents=True, exist_ok=True)
     record: dict[str, Any] = {
         "run_id": resolved_run_id,
         "target": target,
@@ -527,7 +588,11 @@ def _prepare_idf_file_run(
         "expand_objects": expand_objects,
         "silent": silent,
     }
-    _upsert_record(garden_root_path, record)
+    if not _prepare_file_run_folder(garden_root_path, run_dir, record, resolved_idf, IDF_OUTPUT_NAMES):
+        return {
+            "manifest": manifest, "record": record, "resolved_epw": resolved_epw,
+            "run_input": None, "reused": False,
+        }
     try:
         _clear_idf_native_outputs(garden_root_path, run_dir)
         run_input = _idf_run_input(resolved_idf)
@@ -630,7 +695,6 @@ def run_osm_file(
         "run_log": _existing_file(run_dir / "run.log"),
         "failed_job": _existing_file(run_dir / "failed.job"),
     }
-    output_paths["eui"] = None if measures_only else _eui_output(output_paths.get("sql"), run_dir)
     if out_osw_path.is_file():
         try:
             osw_obj = OSW(str(out_osw_path))
@@ -661,9 +725,14 @@ def run_osm_file(
             if not (output_paths.get("osm") or output_paths.get("osw")):
                 status = "failed"
                 warnings.append("OpenStudio measures-only run did not produce in.osm or out.osw.")
-        elif not all(output_paths.get(name) for name in ("sql", "err")):
+        elif problem := _energyplus_output_problem(output_paths):
             status = "failed"
-            warnings.append("OpenStudio did not produce the required SQL and ERR output files.")
+            warnings.append(problem)
+    output_paths["eui"] = (
+        _eui_output(output_paths.get("sql"), run_dir)
+        if status == "completed" and not measures_only
+        else None
+    )
     outputs = _file_outputs(
         garden_root=garden_root_path,
         run_dir=run_dir,
@@ -776,10 +845,13 @@ def run_idf_file(
             else _existing_file(fallback_outputs["err"])
         ),
     }
-    output_paths["eui"] = _eui_output(output_paths.get("sql"), run_dir)
-    if status == "completed" and not all(output_paths.get(name) for name in ("sql", "err")):
-        status = "failed"
-        warnings.append("EnergyPlus did not produce the required SQL and ERR output files.")
+    if status == "completed":
+        if problem := _energyplus_output_problem(output_paths):
+            status = "failed"
+            warnings.append(problem)
+    output_paths["eui"] = (
+        _eui_output(output_paths.get("sql"), run_dir) if status == "completed" else None
+    )
     outputs = _file_outputs(
         garden_root=garden_root_path,
         run_dir=run_dir,

@@ -577,6 +577,8 @@ def _outputs_map(record: dict[str, Any]) -> dict[str, dict[str, Any]]:
 def _absolute_output_path(
     garden_root: Path, record: dict[str, Any], output_name: str
 ) -> Path:
+    if record.get("status") == "superseded" or (record.get("preflight") or {}).get("status") == "blocked":
+        raise ValueError(f"Energy run {record.get('run_id')} has no owned {output_name} output.")
     output = _outputs_map(record).get(output_name)
     if output and output.get("path"):
         path = (garden_root / str(output["path"])).resolve()
