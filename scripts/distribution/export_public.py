@@ -18,7 +18,7 @@ def local_only(path):
         or path == "CONTEXT.md"
         or PurePosixPath(path).name.lower() == "agents.md"
         or (path.startswith(".agents/skills/")
-            and not path.startswith(".agents/skills/ladybug-tools-mcp-use/"))
+            and not path.startswith(".agents/skills/ladybug-tools/"))
     )
 
 

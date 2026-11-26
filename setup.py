@@ -320,16 +320,8 @@ class BuildPy(build_py):
         rune_web = root / "rune_viewer" / "target" / "web"
         if (rune_web / "app_bg.wasm").is_file() and (rune_web / "index.html").is_file():
             shutil.copytree(rune_web, resources / "rune_viewer" / "web", dirs_exist_ok=True)
-        optional_assets = (
-            (root / ".agents/skills/ladybug-tools-mcp-use", resources / "skills/ladybug-tools-mcp-use"),
-        )
-        for source, target in optional_assets:
-            if source.is_dir():
-                shutil.copytree(
-                    source, target, dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns("AGENTS.md", "__pycache__", "*.pyc"),
-                )
         for source, target in (
+            (root / ".agents/skills/ladybug-tools", resources / "skills/ladybug-tools"),
             (root / "src/grasshopper_components/user_objects", resources / "grasshopper"),
         ):
             if not source.is_dir():

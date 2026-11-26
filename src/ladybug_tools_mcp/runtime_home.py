@@ -630,7 +630,9 @@ def _update_pyvenv_cfg(cfg_path: Path, py_home: Path) -> bool:
 
 
 def _sync_current_skills(home: Path) -> str | None:
-    current_skill = home / "app" / "current" / "skills" / "ladybug-tools-mcp-use"
+    active_skills = home / "app" / "current" / "skills"
+    current_skill = active_skills / "ladybug-tools"
+    legacy_skill = active_skills / "ladybug-tools-mcp-use"
     if current_skill.is_dir():
         return str(current_skill)
     current_json = home / "app" / "current.json"
@@ -649,10 +651,15 @@ def _sync_current_skills(home: Path) -> str | None:
                 if cand.is_dir():
                     source_skill = cand
     if source_skill is None and (home / "app" / "releases").is_dir():
-        for cand in sorted((home / "app" / "releases").glob("*/skills/ladybug-tools-mcp-use"), reverse=True):
-            if cand.is_dir():
-                source_skill = cand
+        for name in (current_skill.name, legacy_skill.name):
+            candidates = sorted((home / "app" / "releases").glob(f"*/skills/{name}"), reverse=True)
+            source_skill = next((candidate for candidate in candidates if candidate.is_dir()), None)
+            if source_skill is not None:
                 break
+    if source_skill is None or source_skill.name == legacy_skill.name:
+        current_skill = legacy_skill
+        if current_skill.is_dir():
+            return str(current_skill)
     if source_skill is not None and not (home / "app" / "current").is_symlink():
         current_skill.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source_skill, current_skill, dirs_exist_ok=True)

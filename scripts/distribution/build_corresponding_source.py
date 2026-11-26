@@ -186,7 +186,7 @@ def _collect_repo_source_files() -> list[Path]:
                 continue
             collected.append(item)
 
-    skills_dir = REPO_ROOT / ".agents" / "skills" / "ladybug-tools-mcp-use"
+    skills_dir = REPO_ROOT / ".agents" / "skills" / "ladybug-tools"
     if skills_dir.is_dir():
         for item in sorted(skills_dir.rglob("*")):
             if item.is_file() and not item.is_symlink():

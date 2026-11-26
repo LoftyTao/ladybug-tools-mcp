@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -24,6 +24,11 @@ jobs:
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           python-version: '3.12'
+      - name: Install Gmsh runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglu1-mesa
       - name: Install editable package and run contract tests
         shell: pwsh
         env:
@@ -41,7 +46,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-15]
+        # Keep the bundled native binaries compatible with Ubuntu 24.04.
+        os: [ubuntu-24.04, windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     env:
       LBT_MCP_REQUIRE_IRONBUG_BRIDGE: "1"
@@ -59,7 +65,7 @@ jobs:
           dotnet-version: '8.0.x'
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux Rune viewer build dependencies
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libwayland-dev
@@ -68,13 +74,13 @@ jobs:
       - name: Build wheel and source distribution
         shell: pwsh
         run: |
-          if ('${{ matrix.os }}' -eq 'ubuntu-latest') {
+          if ($IsLinux) {
             uv build --sdist
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           uv build --wheel
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify IronbugBridge, native solver, Rune viewer, and licenses are bundled
+      - name: Verify bundled runtimes, Agent Skill, and licenses
         run: |
           uv run --no-project --python 3.12 python -c '
           import glob, sys, tarfile, zipfile
@@ -87,6 +93,7 @@ jobs:
               "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.dll",
               "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.deps.json",
               "ladybug_tools_mcp/resources/ironbug_bridge/IronbugBridge.runtimeconfig.json",
+              "ladybug_tools_mcp/resources/skills/ladybug-tools/SKILL.md",
               rune_exe,
               "pyhygrothermfem_fairyfly/_build_source.json",
               "honeybee_gbas/writer.py",
@@ -107,6 +114,7 @@ jobs:
                   "licenses/THIRD_PARTY_NOTICES.md",
                   "licenses/CORRESPONDING_SOURCE.md",
                   "licenses/SOURCE_MANIFEST.json",
+                  ".agents/skills/ladybug-tools/SKILL.md",
                   "rune_viewer/Cargo.toml",
                   "vendor/rune/Cargo.toml",
                   "scripts/distribution/launcher/Cargo.toml",
@@ -130,7 +138,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-15]
+        os: [windows-latest, ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -142,7 +150,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install Linux Rune viewer runtime dependencies
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon0 libwayland-client0
@@ -208,13 +216,21 @@ jobs:
           assert status_payload["status"] == "not_installed"
 
           doctor_res = run_cli("doctor", check=False, use_console_script=True)
-          doctor_report = json.loads(doctor_res.stdout)
+          try:
+              doctor_report = json.loads(doctor_res.stdout)
+          except json.JSONDecodeError as error:
+              raise RuntimeError(
+                  f"lbt-mcp doctor did not return JSON (exit {doctor_res.returncode})\n"
+                  f"stdout:\n{doctor_res.stdout}\nstderr:\n{doctor_res.stderr}"
+              ) from error
           (root / "doctor.json").write_text(json.dumps(doctor_report, indent=2, ensure_ascii=False), encoding="utf-8")
           assert doctor_report["mode"] == "plain_venv"
           assert doctor_report["checks"]["licenses"]["ok"] is True
           assert doctor_report["checks"]["rune_viewer"]["ok"] is True
           assert doctor_report["checks"]["pyhygrothermfem_fairyfly"]["ok"] is True
           assert doctor_report["checks"]["runtime_engines"]["engines"]["therm"]["available"] is True
+          rune_exe = doctor_report["checks"]["rune_viewer"]["path"]
+          subprocess.run([rune_exe, "--version"], cwd=root, check=True, timeout=30)
 
           async def execute(client, code):
               result = await client.call_tool("execute", {"code": code})
@@ -238,6 +254,10 @@ jobs:
               async with Client(transport, timeout=180, init_timeout=120) as client:
                   tools = {item.name for item in await client.list_tools()}
                   assert {"search", "get_schema", "tags", "list_tools", "execute"} <= tools
+                  skill_uri = "skill://ladybug-tools/SKILL.md"
+                  assert skill_uri in {str(item.uri) for item in await client.list_resources()}
+                  skill = await client.read_resource(skill_uri)
+                  assert skill and "name: ladybug-tools" in skill[0].text
                   created = await execute(client, f'''\
           created = await call_tool("GD_Create", {{"name": "Distribution smoke", "root_dir": {str(gardens / "Distribution smoke")!r}}})
           return {{"created": created}}
@@ -310,7 +330,9 @@ jobs:
         run: |
           $ver = uv run --no-project --python 3.12 python -c "import tomllib; pkgs=tomllib.load(open('rune_viewer/Cargo.lock','rb'))['package']; print(next(p['version'] for p in pkgs if p['name']=='wasm-bindgen'))"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $current = (wasm-bindgen --version 2>$null)
+          $current = if (Get-Command wasm-bindgen -ErrorAction SilentlyContinue) {
+            wasm-bindgen --version
+          }
           if ($current -ne "wasm-bindgen $ver") {
             cargo install --locked wasm-bindgen-cli --version $ver
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

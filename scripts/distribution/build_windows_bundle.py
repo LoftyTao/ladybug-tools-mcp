@@ -223,6 +223,7 @@ def _build_wheel(wheelhouse_dir: Path, version: str) -> Path:
         "ladybug_tools_mcp/resources/rune_viewer/web/app_bg.wasm",
         "ladybug_tools_mcp/resources/rune_viewer/web/index.html",
         "ladybug_tools_mcp/resources/grasshopper/manifest.json",
+        "ladybug_tools_mcp/resources/skills/ladybug-tools/SKILL.md",
         "pyhygrothermfem_fairyfly/_build_source.json",
     }
     missing = sorted(required - names)
@@ -657,11 +658,11 @@ def _stage_skills_and_metadata(
     manifest: dict[str, Any],
 ) -> None:
     targets_ver = manifest["target_versions"]
-    skill_rel = f"app/releases/{version}/skills/ladybug-tools-mcp-use"
+    skill_rel = f"app/releases/{version}/skills/ladybug-tools"
     rel_skill_dir = staging_dir / skill_rel
-    cur_skill_dir = staging_dir / "app" / "current" / "skills" / "ladybug-tools-mcp-use"
+    cur_skill_dir = staging_dir / "app" / "current" / "skills" / "ladybug-tools"
 
-    repo_skill = REPO_ROOT / ".agents" / "skills" / "ladybug-tools-mcp-use"
+    repo_skill = REPO_ROOT / ".agents" / "skills" / "ladybug-tools"
     if repo_skill.is_dir():
         shutil.copytree(
             repo_skill,
@@ -677,7 +678,7 @@ def _stage_skills_and_metadata(
         )
     else:
         with ZipFile(wheel_path, "r") as zf:
-            prefix = "ladybug_tools_mcp/resources/skills/ladybug-tools-mcp-use/"
+            prefix = "ladybug_tools_mcp/resources/skills/ladybug-tools/"
             skill_entries = [n for n in zf.namelist() if n.startswith(prefix) and not n.endswith("/")]
             for entry in skill_entries:
                 sub = entry[len(prefix) :]

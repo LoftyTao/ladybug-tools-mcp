@@ -474,10 +474,11 @@ def run_thmz(thmz_file, silent=False):
                                      'See {}. {}'.format(log_file, error))
                 log.write('In-process solver exit code: 0\noutput: {}\n'.format(reported))
 
-            if (os.path.normcase(os.path.abspath(reported)) !=
-                    os.path.normcase(result_file)):
-                raise ValueError('pyHygroTherm did not report its result at '
-                                 '{}. See {}.'.format(result_file, log_file))
+            # The solver resolves the path before reporting it, including Windows 8.3 aliases.
+            if (not reported or os.path.normcase(os.path.realpath(reported)) !=
+                    os.path.normcase(os.path.realpath(result_file))):
+                raise ValueError('pyHygroTherm reported {!r}, expected {}. '
+                                 'See {}.'.format(reported, result_file, log_file))
             _verify_result(result_file, input_digest, expected_tags)
             if sys.version_info[0] < 3:
                 # Release ZIP readers before replacing their archive on Windows.

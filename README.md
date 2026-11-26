@@ -82,7 +82,7 @@ Because we want users to keep as much attention as possible on the interaction w
 ### Windows x86_64 Integrated Offline Installer
 
 On Windows x86_64, the recommended distribution is the **Integrated Offline Installer** (`lbt-mcp-<ver>-win-x64-setup.exe`, e.g., `lbt-mcp-1.2.3-win-x64-setup.exe`) from [GitHub Releases](https://github.com/LoftyTao/ladybug-tools-mcp/releases).
-It installs per-user without administrator rights and bundles Python `3.12`, `lbt-mcp`, Radiance `5.4 (2023-11-05)`, OpenStudio SDK `3.11.0`, unmodified EnergyPlus `25.2.0`, Ironbug `1.26.1` (with a self-contained `IronbugBridge.exe` requiring no external `.NET` runtime), LBT Measures, `pyHygroThermFEM-Fairyfly` + `gmsh` (THERM), `lbt-rune-viewer` (3D Viewer), the bundled Agent Skill (`ladybug-tools-mcp-use`), optional Flowerpot Grasshopper assets, and license notices.
+It installs per-user without administrator rights and bundles Python `3.12`, `lbt-mcp`, Radiance `5.4 (2023-11-05)`, OpenStudio SDK `3.11.0`, unmodified EnergyPlus `25.2.0`, Ironbug `1.26.1` (with a self-contained `IronbugBridge.exe` requiring no external `.NET` runtime), LBT Measures, `pyHygroThermFEM-Fairyfly` + `gmsh` (THERM), `lbt-rune-viewer` (3D Viewer), and license notices. The offline installer includes Flowerpot component files for installation with `lbt-mcp flowerpot install`.
 
 #### Optional URBANopt Offline Pack
 
@@ -110,7 +110,7 @@ District-scale Dragonfly URBANopt workflows use the separate **Optional URBANopt
 │   ├── current\                        # Active release directory
 │   │   ├── venv\                       # Relocatable Python 3.12 virtual environment
 │   │   ├── skills\
-│   │   │   └── ladybug-tools-mcp-use\  # Bundled Agent Skill and references
+│   │   │   └── ladybug-tools\          # Bundled Agent Skill
 │   │   └── grasshopper\                # Packaged Flowerpot .ghuser user objects
 │   └── releases\<ver>\                 # Versioned release payload
 ├── config\
@@ -150,7 +150,9 @@ lbt-mcp flowerpot uninstall [--state <file>]           # Remove unmodified Flowe
 
 ### Flowerpot and Platform Scope
 
-Flowerpot is optional. On Windows with Rhino 8, enable it during setup or run `lbt-mcp flowerpot install`, restart Grasshopper, then search for `FP` or drag the seven components from the `Flowerpot` category (`FP Create Garden`, `FP Garden List`, `FP Honeybee Link`, `FP Dragonfly Link`, `FP Energy Properties Input`, `FP Radiance Properties Input`, and `FP Detail HVAC`). Install Rhino, Ladybug Tools for Grasshopper, and Ironbug separately as required by your Grasshopper workflow. See [the component guide](src/grasshopper_components/README.md).
+Rhino 8 users on Windows can install Flowerpot with `lbt-mcp flowerpot install` after installing Ladybug Tools MCP. After restarting Grasshopper, the seven components are available by searching for `FP` or browsing the `Flowerpot` category (`FP Create Garden`, `FP Garden List`, `FP Honeybee Link`, `FP Dragonfly Link`, `FP Energy Properties Input`, `FP Radiance Properties Input`, and `FP Detail HVAC`). Rhino, Ladybug Tools for Grasshopper, and Ironbug are installed separately as required by the workflow. The [component guide](src/grasshopper_components/README.md) describes each component.
+
+Garden version management requires Git on `PATH`. DES/Modelica requires GeoJSON Modelica Translator, ThermalNetwork, and the Modelica Buildings Library. OpenDSS requires an initialized Python environment for URBANopt. RNM and REopt require compatible local services.
 
 Windows x86_64 is the primary integrated offline platform. Linux x86_64 and macOS Apple Silicon run the same core MCP and unit/contract checks in CI from PyPI or source packages; Flowerpot retains a Windows Rhino/Grasshopper boundary, while Fairyfly/THERM uses the bundled cross-platform `pyHygroThermFEM-Fairyfly` C++20 solver and headless Gmsh Q4 mesher across Windows, Linux, and macOS (no external LBNL THERM installation required). See [GitHub Releases](https://github.com/LoftyTao/ladybug-tools-mcp/releases) and the [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml) for published release evidence.
 
@@ -311,7 +313,7 @@ Merge into `opencode.json` (or `~/.config/opencode/opencode.json`):
 }
 ```
 
-To also wire the local Skill path in `opencode.json`, add `"skills": { "paths": ["<LBT_MCP_HOME>\\app\\current\\skills\\ladybug-tools-mcp-use"] }` (OpenCode 1) or `"skills": ["<LBT_MCP_HOME>\\app\\current\\skills\\ladybug-tools-mcp-use"]` (OpenCode 2).
+In OpenCode and similar clients, the Skill path points to the directory where the Skill is stored.
 
 ### Generic stdio MCP Clients & Bundled Agent Skill
 
@@ -332,13 +334,11 @@ For any standard stdio MCP client, configure `command`, `args`, and `env` as fol
 }
 ```
 
-The bundled Agent Skill is installed at:
+`lbt-mcp serve` exposes the bundled `ladybug-tools` Agent Skill as the MCP resource `skill://ladybug-tools/SKILL.md`. Clients that load Skills from disk can use the directory installed by the Windows offline installer.
 
 ```text
-<LBT_MCP_HOME>\app\current\skills\ladybug-tools-mcp-use
+<LBT_MCP_HOME>\app\current\skills\ladybug-tools
 ```
-
-`lbt-mcp serve` also exposes this Skill as an MCP resource via FastMCP `SkillProvider`. For clients that load Skills directly from disk, copy or point the client to the complete `<LBT_MCP_HOME>\app\current\skills\ladybug-tools-mcp-use` folder (including its supporting references).
 
 ## Web View Mode
 

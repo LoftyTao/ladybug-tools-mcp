@@ -726,7 +726,7 @@ def _ironbug_console_config(openstudio_cli_version: str | None = None) -> dict[s
     ib_version = getattr(energy_folders, "ironbug_version_str", None)
     if (ib_dir and sdk_ib_path and str(ib_dir).lower() != sdk_ib_path.lower()) or not ib_version:
         ib_version = (
-            read_pe_file_version(ib_dir / "Ironbug.HVAC.dll")
+            (read_pe_file_version(ib_dir / "Ironbug.HVAC.dll") if ib_dir else None)
             or read_pe_file_version(exe)
             or ib_version
         )

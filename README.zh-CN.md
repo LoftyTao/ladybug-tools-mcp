@@ -83,7 +83,7 @@ Flowerpot 是 Ladybug Tools MCP 与其他交互界面交换信息的中间层。
 ### Windows x86_64 一体化离线安装包
 
 Windows x86_64 推荐使用 [GitHub Releases](https://github.com/LoftyTao/ladybug-tools-mcp/releases) 提供的**一体化离线安装包**（`lbt-mcp-<ver>-win-x64-setup.exe`，例如 `lbt-mcp-1.2.3-win-x64-setup.exe`）。
-安装器采用当前用户安装方式（无需管理员权限），内置 Python `3.12`、`lbt-mcp` 及其依赖、Radiance `5.4 (2023-11-05)`、OpenStudio SDK `3.11.0`、未修改的 EnergyPlus `25.2.0`、Ironbug `1.26.1`（配合自包含 `IronbugBridge.exe`，无需额外安装 `.NET` 运行时）、LBT Measures、`pyHygroThermFEM-Fairyfly` + `gmsh`（THERM）、`lbt-rune-viewer`（三维预览器）、内置 Agent Skill（`ladybug-tools-mcp-use`）、可选 Flowerpot Grasshopper 组件以及开源许可证与声明文件。
+安装器采用当前用户安装方式（无需管理员权限），内置 Python `3.12`、`lbt-mcp` 及其依赖、Radiance `5.4 (2023-11-05)`、OpenStudio SDK `3.11.0`、未修改的 EnergyPlus `25.2.0`、Ironbug `1.26.1`（配合自包含 `IronbugBridge.exe`，无需额外安装 `.NET` 运行时）、LBT Measures、`pyHygroThermFEM-Fairyfly` + `gmsh`（THERM）、`lbt-rune-viewer`（三维预览器）以及开源许可证与声明文件。安装包随附可通过 `lbt-mcp flowerpot install` 安装的 Flowerpot 组件文件。
 
 #### 可选 URBANopt 离线扩展包
 
@@ -111,7 +111,7 @@ Windows x86_64 推荐使用 [GitHub Releases](https://github.com/LoftyTao/ladybu
 │   ├── current\                        # 当前活动版本目录
 │   │   ├── venv\                       # 可重定位 Python 3.12 虚拟环境
 │   │   ├── skills\
-│   │   │   └── ladybug-tools-mcp-use\  # 内置 Agent Skill 与参考文档
+│   │   │   └── ladybug-tools\          # 内置 Agent Skill
 │   │   └── grasshopper\                # 打包的 Flowerpot .ghuser 用户对象
 │   └── releases\<ver>\                 # 按版本号存放的发布载荷
 ├── config\
@@ -151,7 +151,9 @@ lbt-mcp flowerpot uninstall [--state <file>]           # 卸载未修改的 Flow
 
 ### Flowerpot 与平台范围
 
-Flowerpot 为可选项。Windows / Rhino 8 用户可在安装过程中勾选，或运行 `lbt-mcp flowerpot install`，然后重启 Grasshopper，在组件搜索中输入 `FP` 或从 `Flowerpot` 分类拖入七个组件（`FP Create Garden`、`FP Garden List`、`FP Honeybee Link`、`FP Dragonfly Link`、`FP Energy Properties Input`、`FP Radiance Properties Input`、`FP Detail HVAC`）。Rhino、Ladybug Tools for Grasshopper 和 Ironbug 仍需按工作流另行安装。详见[组件说明](src/grasshopper_components/README.md)。
+Windows 上的 Rhino 8 用户可在安装 Ladybug Tools MCP 后运行 `lbt-mcp flowerpot install`。重启 Grasshopper 后，可搜索 `FP` 或在 `Flowerpot` 分类中找到七个组件（`FP Create Garden`、`FP Garden List`、`FP Honeybee Link`、`FP Dragonfly Link`、`FP Energy Properties Input`、`FP Radiance Properties Input`、`FP Detail HVAC`）。Rhino、Ladybug Tools for Grasshopper 和 Ironbug 依具体工作流另行安装。[组件说明](src/grasshopper_components/README.md)介绍了各组件的用途。
+
+Garden 版本管理需要 `PATH` 中可用的 Git。DES/Modelica 依赖 GeoJSON Modelica Translator、ThermalNetwork 和 Modelica Buildings Library。OpenDSS 需要已初始化的 URBANopt Python 环境。RNM 和 REopt 需要兼容的本地服务。
 
 Windows x86_64 是主要的一体化离线验收平台；Linux x86_64 和 macOS Apple Silicon 通过同一 CI 流程基于 PyPI / 源码构建包运行基础 MCP 与单元/契约检查。Flowerpot 仅保留 Windows Rhino/Grasshopper 边界；Fairyfly/THERM 已内置跨平台 `pyHygroThermFEM-Fairyfly` C++20 求解器与无头 Gmsh Q4 网格划分器，可在 Windows、Linux 与 macOS 上直接运行稳态、瞬态及热湿耦合模拟（无需额外安装外部 LBNL THERM）。详见 [Release Notes](https://github.com/LoftyTao/ladybug-tools-mcp/releases) 与 [distribution workflow](https://github.com/LoftyTao/ladybug-tools-mcp/actions/workflows/distribution.yml)。
 
@@ -312,7 +314,7 @@ claude mcp add-json --scope user lbt-mcp '{"type":"stdio","command":"<LBT_MCP_HO
 }
 ```
 
-如需在 `opencode.json` 中同时配置本地 Skill 路径，可在 OpenCode 1 中添加 `"skills": { "paths": ["<LBT_MCP_HOME>\\app\\current\\skills\\ladybug-tools-mcp-use"] }`，或在 OpenCode 2 中添加 `"skills": ["<LBT_MCP_HOME>\\app\\current\\skills\\ladybug-tools-mcp-use"]`。
+OpenCode 等客户端的 Skill 路径指向实际存放目录。
 
 ### 通用 stdio MCP 客户端与内置 Agent Skill 路径
 
@@ -333,13 +335,11 @@ claude mcp add-json --scope user lbt-mcp '{"type":"stdio","command":"<LBT_MCP_HO
 }
 ```
 
-离线安装内置的 Agent Skill 位于：
+`lbt-mcp serve` 通过 MCP 资源 `skill://ladybug-tools/SKILL.md` 提供内置的 `ladybug-tools` Agent Skill。支持从磁盘加载 Skill 的客户端可使用 Windows 离线安装包提供的目录。
 
 ```text
-<LBT_MCP_HOME>\app\current\skills\ladybug-tools-mcp-use
+<LBT_MCP_HOME>\app\current\skills\ladybug-tools
 ```
-
-`lbt-mcp serve` 也会通过 FastMCP `SkillProvider` 将该 Skill 作为 MCP 资源提供给客户端；对于需要从本地磁盘读取 Skills 的客户端，请将该完整目录（含其参考文件）复制或指向客户端的 Skills 目录。
 
 ## Web View 预览模式
 

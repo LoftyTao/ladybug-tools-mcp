@@ -73,7 +73,7 @@ def _populate_minimal_home(home: Path, *, with_urbanopt_files: bool = False) -> 
     venv_dir = home / "app" / "releases" / "1.2.3" / "venv"
     venv_scripts = venv_dir / ("Scripts" if os.name == "nt" else "bin")
     sp_dir = venv_dir / "Lib" / "site-packages"
-    skills_dir = home / "app" / "releases" / "1.2.3" / "skills" / "ladybug-tools-mcp-use"
+    skills_dir = home / "app" / "releases" / "1.2.3" / "skills" / "ladybug-tools"
 
     for d in (
         os_bin,
@@ -123,7 +123,7 @@ def _populate_minimal_home(home: Path, *, with_urbanopt_files: bool = False) -> 
                 "python": f"app/releases/1.2.3/venv/{'Scripts' if os.name == 'nt' else 'bin'}/python{exe_ext}",
                 "python_home": "runtimes/python/3.12.16",
                 "site_packages": "app/releases/1.2.3/venv/Lib/site-packages",
-                "skills_dir": "app/releases/1.2.3/skills/ladybug-tools-mcp-use",
+                "skills_dir": "app/releases/1.2.3/skills/ladybug-tools",
             },
             indent=2,
         ),
@@ -264,7 +264,7 @@ def test_sync_sdk_configs_pyvenv_relocation_and_installation_records(
     pyvenv_text = (layout["venv_dir"] / "pyvenv.cfg").read_text(encoding="utf-8")
     assert f"home = {layout['py_home'].resolve()}" in pyvenv_text
     assert f"executable = {(layout['py_home'] / ('python.exe' if os.name == 'nt' else 'bin/python3')).resolve()}" in pyvenv_text
-    assert (home / "app" / "current" / "skills" / "ladybug-tools-mcp-use" / "SKILL.md").is_file()
+    assert (home / "app" / "current" / "skills" / "ladybug-tools" / "SKILL.md").is_file()
     # Verify OpenStudio C# DLLs are hardlinked into Ironbug dir.
     ib_os_dll = layout["ib_dir"] / "OpenStudio.dll"
     assert ib_os_dll.is_file()

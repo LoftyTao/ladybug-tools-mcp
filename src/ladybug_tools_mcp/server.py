@@ -10,9 +10,9 @@ from ladybug_tools_mcp import __version__
 from ladybug_tools_mcp.code_mode import create_code_mode_transform
 from ladybug_tools_mcp.registry import register_tools
 
-SKILL_PATH = Path(__file__).resolve().parent / "resources" / "skills" / "ladybug-tools-mcp-use"
+SKILL_PATH = Path(__file__).resolve().parent / "resources" / "skills" / "ladybug-tools"
 if not SKILL_PATH.is_dir():
-    SKILL_PATH = Path(__file__).resolve().parents[2] / ".agents" / "skills" / "ladybug-tools-mcp-use"
+    SKILL_PATH = Path(__file__).resolve().parents[2] / ".agents" / "skills" / "ladybug-tools"
 
 
 def create_mcp() -> FastMCP:
