@@ -410,7 +410,12 @@ jobs:
         with:
           pattern: distributions-*
           merge-multiple: true
-          path: dist
+          path: distributions
+      - name: Select PyPI distributions
+        shell: bash
+        run: |
+          mkdir dist
+          cp distributions/*.tar.gz distributions/*-win_amd64.whl distributions/*-macosx_*.whl dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   github-release:

@@ -166,12 +166,14 @@ Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | Ironbug | 
 
 ### PyPI and Source Development Setup
 
-On Linux, macOS, or custom Python 3.12 environments, you can install from PyPI with [uv](https://docs.astral.sh/uv/getting-started/installation/):
+Windows and macOS wheels for Python 3.12 are available on PyPI and can be installed with [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```text
 uv venv --python 3.12
 uv pip install --prerelease allow lbt-mcp==1.3.0
 ```
+
+The [Linux x86_64 wheel](https://github.com/LoftyTao/ladybug-tools-mcp/releases/download/v1.3.0/lbt_mcp-1.3.0-cp312-cp312-linux_x86_64.whl) is built and tested on Ubuntu 24.04. The source distribution is also available on PyPI.
 
 For source development and custom builds:
 
