@@ -403,3 +403,45 @@ jobs:
           merge-multiple: true
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [contract-tests, test, windows-offline-bundle]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: distributions-*
+          merge-multiple: true
+          path: distributions
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-offline-bundle
+          path: windows-offline
+      - name: Verify checksums and publish release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          (cd windows-offline && tr -d '\r' < SHA256SUMS.txt | sha256sum --check -)
+          mkdir release
+          cp distributions/*.whl distributions/*.tar.gz release/
+          cp "windows-offline/lbt-mcp-${version}-win-x64-setup.exe" \
+             "windows-offline/lbt-mcp-${version}-win-x64-urbanopt.lbtpack" \
+             "windows-offline/lbt-mcp-${version}-corresponding-source.tar.zst" release/
+          (cd release && sha256sum -- * > SHA256SUMS.txt)
+
+          if draft=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft'); then
+            if [[ "$draft" != true ]]; then
+              echo "Release $GITHUB_REF_NAME is already public." >&2
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" release/* --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$GITHUB_REF_NAME" --draft=false --verify-tag --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" release/* --verify-tag --generate-notes \
+              --title "lbt-mcp $version" --repo "$GITHUB_REPOSITORY"
+          fi

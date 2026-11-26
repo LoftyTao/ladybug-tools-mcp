@@ -81,12 +81,12 @@ Because we want users to keep as much attention as possible on the interaction w
 
 ### Windows x86_64 Integrated Offline Installer
 
-On Windows x86_64, the recommended distribution is the **Integrated Offline Installer** (`lbt-mcp-<ver>-win-x64-setup.exe`, e.g., `lbt-mcp-1.2.3-win-x64-setup.exe`) from [GitHub Releases](https://github.com/LoftyTao/ladybug-tools-mcp/releases).
+On Windows x86_64, the recommended distribution is the **Integrated Offline Installer** (`lbt-mcp-<ver>-win-x64-setup.exe`, e.g., `lbt-mcp-1.3.0-win-x64-setup.exe`) from [GitHub Releases](https://github.com/LoftyTao/ladybug-tools-mcp/releases).
 It installs per-user without administrator rights and bundles Python `3.12`, `lbt-mcp`, Radiance `5.4 (2023-11-05)`, OpenStudio SDK `3.11.0`, unmodified EnergyPlus `25.2.0`, Ironbug `1.26.1` (with a self-contained `IronbugBridge.exe` requiring no external `.NET` runtime), LBT Measures, `pyHygroThermFEM-Fairyfly` + `gmsh` (THERM), `lbt-rune-viewer` (3D Viewer), and license notices. The offline installer includes Flowerpot component files for installation with `lbt-mcp flowerpot install`.
 
 #### Optional URBANopt Offline Pack
 
-District-scale Dragonfly URBANopt workflows use the separate **Optional URBANopt Offline Pack** (`lbt-mcp-<ver>-win-x64-urbanopt.lbtpack`, e.g., `lbt-mcp-1.2.3-win-x64-urbanopt.lbtpack`), which adds URBANopt CLI `1.4.0-rc1`, `OpenStudio/Ruby`, and runtime Gems.
+District-scale Dragonfly URBANopt workflows use the separate **Optional URBANopt Offline Pack** (`lbt-mcp-<ver>-win-x64-urbanopt.lbtpack`, e.g., `lbt-mcp-1.3.0-win-x64-urbanopt.lbtpack`), which adds URBANopt CLI `1.4.0-rc1`, `OpenStudio/Ruby`, and runtime Gems.
 
 - Place `lbt-mcp-<ver>-win-x64-urbanopt.lbtpack` beside `lbt-mcp-<ver>-win-x64-setup.exe` to detect and install it automatically during setup, or
 - Install or remove it later with `lbt-mcp pack install` / `lbt-mcp pack remove`.
@@ -162,7 +162,7 @@ The Windows offline installer bundles the simulation runtimes below (with URBANo
 
 Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | Ironbug | URBANopt CLI | THERM | 3D Viewer |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.3` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NREL/OpenStudio/releases/tag/v3.11.0) | 25.2.0 | [1.26.1](https://github.com/MingboPeng/Ironbug/releases/tag/v1.26.1) | [1.4.0-rc1](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) (optional pack) | Bundled `pyHygroThermFEM-Fairyfly` + `gmsh` | Bundled `lbt-rune-viewer` |
+| `v1.3.0` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NREL/OpenStudio/releases/tag/v3.11.0) | 25.2.0 | [1.26.1](https://github.com/MingboPeng/Ironbug/releases/tag/v1.26.1) | [1.4.0-rc1](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1) (optional pack) | Bundled `pyHygroThermFEM-Fairyfly` + `gmsh` | Bundled `lbt-rune-viewer` |
 
 ### PyPI and Source Development Setup
 
@@ -170,7 +170,7 @@ On Linux, macOS, or custom Python 3.12 environments, you can install from PyPI w
 
 ```text
 uv venv --python 3.12
-uv pip install --prerelease allow lbt-mcp==1.2.3
+uv pip install --prerelease allow lbt-mcp==1.3.0
 ```
 
 For source development and custom builds:

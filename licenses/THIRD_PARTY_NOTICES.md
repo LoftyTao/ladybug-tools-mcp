@@ -1,6 +1,6 @@
-# Third-Party Notices and License Disclosures (`lbt-mcp` 1.2.3)
+# Third-Party Notices and License Disclosures (`lbt-mcp` 1.3.0)
 
-This distribution of **ladybug-tools-mcp** (`lbt-mcp` `1.2.3`) is licensed under the
+This distribution of **ladybug-tools-mcp** (`lbt-mcp` `1.3.0`) is licensed under the
 **GNU Affero General Public License v3.0 (`AGPL-3.0-only`)** (see [`LICENSE`](../LICENSE)).
 Verbatim upstream license texts, notices, and disclosures for all bundled and optional components
 are preserved under [`licenses/components/`](components/) and cross-referenced in
@@ -11,7 +11,7 @@ are preserved under [`licenses/components/`](components/) and cross-referenced i
 
 ## 1. Ladybug Tools MCP & Ladybug Tools Core SDKs (`AGPL-3.0-only` / `AGPL-3.0`)
 
-- **ladybug-tools-mcp (`lbt-mcp` `1.2.3`)**: Licensed under `AGPL-3.0-only`
+- **ladybug-tools-mcp (`lbt-mcp` `1.3.0`)**: Licensed under `AGPL-3.0-only`
   ([`LICENSE`](../LICENSE), [`licenses/components/ladybug-tools-mcp/LICENSE`](components/ladybug-tools-mcp/LICENSE)).
 - **Ladybug Tools Core Python SDKs**: `ladybug-core`, `ladybug-geometry`, `ladybug-geometry-polyskel`,
   `ladybug-comfort`, `ladybug-display`, `ladybug-radiance`, `ladybug-vtk`, `lbt-ladybug`,
@@ -277,7 +277,7 @@ and offline corresponding-source archive layout:
 
 ## 12. Optional URBANopt `1.4.0-rc1` Pack (`.lbtpack`)
 
-Distributed separately as an optional extension pack (`lbt-mcp-1.2.3-win-x64-urbanopt.lbtpack`):
+Distributed separately as an optional extension pack (`lbt-mcp-1.3.0-win-x64-urbanopt.lbtpack`):
 
 - **Ruby Runtime**: `BSD-2-Clause` / RubyInstaller Modified BSD
   ([`RUBY_LICENSE.txt`](components/urbanopt/RUBY_LICENSE.txt),

@@ -1,7 +1,7 @@
 ; Ladybug Tools MCP Windows x64 Offline Installer (Inno Setup 6)
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.3"
+  #define MyAppVersion "1.3.0"
 #endif
 #ifndef StagingDir
   #define StagingDir "..\..\build\windows-offline-staging"

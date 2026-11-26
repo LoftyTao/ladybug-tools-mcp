@@ -82,12 +82,12 @@ Flowerpot 是 Ladybug Tools MCP 与其他交互界面交换信息的中间层。
 
 ### Windows x86_64 一体化离线安装包
 
-Windows x86_64 推荐使用 [GitHub Releases](https://github.com/LoftyTao/ladybug-tools-mcp/releases) 提供的**一体化离线安装包**（`lbt-mcp-<ver>-win-x64-setup.exe`，例如 `lbt-mcp-1.2.3-win-x64-setup.exe`）。
+Windows x86_64 推荐使用 [GitHub Releases](https://github.com/LoftyTao/ladybug-tools-mcp/releases) 提供的**一体化离线安装包**（`lbt-mcp-<ver>-win-x64-setup.exe`，例如 `lbt-mcp-1.3.0-win-x64-setup.exe`）。
 安装器采用当前用户安装方式（无需管理员权限），内置 Python `3.12`、`lbt-mcp` 及其依赖、Radiance `5.4 (2023-11-05)`、OpenStudio SDK `3.11.0`、未修改的 EnergyPlus `25.2.0`、Ironbug `1.26.1`（配合自包含 `IronbugBridge.exe`，无需额外安装 `.NET` 运行时）、LBT Measures、`pyHygroThermFEM-Fairyfly` + `gmsh`（THERM）、`lbt-rune-viewer`（三维预览器）以及开源许可证与声明文件。安装包随附可通过 `lbt-mcp flowerpot install` 安装的 Flowerpot 组件文件。
 
 #### 可选 URBANopt 离线扩展包
 
-街区尺度 Dragonfly URBANopt 工作流使用独立的**可选 URBANopt 离线扩展包**（`lbt-mcp-<ver>-win-x64-urbanopt.lbtpack`，例如 `lbt-mcp-1.2.3-win-x64-urbanopt.lbtpack`），内含 URBANopt CLI `1.4.0-rc1`、`OpenStudio/Ruby` 与运行时 Gems。
+街区尺度 Dragonfly URBANopt 工作流使用独立的**可选 URBANopt 离线扩展包**（`lbt-mcp-<ver>-win-x64-urbanopt.lbtpack`，例如 `lbt-mcp-1.3.0-win-x64-urbanopt.lbtpack`），内含 URBANopt CLI `1.4.0-rc1`、`OpenStudio/Ruby` 与运行时 Gems。
 
 - 将 `lbt-mcp-<ver>-win-x64-urbanopt.lbtpack` 放在 `lbt-mcp-<ver>-win-x64-setup.exe` 同级目录，安装器会自动识别并供勾选安装；
 - 也可在安装后随时通过 `lbt-mcp pack install` / `lbt-mcp pack remove` 进行安装或卸载。
@@ -163,7 +163,7 @@ Windows 离线安装包已内置下表所示的模拟运行时（URBANopt 通过
 
 Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | Ironbug | URBANopt CLI | THERM | 3D Viewer |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `v1.2.3` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NREL/OpenStudio/releases/tag/v3.11.0) | 25.2.0 | [1.26.1](https://github.com/MingboPeng/Ironbug/releases/tag/v1.26.1) | [1.4.0-rc1](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1)（可选扩展包） | 内置 `pyHygroThermFEM-Fairyfly` + `gmsh` | 内置 `lbt-rune-viewer` |
+| `v1.3.0` | 3.12 | [5.4 (2023-11-05)](https://github.com/LBNL-ETA/Radiance/releases/tag/rad5R4) | [3.11.0](https://github.com/NREL/OpenStudio/releases/tag/v3.11.0) | 25.2.0 | [1.26.1](https://github.com/MingboPeng/Ironbug/releases/tag/v1.26.1) | [1.4.0-rc1](https://github.com/urbanopt/urbanopt-cli/releases/tag/v1.4.0.rc1)（可选扩展包） | 内置 `pyHygroThermFEM-Fairyfly` + `gmsh` | 内置 `lbt-rune-viewer` |
 
 ### PyPI 与源码开发
 
@@ -171,7 +171,7 @@ Ladybug Tools MCP | Python | Radiance | OpenStudio SDK | EnergyPlus | Ironbug | 
 
 ```text
 uv venv --python 3.12
-uv pip install --prerelease allow lbt-mcp==1.2.3
+uv pip install --prerelease allow lbt-mcp==1.3.0
 ```
 
 修改本项目时可配置源码开发环境：

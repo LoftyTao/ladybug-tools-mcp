@@ -1,11 +1,11 @@
-# Corresponding Source Notice & Inventory (`lbt-mcp` 1.2.3)
+# Corresponding Source Notice & Inventory (`lbt-mcp` 1.3.0)
 
 Under the terms of the **GNU Affero General Public License v3.0 (`AGPL-3.0-only`)**, **GNU General Public
 License (`GPL-3.0-or-later`, `GPL-2.0-or-later`)**, and **GNU Lesser General Public License (`LGPL-3.0`,
 `LGPL-2.1-only`)**, the machine-readable Corresponding Source for `lbt-mcp` and its
 copyleft binary dependencies is provided via:
 
-1. **Offline Release Archive**: `lbt-mcp-1.2.3-corresponding-source.tar.zst` (distributed alongside
+1. **Offline Release Archive**: `lbt-mcp-1.3.0-corresponding-source.tar.zst` (distributed alongside
    the Windows offline installer), containing:
    - The full `lbt-mcp` source tree (matching `MANIFEST.in`: `LICENSE`, `pyproject.toml`,
      `MANIFEST.in`, `src/`, `rune_viewer/`, `vendor/rune/`, `src/ironbug_bridge/`,
@@ -29,7 +29,7 @@ copyleft binary dependencies is provided via:
 
 | Component | Version | License | Bundled in Standard Installer | Source Packaging / Archive | SHA-256 |
 |---|---|---|---|---|---|
-| `ladybug-tools-mcp` | `1.2.3` | `AGPL-3.0-only` | Yes | `repo_sdist` | `*(resolved at offline build / see `SOURCE_MANIFEST.json`)*` |
+| `ladybug-tools-mcp` | `1.3.0` | `AGPL-3.0-only` | Yes | `repo_sdist` | `*(resolved at offline build / see `SOURCE_MANIFEST.json`)*` |
 | `lbt-rune-viewer` | `0.1.0` | `GPL-3.0-or-later AND MIT AND OFL-1.1` | Yes | `in_repo_workspace` | `*(resolved at offline build / see `SOURCE_MANIFEST.json`)*` |
 | `gmsh` | `4.15.2` | `GPL-2.0-or-later` | Yes | `gmsh-4.15.2-source.tgz` | `be3f66f225d27ba9fa014f07e83169285da8a051b0e8ab7103d88066b39bdd3e` |
 | `geos` | `3.14.1` | `LGPL-2.1-only` | Yes | `geos-3.14.1.tar.bz2` | `3c20919cda9a505db07b5216baa980bacdaa0702da715b43f176fb07eff7e716` |
