@@ -53,6 +53,7 @@ from garden.urbanopt_cli import (
     run_urbanopt_energy_with_cli_bundle,
 )
 from ladybug_tools_mcp.contracts import make_artifact_receipt, make_report
+from ladybug_tools_mcp.runtime_home import safe_ascii_temp_dir
 
 URBANOPT_ARTIFACT_DOMAIN = "urbanopt"
 URBANOPT_PROJECT_FOLDER_ARTIFACT_TYPE = "urbanopt_project_folder"
@@ -349,9 +350,7 @@ def _worker_environment(garden_root: Path, run_dir: Path) -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
-    temp_dir = (garden_root / "tmp" / run_dir.name).resolve()
-    temp_dir.relative_to(garden_root)
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = safe_ascii_temp_dir(garden_root, run_dir.name)
     env["TEMP"] = str(temp_dir)
     env["TMP"] = str(temp_dir)
     return env
@@ -811,6 +810,111 @@ def _extract_building_sql_summary(
     return summary
 
 
+_MAX_URBANOPT_CSV_PREVIEW_ROWS = 24
+_MAX_URBANOPT_REPORT_JSON_BYTES = 64 * 1024
+_MAX_URBANOPT_RAW_LOAD_BYTES = 50 * 1024 * 1024
+_MAX_URBANOPT_COMPACT_LIST_ITEMS = 12
+_MAX_URBANOPT_COMPACT_DICT_KEYS = 48
+_URBANOPT_LARGE_SEQUENCE_KEYS = {
+    "hourly",
+    "timeseries",
+    "timesteps",
+    "power_distribution",
+    "power_distribution_results",
+    "feature_reports",
+    "features",
+    "data",
+}
+
+
+def _compact_urbanopt_value(
+    value: Any,
+    *,
+    key_hint: str = "",
+    depth: int = 0,
+) -> tuple[Any, bool]:
+    if value is None or isinstance(value, (bool, int, float)):
+        return value, False
+    if isinstance(value, str):
+        if len(value) > 2048:
+            return f"{value[:512]}... [truncated {len(value)} chars]", True
+        return value, False
+    if isinstance(value, list):
+        limit = 3 if key_hint.lower() in _URBANOPT_LARGE_SEQUENCE_KEYS else _MAX_URBANOPT_COMPACT_LIST_ITEMS
+        if depth >= 4 and len(value) > 3:
+            limit = 3
+        truncated = len(value) > limit
+        items: list[Any] = []
+        for elem in value[:limit]:
+            compacted, child_trunc = _compact_urbanopt_value(elem, depth=depth + 1)
+            truncated = truncated or child_trunc
+            items.append(compacted)
+        return items, truncated
+    if isinstance(value, dict):
+        if depth >= 5:
+            return {"truncated": True, "key_count": len(value)}, True
+        out: dict[str, Any] = {}
+        truncated = len(value) > _MAX_URBANOPT_COMPACT_DICT_KEYS
+        for idx, (raw_k, raw_v) in enumerate(value.items()):
+            if idx >= _MAX_URBANOPT_COMPACT_DICT_KEYS:
+                out["_truncated_keys"] = len(value) - _MAX_URBANOPT_COMPACT_DICT_KEYS
+                break
+            k = str(raw_k)
+            compacted, child_trunc = _compact_urbanopt_value(raw_v, key_hint=k, depth=depth + 1)
+            truncated = truncated or child_trunc
+            out[k] = compacted
+            if isinstance(raw_v, list) and child_trunc:
+                out[f"{k}_count"] = len(raw_v)
+        return out, truncated
+    text = str(value)
+    if len(text) > 512:
+        return f"{text[:512]}...", True
+    return text, False
+
+
+def _summarize_urbanopt_report_json(report_json: Path) -> tuple[dict[str, Any] | None, bool]:
+    if not report_json.is_file():
+        return None, False
+    file_size = report_json.stat().st_size
+    if file_size > _MAX_URBANOPT_RAW_LOAD_BYTES:
+        return {
+            "truncated": True,
+            "original_bytes": file_size,
+            "note": "default_scenario_report.json exceeds direct load limit; read file on disk for full data.",
+        }, True
+
+    parsed = json.loads(report_json.read_text(encoding="utf-8"))
+    if not isinstance(parsed, dict):
+        return {"value": parsed}, False
+    if file_size <= _MAX_URBANOPT_REPORT_JSON_BYTES:
+        return parsed, False
+
+    compacted, truncated = _compact_urbanopt_value(parsed)
+    assert isinstance(compacted, dict)
+    serialized = json.dumps(compacted, ensure_ascii=False).encode("utf-8")
+    if len(serialized) > _MAX_URBANOPT_REPORT_JSON_BYTES:
+        sr = compacted.get("scenario_report")
+        slim: dict[str, Any] = {"truncated": True, "original_bytes": file_size}
+        if isinstance(sr, dict):
+            slim_sr: dict[str, Any] = {}
+            for k, v in sr.items():
+                if isinstance(v, (str, int, float, bool)) or v is None:
+                    slim_sr[k] = v
+            if isinstance(sr.get("reporting_periods"), list):
+                kept_periods = [
+                    {pk: pv for pk, pv in period.items() if isinstance(pv, (str, int, float, bool)) or pv is None}
+                    if isinstance(period, dict)
+                    else period
+                    for period in sr["reporting_periods"][:2]
+                ]
+                if len(json.dumps(kept_periods, ensure_ascii=False).encode("utf-8")) <= _MAX_URBANOPT_REPORT_JSON_BYTES // 2:
+                    slim_sr["reporting_periods"] = kept_periods
+            slim["scenario_report"] = slim_sr
+        return slim, True
+    compacted["truncated"] = truncated
+    return compacted, truncated
+
+
 def read_urbanopt_results(
     *,
     garden_root: str,
@@ -870,14 +974,20 @@ def read_urbanopt_results(
                 "URBANopt CLI unavailable; read existing default_scenario_report files on disk."
             )
 
-    scenario_report_data: dict[str, Any] | None = None
-    if report_json.is_file():
-        scenario_report_data = json.loads(report_json.read_text(encoding="utf-8"))
+    scenario_report_data, scenario_report_truncated = _summarize_urbanopt_report_json(report_json)
 
     csv_rows: list[dict[str, Any]] = []
+    csv_columns: list[str] = []
+    csv_row_count = 0
     if report_csv.is_file():
         with report_csv.open("r", encoding="utf-8", newline="") as handle:
-            csv_rows = list(csv.DictReader(handle))
+            reader = csv.DictReader(handle)
+            csv_columns = list(reader.fieldnames or [])
+            for row in reader:
+                csv_row_count += 1
+                if len(csv_rows) < _MAX_URBANOPT_CSV_PREVIEW_ROWS:
+                    csv_rows.append(row)
+    csv_rows_truncated = csv_row_count > len(csv_rows)
 
     buildings_summary: list[dict[str, Any]] = []
     if include_building_sql_summary and scenario_dir.is_dir():
@@ -904,7 +1014,7 @@ def read_urbanopt_results(
     total_energy = sum(float(b.get("total_energy_kwh") or 0.0) for b in buildings_summary)
     district_eui = round(total_energy / total_area, 3) if total_area > 0 else None
 
-    if scenario_report_data is None and not csv_rows and not buildings_summary:
+    if scenario_report_data is None and not csv_row_count and not buildings_summary:
         raise ValueError(
             "No URBANopt scenario reports or building SQL results were found under "
             f"{to_posix_relative(scenario_dir, garden_root_path)}."
@@ -915,33 +1025,41 @@ def read_urbanopt_results(
         if isinstance(scenario_report_data, dict)
         else None
     )
+    report_json_rel = to_posix_relative(report_json, garden_root_path) if report_json.is_file() else None
+    report_csv_rel = to_posix_relative(report_csv, garden_root_path) if report_csv.is_file() else None
     summary_view = {
         "garden_target": manifest.target(),
         "feature_geojson_target": feature_geojson_target,
         "scenario_csv_target": scenario_csv_target,
-        "report_json_path": (
-            to_posix_relative(report_json, garden_root_path) if report_json.is_file() else None
-        ),
-        "report_csv_path": (
-            to_posix_relative(report_csv, garden_root_path) if report_csv.is_file() else None
-        ),
+        "report_json_path": report_json_rel,
+        "report_csv_path": report_csv_rel,
         "scenario_report": scenario_info or scenario_report_data,
-        "csv_row_count": len(csv_rows),
+        "scenario_report_truncated": scenario_report_truncated,
+        "csv_columns": csv_columns,
+        "csv_row_count": csv_row_count,
+        "csv_rows_truncated": csv_rows_truncated,
         "building_count": len(buildings_summary),
         "total_floor_area_m2": round(total_area, 3) if buildings_summary else None,
         "total_energy_kwh": round(total_energy, 3) if buildings_summary else None,
         "district_eui_kwh_m2": district_eui,
     }
     return {
+        "report_json_path": report_json_rel,
+        "report_csv_path": report_csv_rel,
         "scenario_report": scenario_report_data,
+        "scenario_info": scenario_info,
+        "scenario_report_truncated": scenario_report_truncated,
+        "csv_columns": csv_columns,
+        "csv_row_count": csv_row_count,
         "csv_rows": csv_rows,
+        "csv_rows_truncated": csv_rows_truncated,
         "buildings": buildings_summary,
         "summary_view": summary_view,
         "report": make_report(
             status="warning" if warnings else "ok",
             message=(
                 f"Read URBANopt results ({len(buildings_summary)} building SQL summary(s), "
-                f"{len(csv_rows)} CSV row(s))."
+                f"{csv_row_count} CSV row(s))."
             ),
             warnings=warnings,
         ),

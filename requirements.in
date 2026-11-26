@@ -26,5 +26,7 @@ libraryfemtherm==0.24.0
 gmsh==4.15.2
 # Required by bundled honeybee-gbas
 shapely==2.2.0
+# Required by queenbee-local (distutils shim on Python 3.12)
+setuptools==84.2.1
 # 0.29.1 aligns with updated dragonfly/honeybee releases.
 lbt-recipes==0.29.1

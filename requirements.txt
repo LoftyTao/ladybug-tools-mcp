@@ -393,6 +393,8 @@ rpds-py==2026.6.3
     #   referencing
 secretstorage==3.5.0 ; sys_platform == 'linux'
     # via keyring
+setuptools==84.2.1
+    # via -r requirements.in
 shapely==2.2.0
     # via -r requirements.in
 six==1.17.0

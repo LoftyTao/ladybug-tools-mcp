@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from typing import Any
+import uuid
 
 from honeybee_energy.config import folders as energy_folders
 from honeybee_energy.measure import Measure
@@ -17,6 +18,7 @@ from ladybug.ddy import DDY
 from ladybug.epw import EPW
 
 from ladybug_tools_mcp.contracts import make_report
+from ladybug_tools_mcp.runtime_home import safe_ascii_temp_dir as _safe_ascii_temp_dir
 from garden.background import capture_recipe_stdio, submit_worker_process
 from garden.manifest import GardenManifest, utc_now_iso
 from garden.paths import (
@@ -123,9 +125,7 @@ def _submit_energy_background(**kwargs: Any) -> subprocess.Popen:
     env["PYTHONUTF8"] = "1"
     env["PATH"] = _recipe_cli_path(env.get("PATH"))
     _ensure_windows_install_env(env)
-    temp_dir = (garden_root / "tmp" / run_dir.name).resolve()
-    temp_dir.relative_to(garden_root)
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = _safe_ascii_temp_dir(garden_root, run_dir.name)
     env["TEMP"] = str(temp_dir)
     env["TMP"] = str(temp_dir)
     return submit_worker_process(
@@ -1543,6 +1543,107 @@ def _recipe_outputs(
     return outputs
 
 
+def _garden_root_for_run_dir(run_dir: Path) -> Path:
+    if run_dir.parent.name == "energy" and run_dir.parent.parent.name == "runs":
+        return run_dir.parent.parent.parent
+    for parent in run_dir.parents:
+        if (parent / "garden.json").is_file():
+            return parent
+    return run_dir.parent
+
+
+def _ascii_staged_filename(src: Path, fallback_stem: str, default_suffix: str = "") -> str:
+    if src.name.isascii():
+        return src.name
+    suffix = src.suffix if src.suffix.isascii() else default_suffix
+    return f"{fallback_stem}{suffix}"
+
+
+def _stage_ascii_energy_inputs(
+    *,
+    ascii_temp_dir: Path,
+    model_path: Path,
+    epw_path: str,
+    sim_par_path: str | None,
+    additional_idf_file: Path | None,
+    measures_folder: Path | None,
+    measures_spec_path: Path | None,
+    raw_specs: list[Any] | None,
+) -> tuple[Path, Path, Path, str, str | None, Path | None, Path | None, Path | None]:
+    stage_root = ascii_temp_dir / f"stage_{uuid.uuid4().hex[:8]}"
+    stage_inputs = stage_root / "inputs"
+    stage_inputs.mkdir(parents=True, exist_ok=True)
+    staged_recipe_dir = stage_root / "openstudio"
+    staged_recipe_dir.mkdir(parents=True, exist_ok=True)
+
+    staged_model = stage_inputs / _ascii_staged_filename(model_path, "model")
+    shutil.copy2(model_path, staged_model)
+
+    epw_src = Path(epw_path)
+    epw_stem = epw_src.stem if epw_src.stem.isascii() else "weather"
+    epw_suffix = epw_src.suffix if epw_src.suffix.isascii() else ".epw"
+    staged_epw = stage_inputs / f"{epw_stem}{epw_suffix}"
+    shutil.copy2(epw_src, staged_epw)
+    for sibling_ext in (".ddy", ".stat"):
+        sibling_src = epw_src.with_suffix(sibling_ext)
+        if sibling_src.is_file():
+            shutil.copy2(sibling_src, stage_inputs / f"{epw_stem}{sibling_ext}")
+
+    staged_sim_par: str | None = None
+    if sim_par_path is not None:
+        sp_src = Path(sim_par_path)
+        sp_dest = stage_inputs / _ascii_staged_filename(sp_src, "sim_par", ".json")
+        shutil.copy2(sp_src, sp_dest)
+        staged_sim_par = str(sp_dest)
+
+    staged_additional_idf: Path | None = None
+    if additional_idf_file is not None:
+        staged_additional_idf = stage_inputs / _ascii_staged_filename(additional_idf_file, "additional", ".idf")
+        shutil.copy2(additional_idf_file, staged_additional_idf)
+
+    staged_measures_folder: Path | None = None
+    if measures_folder is not None:
+        staged_measures_folder = stage_inputs / "measures"
+        shutil.copytree(measures_folder, staged_measures_folder, dirs_exist_ok=True)
+
+    staged_measures_spec: Path | None = None
+    if measures_spec_path is not None:
+        staged_measures_spec = stage_inputs / "measures_spec.json"
+        if raw_specs is not None:
+            updated_specs: list[Any] = []
+            spec_measures_root = stage_inputs / "spec_measures"
+            for idx, spec in enumerate(raw_specs):
+                if not isinstance(spec, dict):
+                    updated_specs.append(spec)
+                    continue
+                spec_copy = dict(spec)
+                raw_folder = spec_copy.get("folder")
+                if isinstance(raw_folder, str) and raw_folder.strip():
+                    src_measure = Path(raw_folder)
+                    if src_measure.is_dir():
+                        dest_measure = spec_measures_root / f"measure_{idx}"
+                        shutil.copytree(src_measure, dest_measure, dirs_exist_ok=True)
+                        spec_copy["folder"] = str(dest_measure)
+                updated_specs.append(spec_copy)
+            staged_measures_spec.write_text(
+                json.dumps(updated_specs, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        else:
+            shutil.copy2(measures_spec_path, staged_measures_spec)
+
+    return (
+        stage_root,
+        staged_recipe_dir,
+        staged_model,
+        str(staged_epw),
+        staged_sim_par,
+        staged_additional_idf,
+        staged_measures_folder,
+        staged_measures_spec,
+    )
+
+
 def _run_honeybee_energy_cli(
     *,
     model_path: Path,
@@ -1558,72 +1659,134 @@ def _run_honeybee_energy_cli(
 ) -> tuple[int, int]:
     recipe_dir = run_dir / "openstudio"
     recipe_dir.mkdir(parents=True, exist_ok=True)
-    command = [
-        sys.executable,
-        "-m",
-        "garden.run_energy.simulate_runner",
-        str(model_path),
-        epw_path,
-        "--report-units",
-        units,
-        "--folder",
-        str(recipe_dir),
-    ]
-    if sim_par_path is not None:
-        command.extend(["--sim-par-json", sim_par_path])
-    if measures_folder is not None:
-        command.extend(["--measures", str(measures_folder)])
-    if measures_spec_path is not None:
-        command.extend(["--measures-spec-json", str(measures_spec_path)])
-    if measures_only:
-        command.append("--measures-only")
-    if additional_idf_file is not None:
-        command.extend(["--additional-idf", str(additional_idf_file)])
-    if silent:
-        command.append("--log-file")
-        command.append("-")
+    ascii_temp_dir = _safe_ascii_temp_dir(_garden_root_for_run_dir(run_dir), run_dir.name)
+
+    path_checks: list[str] = [str(model_path), str(epw_path), str(recipe_dir)]
+    for optional_path in (sim_par_path, additional_idf_file, measures_folder, measures_spec_path):
+        if optional_path is not None:
+            path_checks.append(str(optional_path))
+    raw_specs: list[Any] | None = None
+    if measures_spec_path is not None and measures_spec_path.is_file():
+        try:
+            parsed_specs = json.loads(measures_spec_path.read_text(encoding="utf-8"))
+            if isinstance(parsed_specs, list):
+                raw_specs = parsed_specs
+                for spec in parsed_specs:
+                    if isinstance(spec, dict) and isinstance(spec.get("folder"), str):
+                        path_checks.append(spec["folder"])
+        except (OSError, json.JSONDecodeError):
+            raw_specs = None
+
+    needs_ascii_stage = os.name == "nt" and any(not p.isascii() for p in path_checks)
+    stage_root: Path | None = None
+    exec_cwd = run_dir
+    exec_recipe_dir = recipe_dir
+    exec_model = model_path
+    exec_epw = epw_path
+    exec_sim_par = sim_par_path
+    exec_additional_idf = additional_idf_file
+    exec_measures_folder = measures_folder
+    exec_measures_spec = measures_spec_path
 
     with _recipe_cli_environment(), _capture_recipe_stdio(run_dir):
-        env = os.environ.copy()
-        extra_paths: list[str] = []
-        ib_dir = resolve_ironbug_dir()
-        os_cs_dir = resolve_openstudio_csharp_dir(ib_dir)
-        if os_cs_dir:
-            extra_paths.append(str(os_cs_dir))
-        if ib_dir:
-            extra_paths.append(str(ib_dir))
-        base_path = _recipe_cli_path(env.get("PATH"))
-        env["PATH"] = os.pathsep.join([*extra_paths, base_path]) if extra_paths else base_path
-        _ensure_windows_install_env(env)
-        simulate = subprocess.run(
-            command,
-            cwd=str(run_dir),
-            env=env,
-            check=False,
-        )
-        if measures_only:
-            return int(simulate.returncode), 0
-        eui_status = 1
-        sql_path = recipe_dir / "run" / "eplusout.sql"
-        if sql_path.is_file():
-            eui_path = recipe_dir / "eui.json"
-            eui_command = [
-                _console_executable("honeybee-energy"),
-                "result",
-                "energy-use-intensity",
-                str(recipe_dir / "run"),
-                f"--{units}",
-                "--output-file",
-                str(eui_path),
+        try:
+            if needs_ascii_stage:
+                (
+                    stage_root,
+                    exec_recipe_dir,
+                    exec_model,
+                    exec_epw,
+                    exec_sim_par,
+                    exec_additional_idf,
+                    exec_measures_folder,
+                    exec_measures_spec,
+                ) = _stage_ascii_energy_inputs(
+                    ascii_temp_dir=ascii_temp_dir,
+                    model_path=model_path,
+                    epw_path=epw_path,
+                    sim_par_path=sim_par_path,
+                    additional_idf_file=additional_idf_file,
+                    measures_folder=measures_folder,
+                    measures_spec_path=measures_spec_path,
+                    raw_specs=raw_specs,
+                )
+                exec_cwd = stage_root
+
+            command = [
+                sys.executable,
+                "-m",
+                "garden.run_energy.simulate_runner",
+                str(exec_model),
+                exec_epw,
+                "--report-units",
+                units,
+                "--folder",
+                str(exec_recipe_dir),
             ]
-            eui = subprocess.run(
-                eui_command,
-                cwd=str(run_dir),
+            if exec_sim_par is not None:
+                command.extend(["--sim-par-json", exec_sim_par])
+            if exec_measures_folder is not None:
+                command.extend(["--measures", str(exec_measures_folder)])
+            if exec_measures_spec is not None:
+                command.extend(["--measures-spec-json", str(exec_measures_spec)])
+            if measures_only:
+                command.append("--measures-only")
+            if exec_additional_idf is not None:
+                command.extend(["--additional-idf", str(exec_additional_idf)])
+            if silent:
+                command.append("--log-file")
+                command.append("-")
+
+            env = os.environ.copy()
+            extra_paths: list[str] = []
+            ib_dir = resolve_ironbug_dir()
+            os_cs_dir = resolve_openstudio_csharp_dir(ib_dir)
+            if os_cs_dir:
+                extra_paths.append(str(os_cs_dir))
+            if ib_dir:
+                extra_paths.append(str(ib_dir))
+            base_path = _recipe_cli_path(env.get("PATH"))
+            env["PATH"] = os.pathsep.join([*extra_paths, base_path]) if extra_paths else base_path
+            _ensure_windows_install_env(env)
+            env["TEMP"] = str(ascii_temp_dir)
+            env["TMP"] = str(ascii_temp_dir)
+
+            simulate = subprocess.run(
+                command,
+                cwd=str(exec_cwd),
                 env=env,
                 check=False,
             )
-            eui_status = int(eui.returncode)
-        return int(simulate.returncode), eui_status
+            if measures_only:
+                return int(simulate.returncode), 0
+            eui_status = 1
+            sql_path = exec_recipe_dir / "run" / "eplusout.sql"
+            if sql_path.is_file():
+                eui_path = exec_recipe_dir / "eui.json"
+                eui_command = [
+                    _console_executable("honeybee-energy"),
+                    "result",
+                    "energy-use-intensity",
+                    str(exec_recipe_dir / "run"),
+                    f"--{units}",
+                    "--output-file",
+                    str(eui_path),
+                ]
+                eui = subprocess.run(
+                    eui_command,
+                    cwd=str(exec_cwd),
+                    env=env,
+                    check=False,
+                )
+                eui_status = int(eui.returncode)
+            return int(simulate.returncode), eui_status
+        finally:
+            if stage_root is not None:
+                try:
+                    if exec_recipe_dir.is_dir():
+                        shutil.copytree(exec_recipe_dir, recipe_dir, dirs_exist_ok=True)
+                finally:
+                    shutil.rmtree(stage_root, ignore_errors=True)
 
 
 def _missing_outputs() -> list[dict[str, Any]]:

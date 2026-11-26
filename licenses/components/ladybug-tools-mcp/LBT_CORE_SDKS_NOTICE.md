@@ -52,6 +52,7 @@
 | `python-daemon` | `3.1.2` | `Apache-2.0 OR GPL-3.0-or-later` |
 | `queenbee` | `2.0.1` | `MIT` |
 | `queenbee-local` | `1.0.3` | `AGPL-3.0` |
+| `setuptools` | `84.2.1` | `MIT` |
 | `shapely` | `2.2.0` | `BSD-3-Clause` |
 | `uwg` | `5.8.13` | `GPL-3.0` |
 | `vtk` | `9.7.0` | `BSD` |

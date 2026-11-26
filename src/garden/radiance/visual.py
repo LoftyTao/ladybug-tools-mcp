@@ -215,11 +215,6 @@ def _save_image_artifact(
     }
 
 
-def _run_radiance_command(command: Any, *, cwd: str | None = None) -> int:
-    apply_ladybug_tools_runtime_to_path()
-    return int(command.run(cwd=cwd))
-
-
 def _option_update(options: Any, additional_options: str | None) -> None:
     if additional_options:
         options.update_from_string(additional_options)
@@ -410,10 +405,13 @@ def radiance_hdr_to_falsecolor(
     if palette is not None:
         options.pal = palette
     _option_update(options, additional_options)
-    command = Falsecolor(options=options, output=str(output_path), input=str(input_path))
-    rc = _run_radiance_command(command, cwd=str(garden_root_path))
-    if rc != 0:
-        raise ValueError(f"falsecolor command failed with exit code {rc}.")
+    command = Falsecolor(
+        options=options,
+        output=_relative_cmd_arg(output_path, garden_root_path, quote_spaces=False),
+        input=_relative_cmd_arg(input_path, garden_root_path),
+    )
+    cmd_str = command.to_radiance()
+    _run_radiance_shell(cmd_str, cwd=garden_root_path, tool_name="falsecolor")
     if not output_path.is_file():
         raise ValueError("falsecolor command completed without writing an output file.")
     output_size = output_path.stat().st_size
@@ -432,7 +430,7 @@ def radiance_hdr_to_falsecolor(
         "operation": "falsecolor",
         "input_path": to_posix_relative(input_path, garden_root_path),
         "run_id": record.get("run_id") if record else None,
-        "command": command.to_radiance(),
+        "command": cmd_str,
     }
     saved = _save_image_artifact(
         garden_root=garden_root_path,
@@ -506,10 +504,13 @@ def radiance_hdr_to_gif(
     if sampling_factor is not None:
         options.n = sampling_factor
     _option_update(options, additional_options)
-    command = Ra_GIF(options=options, output=str(output_path), input=str(input_path))
-    rc = _run_radiance_command(command, cwd=str(garden_root_path))
-    if rc != 0:
-        raise ValueError(f"ra_gif command failed with exit code {rc}.")
+    command = Ra_GIF(
+        options=options,
+        output=_relative_cmd_arg(output_path, garden_root_path, quote_spaces=False),
+        input=_relative_cmd_arg(input_path, garden_root_path),
+    )
+    cmd_str = command.to_radiance()
+    _run_radiance_shell(cmd_str, cwd=garden_root_path, tool_name="ra_gif")
     if not output_path.is_file():
         raise ValueError("ra_gif command completed without writing an output file.")
 
@@ -518,7 +519,7 @@ def radiance_hdr_to_gif(
         "operation": "gif",
         "input_path": to_posix_relative(input_path, garden_root_path),
         "run_id": record.get("run_id") if record else None,
-        "command": command.to_radiance(),
+        "command": cmd_str,
     }
     saved = _save_image_artifact(
         garden_root=garden_root_path,
@@ -824,7 +825,22 @@ def radiance_grid_result_to_visualization_set(
 
 def _subprocess_env() -> dict[str, str]:
     apply_ladybug_tools_runtime_to_path()
-    return {**os.environ, **rad_folders.env}
+    env = dict(os.environ)
+    for key, value in (rad_folders.env or {}).items():
+        if key.upper() == "PATH":
+            existing = [p for p in env.get("PATH", "").split(os.pathsep) if p]
+            extra = [p for p in str(value).split(os.pathsep) if p]
+            merged: list[str] = []
+            seen: set[str] = set()
+            for entry in [*extra, *existing]:
+                norm = os.path.normcase(os.path.normpath(entry))
+                if norm not in seen:
+                    seen.add(norm)
+                    merged.append(entry)
+            env["PATH"] = os.pathsep.join(merged)
+        else:
+            env[key] = value
+    return env
 
 
 def _relative_cmd_arg(path: Path, cwd: Path, *, quote_spaces: bool = True) -> str:
@@ -840,10 +856,18 @@ def _run_radiance_shell(
     cwd: Path,
     tool_name: str,
 ) -> subprocess.CompletedProcess[str]:
+    env = _subprocess_env()
+    temp_val = env.get("TEMP") or env.get("TMP") or ""
+    if not temp_val or not temp_val.isascii():
+        from ladybug_tools_mcp.runtime_home import safe_ascii_temp_dir
+
+        ascii_temp = str(safe_ascii_temp_dir(cwd, f"rad_{tool_name}"))
+        env["TEMP"] = ascii_temp
+        env["TMP"] = ascii_temp
     proc = subprocess.run(
         cmd,
         cwd=str(cwd),
-        env=_subprocess_env(),
+        env=env,
         shell=True,
         capture_output=True,
         text=True,

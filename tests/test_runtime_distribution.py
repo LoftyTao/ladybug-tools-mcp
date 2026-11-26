@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
+from typing import Any
 from unittest import mock
 from zipfile import ZIP_LZMA, ZipFile
 
@@ -386,10 +387,36 @@ def test_lbtpack_install_security_and_remove(tmp_path: Path) -> None:
     with pytest.raises(FileExistsError):
         install_pack(good_pack, home=home, site_packages=sp_dir)
 
+    # Re-install with --force cleanly replaces changed files and prunes stale pack files.
+    updated_pack = _build_lbtpack(
+        tmp_path / "urbanopt-v2.lbtpack",
+        {
+            "runtimes/urbanopt-cli-1.4.0/gems/Gemfile": b"source 'https://rubygems.org' # v2\n",
+            "runtimes/urbanopt-cli-1.4.0/ruby/bin/ruby.exe": b"ruby",
+            "runtimes/openstudio/3.11.0/Ruby/openstudio.rb": b"# os ruby v2\n",
+            "runtimes/urbanopt-cli-1.4.0/new_dir/marker.txt": b"new\n",
+        },
+        runtime_updates={"urbanopt_cli_path": "runtimes/urbanopt-cli-1.4.0"},
+    )
+    stale_pack = _build_lbtpack(
+        tmp_path / "urbanopt-stale.lbtpack",
+        {
+            "runtimes/urbanopt-cli-1.4.0/gems/Gemfile": b"source 'https://rubygems.org'\n",
+            "runtimes/urbanopt-cli-1.4.0/stale_dir/old.txt": b"old\n",
+        },
+        runtime_updates={"urbanopt_cli_path": "runtimes/urbanopt-cli-1.4.0"},
+    )
+    install_pack(stale_pack, home=home, site_packages=sp_dir, force=True)
+    assert (home / "runtimes" / "urbanopt-cli-1.4.0" / "stale_dir" / "old.txt").is_file()
+    up_res = install_pack(updated_pack, home=home, site_packages=sp_dir, force=True)
+    assert up_res["file_count"] == 4
+    assert not (home / "runtimes" / "urbanopt-cli-1.4.0" / "stale_dir").exists()
+    assert (home / "runtimes" / "urbanopt-cli-1.4.0" / "new_dir" / "marker.txt").is_file()
+
     # Remove deletes ONLY pack files and empty parent dirs, leaving core OpenStudio files intact.
     rm_res = remove_pack("urbanopt", home=home, site_packages=sp_dir)
     assert rm_res["status"] == "removed"
-    assert rm_res["removed_count"] == 3
+    assert rm_res["removed_count"] == 4
     assert not (home / "runtimes" / "urbanopt-cli-1.4.0").exists()
     assert not (home / "runtimes" / "openstudio" / "3.11.0" / "Ruby").exists()
     assert keep_marker.is_file()
@@ -895,3 +922,555 @@ def test_rust_launcher_spawns_isolated_cli_with_zero_stdout_noise(tmp_path: Path
     assert payload2["state"] == str((home2 / "config" / "installation.json").resolve())
     relocated_cfg = (venv_dir2 / "pyvenv.cfg").read_text(encoding="utf-8")
     assert f"home = {py_home2}" in relocated_cfg
+
+
+def test_probe_command_does_not_hang_on_open_piped_stdin() -> None:
+    src_root = str(_REPO_ROOT / "src")
+    outer_code = (
+        f"import json, sys; sys.path.insert(0, {src_root!r}); "
+        "from ladybug_tools_mcp.runtime_home import _probe_command; "
+        "res = _probe_command([sys.executable, '-c', \"import sys; print('EOF:' + str(len(sys.stdin.read())))\"], timeout=5.0); "
+        "print(json.dumps(res), flush=True)"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", outer_code],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+    )
+    try:
+        assert proc.stdout is not None
+        line = proc.stdout.readline()
+        proc.wait(timeout=5.0)
+        assert proc.returncode == 0, proc.stderr.read() if proc.stderr else ""
+        payload = json.loads(line)
+        assert payload["ok"] is True
+        assert payload["output"] == "EOF:0"
+    finally:
+        if proc.stdin:
+            proc.stdin.close()
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def test_ironbug_bridge_health_does_not_hang_on_open_piped_stdin() -> None:
+    try:
+        paths = resolve_runtime_paths(require_openstudio=False)
+    except Exception as exc:
+        pytest.skip(f"Ironbug runtime not available in test environment: {exc}")
+    env = IronbugBridgeClient(paths)._build_env()
+    if paths.is_self_contained and paths.bridge_exe is not None:
+        cmd = [str(paths.bridge_exe), "--ironbug-dir", str(paths.ironbug_dir), "--command", "health"]
+    else:
+        assert paths.dotnet_exe is not None
+        cmd = [
+            paths.dotnet_exe,
+            "--roll-forward",
+            "Major",
+            str(paths.bridge_dll),
+            "--ironbug-dir",
+            str(paths.ironbug_dir),
+            "--command",
+            "health",
+        ]
+    if paths.openstudio_csharp_dir:
+        cmd.extend(["--openstudio-csharp-dir", str(paths.openstudio_csharp_dir)])
+
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        text=True,
+        encoding="utf-8",
+    )
+    import threading
+
+    killer = threading.Timer(15.0, proc.kill)
+    killer.start()
+    try:
+        assert proc.stdout is not None
+        line = proc.stdout.readline()
+        proc.wait(timeout=10.0)
+        assert proc.returncode == 0, proc.stderr.read() if proc.stderr else ""
+        payload = json.loads(line)
+        assert payload["ok"] is True
+        assert payload["result"]["ok"] is True
+    finally:
+        killer.cancel()
+        if proc.stdin:
+            proc.stdin.close()
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def test_setuptools_distutils_shim_and_requirements_pins() -> None:
+    import distutils.dir_util  # type: ignore[import-not-found]
+    import queenbee_local.helper  # noqa: F401
+    import setuptools
+
+    assert callable(distutils.dir_util.copy_tree)
+    assert setuptools.__version__ == "84.2.1"
+    req_in = (_REPO_ROOT / "requirements.in").read_text(encoding="utf-8")
+    req_txt = (_REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert "setuptools==84.2.1" in req_in
+    assert "setuptools==84.2.1" in req_txt
+
+
+def test_simulate_runner_writer_proxy_without_backport_and_decode_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    from honeybee_openstudio import writer as hb_writer
+    from garden.run_energy import simulate_runner
+
+    orig_sub = hb_writer.subprocess
+    try:
+        monkeypatch.setattr(simulate_runner, "_resolve_backport_target", lambda: None)
+        sim_mod = importlib.import_module("honeybee_energy.cli.simulate")
+
+        monkeypatch.setattr(
+            sim_mod.simulate_model_cli,
+            "main",
+            lambda **kwargs: 0,
+        )
+        assert simulate_runner.main(["dummy.hbjson", "dummy.epw"]) == 0
+        assert isinstance(hb_writer.subprocess, simulate_runner._WriterSubprocessProxy)
+
+        env = os.environ.copy()
+        env["PYTHONUTF8"] = "1"
+        cmd = [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'Done! \\xbe\\xd6 HVAC\\n')"]
+        proc = hb_writer.subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env=env,
+        )
+        out, _err = proc.communicate(timeout=5.0)
+        assert proc.returncode == 0
+        assert "Done!" in out and "HVAC" in out and "\ufffd" in out
+
+        done = hb_writer.subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            encoding="utf-8",
+            env=env,
+            check=True,
+        )
+        assert "Done!" in done.stdout and "\ufffd" in done.stdout
+
+        assert hb_writer.subprocess._with_safe_decode_errors({"text": True}) == {
+            "text": True,
+            "errors": "replace",
+        }
+        assert hb_writer.subprocess._with_safe_decode_errors({"universal_newlines": True}) == {
+            "universal_newlines": True,
+            "errors": "replace",
+        }
+        assert hb_writer.subprocess._with_safe_decode_errors({"text": True, "errors": "strict"}) == {
+            "text": True,
+            "errors": "strict",
+        }
+    finally:
+        hb_writer.subprocess = orig_sub
+
+
+def test_ascii_temp_fallback_and_non_ascii_energy_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib as _hashlib
+
+    from garden import run_urbanopt
+    from garden.radiance import run as radiance_run
+    from garden.run_energy import annual
+
+    # 1. _safe_ascii_temp_dir cascade: ASCII direct -> LADYBUG_TOOLS_MCP_HOME -> tempdir -> SystemDrive
+    ascii_garden = tmp_path / "ascii_garden"
+    ascii_garden.mkdir()
+    if str(ascii_garden).isascii():
+        assert annual._safe_ascii_temp_dir(ascii_garden, "run1") == (ascii_garden / "tmp" / "run1").resolve()
+
+    non_ascii_garden = tmp_path / "中文 验收 Garden"
+    non_ascii_garden.mkdir()
+    digest = _hashlib.sha1(f"{non_ascii_garden.resolve()}\0run_cn".encode()).hexdigest()[:12]
+
+    lbt_home = tmp_path / "lbt_home_ascii"
+    lbt_home.mkdir()
+    if str(lbt_home).isascii():
+        monkeypatch.setenv("LADYBUG_TOOLS_MCP_HOME", str(lbt_home))
+        resolved = annual._safe_ascii_temp_dir(non_ascii_garden, "run_cn")
+        assert resolved == (lbt_home.resolve() / "tmp" / "runs" / digest)
+        assert str(resolved).isascii()
+
+    monkeypatch.setenv("LADYBUG_TOOLS_MCP_HOME", str(tmp_path / "非ASCII Home"))
+    ascii_sys_tmp = tmp_path / "sys_tmp_ascii"
+    ascii_sys_tmp.mkdir()
+    if str(ascii_sys_tmp).isascii():
+        monkeypatch.setattr("ladybug_tools_mcp.runtime_home.tempfile.gettempdir", lambda: str(ascii_sys_tmp))
+        resolved2 = annual._safe_ascii_temp_dir(non_ascii_garden, "run_cn")
+        assert resolved2 == (ascii_sys_tmp.resolve() / "lbt_mcp_runs" / digest)
+        assert str(resolved2).isascii()
+
+    # 2. Verify run_urbanopt, radiance/run, and annual worker env use pure-ASCII TEMP/TMP for Chinese Garden.
+    uo_env = run_urbanopt._worker_environment(non_ascii_garden, non_ascii_garden / "runs" / "urbanopt" / "uo1")
+    assert uo_env["TEMP"].isascii() and uo_env["TMP"].isascii()
+
+    captured_envs: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        annual,
+        "_run_record_by_id",
+        lambda root, run_id: {"run_folder": "runs/energy/e1"},
+    )
+    monkeypatch.setattr(
+        annual,
+        "submit_worker_process",
+        lambda **kwargs: captured_envs.append(kwargs["environment"]) or SimpleNamespace(pid=1),
+    )
+    annual._submit_energy_background(garden_root=str(non_ascii_garden), run_id="e1")
+    assert captured_envs[-1]["TEMP"].isascii() and captured_envs[-1]["TMP"].isascii()
+
+    monkeypatch.setattr(
+        radiance_run,
+        "_run_record_by_id",
+        lambda root, run_id: {"run_folder": "runs/radiance/r1"},
+    )
+    monkeypatch.setattr(
+        radiance_run,
+        "submit_worker_process",
+        lambda **kwargs: captured_envs.append(kwargs["environment"]) or SimpleNamespace(pid=2),
+    )
+    radiance_run._submit_radiance_background(garden_root=str(non_ascii_garden), run_id="r1")
+    assert captured_envs[-1]["TEMP"].isascii() and captured_envs[-1]["TMP"].isascii()
+
+    # 3. Verify _run_honeybee_energy_cli keeps direct execution when paths are ASCII and stages on non-ASCII Windows paths.
+    if str(ascii_garden).isascii():
+        direct_calls: list[tuple[list[str], str]] = []
+        ascii_run = ascii_garden / "runs" / "energy" / "r_ascii"
+        ascii_run.mkdir(parents=True)
+        (ascii_garden / "model.hbjson").write_text("{}", encoding="utf-8")
+        (ascii_garden / "site.epw").write_text("", encoding="utf-8")
+
+        def _fake_direct_run(cmd: list[str], *, cwd: str, env: dict[str, str], check: bool = False) -> SimpleNamespace:
+            direct_calls.append((cmd, cwd))
+            return SimpleNamespace(returncode=0)
+
+        monkeypatch.setattr(annual.subprocess, "run", _fake_direct_run)
+        sim_rc, eui_rc = annual._run_honeybee_energy_cli(
+            model_path=ascii_garden / "model.hbjson",
+            epw_path=str(ascii_garden / "site.epw"),
+            run_dir=ascii_run,
+            sim_par_path=None,
+            additional_idf_file=None,
+            measures_folder=None,
+            measures_spec_path=None,
+            measures_only=True,
+            units="si",
+            silent=True,
+        )
+        assert (sim_rc, eui_rc) == (0, 0)
+        assert direct_calls and direct_calls[0][1] == str(ascii_run)
+        assert str(ascii_run / "openstudio") in direct_calls[0][0]
+
+    # Non-ASCII staging check (exercise Windows behavior directly or via os.name=="nt")
+    monkeypatch.setenv("LADYBUG_TOOLS_MCP_HOME", str(lbt_home if str(lbt_home).isascii() else ascii_sys_tmp))
+    cn_run = non_ascii_garden / "runs" / "energy" / "r_cn"
+    cn_run.mkdir(parents=True)
+    cn_model = non_ascii_garden / "模型.hbjson"
+    cn_model.write_text("{}", encoding="utf-8")
+    cn_epw = non_ascii_garden / "北京.epw"
+    cn_epw.write_text("epw", encoding="utf-8")
+    (non_ascii_garden / "北京.ddy").write_text("ddy", encoding="utf-8")
+    (non_ascii_garden / "北京.stat").write_text("stat", encoding="utf-8")
+    cn_sp = non_ascii_garden / "参数.json"
+    cn_sp.write_text("{}", encoding="utf-8")
+    cn_idf = non_ascii_garden / "附加.idf"
+    cn_idf.write_text("! idf\n", encoding="utf-8")
+    cn_measures = non_ascii_garden / "measures_dir"
+    cn_measures.mkdir()
+    (cn_measures / "base.osw").write_text("{}", encoding="utf-8")
+    cn_spec_measure = non_ascii_garden / "自定义measure"
+    cn_spec_measure.mkdir()
+    (cn_spec_measure / "measure.rb").write_text("# rb\n", encoding="utf-8")
+    cn_spec = non_ascii_garden / "measures_spec.json"
+    cn_spec.write_text(json.dumps([{"folder": str(cn_spec_measure)}]), encoding="utf-8")
+
+    stage_roots_seen: list[Path] = []
+    staged_calls: list[list[str]] = []
+
+    def _fake_staged_run(cmd: list[str], *, cwd: str, env: dict[str, str], check: bool = False) -> SimpleNamespace:
+        staged_calls.append(cmd)
+        assert cwd.isascii()
+        assert env["TEMP"].isascii() and env["TMP"].isascii()
+        assert all(str(part).isascii() for part in cmd), cmd
+        stage_root = Path(cwd)
+        stage_roots_seen.append(stage_root)
+        if "garden.run_energy.simulate_runner" in cmd:
+            folder_idx = cmd.index("--folder") + 1
+            staged_os = Path(cmd[folder_idx])
+            epw_arg = Path(cmd[cmd.index("garden.run_energy.simulate_runner") + 2])
+            assert epw_arg.with_suffix(".ddy").is_file()
+            assert epw_arg.with_suffix(".stat").is_file()
+            spec_idx = cmd.index("--measures-spec-json") + 1
+            spec_data = json.loads(Path(cmd[spec_idx]).read_text(encoding="utf-8"))
+            assert spec_data[0]["folder"].isascii()
+            assert (Path(spec_data[0]["folder"]) / "measure.rb").is_file()
+            (staged_os / "run").mkdir(parents=True, exist_ok=True)
+            (staged_os / "run" / "eplusout.sql").write_bytes(b"sqlite")
+            (staged_os / "out.osw").write_text("{}", encoding="utf-8")
+            (staged_os / "openstudio_results").mkdir(parents=True, exist_ok=True)
+            (staged_os / "openstudio_results" / "report.html").write_text("<html/>", encoding="utf-8")
+        else:
+            out_idx = cmd.index("--output-file") + 1
+            Path(cmd[out_idx]).write_text('{"eui": 12.3}', encoding="utf-8")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(annual.os, "name", "nt")
+    monkeypatch.setattr(annual.subprocess, "run", _fake_staged_run)
+    rc_sim, rc_eui = annual._run_honeybee_energy_cli(
+        model_path=cn_model,
+        epw_path=str(cn_epw),
+        run_dir=cn_run,
+        sim_par_path=str(cn_sp),
+        additional_idf_file=cn_idf,
+        measures_folder=cn_measures,
+        measures_spec_path=cn_spec,
+        measures_only=False,
+        units="si",
+        silent=True,
+    )
+    assert (rc_sim, rc_eui) == (0, 0)
+    assert len(staged_calls) == 2
+    assert (cn_run / "openstudio" / "run" / "eplusout.sql").is_file()
+    assert (cn_run / "openstudio" / "out.osw").is_file()
+    assert (cn_run / "openstudio" / "openstudio_results" / "report.html").is_file()
+    assert (cn_run / "openstudio" / "eui.json").is_file()
+    assert stage_roots_seen and not stage_roots_seen[0].exists()
+
+
+def test_read_urbanopt_results_bounded_under_code_mode_monty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    from fastmcp import Client
+
+    from garden import run_urbanopt as ruo
+    from garden.dragonfly_des.export import (
+        DES_ARTIFACT_DOMAIN,
+        DES_FEATURE_GEOJSON_ARTIFACT_TYPE,
+        DES_SCENARIO_CSV_ARTIFACT_TYPE,
+    )
+    from garden.store import create_garden
+    from ladybug_tools_mcp.server import create_mcp
+
+    monkeypatch.delenv("LBT_MCP_SANDBOX_MAX_MEMORY", raising=False)
+    monkeypatch.delenv("LBT_MCP_SANDBOX_MAX_DURATION_SECS", raising=False)
+
+    created = create_garden(name="uo-monty-garden", root_dir=str(tmp_path / "garden"))
+    garden_root = Path(created["garden_root"])
+    garden_id = json.loads((garden_root / "garden.json").read_text(encoding="utf-8"))["garden_id"]
+
+    proj_dir = garden_root / "exports" / "uo_proj"
+    proj_dir.mkdir(parents=True)
+    geojson_path = proj_dir / "model.geojson"
+    geojson_path.write_text('{"type": "FeatureCollection", "features": []}\n', encoding="utf-8")
+    scenario_csv_path = proj_dir / "baseline_scenario.csv"
+    scenario_csv_path.write_text("Feature Id,Feature Name\nbldg_1,bldg_1\n", encoding="utf-8")
+
+    geojson_target = {
+        "target_type": "artifact",
+        "domain": DES_ARTIFACT_DOMAIN,
+        "garden_id": garden_id,
+        "artifact_type": DES_FEATURE_GEOJSON_ARTIFACT_TYPE,
+        "path": "exports/uo_proj/model.geojson",
+    }
+    scenario_target = {
+        "target_type": "artifact",
+        "domain": DES_ARTIFACT_DOMAIN,
+        "garden_id": garden_id,
+        "artifact_type": DES_SCENARIO_CSV_ARTIFACT_TYPE,
+        "path": "exports/uo_proj/baseline_scenario.csv",
+    }
+
+    run_dir = proj_dir / "run" / "baseline_scenario"
+    b_dir = run_dir / "bldg_1"
+    b_dir.mkdir(parents=True)
+    (b_dir / "eplusout.sql").write_bytes(b"sqlite")
+
+    class _DummySQL:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
+        def tabular_data_by_name(self, name: str) -> dict[str, Any]:
+            return {"Total End Uses": [42.5]} if "Demand End Use" in name else {}
+
+    monkeypatch.setattr(
+        ruo,
+        "eui_from_sql",
+        lambda sql, absolute=False: {
+            "eui": 115.0,
+            "total_floor_area": 1000.0,
+            "conditioned_floor_area": 1000.0,
+            "total_energy": 115000.0,
+            "end_uses": {"Cooling": 45.0, "Heating": 30.0},
+        },
+    )
+    monkeypatch.setattr(ruo, "SQLiteResult", _DummySQL)
+
+    # 1. Small report (<= 24 CSV rows and <= 64 KB JSON) preserves verbatim structures.
+    small_json = run_dir / "default_scenario_report.json"
+    small_csv = run_dir / "default_scenario_report.csv"
+    small_payload = {"scenario_report": {"total_energy_kwh": 115000.0, "eui_kwh_m2": 115.0}}
+    small_json.write_text(json.dumps(small_payload), encoding="utf-8")
+    small_csv.write_text("Datetime,Electricity:Facility(kWh)\n2017/01/01 01:00:00,12.5\n", encoding="utf-8")
+
+    small_res = ruo.read_urbanopt_results(
+        garden_root=str(garden_root),
+        feature_geojson_target=geojson_target,
+        scenario_csv_target=scenario_target,
+        run_default_report=False,
+        include_building_sql_summary=True,
+    )
+    assert small_res["scenario_report_truncated"] is False
+    assert small_res["csv_rows_truncated"] is False
+    assert small_res["csv_row_count"] == 1
+    assert small_res["scenario_report"] == small_payload
+
+    # 2. Large real-sized 8,760-row CSV (40 cols) + >64 KB JSON executes safely under Monty 100 MB Code Mode limit.
+    cols = ["Datetime"] + [f"Col_{idx}(kWh)" for idx in range(39)]
+    csv_lines = [",".join(cols)]
+    row_tail = ",".join(["12.3456"] * 39)
+    for hour in range(8760):
+        csv_lines.append(f"2017-01-01T{hour:04d},{row_tail}")
+    small_csv.write_text("\n".join(csv_lines) + "\n", encoding="utf-8")
+
+    large_report = {
+        "scenario_report": {
+            "id": "baseline_scenario",
+            "name": "Baseline",
+            "total_energy_kwh": 987654.0,
+            "reporting_periods": [
+                {
+                    "id": 1,
+                    "total_electricity_kwh": 987654.0,
+                    "hourly": [float(i % 24) for i in range(8760)],
+                }
+            ],
+        },
+        "feature_reports": [
+            {
+                "id": "bldg_1",
+                "name": "Building 1",
+                "timeseries": [{"step": i, "kw": 10.5} for i in range(4000)],
+            }
+        ],
+    }
+    small_json.write_text(json.dumps(large_report), encoding="utf-8")
+    assert small_json.stat().st_size > 64 * 1024
+
+    mcp = create_mcp()
+
+    async def _run_code_mode() -> dict[str, Any]:
+        code = (
+            "res = await call_tool('DF_URBANopt_Read_Results', {\n"
+            f"    'garden_root': {str(garden_root)!r},\n"
+            f"    'feature_geojson_target': {geojson_target!r},\n"
+            f"    'scenario_csv_target': {scenario_target!r},\n"
+            "    'run_default_report': False,\n"
+            "    'include_building_sql_summary': True,\n"
+            "})\n"
+            "return res\n"
+        )
+        async with Client(mcp) as client:
+            raw = await client.call_tool("execute", {"code": code})
+        data = getattr(raw, "data", None)
+        if isinstance(data, dict):
+            return data
+        for block in getattr(raw, "content", []) or []:
+            text = getattr(block, "text", None)
+            if isinstance(text, str) and text.strip():
+                return json.loads(text)
+        raise AssertionError(f"Unexpected Code Mode execute response: {raw!r}")
+
+    out = asyncio.run(_run_code_mode())
+    assert out["report"]["status"] == "ok"
+    assert out["csv_row_count"] == 8760
+    assert len(out["csv_rows"]) == 24
+    assert out["csv_rows_truncated"] is True
+    assert out["scenario_report_truncated"] is True
+    assert out["summary_view"]["building_count"] == 1
+    assert out["summary_view"]["csv_row_count"] == 8760
+    assert out["summary_view"]["scenario_report"]["total_energy_kwh"] == 987654.0
+    assert out["report_json_path"].endswith("default_scenario_report.json")
+    assert out["report_csv_path"].endswith("default_scenario_report.csv")
+
+
+def test_radiance_falsecolor_and_gif_use_relative_paths_and_shell_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from garden.radiance import visual
+    from garden.store import create_garden
+
+    garden_dir = tmp_path / "中文 验收 Garden"
+    created = create_garden(name="rad-cn-garden", root_dir=str(garden_dir))
+    garden_root = Path(created["garden_root"]).resolve()
+
+    img_dir = garden_root / "artifacts" / "radiance" / "images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    input_hdr = img_dir / "room view.hdr"
+    input_hdr.write_bytes(b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n\x00\x00\x00\x00")
+
+    monkeypatch.setattr(visual, "apply_ladybug_tools_runtime_to_path", lambda: None)
+    sys_dir = r"C:\Windows\System32" if os.name == "nt" else "/usr/bin"
+    rad_bin = r"C:\mock\radiance\bin" if os.name == "nt" else "/mock/radiance/bin"
+    monkeypatch.setenv("PATH", sys_dir)
+    monkeypatch.setattr(visual, "rad_folders", SimpleNamespace(env={"PATH": rad_bin, "RAYPATH": "/mock/radiance/lib"}))
+    env = visual._subprocess_env()
+    path_entries = env["PATH"].split(os.pathsep)
+    assert path_entries[0] == rad_bin
+    assert sys_dir in path_entries
+    assert env["RAYPATH"] == "/mock/radiance/lib"
+
+    captured: list[tuple[str, Path, str]] = []
+
+    def _fake_shell(cmd: str, *, cwd: Path, tool_name: str) -> SimpleNamespace:
+        captured.append((cmd, cwd, tool_name))
+        out_token = cmd.split(">", 1)[1].strip().strip('"')
+        out_file = (cwd / out_token).resolve()
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_bytes(b"X" * 256)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(visual, "_run_radiance_shell", _fake_shell)
+
+    fc = visual.radiance_hdr_to_falsecolor(
+        garden_root=str(garden_root),
+        image_path="artifacts/radiance/images/room view.hdr",
+        name="fc_out",
+    )
+    assert fc["report"]["status"] == "ok"
+    fc_cmd, fc_cwd, fc_tool = captured[-1]
+    assert fc_tool == "falsecolor"
+    assert fc_cwd == garden_root
+    assert "中文" not in fc_cmd and "验收" not in fc_cmd
+    assert '-i "artifacts/radiance/images/room view.hdr"' in fc_cmd
+    assert "> artifacts/radiance/images/fc_out.hdr" in fc_cmd
+
+    gif = visual.radiance_hdr_to_gif(
+        garden_root=str(garden_root),
+        image_path="artifacts/radiance/images/room view.hdr",
+        output_subdir="artifacts/radiance/my images",
+        name="gif_out",
+    )
+    assert gif["report"]["status"] == "ok"
+    gif_cmd, gif_cwd, gif_tool = captured[-1]
+    assert gif_tool == "ra_gif"
+    assert gif_cwd == garden_root
+    assert "中文" not in gif_cmd and "验收" not in gif_cmd
+    assert '"artifacts/radiance/images/room view.hdr"' in gif_cmd
+    assert '> "artifacts/radiance/my images/gif_out.gif"' in gif_cmd
+    assert '""' not in gif_cmd

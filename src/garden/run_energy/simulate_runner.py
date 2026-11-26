@@ -132,33 +132,43 @@ def _is_ironbug_osm_invocation(tokens: list[str], ironbug_exe: str | None) -> bo
 
 
 class _WriterSubprocessProxy:
-    """Proxy for ``honeybee_openstudio.writer.subprocess`` that backports OSM inputs."""
+    """Proxy for ``honeybee_openstudio.writer.subprocess`` that backports OSM inputs and handles non-UTF8 output."""
 
-    def __init__(self, target_version: str, ironbug_exe: str | None) -> None:
+    def __init__(self, target_version: str | None, ironbug_exe: str | None) -> None:
         self._target_version = target_version
         self._ironbug_exe = ironbug_exe
 
     def _maybe_backport_args(self, args: Any) -> None:
+        if not self._target_version:
+            return
         tokens = _extract_tokens(args)
         if _is_ironbug_osm_invocation(tokens, self._ironbug_exe):
             osm_arg = tokens[1].strip().strip('"').strip("'")
             _backport_osm_inplace(Path(osm_arg), self._target_version)
 
+    @staticmethod
+    def _with_safe_decode_errors(kwargs: dict[str, Any]) -> dict[str, Any]:
+        if (kwargs.get("text") or kwargs.get("universal_newlines")) and kwargs.get("errors") is None:
+            updated = dict(kwargs)
+            updated["errors"] = "replace"
+            return updated
+        return kwargs
+
     def Popen(self, args: Any, *pargs: Any, **kwargs: Any) -> subprocess.Popen[Any]:
         self._maybe_backport_args(args)
-        return subprocess.Popen(args, *pargs, **kwargs)
+        return subprocess.Popen(args, *pargs, **self._with_safe_decode_errors(kwargs))
 
     def run(
         self, args: Any, *pargs: Any, **kwargs: Any
     ) -> subprocess.CompletedProcess[Any]:
         self._maybe_backport_args(args)
-        return subprocess.run(args, *pargs, **kwargs)
+        return subprocess.run(args, *pargs, **self._with_safe_decode_errors(kwargs))
 
     def __getattr__(self, name: str) -> Any:
         return getattr(subprocess, name)
 
 
-def _install_backport_hooks(target_version: str) -> None:
+def _install_backport_hooks(target_version: str | None) -> None:
     """Patch Ironbug and OpenStudio CLI callers in this simulation subprocess."""
     from honeybee_energy import run as hb_run
     from honeybee_energy.cli import simulate as hb_simulate
@@ -169,6 +179,9 @@ def _install_backport_hooks(target_version: str) -> None:
         target_version=target_version,
         ironbug_exe=getattr(hbe_folders, "ironbug_exe", None),
     )
+
+    if target_version is None:
+        return
 
     orig_run_osw = hb_run.run_osw
 
@@ -395,8 +408,7 @@ def main(argv: list[str] | None = None) -> int:
     from honeybee_energy.cli.simulate import simulate_model_cli
 
     target = _resolve_backport_target()
-    if target is not None:
-        _install_backport_hooks(target)
+    _install_backport_hooks(target)
 
     raw_args = list(sys.argv[1:] if argv is None else argv)
     measures_spec_json: str | None = None

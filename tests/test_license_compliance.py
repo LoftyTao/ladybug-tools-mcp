@@ -84,14 +84,27 @@ def test_generated_licenses_and_notices() -> None:
     assert (licenses_dir / "components" / "energyplus" / "NOTICE.txt").is_file()
 
     # OpenStudio(R) 3.11.0 naming, pruning transparency, and NuGet C# bindings
-    assert "OpenStudio(R)" in notices
+    assert "OpenStudio(R) 3.11.0" in notices
+    assert "`NREL.OpenStudio.win` `3.11.0`" in notices
+    assert "runtimes/openstudio/3.11.0/" in notices
+    assert "honeybee-openstudio-gem` (`v2.38.23`)" in notices
     for pruned in ("Python/", "Perl/", "Radiance/", "include/", "Examples/", "openstudiolib.lib", "Ruby/"):
         assert pruned in notices
-    assert "NREL.OpenStudio.win" in notices
     os_lic = (licenses_dir / "components" / "openstudio" / "LICENSE.md").read_text(encoding="utf-8")
     assert "OpenStudio(R)" in os_lic
     assert (licenses_dir / "components" / "openstudio" / "copyright.txt").is_file()
-    assert (licenses_dir / "components" / "openstudio" / "PRUNING_NOTICE.txt").is_file()
+    ep_notice = (licenses_dir / "components" / "energyplus" / "NOTICE.txt").read_text(encoding="utf-8")
+    os_pruning = (licenses_dir / "components" / "openstudio" / "PRUNING_NOTICE.txt").read_text(encoding="utf-8")
+    assert "OpenStudio(R) 3.11.0" in ep_notice
+    assert "OpenStudio(R) 3.11.0" in os_pruning
+    assert "`NREL.OpenStudio.win` `3.11.0`" in os_pruning
+    assert "`OpenStudio(R)` `3.11.0`" in corresponding
+    assert "runtimes/openstudio/3.11.0/" in corresponding
+    for doc_text in (notices, corresponding, ep_notice, os_pruning):
+        assert "OpenStudio(R) 2.38.23" not in doc_text
+        assert "openstudio/2.38.23" not in doc_text
+        assert "NREL.OpenStudio.win` `2.38.23`" not in doc_text
+        assert "NREL.OpenStudio.win 2.38.23" not in doc_text
 
     # No stale GPL-3.0-only claim for lbt-mcp itself
     assert "`lbt-mcp` | `1.2.3` | `GPL-3.0-only`" not in notices
@@ -131,12 +144,15 @@ def test_generated_licenses_and_notices() -> None:
     assert "lbt-viewer-app" in cargo_summary
     assert "GPL-3.0-or-later" in cargo_summary
 
-    # IronbugBridge / .NET, Python 3.12, and optional URBANopt
+    # IronbugBridge / .NET, Python 3.12, setuptools, and optional URBANopt
     assert "Newtonsoft.Json" in notices and "System.Security.Permissions" in notices
     assert "Self-Contained App Bundling Only" in notices
     assert (licenses_dir / "components" / "ironbug_bridge" / "MICROSOFT_DOTNET_LICENSE.txt").is_file()
     assert "PSF-2.0" in notices and "no GPL `readline` or `gdbm`" in notices
     assert (licenses_dir / "components" / "python" / "LICENSE.txt").is_file()
+    assert "setuptools" in notices and "MIT" in notices
+    setuptools_lic = (licenses_dir / "components" / "setuptools" / "LICENSE").read_text(encoding="utf-8")
+    assert "Permission is hereby granted, free of charge" in setuptools_lic
     for urbanopt_file in ("RUBY_LICENSE.txt", "RUBY_BSDL.txt", "URBANOPT_CLI_LICENSE.md", "OPENSTUDIO_GEMS_LICENSE.md"):
         assert (licenses_dir / "components" / "urbanopt" / urbanopt_file).is_file()
 
@@ -230,3 +246,28 @@ def test_generate_licenses_cli_staging_and_bundle_manifest(tmp_path: Path) -> No
     assert (manifest_only_dir / "licenses" / "SOURCE_MANIFEST.json").is_file()
     assert not (manifest_only_dir / "licenses" / "THIRD_PARTY_NOTICES.md").exists()
     assert not (manifest_only_dir / "LICENSE").exists()
+
+    runtime_manifest = REPO_ROOT / "scripts" / "distribution" / "runtime_manifest.windows-x64.json"
+    if runtime_manifest.is_file():
+        rt_staging = tmp_path / "runtime_staging"
+        subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--output-dir",
+                str(rt_staging),
+                "--bundle-manifest",
+                str(runtime_manifest),
+            ],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        rt_notices = (rt_staging / "licenses" / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+        assert "OpenStudio(R) 3.11.0" in rt_notices
+        assert "OpenStudio(R) 2.38.23" not in rt_notices
+        assert "honeybee-openstudio-gem` (`v2.38.23`)" in rt_notices
+        rt_source = json.loads((rt_staging / "licenses" / "SOURCE_MANIFEST.json").read_text(encoding="utf-8"))
+        rt_by_id = {entry["id"]: entry for entry in rt_source["entries"]}
+        assert rt_by_id["ironbug"]["archive_name"] == "Ironbug-1.26.1.tar.gz"

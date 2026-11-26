@@ -141,6 +141,33 @@ def resolve_home_dir(
     return default_home_dir()
 
 
+def safe_ascii_temp_dir(garden_root: Path, run_name: str) -> Path:
+    """Return a pure-ASCII temp directory for simulation workers on Windows."""
+    resolved_root = Path(garden_root).expanduser().resolve()
+    direct = (resolved_root / "tmp" / run_name).resolve()
+    direct.relative_to(resolved_root)
+    if str(direct).isascii():
+        direct.mkdir(parents=True, exist_ok=True)
+        return direct
+
+    digest = hashlib.sha1(f"{resolved_root}\0{run_name}".encode()).hexdigest()[:12]
+    candidates: list[Path] = []
+    lbt_home = os.environ.get("LADYBUG_TOOLS_MCP_HOME")
+    if isinstance(lbt_home, str) and lbt_home.strip():
+        candidates.append(Path(lbt_home.strip()).expanduser().resolve() / "tmp" / "runs" / digest)
+    candidates.append(Path(tempfile.gettempdir()).resolve() / "lbt_mcp_runs" / digest)
+    sys_drive = (os.environ.get("SystemDrive") or "C:").rstrip("\\/")
+    candidates.append(
+        (Path(f"{sys_drive}{os.sep}") if os.name == "nt" else Path("/tmp")) / "lbt_mcp_tmp" / digest
+    )
+    for cand in candidates:
+        if str(cand).isascii():
+            cand.mkdir(parents=True, exist_ok=True)
+            return cand
+    direct.mkdir(parents=True, exist_ok=True)
+    return direct
+
+
 def runtime_config_path(home: str | Path | None = None) -> Path:
     """Return <home>/config/runtime.json."""
     return resolve_home_dir(home) / "config" / "runtime.json"
@@ -880,7 +907,7 @@ def _refresh_installation_packs(home_dir: Path) -> None:
         atomic_write_json(path, rec)
 
 
-def _validate_rel_pack_path(raw: str, home: Path) -> tuple[str, Path]:
+def _lexical_rel_pack_path(raw: str) -> PurePosixPath:
     if not isinstance(raw, str) or not raw or "\x00" in raw:
         raise ValueError(f"Invalid pack relative path: {raw!r}")
     if raw.startswith(("/", "\\")) or ":" in raw:
@@ -889,19 +916,43 @@ def _validate_rel_pack_path(raw: str, home: Path) -> tuple[str, Path]:
     pure = PurePosixPath(normalized)
     if pure.is_absolute() or any(part in ("", ".", "..") for part in pure.parts):
         raise ValueError(f"Path traversal or malformed pack path is forbidden: {raw!r}")
-    dest = (home / pure.as_posix()).resolve()
-    home_res = home.resolve()
+    return pure
+
+
+def _ensure_safe_pack_dest(
+    home_res: Path,
+    pure: PurePosixPath,
+    dest: Path,
+    checked_dirs: set[Path] | None = None,
+) -> None:
     if dest == home_res or not dest.is_relative_to(home_res):
-        raise ValueError(f"Pack path escapes runtime home: {raw!r}")
-    # Ensure no existing parent inside home is a symlink.
+        raise ValueError(f"Pack path escapes runtime home: {pure.as_posix()!r}")
     cursor = home_res
     for part in pure.parts[:-1]:
         cursor = cursor / part
-        if cursor.exists() and cursor.is_symlink():
+        if checked_dirs is not None and cursor in checked_dirs:
+            continue
+        if cursor.is_symlink() or (hasattr(cursor, "is_junction") and cursor.is_junction()):
             raise ValueError(f"Refusing to extract pack through symlink directory: {cursor}")
-    if dest.exists() and dest.is_symlink():
+        if cursor.exists() and not cursor.resolve().is_relative_to(home_res):
+            raise ValueError(f"Pack path escapes runtime home via link directory: {cursor}")
+        if checked_dirs is not None:
+            checked_dirs.add(cursor)
+    if dest.is_symlink():
         raise ValueError(f"Refusing to overwrite symlink file: {dest}")
+
+
+def _validate_rel_pack_path(raw: str, home: Path) -> tuple[str, Path]:
+    pure = _lexical_rel_pack_path(raw)
+    home_res = home.resolve()
+    dest = home_res.joinpath(*pure.parts).resolve()
+    _ensure_safe_pack_dest(home_res, pure, dest)
     return pure.as_posix(), dest
+
+
+def _sha256_file(path: Path) -> str:
+    with open(path, "rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
 def _installed_openstudio_version(home: Path) -> str | None:
@@ -916,7 +967,14 @@ def _installed_openstudio_version(home: Path) -> str | None:
         os_exe = os_dir / _exe_name("openstudio")
         if os_exe.is_file():
             try:
-                proc = subprocess.run([str(os_exe), "--version"], capture_output=True, text=True, timeout=10, check=False)
+                proc = subprocess.run(
+                    [str(os_exe), "--version"],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
                 if proc.returncode == 0:
                     m = re.search(r"(\d+\.\d+\.\d+)", proc.stdout)
                     if m:
@@ -949,6 +1007,49 @@ def _versions_compatible(installed: str | None, expected: Any) -> bool:
     return False
 
 
+def _commit_pack_staging_tree(src_dir: Path, dst_dir: Path) -> None:
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    with os.scandir(src_dir) as it:
+        for entry in it:
+            src_child = Path(entry.path)
+            dst_child = dst_dir / entry.name
+            if entry.is_dir(follow_symlinks=False):
+                if not dst_child.exists() and not dst_child.is_symlink():
+                    try:
+                        os.replace(src_child, dst_child)
+                        continue
+                    except OSError:
+                        pass
+                if dst_child.is_symlink() or not dst_child.is_dir():
+                    raise ValueError(f"Refusing to merge pack directory into non-directory target: {dst_child}")
+                _commit_pack_staging_tree(src_child, dst_child)
+            else:
+                if dst_child.is_symlink():
+                    raise ValueError(f"Refusing to overwrite symlink file: {dst_child}")
+                os.replace(src_child, dst_child)
+
+
+def _collect_prune_ancestors(start_dir: Path, home_res: Path, out: set[Path]) -> None:
+    runtimes_res = home_res / "runtimes"
+    cursor = start_dir
+    while cursor != home_res and cursor != runtimes_res and cursor.is_relative_to(home_res):
+        if cursor in out:
+            break
+        out.add(cursor)
+        cursor = cursor.parent
+
+
+def _prune_collected_dirs(dirs: set[Path], home_res: Path) -> None:
+    runtimes_res = home_res / "runtimes"
+    for d in sorted(dirs, key=lambda p: len(p.parts), reverse=True):
+        if d == home_res or d == runtimes_res or not d.is_relative_to(home_res):
+            continue
+        try:
+            d.rmdir()
+        except OSError:
+            pass
+
+
 def install_pack(
     pack_file: str | Path,
     home: str | Path | None = None,
@@ -958,6 +1059,7 @@ def install_pack(
 ) -> dict[str, Any]:
     """Validate and install a .lbtpack archive into <home>."""
     home_dir = resolve_home_dir(home)
+    home_res = home_dir.resolve()
     archive_path = Path(pack_file).expanduser().resolve()
     if not archive_path.is_file():
         raise FileNotFoundError(f"Pack archive not found: {archive_path}")
@@ -965,12 +1067,14 @@ def install_pack(
     expected_platform = "win-x64" if os.name == "nt" else ("osx-arm64" if sys.platform == "darwin" else "linux-x64")
 
     with ZipFile(archive_path, "r") as zf:
+        info_by_name = {}
         for info in zf.infolist():
             mode_type = (info.external_attr >> 16) & 0o170000
             if mode_type == 0o120000:
                 raise ValueError(f"Symlink entry forbidden inside .lbtpack: {info.filename}")
             if not info.is_dir():
-                _validate_rel_pack_path(info.filename, home_dir)
+                _lexical_rel_pack_path(info.filename)
+                info_by_name[info.filename] = info
 
         try:
             manifest_raw = zf.read("pack.json")
@@ -1027,9 +1131,9 @@ def install_pack(
                     if isinstance(entry, dict) and isinstance(entry.get("path"), str):
                         other_owned.add(entry["path"])
 
-        namelist = set(zf.namelist())
-        staged_entries: list[tuple[str, Path, bytes, str]] = []
+        planned_entries: list[tuple[str, PurePosixPath, Any, str]] = []
         seen_dests: set[str] = set()
+        checked_dirs: set[Path] = set()
 
         for entry in files:
             if not isinstance(entry, dict):
@@ -1038,10 +1142,13 @@ def install_pack(
             expected_sha = entry.get("sha256")
             if not isinstance(raw_path, str) or not isinstance(expected_sha, str) or not _HEX_SHA256_RE.match(expected_sha.lower()):
                 raise ValueError(f"Invalid path or sha256 in pack.json entry: {entry!r}")
-            rel_posix, dest = _validate_rel_pack_path(raw_path, home_dir)
+            pure = _lexical_rel_pack_path(raw_path)
+            rel_posix = pure.as_posix()
             if rel_posix in seen_dests:
                 raise ValueError(f"Duplicate pack destination path: {rel_posix}")
             seen_dests.add(rel_posix)
+            dest = home_res.joinpath(*pure.parts)
+            _ensure_safe_pack_dest(home_res, pure, dest, checked_dirs)
             if rel_posix in other_owned:
                 raise ValueError(f"Pack file conflicts with another installed pack: {rel_posix}")
             if dest.exists() and rel_posix not in prior_owned and not force:
@@ -1049,30 +1156,52 @@ def install_pack(
 
             archive_rel = entry.get("archive_path")
             if archive_rel is None:
-                archive_rel = f"files/{rel_posix}" if f"files/{rel_posix}" in namelist else rel_posix
-            if not isinstance(archive_rel, str) or archive_rel not in namelist:
+                archive_rel = f"files/{rel_posix}" if f"files/{rel_posix}" in info_by_name else rel_posix
+            if not isinstance(archive_rel, str) or archive_rel not in info_by_name:
                 raise ValueError(f"Pack archive missing declared member: {archive_rel!r}")
-            _validate_rel_pack_path(archive_rel, home_dir)
+            _lexical_rel_pack_path(archive_rel)
+            planned_entries.append((rel_posix, pure, info_by_name[archive_rel], expected_sha.lower()))
 
-            payload = zf.read(archive_rel)
-            actual_sha = hashlib.sha256(payload).hexdigest()
-            if actual_sha != expected_sha.lower():
-                raise ValueError(
-                    f"SHA-256 verification failed for {rel_posix}: expected {expected_sha}, got {actual_sha}"
-                )
-            staged_entries.append((rel_posix, dest, payload, actual_sha))
+        home_res.mkdir(parents=True, exist_ok=True)
+        staging_root = Path(tempfile.mkdtemp(dir=home_res, prefix=f".pack-stage-{name}-"))
+        receipt_files: list[dict[str, str]] = []
+        created_stage_dirs: set[Path] = set()
+        try:
+            # Stream once into staging inside <home> while verifying every SHA-256 before moving anything into <home>.
+            for rel_posix, pure, zip_info, expected_sha in planned_entries:
+                stage_file = staging_root.joinpath(*pure.parts)
+                stage_parent = stage_file.parent
+                if stage_parent not in created_stage_dirs:
+                    stage_parent.mkdir(parents=True, exist_ok=True)
+                    created_stage_dirs.add(stage_parent)
+                hasher = hashlib.sha256()
+                with zf.open(zip_info, "r") as src, open(stage_file, "wb") as dst:
+                    while chunk := src.read(262144):
+                        hasher.update(chunk)
+                        dst.write(chunk)
+                actual_sha = hasher.hexdigest()
+                if actual_sha != expected_sha:
+                    raise ValueError(
+                        f"SHA-256 verification failed for {rel_posix}: expected {expected_sha}, got {actual_sha}"
+                    )
+                receipt_files.append({"path": rel_posix, "sha256": actual_sha})
 
-    # All files verified before writing anything to <home>.
-    for _rel, dest, payload, _sha in staged_entries:
-        atomic_write_bytes(dest, payload)
+            # All files verified before committing anything to <home>.
+            _commit_pack_staging_tree(staging_root, home_res)
+        finally:
+            shutil.rmtree(staging_root, ignore_errors=True)
 
     # Remove stale files owned by prior version of the same pack if reinstalling with --force.
-    new_rel_set = {rel for rel, _d, _p, _s in staged_entries}
-    for stale_rel in sorted(prior_owned - new_rel_set, reverse=True):
-        _srel, stale_dest = _validate_rel_pack_path(stale_rel, home_dir)
-        if stale_dest.is_file():
-            stale_dest.unlink()
-            _prune_empty_parents(stale_dest.parent, home_dir)
+    stale_rels = prior_owned - seen_dests
+    if stale_rels:
+        stale_dirs: set[Path] = set()
+        for stale_rel in stale_rels:
+            stale_pure = _lexical_rel_pack_path(stale_rel)
+            stale_dest = home_res.joinpath(*stale_pure.parts)
+            if stale_dest.is_file() and not stale_dest.is_symlink():
+                stale_dest.unlink()
+                _collect_prune_ancestors(stale_dest.parent, home_res, stale_dirs)
+        _prune_collected_dirs(stale_dirs, home_res)
 
     runtime_cfg = read_runtime_config(home_dir)
     previous_values: dict[str, Any] = {}
@@ -1101,10 +1230,10 @@ def install_pack(
         "compatible_openstudio": compat_os,
         "installed_at": datetime.now(UTC).isoformat(),
         "source_archive": archive_path.name,
-        "source_sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+        "source_sha256": _sha256_file(archive_path),
         "runtime_updates": applied_updates,
         "previous_runtime_values": previous_values,
-        "files": [{"path": rel, "sha256": sha} for rel, _d, _p, sha in staged_entries],
+        "files": receipt_files,
     }
     atomic_write_json(receipt_file, receipt)
 
@@ -1116,7 +1245,7 @@ def install_pack(
         "version": version,
         "platform": platform_val,
         "home": str(home_dir),
-        "file_count": len(staged_entries),
+        "file_count": len(receipt_files),
         "receipt": str(receipt_file),
         "runtime_updates": applied_updates,
         "sync": sync_result,
@@ -1149,20 +1278,6 @@ def list_packs(home: str | Path | None = None) -> list[dict[str, Any]]:
     return packs
 
 
-def _prune_empty_parents(start_dir: Path, home_dir: Path) -> None:
-    home_res = home_dir.resolve()
-    runtimes_res = (home_dir / "runtimes").resolve()
-    cursor = start_dir.resolve()
-    while cursor != home_res and cursor != runtimes_res and cursor.is_relative_to(home_res):
-        try:
-            if any(cursor.iterdir()):
-                break
-            cursor.rmdir()
-        except OSError:
-            break
-        cursor = cursor.parent
-
-
 def remove_pack(
     name: str,
     home: str | Path | None = None,
@@ -1173,20 +1288,26 @@ def remove_pack(
     if not _PACK_NAME_RE.match(name):
         raise ValueError(f"Invalid pack name: {name!r}")
     home_dir = resolve_home_dir(home)
+    home_res = home_dir.resolve()
     receipt_file = packs_dir(home_dir) / f"{name}.json"
     if not receipt_file.is_file():
         raise FileNotFoundError(f"Pack is not installed: {name}")
 
     receipt = json.loads(receipt_file.read_text(encoding="utf-8"))
     removed_files: list[str] = []
+    candidate_dirs: set[Path] = set()
+    checked_dirs: set[Path] = set()
     for entry in receipt.get("files") or []:
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
             continue
-        rel_posix, dest = _validate_rel_pack_path(entry["path"], home_dir)
+        pure = _lexical_rel_pack_path(entry["path"])
+        dest = home_res.joinpath(*pure.parts)
+        _ensure_safe_pack_dest(home_res, pure, dest, checked_dirs)
         if dest.is_file() and not dest.is_symlink():
             dest.unlink()
-            removed_files.append(rel_posix)
-            _prune_empty_parents(dest.parent, home_dir)
+            removed_files.append(pure.as_posix())
+            _collect_prune_ancestors(dest.parent, home_res, candidate_dirs)
+    _prune_collected_dirs(candidate_dirs, home_res)
 
     runtime_cfg = read_runtime_config(home_dir)
     prev_vals = receipt.get("previous_runtime_values") or {}
@@ -1263,6 +1384,7 @@ def _probe_command(
             cmd,
             cwd=str(cwd) if cwd else None,
             env=env,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             encoding="utf-8",

@@ -128,7 +128,7 @@ internal static class Program
                 var raw = File.ReadAllText(payloadFile, Encoding.UTF8);
                 payload = JsonDocument.Parse(raw).RootElement.Clone();
             }
-            else if (!Console.IsInputRedirected)
+            else if (string.Equals(oneShotCommand.Trim(), "health", StringComparison.OrdinalIgnoreCase) || !Console.IsInputRedirected)
             {
                 payload = JsonDocument.Parse("{}").RootElement.Clone();
             }

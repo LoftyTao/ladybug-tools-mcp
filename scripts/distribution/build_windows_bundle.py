@@ -354,7 +354,8 @@ def _build_isolated_venv(
     req_txt = REPO_ROOT / "requirements.txt"
     if req_txt.is_file():
         install_cmd.extend(["-r", str(req_txt)])
-    install_cmd.append(str(wheel_path))
+    # queenbee-local==1.0.3 imports distutils.dir_util.copy_tree (removed in Python 3.12 stdlib).
+    install_cmd.extend(["setuptools", str(wheel_path)])
 
     print("Installing wheel + pinned dependencies into isolated venv...", flush=True)
     subprocess.run(install_cmd, cwd=str(REPO_ROOT), check=True)
@@ -371,6 +372,7 @@ def _build_isolated_venv(
             "-c",
             (
                 "import honeybee_radiance_postprocess as p, "
+                "queenbee_local, "
                 "pyhygrothermfem_fairyfly._native as n, "
                 "gmsh, shapely, openstudio, ladybug_tools_mcp; "
                 "assert p.IS_CPU and not p.IS_GPU; "
@@ -1021,6 +1023,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--iss-path", type=Path, default=DEFAULT_ISS_PATH)
     parser.add_argument("--version", default=None)
     parser.add_argument("--skip-urbanopt", action="store_true")
+    parser.add_argument(
+        "--reuse-existing-urbanopt",
+        action="store_true",
+        help="Reuse existing .lbtpack in --output-dir when present instead of rebuilding it.",
+    )
     parser.add_argument("--skip-downloads", action="store_true")
     parser.add_argument("--compile-installer", action="store_true")
     return parser.parse_args(argv)
@@ -1106,20 +1113,41 @@ def main(argv: list[str] | None = None) -> int:
     # 3. Optional URBANopt .lbtpack
     urbanopt_report: dict[str, Any] = {"skipped": True}
     if not args.skip_urbanopt:
-        uo_dir = _resolve_urbanopt_dir(
-            explicit_dir=args.urbanopt_dir,
-            cache_dir=cache_dir,
-            manifest=manifest,
-            skip_downloads=args.skip_downloads,
-        )
-        assert uo_dir is not None
-        _, urbanopt_report = _build_urbanopt_lbtpack(
-            urbanopt_dir=uo_dir,
-            openstudio_archive=cached_archives["openstudio"],
-            output_dir=output_dir,
-            version=version,
-            manifest=manifest,
-        )
+        existing_pack = output_dir / f"lbt-mcp-{version}-win-x64-urbanopt.lbtpack"
+        existing_report_path = output_dir / "build_report.json"
+        if args.reuse_existing_urbanopt and existing_pack.is_file():
+            pack_sha = _sha256_file(existing_pack)
+            reused_meta: dict[str, Any] = {
+                "archive": str(existing_pack),
+                "compressed_bytes": existing_pack.stat().st_size,
+                "sha256": pack_sha,
+                "reused": True,
+            }
+            if existing_report_path.is_file():
+                try:
+                    prev_report = json.loads(existing_report_path.read_text(encoding="utf-8"))
+                    prev_uo = prev_report.get("urbanopt_pack") if isinstance(prev_report, dict) else None
+                    if isinstance(prev_uo, dict) and prev_uo.get("sha256") == pack_sha:
+                        reused_meta = {**prev_uo, "reused": True}
+                except (OSError, json.JSONDecodeError):
+                    pass
+            print(f"Reusing existing URBANopt .lbtpack at {existing_pack} (sha256={pack_sha}).", flush=True)
+            urbanopt_report = reused_meta
+        else:
+            uo_dir = _resolve_urbanopt_dir(
+                explicit_dir=args.urbanopt_dir,
+                cache_dir=cache_dir,
+                manifest=manifest,
+                skip_downloads=args.skip_downloads,
+            )
+            assert uo_dir is not None
+            _, urbanopt_report = _build_urbanopt_lbtpack(
+                urbanopt_dir=uo_dir,
+                openstudio_archive=cached_archives["openstudio"],
+                output_dir=output_dir,
+                version=version,
+                manifest=manifest,
+            )
 
     # 4. Optional Inno Setup compilation
     installer_report: dict[str, Any] = {"compiled": False}

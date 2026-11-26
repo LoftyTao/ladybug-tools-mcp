@@ -34,6 +34,7 @@ from garden.radiance.sky import (
 )
 from garden.run_ledger import RunManager, serialized_run_start
 from ladybug_tools_mcp.contracts import make_report
+from ladybug_tools_mcp.runtime_home import safe_ascii_temp_dir
 
 RADIANCE_RUN_TARGET_TYPE = "radiance_run"
 RADIANCE_RUN_DOMAIN = "honeybee_radiance"
@@ -112,8 +113,7 @@ def _submit_radiance_background(**kwargs: Any) -> subprocess.Popen:
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
-    temp_dir = garden_root / "tmp" / run_dir.name
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = safe_ascii_temp_dir(garden_root, run_dir.name)
     env["TEMP"] = str(temp_dir)
     env["TMP"] = str(temp_dir)
     return submit_worker_process(
@@ -1067,8 +1067,7 @@ def run_radiance_recipe(
     run_dir = (garden_root_path / run_folder).resolve()
     run_dir.relative_to(garden_root_path)
     run_dir.mkdir(parents=True, exist_ok=True)
-    temp_dir = garden_root_path / "tmp" / run_dir.name
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = safe_ascii_temp_dir(garden_root_path, run_dir.name)
     os.environ["TEMP"] = str(temp_dir)
     os.environ["TMP"] = str(temp_dir)
     effective_source = recipe_source or record.get("recipe_source") or recipe_name

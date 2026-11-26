@@ -45,6 +45,7 @@ DEFAULT_VERSIONS: dict[str, str] = {
     "honeybee_openstudio_gem": "2.38.23",
     "newtonsoft_json": "13.0.3",
     "system_security_permissions": "8.0.0",
+    "setuptools": "84.2.1",
 }
 
 DEFAULT_URLS: dict[str, str] = {
@@ -95,6 +96,7 @@ def _detect_installed_versions(pins: dict[str, str]) -> dict[str, str]:
         ("gmsh", "gmsh"),
         ("openstudio", "openstudio"),
         ("libraryfemtherm", "libraryfemtherm"),
+        ("setuptools", "setuptools"),
     ):
         try:
             versions[ver_key] = importlib.metadata.version(pkg_key)
@@ -114,7 +116,7 @@ def _detect_installed_versions(pins: dict[str, str]) -> dict[str, str]:
 
 
 def _load_bundle_manifest(manifest_path: Path | None) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
-    """Extract optional version and archive overrides from a bundle manifest JSON."""
+    """Extract optional exact version and source-archive overrides from a bundle manifest JSON."""
     version_overrides: dict[str, str] = {}
     archive_overrides: dict[str, dict[str, Any]] = {}
     if manifest_path is None or not manifest_path.is_file():
@@ -124,34 +126,54 @@ def _load_bundle_manifest(manifest_path: Path | None) -> tuple[dict[str, str], d
     if not isinstance(payload, dict):
         return version_overrides, archive_overrides
 
-    def _visit(key_hint: str, obj: Any) -> None:
+    exact_version_keys = {
+        "python",
+        "openstudio",
+        "energyplus",
+        "radiance",
+        "radiance_tag",
+        "evalglare",
+        "ironbug",
+        "urbanopt",
+        "gmsh",
+        "geos",
+        "libraryfemtherm",
+        "lbt_measures",
+        "honeybee_openstudio_gem",
+        "newtonsoft_json",
+        "system_security_permissions",
+        "setuptools",
+    }
+    source_archive_keys = {"gmsh", "geos", "ironbug"}
+
+    target_versions = payload.get("target_versions")
+    if isinstance(target_versions, dict):
+        for raw_key, raw_val in target_versions.items():
+            norm_key = str(raw_key).lower().replace("-", "_")
+            if norm_key in exact_version_keys and isinstance(raw_val, str) and raw_val.strip():
+                version_overrides[norm_key] = raw_val.strip()
+
+    def _visit(key_hint: str, obj: Any, *, section: str = "") -> None:
         if isinstance(obj, dict):
             norm = key_hint.lower().replace("-", "_")
-            if "version" in obj and isinstance(obj["version"], str):
-                for target in (
-                    "python",
-                    "openstudio",
-                    "energyplus",
-                    "radiance",
-                    "ironbug",
-                    "urbanopt",
-                    "gmsh",
-                    "geos",
-                    "libraryfemtherm",
-                ):
-                    if target in norm:
-                        version_overrides[target] = obj["version"]
-            if any(k in obj for k in ("url", "archive", "filename", "sha256", "path")):
-                for target in ("gmsh", "geos", "ironbug", "python", "openstudio", "radiance", "urbanopt"):
-                    if target in norm:
-                        archive_overrides.setdefault(target, {}).update(obj)
+            if norm in exact_version_keys and isinstance(obj.get("version"), str) and obj["version"].strip():
+                version_overrides[norm] = obj["version"].strip()
+            in_source_section = section in {"corresponding_sources", "sources"}
+            if (
+                norm in source_archive_keys
+                and section != "runtimes"
+                and (in_source_section or section == "")
+                and any(k in obj for k in ("url", "archive", "filename", "sha256", "path"))
+            ):
+                archive_overrides.setdefault(norm, {}).update(obj)
+            next_section = norm if norm in {"runtimes", "corresponding_sources", "sources", "components"} else section
             for child_key, child_val in obj.items():
-                _visit(str(child_key), child_val)
+                _visit(str(child_key), child_val, section=next_section)
         elif isinstance(obj, list):
             for item in obj:
                 if isinstance(item, dict):
                     item_id = str(item.get("id") or item.get("name") or key_hint)
-                    _visit(item_id, item)
+                    _visit(item_id, item, section=section)
 
     _visit("root", payload)
     return version_overrides, archive_overrides
@@ -320,6 +342,7 @@ def _collect_lbt_sdk_distributions() -> list[dict[str, str]]:
         "uwg",
         "python-daemon",
         "luigi",
+        "setuptools",
     )
     records: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -810,7 +833,7 @@ def _stage_component_licenses(
     cargo_summary = _collect_cargo_crate_summary(REPO_ROOT / "licenses", allow_remote=allow_remote)
     _write_asset("rune_viewer", "CARGO_CRATE_LICENSES.md", cargo_summary.encode("utf-8"))
 
-    # 11. Python 3.12 (python-build-standalone)
+    # 11. Python 3.12 (python-build-standalone) & setuptools
     _write_asset(
         "python",
         "LICENSE.txt",
@@ -819,6 +842,20 @@ def _stage_component_licenses(
             local_paths=[lbt_pf / "licenses" / "python.txt"],
             fallback_repo_component=repo_components_dir / "python" / "LICENSE.txt",
             remote_url=f"https://raw.githubusercontent.com/python/cpython/v{versions['python']}/LICENSE",
+            allow_remote=allow_remote,
+        ),
+    )
+    setuptools_lic_candidates = [
+        *sorted(site_packages.glob("setuptools-*.dist-info/licenses/LICENSE")),
+        *sorted(site_packages.glob("setuptools-*.dist-info/LICENSE")),
+    ]
+    _write_asset(
+        "setuptools",
+        "LICENSE",
+        _resolve_bytes(
+            local_paths=setuptools_lic_candidates,
+            fallback_repo_component=repo_components_dir / "setuptools" / "LICENSE",
+            remote_url=f"https://raw.githubusercontent.com/pypa/setuptools/v{versions['setuptools']}/LICENSE",
             allow_remote=allow_remote,
         ),
     )
@@ -1279,11 +1316,13 @@ and offline corresponding-source archive layout:
 
 ---
 
-## 11. Python 3.12 (`python-build-standalone` `{versions['python']}`)
+## 11. Python 3.12 (`python-build-standalone` `{versions['python']}`) & `setuptools` (`{versions['setuptools']}`)
 
-- **License**: `PSF-2.0` (Python Software Foundation License Version 2)
+- **Python `{versions['python']}`**: `PSF-2.0` (Python Software Foundation License Version 2)
   ([`licenses/components/python/LICENSE.txt`](components/python/LICENSE.txt)).
 - **Windows Dependency Note**: This Windows build contains **no GPL `readline` or `gdbm` libraries**.
+- **`setuptools` `{versions['setuptools']}`**: `MIT` (runtime `distutils` compatibility shim required by
+  `queenbee-local` on Python 3.12; [`licenses/components/setuptools/LICENSE`](components/setuptools/LICENSE)).
 
 ---
 

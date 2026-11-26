@@ -83,6 +83,7 @@ are preserved under [`licenses/components/`](components/) and cross-referenced i
 | `python-daemon` | `3.1.2` | `Apache-2.0 OR GPL-3.0-or-later` |
 | `queenbee` | `2.0.1` | `MIT` |
 | `queenbee-local` | `1.0.3` | `AGPL-3.0` |
+| `setuptools` | `84.2.1` | `MIT` |
 | `shapely` | `2.2.0` | `BSD-3-Clause` |
 | `uwg` | `5.8.13` | `GPL-3.0` |
 | `vtk` | `9.7.0` | `BSD` |
@@ -264,11 +265,13 @@ and offline corresponding-source archive layout:
 
 ---
 
-## 11. Python 3.12 (`python-build-standalone` `3.12.16`)
+## 11. Python 3.12 (`python-build-standalone` `3.12.16`) & `setuptools` (`84.2.1`)
 
-- **License**: `PSF-2.0` (Python Software Foundation License Version 2)
+- **Python `3.12.16`**: `PSF-2.0` (Python Software Foundation License Version 2)
   ([`licenses/components/python/LICENSE.txt`](components/python/LICENSE.txt)).
 - **Windows Dependency Note**: This Windows build contains **no GPL `readline` or `gdbm` libraries**.
+- **`setuptools` `84.2.1`**: `MIT` (runtime `distutils` compatibility shim required by
+  `queenbee-local` on Python 3.12; [`licenses/components/setuptools/LICENSE`](components/setuptools/LICENSE)).
 
 ---
 
