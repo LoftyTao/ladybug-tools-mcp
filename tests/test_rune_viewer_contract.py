@@ -13,6 +13,7 @@ import urllib.parse
 import urllib.request
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
@@ -23,6 +24,7 @@ from PIL import Image
 import web_view
 import web_view.launcher as wv_launcher
 import web_view.protocol as wv_protocol
+from garden.visualize import artifacts as visualization_artifacts
 from ladybug_tools_mcp.registry import register_tools
 from ladybug_tools_mcp.server import create_mcp
 
@@ -322,6 +324,20 @@ def test_rune_viewer_tools_present_context_and_shades_roundtrip(tmp_path: Path) 
             assert cap_png.is_relative_to(g_path / "tmp" / "web_view" / "captures")
             assert cap_vtk["renderer"] in {"vtk_offscreen", "matplotlib_fallback"}
             assert cap_vtk["width"] > 0 and cap_vtk["height"] > 0
+
+            # Without Rune, Cocoa must never be called from the MCP worker thread.
+            with (
+                mock.patch("web_view.discover_rune_viewer_binary", return_value=None),
+                mock.patch.object(visualization_artifacts, "sys", SimpleNamespace(platform="darwin")),
+            ):
+                cap_cocoa = await _call(
+                    client,
+                    "GD_Web_View_Capture",
+                    {"garden_root": gr, "view": "axon", "width": 320, "height": 240},
+                )
+            assert cap_cocoa["renderer"] == "matplotlib_fallback"
+            assert Path(cap_cocoa["absolute_path"]).is_file()
+            assert any("requires the macOS main thread" in message for message in cap_cocoa["report"]["warnings"])
 
             stopped = await _call(client, "GD_Web_View_Stop_Mode", {"garden_root": gr})
             assert stopped["session"]["active"] is False

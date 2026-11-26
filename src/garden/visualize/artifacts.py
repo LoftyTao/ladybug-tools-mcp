@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from ctypes.util import find_library
 import json
 import math
+import os
 from pathlib import Path
+import sys
 import threading
 from typing import Any
 
@@ -1181,6 +1184,13 @@ def _render_png_vtk(
     view: str | dict[str, Any],
     render_2d_legend: bool,
 ) -> Any:
+    if sys.platform == "darwin" and threading.current_thread() is not threading.main_thread():
+        raise RuntimeError("VTK's Cocoa render window requires the macOS main thread.")
+    if sys.platform == "linux" and not (
+        os.environ.get("DISPLAY") or find_library("EGL") or find_library("OSMesa")
+    ):
+        raise RuntimeError("VTK offscreen rendering requires a display, EGL, or OSMesa.")
+
     import numpy as np
     from PIL import Image
     import vtk
@@ -1262,14 +1272,14 @@ def _render_png_matplotlib_fallback(
     view: str | dict[str, Any],
 ) -> Any:
     import io
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
     from PIL import Image
 
     view_plane, is_top, _ = _resolve_view_plane(view)
     dpi = 100
-    fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
+    fig = Figure(figsize=(width / dpi, height / dpi), dpi=dpi)
+    FigureCanvasAgg(fig)
     ax = fig.add_subplot(111)
     ax.set_facecolor("white")
     ax.set_aspect("equal", adjustable="datalim")
@@ -1289,7 +1299,6 @@ def _render_png_matplotlib_fallback(
     ax.axis("off")
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight", facecolor="white")
-    plt.close(fig)
     buf.seek(0)
     return Image.open(buf).convert("RGB")
 
