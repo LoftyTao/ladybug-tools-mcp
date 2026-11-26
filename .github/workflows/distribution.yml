@@ -74,6 +74,9 @@ jobs:
       - name: Build wheel and source distribution
         shell: pwsh
         run: |
+          if ($IsMacOS) {
+            $env:CMAKE_BUILD_PARALLEL_LEVEL = '3'
+          }
           if ($IsLinux) {
             uv build --sdist
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -153,7 +156,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxkbcommon0 libwayland-client0
+          sudo apt-get install -y libxkbcommon0 libwayland-client0 libglu1-mesa \
+            libvulkan1 mesa-vulkan-drivers libegl1 libegl-mesa0 libgl1-mesa-dri libosmesa6
+          software_icd=$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)
+          test -n "$software_icd"
+          runtime_dir=$(mktemp -d "$RUNNER_TEMP/xdg-runtime.XXXXXX")
+          printf 'VK_DRIVER_FILES=%s\nLIBGL_ALWAYS_SOFTWARE=1\nXDG_RUNTIME_DIR=%s\n' \
+            "$software_icd" "$runtime_dir" >> "$GITHUB_ENV"
       - name: Install wheel and exercise isolated runtime
         shell: pwsh
         run: |

@@ -113,20 +113,10 @@ class CMakeBuild(build_ext):
             check=True,
             env=env,
         )
-        subprocess.run(
-            [
-                cmake,
-                "--build",
-                str(build_dir),
-                "--config",
-                configuration,
-                "--target",
-                "_native",
-                "--parallel",
-            ],
-            check=True,
-            env=env,
-        )
+        build_cmd = [cmake, "--build", str(build_dir), "--config", configuration, "--target", "_native"]
+        if not env.get("CMAKE_BUILD_PARALLEL_LEVEL"):
+            build_cmd.append("--parallel")
+        subprocess.run(build_cmd, check=True, env=env)
 
         identity_path = build_dir / "build-source-identity.json"
         identity = json.loads(identity_path.read_text(encoding="utf-8"))
